@@ -209,6 +209,7 @@
 
     "o" '(:ignore t :which-key "open")
     "oe" '(eshell :which-key "eshell")
+    "om" '(magit :which-key "magit")
 
     "b" '(:ignore :which-key "buffer")
     "bd" '(kill-buffer :which-key "kill buffer")
@@ -216,11 +217,11 @@
     "f" '(:ignore t :which-key "file")
     "fr" '(consult-recent-file :which-key "recent files")
     "ff" '(find-file :which-key "find file")
-    "fs" '(consult-line :which-key "search")
+    "fs" '(save-buffer :which-key "search")
+    "fl" '(consult-line :which-key "search")
 
     "w" '(:ignore t :which-key "window")
-    "wd" '(delete-window :which-key "delete window")
-    ))
+    "wd" '(delete-window :which-key "delete window")))
 
 (elpaca (transient :branch "main"))
 
