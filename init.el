@@ -11,7 +11,7 @@
 (blink-cursor-mode -1) ; disable cursor blinking
 (hl-line-mode 1) ; highlight current line
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
-(set-frame-font "Iosevka 15" nil t) ; set font and size for all buffers
+(set-frame-font "Iosevka Nerd Font Mono 12" nil t) ; set font and size for all buffers
 (load-theme 'modus-vivendi t) ; load theme
 
 ;; * Function
@@ -39,7 +39,7 @@
 
 
 ;; Elpaca Elisp Packaeg Manager
-(defvar elpaca-installer-version 0.7)
+(defvar elpaca-installer-version 0.8)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
 (defvar elpaca-repos-directory (expand-file-name "repos/" elpaca-directory))
@@ -180,7 +180,7 @@
   (evil-global-set-key 'motion "j" 'evil-next-visual-line)
   (evil-global-set-key 'motion "k" 'evil-previous-visual-line)
   (evil-set-initial-state 'messages-buffer-mode 'normal)
-  (evil-set-initial-state 'dashboard-mode 'normal)))
+  (evil-set-initial-state 'dashboard-mode 'normal))
 
 (use-package evil-collection
   :after evil
@@ -201,29 +201,32 @@
   (general-create-definer jgy/leader-keys
     :keymaps '(normal insert visual emacs)
     :prefix "SPC"
-    :global-prefix "C-SPC"))
+    :global-prefix "C-SPC")
 
-(jgy/leader-keys
-  "t"  '(:ignore t :which-key "toggles")
-  "tt" '(consult-theme :which-key "choose theme")
+  (jgy/leader-keys
+    "t"  '(:ignore t :which-key "toggles")
+    "tt" '(consult-theme :which-key "choose theme")
 
-  "o" '(:ignore t :which-key "open")
-  "oe" '(eshell :which-key "eshell")
+    "o" '(:ignore t :which-key "open")
+    "oe" '(eshell :which-key "eshell")
 
-  "b" '(:ignore :which-key "buffer")
-  "bd" '(kill-buffer :which-key "kill buffer")
+    "b" '(:ignore :which-key "buffer")
+    "bd" '(kill-buffer :which-key "kill buffer")
 
-  "f" '(:ignore t :which-key "file")
-  "fr" '(consult-recent-file :which-key "recent files")
-  "ff" '(find-file :which-key "find file")
-  "fs" '(consult-line :which-key "search")
+    "f" '(:ignore t :which-key "file")
+    "fr" '(consult-recent-file :which-key "recent files")
+    "ff" '(find-file :which-key "find file")
+    "fs" '(consult-line :which-key "search")
 
-  "w" '(:ignore t :which-key "window")
-  "wd" '(delete-window :which-key "delete window")
-  )
+    "w" '(:ignore t :which-key "window")
+    "wd" '(delete-window :which-key "delete window")
+    ))
+
+(elpaca (transient :branch "main"))
 
 (use-package magit
-  :ensure t)
+  :ensure t
+  :after transient)
 
 (use-package lsp-mode
   :init
