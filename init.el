@@ -12,6 +12,7 @@
 (hl-line-mode 1) ; highlight current line
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
 (set-frame-font "Iosevka Nerd Font Mono 12" nil t) ; set font and size for all buffers
+(setq-default tab-width 2)
 (load-theme 'modus-vivendi t) ; load theme
 
 ;; * Function
@@ -263,6 +264,9 @@
   :ensure t)
 
 (use-package go-mode
+  :ensure t)
+
+(use-package rust-mode
   :ensure t)
 
 (use-package vterm
