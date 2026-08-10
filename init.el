@@ -3,6 +3,7 @@
 (setq visible-bell nil) ; flash when the bell rings
 (setq ring-bell-function 'ignore) ; disable bell sound
 (setq use-dialog-box nil) ; don't use ui dialogs for prompting
+(add-to-list 'default-frame-alist '(undecorated-round . t)) ; disable title bar, rounded corner
 (menu-bar-mode -1) ; disable menu bar on the top, the same line as apple icon
 (tool-bar-mode -1) ; disable tool bar, the same line as close, maximize buttons
 (scroll-bar-mode -1) ; disable visible scrollbar
@@ -11,7 +12,7 @@
 (blink-cursor-mode -1) ; disable cursor blinking
 (hl-line-mode 1) ; highlight current line
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
-(set-frame-font "Iosevka Nerd Font Mono 12" nil t) ; set font and size for all buffers
+(set-frame-font "Iosevka Nerd Font Mono 14" nil t) ; set font and size for all buffers
 (setq-default tab-width 2)
 (load-theme 'modus-vivendi t) ; load theme
 
@@ -30,7 +31,6 @@
 (load custom-file 'noerror 'nomessage)
 ;; move auto backup file to tmp/backups
 (setq backup-directory-alist `(("." . ,(expand-file-name "tmp/backups/" user-emacs-directory))))
-;; auto-save-mode doesn't create the path automatically!
 (make-directory (expand-file-name "tmp/auto-saves/" user-emacs-directory) t)
 (setq auto-save-list-file-prefix (expand-file-name "tmp/auto-saves/sessions/" user-emacs-directory)
       auto-save-file-name-transforms `((".*" ,(expand-file-name "tmp/auto-saves/" user-emacs-directory) t)))
@@ -40,14 +40,14 @@
 
 
 ;; Elpaca Elisp Packaeg Manager
-(defvar elpaca-installer-version 0.8)
+(defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
 (defvar elpaca-repos-directory (expand-file-name "repos/" elpaca-directory))
 (defvar elpaca-order '(elpaca :repo "https://github.com/progfolio/elpaca.git"
                               :ref nil :depth 1
                               :files (:defaults "elpaca-test.el" (:exclude "extensions"))
-                              :build (:not elpaca--activate-package)))
+                              :build (:not elpaca-activate)))
 (let* ((repo  (expand-file-name "elpaca/" elpaca-repos-directory))
        (build (expand-file-name "elpaca/" elpaca-builds-directory))
        (order (cdr elpaca-order))
@@ -270,4 +270,4 @@
   :ensure t)
 
 (use-package vterm
-    :ensure t)
+  :ensure t)
