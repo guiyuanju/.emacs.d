@@ -20,6 +20,7 @@
 (recentf-mode 1) ; use recentf-open-files to open recent files
 (save-place-mode 1) ; restore cursor location
 (global-auto-revert-mode 1) ; revert buffers when underlying files has changed
+(xterm-mouse-mode 1) ; enable mouse in terminal emacs
 (setq global-auto-revert-non-file-buffers t) ; revert Dired and other buffers
 (setq history-length 25) (savehist-mode 1) ; save what you enter into minibuffer prompts, use M-p, M-n to get previous-history-element or next-history-element
 (setq enable-recursive-minibuffers t) ; support opening new minibuffers from inside existing minibuffers.
@@ -102,6 +103,12 @@
   :config
   (vertico-mode))
 
+(use-package vertico-directory
+  :after vertico
+  :ensure nil
+	:bind (:map vertico-map
+         ("DEL" . vertico-directory-delete-char)))
+
 (use-package consult
   :ensure t
   :custom
@@ -173,6 +180,8 @@
   (setq evil-want-keybinding nil)
   (setq evil-want-C-u-scroll t)
   (setq evil-want-C-i-jump nil)
+  ;; insert state 用 Emacs 默认键位（C-a/C-e/C-p/C-n/C-k/C-y ...）
+  (setq evil-disable-insert-state-bindings t)
   :hook (evil-mode . jgy/evil-hook)
   :config
   (evil-mode 1)
@@ -186,6 +195,9 @@
 (use-package evil-collection
   :after evil
   :ensure t
+  :init
+  ;; eshell 等 REPL buffer 里 RET 提交命令，默认是 normal state 才提交
+  (setq evil-collection-repl-submit-state 'insert)
   :config
   (evil-collection-init))
 
@@ -205,6 +217,8 @@
     :global-prefix "C-SPC")
 
   (jgy/leader-keys
+    "`" '(evil-switch-to-windows-last-buffer :which-key "last buffer")
+
     "t"  '(:ignore t :which-key "toggles")
     "tt" '(consult-theme :which-key "choose theme")
 
@@ -271,3 +285,6 @@
 
 (use-package vterm
   :ensure t)
+
+(use-package csv-mode
+	:ensure t)
