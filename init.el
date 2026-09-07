@@ -774,3 +774,16 @@
 
 (use-package gptel
 	:ensure t)
+
+(use-package agent-shell-dashboard
+	:ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
+	:after agent-shell
+	:commands (agent-shell-dashboard)
+	:config
+	;; Optional: open it on startup
+	(setq initial-buffer-choice #'agent-shell-dashboard))
+
+(use-package agent-shell-hq
+  :ensure (:host nil :repo "https://github.com/sreenivasvrao/agent-shell-hq"
+								 :files ("*.el"))
+	:after agent-shell)
