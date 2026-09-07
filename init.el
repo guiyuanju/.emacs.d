@@ -771,3 +771,6 @@
 	((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp"))
   :commands (agent-shell agent-shell-anthropic-start-claude-code))
+
+(use-package gptel
+	:ensure t)
