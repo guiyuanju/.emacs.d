@@ -14,7 +14,7 @@
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
 (set-frame-font "Iosevka Nerd Font Mono 14" nil t) ; set font and size for all buffers
 (setq-default tab-width 2)
-(load-theme 'modus-vivendi t) ; load theme
+;; (load-theme 'modus-vivendi t) ; load theme
 
 ;; * Function
 (setq recentf-max-saved-items 200)
@@ -87,6 +87,30 @@
 (elpaca elpaca-use-package
   ;; Enable use-package :ensure support for Elpaca.
   (elpaca-use-package-mode))
+
+;; Themes
+(use-package ayu-theme
+  :ensure t)
+
+;; (use-package atom-one-dark-theme
+;;   :ensure t)
+
+(use-package doom-themes
+  :ensure t
+  :custom
+  ;; Global settings (defaults)
+  (doom-themes-enable-bold t)   ; if nil, bold is universally disabled
+  (doom-themes-enable-italic t) ; if nil, italics is universally disabled
+  ;; for treemacs users
+  (doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
+  :config
+  (load-theme 'doom-one t)
+
+  ;; Enable flashing mode-line on errors
+  ;; (doom-themes-visual-bell-config)
+  (doom-themes-treemacs-config)
+  ;; Corrects (and improves) org-mode's native fontification.
+  (doom-themes-org-config))
 
 ;; Path
 (use-package exec-path-from-shell
@@ -628,6 +652,12 @@
   (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
   (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
 
+;; lsp advertises `snippetSupport' only when `yas-minor-mode' is fbound, which the
+;; `:hook' autoload satisfies from startup; servers then send parameter placeholders
+(use-package yasnippet
+  :ensure t
+  :hook (lsp-mode . yas-minor-mode))
+
 (use-package lsp-mode
   :ensure t
   :init
@@ -699,6 +729,9 @@
 (add-hook 'java-mode-hook #'jgy/java-indent-setup)
 (add-hook 'java-ts-mode-hook #'jgy/java-indent-setup)
 
+(use-package nerd-icons
+  :ensure t)
+
 (use-package lsp-java
   :ensure t
   :init
@@ -738,17 +771,3 @@
 	((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp"))
   :commands (agent-shell agent-shell-anthropic-start-claude-code))
-
-;; workflow layer (context, review, TDD, git) on top of agent-shell
-(use-package ai-code
-  :ensure t
-  :bind ("C-c a" . ai-code-menu)
-  :config
-  (ai-code-set-backend 'agent-shell)
-  (setq ai-code-auto-test-type 'ask-me)
-  (setq auto-revert-interval 1)
-  ;; SPC in evil normal state opens the prompt UI inside session buffers
-  (with-eval-after-load 'evil
-    (ai-code-backends-infra-evil-setup))
-  (with-eval-after-load 'magit
-    (ai-code-magit-setup-transients)))
