@@ -437,6 +437,7 @@ Showing goes through `display-buffer', so popper picks the window."
     "ad" '(agent-shell-dashboard :which-key "agent dashboard")
     "ah" '(agent-shell-hq-toggle :which-key "agent sidebar")
     "aP" '(agent-shell-hq-peek :which-key "peek agent")
+    "ai" '(agent-shell-pi-start-agent :which-key "pi agent")
 
     "ag" '(gptel :which-key "gptel chat")
     "as" '(gptel-send :which-key "send")
@@ -956,8 +957,10 @@ Showing goes through `display-buffer', so popper picks the window."
   :ensure t
 	:ensure-system-package
 	((claude . "brew install claude-code")
-   (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp"))
-  :commands (agent-shell agent-shell-anthropic-start-claude-code)
+   (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp")
+	 (pi-acp . "npm install -g @earendil-works/pi-coding-agent"))
+  :commands (agent-shell agent-shell-anthropic-start-claude-code
+						 agent-shell-pi-start-agent)
   :custom
   (agent-shell-context-sources '(region))
 	(agent-shell-session-restore-verbosity 'full))
