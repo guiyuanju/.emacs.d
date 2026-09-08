@@ -15,9 +15,8 @@
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
 (defvar my-font-size 14) ; default shared across machines
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
-(set-frame-font (format "Iosevka Nerd Font Mono %d" my-font-size) nil t) ; set font and size for all buffers
+(set-frame-font (format "Iosevka Nerd Font Mono %d" my-font-size) nil t)
 (setq-default tab-width 2)
-;; (load-theme 'modus-vivendi t) ; load theme
 
 ;; * Function
 (setq global-auto-revert-non-file-buffers t) ; also revert Dired and other non-file buffers
@@ -29,7 +28,7 @@
 (electric-pair-mode 1) ; 自动配对括号引号，`electric-pair-preserve-balance' 会避开已配对的
 (setq delete-by-moving-to-trash t)
 
-;; Elpaca Elisp Packaeg Manager
+;; Elpaca Elisp Package Manager
 (defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
@@ -70,7 +69,6 @@
 (elpaca `(,@elpaca-order))
 ;; Install use-package support
 (elpaca elpaca-use-package
-  ;; Enable use-package :ensure support for Elpaca.
   (elpaca-use-package-mode))
 
 ;; 备份、自动保存、各种历史文件统一收进 etc/ 和 var/
@@ -91,25 +89,14 @@
 (savehist-mode 1) ; save what you enter into minibuffer prompts, M-p / M-n 翻
 
 ;; Themes
-(use-package ayu-theme
-  :ensure t
-  :defer t)
-
-;; (use-package atom-one-dark-theme
-;;   :ensure t)
-
 (use-package doom-themes
   :ensure t
   :custom
-  ;; Global settings (defaults)
-  (doom-themes-enable-bold t)   ; if nil, bold is universally disabled
+  (doom-themes-enable-bold t)
   (doom-themes-enable-italic t) ; if nil, italics is universally disabled
   :config
   (load-theme 'doom-one t)
 
-  ;; Enable flashing mode-line on errors
-  ;; (doom-themes-visual-bell-config)
-  ;; Corrects (and improves) org-mode's native fontification.
   (doom-themes-org-config))
 
 ;; Path
@@ -121,8 +108,7 @@
   (exec-path-from-shell-initialize))
 
 ;; * Clipboard
-;; a terminal frame has no clipboard of its own: clipetty pushes kills out over
-;; OSC 52 (survives ssh/tmux), pbpaste pulls the other way
+;; clipetty pushes kills out over OSC 52 (survives ssh/tmux), pbpaste pulls the other way
 (use-package clipetty
   :ensure t
   :config
@@ -142,10 +128,7 @@
   :ensure t
   :demand t ; :bind alone would defer the package and never run `vertico-mode'
   :custom
-  ;; (vertico-scroll-margin 0) ;; Different scroll margin
-  ;; (vertico-count 20) ;; Show more candidates
-  ;; (vertico-resize t) ;; Grow and shrink the Vertico minibuffer
-  (vertico-cycle t) ;; Enable cycling for `vertico-next/previous'
+  (vertico-cycle t)
   :bind (:map vertico-map
               ("C-j" . vertico-next)
               ("C-k" . vertico-previous))
@@ -176,9 +159,6 @@
 (use-package orderless
   :ensure t
   :custom
-  ;; Configure a custom style dispatcher (see the Consult wiki)
-  ;; (orderless-style-dispatchers '(+orderless-consult-dispatch orderless-affix-dispatch))
-  ;; (orderless-component-separator #'orderless-escapable-split-on-space)
   (completion-styles '(orderless basic))
   (completion-category-defaults nil)
   (completion-category-overrides '((file (styles partial-completion)))))
@@ -246,24 +226,10 @@
 ;; Add extensions
 (use-package cape
   :ensure t
-  ;; Bind prefix keymap providing all Cape commands under a mnemonic key.
-  ;; Press C-c p ? to for help.
-  ;; :bind ("C-c p" . cape-prefix-map) ;; Alternative keys: M-p, M-+, ...
-  ;; Alternatively bind Cape commands individually.
-  ;; :bind (("C-c p d" . cape-dabbrev)
-  ;;        ("C-c p h" . cape-history)
-  ;;        ("C-c p f" . cape-file)
-  ;;        ...)
   :init
-  ;; Add to the global default value of `completion-at-point-functions' which is
-  ;; used by `completion-at-point'.  The order of the functions matters, the
-  ;; first function returning a result wins.  Note that the list of buffer-local
-  ;; completion functions takes precedence over the global list.
   (add-hook 'completion-at-point-functions #'cape-dabbrev)
   (add-hook 'completion-at-point-functions #'cape-file)
-  (add-hook 'completion-at-point-functions #'cape-elisp-block)
-  ;; (add-hook 'completion-at-point-functions #'cape-history)
-	)
+  (add-hook 'completion-at-point-functions #'cape-elisp-block))
 
 (use-package evil
   :ensure t
@@ -778,24 +744,20 @@ Showing goes through `display-buffer', so popper picks the window."
   :config
   (global-hl-todo-mode 1))
 
-;; SPC s t / s T
 (use-package consult-todo
   :ensure t
   :commands (consult-todo consult-todo-all))
 
-;; SPC g t
 (use-package git-timemachine
   :ensure t
   :commands (git-timemachine git-timemachine-toggle))
 
-;; SPC o u
 (use-package vundo
   :ensure t
   :commands vundo
   :config
   (setq vundo-glyph-alist vundo-unicode-symbols))
 
-;; SPC g y / g Y / g o
 (use-package git-link
   :ensure t
   :commands (git-link git-link-commit git-link-homepage)
