@@ -1,6 +1,5 @@
 ;; * UI
 (setq inhibit-startup-message t) ; don't show the splash screen
-(setq visible-bell nil) ; flash when the bell rings
 (setq ring-bell-function 'ignore) ; disable bell sound
 (setq use-dialog-box nil) ; don't use ui dialogs for prompting
 (add-to-list 'default-frame-alist '(undecorated-round . t)) ; disable title bar, rounded corner
@@ -20,9 +19,9 @@
 (setq recentf-max-saved-items 200)
 (recentf-mode 1) ; use recentf-open-files to open recent files
 (save-place-mode 1) ; restore cursor location
+(setq global-auto-revert-non-file-buffers t) ; also revert Dired and other non-file buffers
 (global-auto-revert-mode 1) ; revert buffers when underlying files has changed
 (xterm-mouse-mode 1) ; enable mouse in terminal emacs
-(setq global-auto-revert-non-file-buffers t) ; revert Dired and other buffers
 (setq history-length 1000) (savehist-mode 1) ; save what you enter into minibuffer prompts, use M-p, M-n to get previous-history-element or next-history-element
 (setq enable-recursive-minibuffers t) ; support opening new minibuffers from inside existing minibuffers.
 (setq read-extended-command-predicate #'command-completion-default-include-p) ; hide commands in M-x which do not work in the current mode
@@ -155,13 +154,18 @@
 (use-package vertico-directory
   :after vertico
   :ensure nil
-	:bind (:map vertico-map
-							("DEL" . vertico-directory-delete-char)))
+  :bind (:map vertico-map
+              ("DEL" . vertico-directory-delete-char))
+  ;; 输入 ~/ 或 /ssh: 时把前面被遮蔽的路径一起删掉
+  :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
 
 ;; remembers the last minibuffer session for SPC '
 (use-package vertico-repeat
   :after vertico
   :ensure nil
+  :bind (:map vertico-map
+              ("M-p" . vertico-repeat-previous)
+              ("M-n" . vertico-repeat-next))
   :hook (minibuffer-setup . vertico-repeat-save))
 
 (use-package consult
@@ -193,7 +197,10 @@
   ;; C-; does not survive most terminals, hence the C-c fallback
   :bind (("C-;" . embark-act)
          ("C-c ;" . embark-act)
-         ("C-c C-;" . embark-export)))
+         ("C-c C-;" . embark-export))
+  :init
+  ;; 任何前缀键后按 C-h 走 completing-read，比 which-key 的分页好翻
+  (setq prefix-help-command #'embark-prefix-help-command))
 
 (use-package embark-consult
   :ensure t
@@ -205,6 +212,9 @@
   :ensure nil
   :custom
   (which-key-idle-delay 0.5)
+  ;; 子分组排在散键前面，leader 弹窗按 SPC 一层层往下读
+  (which-key-sort-order #'which-key-prefix-then-key-order)
+  (which-key-max-description-length 40)
   :config
   (which-key-mode 1))
 
@@ -293,15 +303,6 @@
     (delete-file path delete-by-moving-to-trash)
     (kill-buffer (get-file-buffer path))))
 
-(defun jgy/copy-this-file (new-path &optional force-p)
-  "Copy the current buffer's file to NEW-PATH and visit it."
-  (interactive (list (read-file-name "Copy file to: ") current-prefix-arg))
-  (let ((path (buffer-file-name (buffer-base-buffer))))
-    (unless path (user-error "Buffer is not visiting a file"))
-    (make-directory (file-name-directory new-path) t)
-    (copy-file path new-path (or force-p 1))
-    (find-file new-path)))
-
 (defun jgy/yank-buffer-path (&optional root)
   "Copy the current buffer's path to the kill ring, relative to ROOT if given."
   (interactive)
@@ -344,16 +345,6 @@
   (interactive)
   (consult-ripgrep nil (thing-at-point 'symbol t)))
 
-(defun jgy/eval-buffer-or-region ()
-  "Evaluate the region when active, otherwise the whole buffer."
-  (interactive)
-  (if (region-active-p)
-      (progn (eval-region (region-beginning) (region-end))
-             (deactivate-mark)
-             (message "Evaluated region"))
-    (eval-buffer)
-    (message "Evaluated buffer")))
-
 (defun jgy/toggle-line-numbers ()
   "Cycle absolute -> relative -> off."
   (interactive)
@@ -364,16 +355,21 @@
           (_ t)))
   (message "Line numbers: %s" (or display-line-numbers "off")))
 
-(defun jgy/toggle-indent-style ()
-  (interactive)
-  (setq indent-tabs-mode (not indent-tabs-mode))
-  (message "Indent style: %s" (if indent-tabs-mode "tabs" "spaces")))
-
 (defun jgy/reveal-in-finder ()
   "Reveal the current file in Finder."
   (interactive)
   (call-process "open" nil 0 nil "-R"
                 (or (buffer-file-name (buffer-base-buffer)) default-directory)))
+
+(defun jgy/eshell-dwim ()
+  "Open the current project's eshell, or a plain one outside a project."
+  (interactive)
+  (if (project-current) (project-eshell) (eshell)))
+
+(defun jgy/terminal-dwim ()
+  "Open a ghostel at the project root, or a plain one outside a project."
+  (interactive)
+  (if (project-current) (ghostel-project) (ghostel)))
 
 (use-package general
   :ensure t
@@ -385,14 +381,6 @@
     :keymaps 'override
     :prefix "SPC"
     :global-prefix "C-SPC")
-
-  ;; home for major-mode specific keys
-  (general-create-definer jgy/localleader-keys
-    :states '(normal insert visual emacs motion)
-    :keymaps 'override
-    :prefix "SPC m"
-    :global-prefix "C-SPC m")
-  (which-key-add-key-based-replacements "SPC m" "localleader")
 
   (jgy/leader-keys
     "`"   '(evil-switch-to-windows-last-buffer :which-key "last buffer")
@@ -411,11 +399,26 @@
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
 
+    "a"  '(:ignore t :which-key "ai")
+    "aa" '(agent-shell :which-key "agent shell")
+    "ac" '(agent-shell-anthropic-start-claude-code :which-key "claude code")
+    "ad" '(agent-shell-dashboard :which-key "agent dashboard")
+    "ah" '(agent-shell-hq-toggle :which-key "agent sidebar")
+    "aP" '(agent-shell-hq-peek :which-key "peek agent")
+
+    "ag" '(gptel :which-key "gptel chat")
+    "as" '(gptel-send :which-key "send")
+    "am" '(gptel-menu :which-key "gptel menu")
+    "ar" '(gptel-rewrite :which-key "rewrite region")
+    "ak" '(gptel-abort :which-key "abort request")
+    "ap" '(gptel-system-prompt :which-key "system prompt")
+    "a+" '(gptel-add :which-key "add to context")
+    "af" '(gptel-add-file :which-key "add file to context")
+
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch buffer")
     "bB" '(consult-project-buffer :which-key "switch project buffer")
     "bd" '(kill-current-buffer :which-key "kill buffer")
-    "bk" '(kill-current-buffer :which-key "kill buffer")
     "bi" '(ibuffer :which-key "ibuffer")
     "bl" '(evil-switch-to-windows-last-buffer :which-key "last buffer")
     "bm" '(bookmark-set :which-key "set bookmark")
@@ -433,7 +436,7 @@
     "cC" '(recompile :which-key "recompile")
     "cd" '(lsp-find-definition :which-key "definition")
     "cD" '(lsp-find-references :which-key "references")
-    "ce" '(jgy/eval-buffer-or-region :which-key "eval buffer/region")
+    "ce" '(elisp-eval-region-or-buffer :which-key "eval buffer/region")
     "cf" '(apheleia-format-buffer :which-key "format buffer")
     "ci" '(lsp-find-implementation :which-key "implementations")
     "ck" '(lsp-describe-thing-at-point :which-key "documentation")
@@ -444,9 +447,23 @@
     "cw" '(delete-trailing-whitespace :which-key "delete trailing whitespace")
     "cx" '(consult-flymake :which-key "list diagnostics")
 
+    "d"  '(:ignore t :which-key "debug")
+    "db" '(dap-breakpoint-toggle :which-key "toggle breakpoint")
+    "dB" '(dap-breakpoint-delete-all :which-key "clear breakpoints")
+    "dc" '(dap-continue :which-key "continue")
+    "dd" '(dap-debug :which-key "start debugger")
+    "de" '(dap-eval :which-key "eval expression")
+    "dE" '(dap-eval-thing-at-point :which-key "eval at point")
+    "di" '(dap-step-in :which-key "step in")
+    "dl" '(dap-debug-last :which-key "debug last")
+    "dn" '(dap-next :which-key "next")
+    "do" '(dap-step-out :which-key "step out")
+    "dq" '(dap-disconnect :which-key "stop debugger")
+    "dr" '(dap-debug-restart :which-key "restart")
+    "ds" '(dap-switch-stack-frame :which-key "switch stack frame")
+    "dS" '(dap-ui-sessions :which-key "sessions")
+
     "f"  '(:ignore t :which-key "file")
-    "fC" '(jgy/copy-this-file :which-key "copy this file")
-    "fd" '(dirvish :which-key "dirvish")
     "fD" '(jgy/delete-this-file :which-key "delete this file")
     "fe" '(jgy/find-file-in-emacsd :which-key "find file in emacs.d")
     "ff" '(find-file :which-key "find file")
@@ -461,8 +478,6 @@
 
     "g"  '(:ignore t :which-key "git")
     "g/" '(magit-dispatch :which-key "magit dispatch")
-    "g]" '(diff-hl-next-hunk :which-key "next hunk")
-    "g[" '(diff-hl-previous-hunk :which-key "previous hunk")
     "gb" '(magit-branch-checkout :which-key "switch branch")
     "gB" '(magit-blame-addition :which-key "blame")
     "gc" '(magit-commit :which-key "commit")
@@ -471,9 +486,12 @@
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
     "gL" '(magit-log-buffer-file :which-key "buffer log")
+    "go" '(git-link-homepage :which-key "open repo homepage")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gR" '(vc-revert :which-key "revert file")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
+    "gy" '(git-link :which-key "yank link to line")
+    "gY" '(git-link-commit :which-key "yank link to commit")
 
     "i"  '(:ignore t :which-key "insert")
     "if" '(jgy/insert-buffer-path :which-key "file path")
@@ -483,13 +501,14 @@
 
     "o"  '(:ignore t :which-key "open")
     "o-" '(dired-jump :which-key "dired here")
-    "oa" '(ai-code-menu :which-key "ai code")
-    "od" '(dap-debug :which-key "debugger")
-    "oe" '(eshell :which-key "eshell")
+    "od" '(dirvish :which-key "dirvish")
+    "oD" '(dirvish-side :which-key "dirvish sidebar")
+    "oe" '(jgy/eshell-dwim :which-key "eshell")
+    "oE" '(eshell :which-key "eshell (global)")
     "oo" '(jgy/reveal-in-finder :which-key "reveal in finder")
     "op" '(treemacs :which-key "project sidebar")
-    "oP" '(dirvish-side :which-key "dirvish sidebar")
-    "ot" '(ghostel :which-key "terminal")
+    "ot" '(jgy/terminal-dwim :which-key "terminal")
+    "oT" '(ghostel :which-key "terminal (global)")
 
     "p"  '(:ignore t :which-key "project")
     "p!" '(project-shell-command :which-key "run command")
@@ -497,7 +516,6 @@
     "pb" '(project-switch-to-buffer :which-key "project buffer")
     "pc" '(project-compile :which-key "compile project")
     "pd" '(project-dired :which-key "project root")
-    "pe" '(project-eshell :which-key "project eshell")
     "pf" '(project-find-file :which-key "find project file")
     "pk" '(project-kill-buffers :which-key "kill project buffers")
     "pp" '(project-switch-project :which-key "switch project")
@@ -510,6 +528,7 @@
 
     "s"  '(:ignore t :which-key "search")
     "sd" '(jgy/search-cwd :which-key "search this directory")
+    ;; lsp-mode feeds imenu, so this lists LSP document symbols in code buffers
     "si" '(consult-imenu :which-key "symbols in buffer")
     "sI" '(consult-imenu-multi :which-key "symbols in project")
     "sj" '(evil-show-jumps :which-key "jump list")
@@ -517,23 +536,19 @@
     "sp" '(consult-ripgrep :which-key "search project")
     "ss" '(consult-line :which-key "search buffer")
     "sS" '(consult-line-multi :which-key "search open buffers")
-    ;; lsp-mode feeds imenu, so this lists LSP document symbols in code buffers
-    "sy" '(consult-imenu :which-key "symbols in buffer")
 
     "t"  '(:ignore t :which-key "toggle")
     "tc" '(display-fill-column-indicator-mode :which-key "fill column indicator")
     "td" '(toggle-debug-on-error :which-key "debug on error")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
-    "tI" '(jgy/toggle-indent-style :which-key "indent style")
+    "tI" '(indent-tabs-mode :which-key "indent with tabs")
     "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
+    "tn" '(popper-cycle :which-key "next popup")
+    "tp" '(popper-toggle :which-key "popup")
+    "tP" '(popper-toggle-type :which-key "popup <-> normal window")
     "tr" '(read-only-mode :which-key "read-only")
     "tt" '(consult-theme :which-key "choose theme")
-    "tw" '(visual-line-mode :which-key "soft line wrapping")
-
-    "~"  '(:ignore t :which-key "popup")
-    "~~" '(popper-toggle :which-key "toggle latest popup")
-    "~n" '(popper-cycle :which-key "cycle popups")
-    "~t" '(popper-toggle-type :which-key "popup <-> normal window"))
+    "tw" '(visual-line-mode :which-key "soft line wrapping"))
 
   ;; SPC h is `help-map', so "r" has to stop being info-emacs-manual first
   (keymap-unset help-map "r" t)
@@ -542,6 +557,7 @@
 
   ;; window layout history, next to evil's own C-w bindings
   (general-def evil-window-map
+    "d" #'evil-window-delete
     "u" #'winner-undo
     "U" #'winner-redo
     "m" #'delete-other-windows)
@@ -553,8 +569,6 @@
     :keymaps 'override
     "]d" #'flymake-goto-next-error
     "[d" #'flymake-goto-prev-error
-    "]e" #'flymake-goto-next-error
-    "[e" #'flymake-goto-prev-error
     "]h" #'diff-hl-next-hunk
     "[h" #'diff-hl-previous-hunk
     "zx" #'kill-current-buffer))
@@ -562,10 +576,15 @@
 ;; 把辅助 buffer 收进底部可切换的 popup 窗口
 (use-package popper
   :ensure t
-  ;; 终端下收不到 C-`，用 SPC ~ 前缀；这两个键留给 GUI
+  ;; 终端下收不到 C-`，leader 上另有 SPC t p / SPC t n；这两个键留给 GUI
   :bind (("C-`" . popper-toggle)
          ("M-`" . popper-cycle))
   :init
+  ;; popper-mode 启动时就会调用分组函数，此时 project.el 还没加载，project-root 不存在
+  (require 'project)
+  ;; popup 按项目分组，分组名取自 popup buffer 自己的 default-directory，
+  ;; 所以 SPC t p 切出来的总是当前项目的终端
+  (setq popper-group-function #'popper-group-by-project)
   (setq popper-reference-buffers
         '("\\*Messages\\*"
           "\\*Warnings\\*"
@@ -574,24 +593,29 @@
           "\\*lsp-help\\*"
           "Output\\*$"
           help-mode
+          "eshell\\*\\(<[0-9]+>\\)?$"
           eshell-mode
           compilation-mode
           xref--xref-buffer-mode
           flymake-diagnostics-buffer-mode
-          vterm-mode))
+          ghostel-mode))
   (setq popper-window-height 0.33)
   (popper-mode 1)
   (popper-echo-mode 1))
 
-;; bound to SPC f e; declared so it does not depend on lsp-treemacs pulling it in
 (use-package treemacs
   :ensure t
   :commands treemacs)
+
+(use-package treemacs-magit
+  :ensure t
+  :after (treemacs magit))
 
 (when (eq system-type 'darwin)
   (setq insert-directory-program "/opt/homebrew/bin/gls"))
 
 (use-package dired
+  :ensure nil
   :config
   (setq dired-listing-switches
         "-l --almost-all --human-readable --group-directories-first --no-group")
@@ -641,6 +665,15 @@
   (add-to-list 'magit-process-password-prompt-regexps
                "^.*Verification code: ?$"))
 
+;; SPC g y / g Y / g o
+(use-package git-link
+  :ensure t
+  :commands (git-link git-link-commit git-link-homepage)
+  :custom
+  ;; 链接钉在当前 commit 上，行号不会随分支后续改动跑偏；C-u C-u 临时换回分支名
+  (git-link-use-commit t)
+	(git-link-open-in-browser t))
+
 ;; gutter diffs feed SPC g s/r and ]h/[h
 (use-package diff-hl
   :ensure t
@@ -648,6 +681,7 @@
   :config
   ;; the fringe is disabled and terminal frames have none, so draw in the margin
   (diff-hl-margin-mode 1)
+  (diff-hl-flydiff-mode 1)
   (global-diff-hl-mode 1)
   (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
   (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
@@ -683,7 +717,9 @@
   :commands lsp-ui-mode)
 
 (use-package dap-mode
-  :ensure t)
+  :ensure t
+  :config
+  (dap-auto-configure-mode 1))
 
 ;; Haskell
 (use-package haskell-mode
@@ -694,14 +730,13 @@
 ;; async format-on-save for every language; the RCS-patch apply keeps point put
 (use-package apheleia
   :ensure t
-  ;; `:bind' alone would defer the package and never run `:config'
   :demand t
-  :bind ("C-c r" . apheleia-format-buffer)
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
   ;; java formatting belongs to jdt.ls, see `lsp-java-format-tab-size'
   (setf (alist-get 'java-mode apheleia-mode-alist nil t) nil)
   (setf (alist-get 'java-ts-mode apheleia-mode-alist nil t) nil)
+  (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist nil t) nil)
   (apheleia-global-mode 1))
 
 (use-package lua-mode
@@ -777,11 +812,12 @@
 
 (use-package agent-shell-dashboard
 	:ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
-	:after agent-shell
 	:commands (agent-shell-dashboard)
+	:init
+	(setq initial-buffer-choice #'agent-shell-dashboard)
 	:config
-	;; Optional: open it on startup
-	(setq initial-buffer-choice #'agent-shell-dashboard))
+	(add-hook 'agent-shell-dashboard-mode-hook
+						(lambda () (evil-commentary-mode -1))))
 
 (use-package agent-shell-hq
   :ensure (:host nil :repo "https://github.com/sreenivasvrao/agent-shell-hq"
