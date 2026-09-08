@@ -414,6 +414,7 @@ Showing goes through `display-buffer', so popper picks the window."
     "u"   '(universal-argument :which-key "universal argument")
     "RET" '(consult-bookmark :which-key "bookmark")
     "'"   '(vertico-repeat :which-key "resume last completion")
+    "\\"   '(jgy/ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
 
@@ -958,9 +959,13 @@ Showing goes through `display-buffer', so popper picks the window."
 	:ensure-system-package
 	((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp")
-	 (pi-acp . "npm install -g @earendil-works/pi-coding-agent"))
+	 (pi-acp . "npm install -g @earendil-works/pi-coding-agent")
+	 (codex-acp . "npm install -g @agentclientprotocol/codex-acp")
+	 (copilot . "npm install -g @github/copilot"))
   :commands (agent-shell agent-shell-anthropic-start-claude-code
-						 agent-shell-pi-start-agent)
+						 agent-shell-pi-start-agent
+						 agent-shell-openai-start-codex
+						 agent-shell-github-start-copilot)
   :custom
   (agent-shell-context-sources '(region))
 	(agent-shell-session-restore-verbosity 'full))
