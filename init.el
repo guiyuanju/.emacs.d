@@ -16,32 +16,14 @@
 ;; (load-theme 'modus-vivendi t) ; load theme
 
 ;; * Function
-(setq recentf-max-saved-items 200)
-(recentf-mode 1) ; use recentf-open-files to open recent files
-(save-place-mode 1) ; restore cursor location
 (setq global-auto-revert-non-file-buffers t) ; also revert Dired and other non-file buffers
 (global-auto-revert-mode 1) ; revert buffers when underlying files has changed
 (xterm-mouse-mode 1) ; enable mouse in terminal emacs
-(setq history-length 1000) (savehist-mode 1) ; save what you enter into minibuffer prompts, use M-p, M-n to get previous-history-element or next-history-element
 (setq enable-recursive-minibuffers t) ; support opening new minibuffers from inside existing minibuffers.
 (setq read-extended-command-predicate #'command-completion-default-include-p) ; hide commands in M-x which do not work in the current mode
 (winner-mode 1) ; window layout undo/redo, bound to SPC w u / SPC w U
-
-;; * Unclutter
-;; move custom vars to a separate file and load it (custom-set-variables ...)
-(setq custom-file (locate-user-emacs-file "custom-vars.el"))
-(load custom-file 'noerror 'nomessage)
-;; move auto backup file to tmp/backups
-(setq backup-directory-alist `(("." . ,(expand-file-name "tmp/backups/" user-emacs-directory))))
-(make-directory (expand-file-name "tmp/auto-saves/" user-emacs-directory) t)
-(setq auto-save-list-file-prefix (expand-file-name "tmp/auto-saves/sessions/" user-emacs-directory)
-      auto-save-file-name-transforms `((".*" ,(expand-file-name "tmp/auto-saves/" user-emacs-directory) t)))
-;; lsp mode files clean up
-(setq lsp-session-file (expand-file-name "tmp/.lsp-session-v1" user-emacs-directory))
-;; eclipse.jdt.ls server and its per-project index
-(setq lsp-java-server-install-dir (expand-file-name "tmp/eclipse.jdt.ls/" user-emacs-directory)
-      lsp-java-workspace-dir (expand-file-name "tmp/java-workspace/" user-emacs-directory))
-
+(electric-pair-mode 1) ; 自动配对括号引号，`electric-pair-preserve-balance' 会避开已配对的
+(setq delete-by-moving-to-trash t)
 
 ;; Elpaca Elisp Packaeg Manager
 (defvar elpaca-installer-version 0.12)
@@ -87,9 +69,27 @@
   ;; Enable use-package :ensure support for Elpaca.
   (elpaca-use-package-mode))
 
+;; 备份、自动保存、各种历史文件统一收进 etc/ 和 var/
+(use-package no-littering
+  :ensure t
+  :demand t
+  :config
+  (no-littering-theme-backups)
+  (setq custom-file (no-littering-expand-etc-file-name "custom.el"))
+  (load custom-file 'noerror 'nomessage))
+;; recentf/save-place/savehist 一启用就会读写自己的文件，必须等 no-littering 改完路径
+(elpaca-wait)
+
+(setq recentf-max-saved-items 200)
+(recentf-mode 1) ; use recentf-open-files to open recent files
+(save-place-mode 1) ; restore cursor location
+(setq history-length 1000)
+(savehist-mode 1) ; save what you enter into minibuffer prompts, M-p / M-n 翻
+
 ;; Themes
 (use-package ayu-theme
-  :ensure t)
+  :ensure t
+  :defer t)
 
 ;; (use-package atom-one-dark-theme
 ;;   :ensure t)
@@ -100,14 +100,11 @@
   ;; Global settings (defaults)
   (doom-themes-enable-bold t)   ; if nil, bold is universally disabled
   (doom-themes-enable-italic t) ; if nil, italics is universally disabled
-  ;; for treemacs users
-  (doom-themes-treemacs-theme "doom-atom") ; use "doom-colors" for less minimal icon theme
   :config
   (load-theme 'doom-one t)
 
   ;; Enable flashing mode-line on errors
   ;; (doom-themes-visual-bell-config)
-  (doom-themes-treemacs-config)
   ;; Corrects (and improves) org-mode's native fontification.
   (doom-themes-org-config))
 
@@ -202,10 +199,25 @@
   ;; 任何前缀键后按 C-h 走 completing-read，比 which-key 的分页好翻
   (setq prefix-help-command #'embark-prefix-help-command))
 
+(use-package helpful
+  :ensure t
+  :bind (([remap describe-function] . helpful-callable)
+         ([remap describe-variable] . helpful-variable)
+         ([remap describe-symbol]   . helpful-symbol)
+         ([remap describe-command]  . helpful-command)
+         ([remap describe-key]      . helpful-key)))
+
 (use-package embark-consult
   :ensure t
   :after (embark consult)
   :hook (embark-collect-mode . consult-preview-at-point-mode))
+
+(use-package nerd-icons-completion
+  :ensure t
+  :after marginalia
+  :config
+  (nerd-icons-completion-mode)
+  (add-hook 'marginalia-mode-hook #'nerd-icons-completion-marginalia-setup))
 
 ;; built into Emacs 30
 (use-package which-key
@@ -226,6 +238,14 @@
   (tab-always-indent 'complete)
   :config
   (global-corfu-mode 1))
+
+;; corfu 的 child frame 在 Emacs 30 的终端里画不出来，tty-child-frames 要等 31
+(use-package corfu-terminal
+  :ensure t
+  :after corfu
+  :config
+  (unless (display-graphic-p)
+    (corfu-terminal-mode 1)))
 
 ;; Add extensions
 (use-package cape
@@ -341,6 +361,13 @@
   (interactive)
   (consult-ripgrep default-directory))
 
+(defun jgy/obsidian-search ()
+  "Ripgrep the Obsidian vault."
+  (interactive)
+  ;; obsidian-directory 是 defcustom，包没加载时未 bound
+  (require 'obsidian)
+  (consult-ripgrep obsidian-directory))
+
 (defun jgy/search-symbol-at-point ()
   (interactive)
   (consult-ripgrep nil (thing-at-point 'symbol t)))
@@ -361,15 +388,44 @@
   (call-process "open" nil 0 nil "-R"
                 (or (buffer-file-name (buffer-base-buffer)) default-directory)))
 
-(defun jgy/eshell-dwim ()
-  "Open the current project's eshell, or a plain one outside a project."
-  (interactive)
-  (if (project-current) (project-eshell) (eshell)))
+(defun jgy/toggle-popup-buffer (buffer create-fn)
+  "Hide BUFFER when it has a window, show it when it exists, else call CREATE-FN.
+Showing goes through `display-buffer', so popper picks the window."
+  (cond
+   ((not (buffer-live-p buffer)) (funcall create-fn))
+   ((get-buffer-window buffer) (popper--delete-popup (get-buffer-window buffer)))
+   (t (display-buffer buffer))))
 
-(defun jgy/terminal-dwim ()
-  "Open a ghostel at the project root, or a plain one outside a project."
+(defun jgy/eshell-buffer-name (&optional global)
+  "Name `project-eshell' would use here, or the plain one when GLOBAL."
+  (if (and (not global) (project-current))
+      (project-prefixed-buffer-name "eshell")
+    (or (bound-and-true-p eshell-buffer-name) "*eshell*")))
+
+(defun jgy/eshell-toggle ()
+  "Toggle this project's eshell popup, creating it on first use."
   (interactive)
-  (if (project-current) (ghostel-project) (ghostel)))
+  (jgy/toggle-popup-buffer (get-buffer (jgy/eshell-buffer-name))
+                           (if (project-current) #'project-eshell #'eshell)))
+
+(defun jgy/eshell-toggle-global ()
+  "Toggle the project-independent eshell popup."
+  (interactive)
+  (jgy/toggle-popup-buffer (get-buffer (jgy/eshell-buffer-name t)) #'eshell))
+
+(defun jgy/ghostel-toggle-global ()
+  "Toggle the project-independent ghostel popup."
+  (interactive)
+  (jgy/toggle-popup-buffer
+   (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*")) #'ghostel))
+
+(defun jgy/ghostel-toggle ()
+  "Toggle this project's ghostel popup, creating it on first use."
+  (interactive)
+  (if (project-current)
+      ;; buffer 列表而不是拼名字：`ghostel-project-buffer-scope' 还会认 cd 进来的终端
+      (jgy/toggle-popup-buffer (car (ghostel-project-buffer-list)) #'ghostel-project)
+    (jgy/ghostel-toggle-global)))
 
 (use-package general
   :ensure t
@@ -398,6 +454,20 @@
     "'"   '(vertico-repeat :which-key "resume last completion")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
+
+    "TAB"     '(:ignore t :which-key "workspace")
+    "TAB TAB" '(persp-switch :which-key "switch workspace")
+    "TAB ["   '(persp-prev :which-key "previous workspace")
+    "TAB ]"   '(persp-next :which-key "next workspace")
+    "TAB a"   '(persp-add-buffer :which-key "add buffer")
+    "TAB b"   '(persp-switch-to-buffer :which-key "workspace buffer")
+    "TAB d"   '(persp-kill :which-key "kill workspace")
+    "TAB i"   '(persp-import-buffers :which-key "import buffers")
+    "TAB l"   '(persp-load-state-from-file :which-key "load workspaces")
+    "TAB n"   '(persp-add-new :which-key "new workspace")
+    "TAB r"   '(persp-rename :which-key "rename workspace")
+    "TAB s"   '(persp-save-state-to-file :which-key "save workspaces")
+    "TAB x"   '(persp-remove-buffer :which-key "remove buffer")
 
     "a"  '(:ignore t :which-key "ai")
     "aa" '(agent-shell :which-key "agent shell")
@@ -490,6 +560,7 @@
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gR" '(vc-revert :which-key "revert file")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
+    "gt" '(git-timemachine :which-key "file time machine")
     "gy" '(git-link :which-key "yank link to line")
     "gY" '(git-link-commit :which-key "yank link to commit")
 
@@ -499,16 +570,24 @@
     "iu" '(insert-char :which-key "unicode char")
     "iy" '(consult-yank-pop :which-key "from kill ring")
 
+    "n"  '(:ignore t :which-key "notes")
+    "nb" '(obsidian-backlink-jump :which-key "backlinks")
+    "nB" '(obsidian-backlinks-mode :which-key "backlinks panel")
+    "nc" '(obsidian-capture :which-key "new note")
+    "nd" '(obsidian-daily-note :which-key "daily note")
+    "nl" '(obsidian-insert-wikilink :which-key "insert wikilink")
+    "nn" '(obsidian-jump :which-key "find note")
+    "ns" '(jgy/obsidian-search :which-key "search vault")
+    "nt" '(obsidian-find-tag :which-key "find by tag")
+    "nT" '(obsidian-insert-tag :which-key "insert tag")
+    "nu" '(obsidian-update :which-key "rescan vault")
+
     "o"  '(:ignore t :which-key "open")
     "o-" '(dired-jump :which-key "dired here")
     "od" '(dirvish :which-key "dirvish")
-    "oD" '(dirvish-side :which-key "dirvish sidebar")
-    "oe" '(jgy/eshell-dwim :which-key "eshell")
-    "oE" '(eshell :which-key "eshell (global)")
     "oo" '(jgy/reveal-in-finder :which-key "reveal in finder")
-    "op" '(treemacs :which-key "project sidebar")
-    "ot" '(jgy/terminal-dwim :which-key "terminal")
-    "oT" '(ghostel :which-key "terminal (global)")
+    "op" '(dirvish-side :which-key "project sidebar")
+    "ou" '(vundo :which-key "undo tree")
 
     "p"  '(:ignore t :which-key "project")
     "p!" '(project-shell-command :which-key "run command")
@@ -536,24 +615,29 @@
     "sp" '(consult-ripgrep :which-key "search project")
     "ss" '(consult-line :which-key "search buffer")
     "sS" '(consult-line-multi :which-key "search open buffers")
+    "st" '(consult-todo :which-key "todos in buffer")
+    "sT" '(consult-todo-all :which-key "todos in all buffers")
 
     "t"  '(:ignore t :which-key "toggle")
     "tc" '(display-fill-column-indicator-mode :which-key "fill column indicator")
     "td" '(toggle-debug-on-error :which-key "debug on error")
+    "te" '(jgy/eshell-toggle :which-key "eshell")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
+    "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tI" '(indent-tabs-mode :which-key "indent with tabs")
     "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
     "tn" '(popper-cycle :which-key "next popup")
     "tp" '(popper-toggle :which-key "popup")
     "tP" '(popper-toggle-type :which-key "popup <-> normal window")
     "tr" '(read-only-mode :which-key "read-only")
-    "tt" '(consult-theme :which-key "choose theme")
+    "tT" '(consult-theme :which-key "choose theme")
     "tw" '(visual-line-mode :which-key "soft line wrapping"))
 
   ;; SPC h is `help-map', so "r" has to stop being info-emacs-manual first
   (keymap-unset help-map "r" t)
   (keymap-set help-map "r r" #'jgy/reload-config)
   (which-key-add-key-based-replacements "SPC h r" "reload")
+  (keymap-set help-map "." #'helpful-at-point)
 
   ;; window layout history, next to evil's own C-w bindings
   (general-def evil-window-map
@@ -571,6 +655,8 @@
     "[d" #'flymake-goto-prev-error
     "]h" #'diff-hl-next-hunk
     "[h" #'diff-hl-previous-hunk
+    "]t" #'hl-todo-next
+    "[t" #'hl-todo-previous
     "zx" #'kill-current-buffer))
 
 ;; 把辅助 buffer 收进底部可切换的 popup 窗口
@@ -603,13 +689,21 @@
   (popper-mode 1)
   (popper-echo-mode 1))
 
-(use-package treemacs
+;; workspace = 一组 buffer + 窗口布局，切走再切回来整套还原。
+;; agent-shell-hq 本来就会自己 `(persp-mode 1)'，这里先配好再让它用
+(use-package persp-mode
   :ensure t
-  :commands treemacs)
-
-(use-package treemacs-magit
-  :ensure t
-  :after (treemacs magit))
+  :init
+  (setq persp-nil-name "main")
+  ;; 启动时不自动恢复上次会话，否则会把 agent-shell-hq 那个临时 workspace 拉回来，
+  ;; 也会和 `initial-buffer-choice' 打架；要恢复用 SPC TAB l
+  (setq persp-auto-resume-time -1)
+  ;; 只收还没归属任何 workspace 的 buffer，magit/help 之类才会跟着当前 workspace 走
+  (setq persp-add-buffer-on-after-change-major-mode 'free)
+  ;; 从 main 里移除 buffer 时不再追问「要不要从所有 workspace 移除」
+  (setq persp-remove-buffers-from-nil-persp-behaviour nil)
+  :config
+  (persp-mode 1))
 
 (when (eq system-type 'darwin)
   (setq insert-directory-program "/opt/homebrew/bin/gls"))
@@ -631,25 +725,40 @@
   (dirvish-quick-access-entries ; It's a custom option, `setq' won't work
    '(("h" "~/"                          "Home")
      ("d" "~/Downloads/"                "Downloads")))
-	:bind ; Bind `dirvish-fd|dirvish-side|dirvish-dwim' as you see fit
-  (:map dirvish-mode-map               ; Dirvish inherits `dired-mode-map'
-				(";"   . dired-up-directory)        ; So you can adjust `dired' bindings here
-				("?"   . dirvish-dispatch)          ; [?] a helpful cheatsheet
-				("a"   . dirvish-setup-menu)        ; [a]ttributes settings:`t' toggles mtime, `f' toggles fullframe, etc.
-				("f"   . dirvish-file-info-menu)    ; [f]ile info
-				("o"   . dirvish-quick-access)      ; [o]pen `dirvish-quick-access-entries'
-				("s"   . dirvish-quicksort)         ; [s]ort flie list
-				("r"   . dirvish-history-jump)      ; [r]ecent visited
-				("l"   . dirvish-ls-switches-menu)  ; [l]s command flags
-				("v"   . dirvish-vc-menu)           ; [v]ersion control commands
-				("*"   . dirvish-mark-menu)
-				("y"   . dirvish-yank-menu)
-				("N"   . dirvish-narrow)
-				("^"   . dirvish-history-last)
-				("TAB" . dirvish-subtree-toggle)
-				("M-f" . dirvish-history-go-forward)
-				("M-b" . dirvish-history-go-backward)
-				("M-e" . dirvish-emerge-menu)))
+  ;; git 集成：vc-state 是左 fringe 位图，只在图形界面可见；
+  ;; git-msg 在文件名后接 commit message，vc-info 在 mode line 显示分支
+  (dirvish-attributes '(vc-state subtree-state nerd-icons collapse git-msg file-size))
+  (dirvish-side-attributes '(vc-state subtree-state nerd-icons collapse file-size)) ; 侧边栏只 35 列，不放 git-msg
+  (dirvish-mode-line-format '(:left (sort omit symlink) :right (vc-info index)))
+  ;; 带修饰键的不会被 evil 抢走，普通字母键的见下面的 general-def
+  :bind (:map dirvish-mode-map
+              ("TAB" . dirvish-subtree-toggle)
+              ("M-f" . dirvish-history-go-forward)
+              ("M-b" . dirvish-history-go-backward)
+              ("M-e" . dirvish-emerge-menu))
+  :config
+  ;; 侧边栏跟随当前 buffer：切 project 时换根目录，并展开到该文件
+  (dirvish-side-follow-mode 1)
+
+  ;; dirvish 用 `use-local-map' 装 `dirvish-mode-map'，major-mode 还是 dired-mode。
+  ;; local map 的优先级低于 evil 所在的 `emulation-mode-map-alists'，所以 q/y/f/l...
+  ;; 全被 evil-collection 的 dired 绑定盖掉了；挂进 evil 的 normal 辅助 keymap 才生效
+  (general-def
+    :states 'normal
+    :keymaps 'dirvish-mode-map
+    "q"   #'dirvish-quit
+    ";"   #'dired-up-directory
+    "?"   #'dirvish-dispatch          ; cheatsheet
+    "f"   #'dirvish-file-info-menu
+    "o"   #'dirvish-quick-access
+    "s"   #'dirvish-quicksort
+    "r"   #'dirvish-history-jump
+    "l"   #'dirvish-ls-switches-menu
+    "v"   #'dirvish-vc-menu
+    "*"   #'dirvish-mark-menu
+    "y"   #'dirvish-yank-menu
+    "N"   #'dirvish-narrow
+    "^"   #'dirvish-history-last))
 
 ;; magit needs transient >= 0.13; Emacs 30 bundles 0.7.2.2, so shadow it early
 (elpaca transient)
@@ -659,11 +768,36 @@
   :after transient
 	:init
 	(setq magit-process-connection-type t)
+	:custom
+	(magit-ediff-dwim-show-on-hunks t)
   :config
   ;; magit only forwards prompts it recognizes; anything else silently
   ;; stalls in *magit-process*
   (add-to-list 'magit-process-password-prompt-regexps
                "^.*Verification code: ?$"))
+
+(use-package hl-todo
+  :ensure t
+  :demand t
+  :config
+  (global-hl-todo-mode 1))
+
+;; SPC s t / s T
+(use-package consult-todo
+  :ensure t
+  :commands (consult-todo consult-todo-all))
+
+;; SPC g t
+(use-package git-timemachine
+  :ensure t
+  :commands (git-timemachine git-timemachine-toggle))
+
+;; SPC o u
+(use-package vundo
+  :ensure t
+  :commands vundo
+  :config
+  (setq vundo-glyph-alist vundo-unicode-symbols))
 
 ;; SPC g y / g Y / g o
 (use-package git-link
@@ -692,15 +826,35 @@
   :ensure t
   :hook (lsp-mode . yas-minor-mode))
 
+;; xxx-mode -> xxx-ts-mode 的 remap。只列 Emacs 30 自带 ts-mode 的语言：
+;; haskell/markdown 的 ts-mode 要等 31 或第三方包，`treesit-auto--ready-p' 会跳过它们
+(use-package treesit-auto
+  :ensure t
+  :demand t
+  :custom
+  (treesit-auto-langs '(bash dockerfile go gomod java json lua rust toml yaml))
+  (treesit-auto-install 'prompt)
+  :config
+  (global-treesit-auto-mode)
+  ;; remap 只能改已有的 mode；yaml/toml/dockerfile 这些 Emacs 本来没有基础 mode，
+  ;; 得把 ts-mode 直接注册进 `auto-mode-alist'（只注册 grammar 已装好的）
+  (treesit-auto-add-to-auto-mode-alist))
+
 (use-package lsp-mode
   :ensure t
   :init
+  ;; jdt.ls 这种消息量大的 server，64K 的默认管道缓冲会成为瓶颈
+  (setq read-process-output-max (* 1024 1024))
   (setq lsp-keymap-prefix "C-c l")
   ;; flycheck is not installed; pin the backend so a stray dependency cannot switch it
   (setq lsp-diagnostics-provider :flymake)
+  ;; treesit-auto 会把 go/lua/java 换成 ts-mode，那时只有 ts-mode 的 hook 会跑；
+  ;; grammar 没装时又退回旧 mode，所以两边都挂
   :hook ((go-mode . lsp-deferred)
+         (go-ts-mode . lsp-deferred)
          (haskell-mode . lsp-deferred)
          (lua-mode . lsp-deferred)
+         (lua-ts-mode . lsp-deferred)
          (java-mode . lsp-deferred)
          (java-ts-mode . lsp-deferred)
          (lsp-mode . lsp-enable-which-key-integration))
@@ -718,12 +872,16 @@
 
 (use-package dap-mode
   :ensure t
+  :commands (dap-debug dap-debug-last dap-debug-restart dap-breakpoint-toggle
+             dap-continue dap-next dap-step-in dap-step-out dap-disconnect
+             dap-eval dap-eval-thing-at-point dap-switch-stack-frame)
   :config
   (dap-auto-configure-mode 1))
 
 ;; Haskell
 (use-package haskell-mode
   :ensure t
+  :mode ("\\.hs\\'" "\\.lhs\\'")
   :custom
   (haskell-process-type 'cabal-repl))
 
@@ -740,13 +898,16 @@
   (apheleia-global-mode 1))
 
 (use-package lua-mode
-  :ensure t)
+  :ensure t
+  :mode "\\.lua\\'")
 
 (use-package go-mode
-  :ensure t)
+  :ensure t
+  :mode "\\.go\\'")
 
 (use-package rust-mode
-  :ensure t)
+  :ensure t
+  :mode "\\.rs\\'")
 
 ;; Java
 (defvar jgy/sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/"))
@@ -765,10 +926,13 @@
 (add-hook 'java-ts-mode-hook #'jgy/java-indent-setup)
 
 (use-package nerd-icons
-  :ensure t)
+  :ensure t
+  :defer t)
 
 (use-package lsp-java
   :ensure t
+  ;; lsp-mode 自己已经延迟到第一个 java buffer；那时再连带把 lsp-java 拉起来
+  :after lsp-mode
   :init
   ;; eclipse.jdt.ls itself needs JDK 21+, independent of what a project targets
   (setq lsp-java-java-path (expand-file-name "25.0.3-tem/bin/java" jgy/sdkman-java-dir))
@@ -786,17 +950,47 @@
   ;; jdt.ls has no annotation processing of its own, so Lombok-generated
   ;; members (@Slf4j's `log', @Data's accessors) need the agent to patch ecj
   (add-to-list 'lsp-java-vmargs
-               (concat "-javaagent:"
-                       (expand-file-name "tmp/lombok.jar" user-emacs-directory))
+               (concat "-javaagent:" (no-littering-expand-var-file-name "lombok.jar"))
                t)
   (require 'dap-java))
 
 ;; libghostty-vt terminal; the native module is a prebuilt binary fetched on first use
 (use-package ghostel
-  :ensure t)
+  :ensure t
+  :commands (ghostel ghostel-project ghostel-project-next ghostel-project-previous
+             ghostel-project-buffer-list))
 
 (use-package csv-mode
-	:ensure t)
+  :ensure t
+  :mode "\\.[ct]sv\\'")
+
+;; * Notes
+(use-package markdown-mode
+  :ensure t
+  :mode "\\.md\\'"
+  :custom
+  (markdown-fontify-code-blocks-natively t)
+  ;; obsidian.el 的链接跳转不依赖它，但 [[...]] 的高亮和 `markdown-wiki-link-p' 依赖
+  (markdown-enable-wiki-links t))
+
+;; ~/Documents/Garden，目录约定跟 .obsidian/app.json 保持一致
+(use-package obsidian
+  :ensure t
+  ;; `obsidian-enable-minor-mode' 只在 vault 内的 .md 里开 `obsidian-mode'
+  :hook (markdown-mode . obsidian-enable-minor-mode)
+  :custom
+  (obsidian-directory "~/Documents/Garden") ; 有 :set 校验路径，`setq' 不生效
+  (obsidian-inbox-directory "notes")        ; `obsidian-capture' 和未命中的链接落在这里
+  (obsidian-daily-notes-directory "journals")
+  (obsidian-backlinks-panel-width 50)
+  :config
+  ;; `obsidian-mode' 自带的 keymap 是空的，且 minor mode map 会被 evil 的 normal state 盖掉
+  (general-def
+    :states 'normal
+    :keymaps 'obsidian-mode-map
+    "RET" #'obsidian-follow-link-at-point
+    "gd"  #'obsidian-follow-link-at-point
+    "gb"  #'obsidian-jump-back))
 
 ;; * AI
 ;; ACP client; needs `npm install -g @agentclientprotocol/claude-agent-acp'
@@ -805,10 +999,15 @@
 	:ensure-system-package
 	((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp"))
-  :commands (agent-shell agent-shell-anthropic-start-claude-code))
+  :commands (agent-shell agent-shell-anthropic-start-claude-code)
+  :custom
+  (agent-shell-context-sources '(region))
+	(agent-shell-session-restore-verbosity 'full))
 
 (use-package gptel
-	:ensure t)
+  :ensure t
+  :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
+             gptel-system-prompt gptel-add gptel-add-file))
 
 (use-package agent-shell-dashboard
 	:ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
@@ -822,4 +1021,10 @@
 (use-package agent-shell-hq
   :ensure (:host nil :repo "https://github.com/sreenivasvrao/agent-shell-hq"
 								 :files ("*.el"))
-	:after agent-shell)
+	:after agent-shell
+	:init
+	;; sidebar/peek 是 `use-local-map' 装的只读选择器，自带 `suppress-keymap' 全键位；
+	;; 让 evil 在这两个 buffer 里进 emacs state，否则 j/k/n/p/RET 全被 normal state 抢走
+	(with-eval-after-load 'evil
+		(add-to-list 'evil-buffer-regexps
+								 '("\\` \\*agent-shell-hq-" . emacs))))
