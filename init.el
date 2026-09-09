@@ -434,8 +434,9 @@ Showing goes through `display-buffer', so popper picks the window."
 
     "a"  '(:ignore t :which-key "ai")
     "aa" '(agent-shell :which-key "agent shell")
+		"ad" '(agent-shell-manager-toggle :which-key "agent shell manager")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "claude code")
-    "ad" '(agent-shell-dashboard :which-key "agent dashboard")
+    ;; "ad" '(agent-shell-dashboard :which-key "agent dashboard")
     "ah" '(agent-shell-hq-toggle :which-key "agent sidebar")
     "aP" '(agent-shell-hq-peek :which-key "peek agent")
     "ai" '(agent-shell-pi-start-agent :which-key "pi agent")
@@ -465,37 +466,39 @@ Showing goes through `display-buffer', so popper picks the window."
     "bz" '(bury-buffer :which-key "bury buffer")
 
     "c"  '(:ignore t :which-key "code")
-    "ca" '(lsp-execute-code-action :which-key "code action")
+    "ca" '(eglot-code-actions :which-key "code action")
     "cc" '(compile :which-key "compile")
     "cC" '(recompile :which-key "recompile")
-    "cd" '(lsp-find-definition :which-key "definition")
-    "cD" '(lsp-find-references :which-key "references")
+    "cd" '(xref-find-definitions :which-key "definition")
+    "cD" '(xref-find-references :which-key "references")
     "ce" '(elisp-eval-region-or-buffer :which-key "eval buffer/region")
     "cf" '(apheleia-format-buffer :which-key "format buffer")
-    "ci" '(lsp-find-implementation :which-key "implementations")
-    "ck" '(lsp-describe-thing-at-point :which-key "documentation")
-    "cl" '(:keymap lsp-command-map :package lsp-mode :which-key "lsp")
-    "co" '(lsp-organize-imports :which-key "organize imports")
-    "cr" '(lsp-rename :which-key "rename")
-    "ct" '(lsp-find-type-definition :which-key "type definition")
+    "ci" '(eglot-find-implementation :which-key "implementations")
+    "ck" '(eldoc-doc-buffer :which-key "documentation")
+    "cl" '(:ignore t :which-key "lsp")
+    "cle" '(eglot-events-buffer :which-key "events buffer")
+    "cll" '(eglot :which-key "start server")
+    "clq" '(eglot-shutdown :which-key "shutdown server")
+    "clr" '(eglot-reconnect :which-key "reconnect server")
+    "co" '(eglot-code-action-organize-imports :which-key "organize imports")
+    "cr" '(eglot-rename :which-key "rename")
+    "ct" '(eglot-find-typeDefinition :which-key "type definition")
     "cw" '(delete-trailing-whitespace :which-key "delete trailing whitespace")
     "cx" '(consult-flymake :which-key "list diagnostics")
 
     "d"  '(:ignore t :which-key "debug")
-    "db" '(dap-breakpoint-toggle :which-key "toggle breakpoint")
-    "dB" '(dap-breakpoint-delete-all :which-key "clear breakpoints")
-    "dc" '(dap-continue :which-key "continue")
-    "dd" '(dap-debug :which-key "start debugger")
-    "de" '(dap-eval :which-key "eval expression")
-    "dE" '(dap-eval-thing-at-point :which-key "eval at point")
-    "di" '(dap-step-in :which-key "step in")
-    "dl" '(dap-debug-last :which-key "debug last")
-    "dn" '(dap-next :which-key "next")
-    "do" '(dap-step-out :which-key "step out")
-    "dq" '(dap-disconnect :which-key "stop debugger")
-    "dr" '(dap-debug-restart :which-key "restart")
-    "ds" '(dap-switch-stack-frame :which-key "switch stack frame")
-    "dS" '(dap-ui-sessions :which-key "sessions")
+    "db" '(dape-breakpoint-toggle :which-key "toggle breakpoint")
+    "dB" '(dape-breakpoint-remove-all :which-key "clear breakpoints")
+    "dc" '(dape-continue :which-key "continue")
+    "dd" '(dape :which-key "start debugger")
+    "de" '(dape-evaluate-expression :which-key "eval expression")
+    "di" '(dape-step-in :which-key "step in")
+    "dn" '(dape-next :which-key "next")
+    "do" '(dape-step-out :which-key "step out")
+    "dq" '(dape-quit :which-key "stop debugger")
+    "dr" '(dape-restart :which-key "restart")
+    "ds" '(dape-select-stack :which-key "switch stack frame")
+    "dS" '(dape-info :which-key "sessions")
 
     "f"  '(:ignore t :which-key "file")
     "fD" '(jgy/delete-this-file :which-key "delete this file")
@@ -571,7 +574,7 @@ Showing goes through `display-buffer', so popper picks the window."
 
     "s"  '(:ignore t :which-key "search")
     "sd" '(jgy/search-cwd :which-key "search this directory")
-    ;; lsp-mode feeds imenu, so this lists LSP document symbols in code buffers
+    ;; eglot feeds imenu, so this lists LSP document symbols in code buffers
     "si" '(consult-imenu :which-key "symbols in buffer")
     "sI" '(consult-imenu-multi :which-key "symbols in project")
     "sj" '(evil-show-jumps :which-key "jump list")
@@ -640,7 +643,7 @@ Showing goes through `display-buffer', so popper picks the window."
           "\\*Warnings\\*"
           "\\*Backtrace\\*"
           "\\*Async Shell Command\\*"
-          "\\*lsp-help\\*"
+          "\\*eldoc\\*"
           "Output\\*$"
           help-mode
           "eshell\\*\\(<[0-9]+>\\)?$"
@@ -655,18 +658,90 @@ Showing goes through `display-buffer', so popper picks the window."
 
 ;; workspace = 一组 buffer + 窗口布局，切走再切回来整套还原。
 ;; agent-shell-hq 本来就会自己 `(persp-mode 1)'，这里先配好再让它用
+
+(defvar jgy/persp-transient-names '("*agent-shell*")
+  "这些 workspace 只是临时选择器，不写进自动保存文件。")
+
+(defun jgy/persp-mark-transient (persp _phash)
+  "PERSP 名字在 `jgy/persp-transient-names' 里就打上不保存标记。"
+  (when (and persp (member (persp-name persp) jgy/persp-transient-names))
+    (persp-set-parameter 'dont-save-to-file t persp)))
+
+(defun jgy/persp-save-quietly ()
+  "空闲时静默落盘，被 kill 或崩溃也不至于丢掉整套布局。"
+  (when (bound-and-true-p persp-mode)
+    (let ((inhibit-message t))
+      (ignore-errors (persp-save-state-to-file)))))
+
+;; agent-shell buffer 里的 process/timer 存不下来，只留重开会话要的三样
+(defun jgy/persp-agent-shell-save (buffer tag _vars)
+  "把 BUFFER 存成 TAG 开头的 savelist：agent 类型、会话 id、工作目录。"
+  (with-current-buffer buffer
+    (list tag (buffer-name buffer)
+          (list (cons 'default-directory default-directory)
+                (cons 'identifier (map-nested-elt agent-shell--state
+                                                  '(:agent-config :identifier)))
+                (cons 'session-id (map-nested-elt agent-shell--state
+                                                  '(:session :id)))))))
+
+(defun jgy/persp-agent-shell-load (savelist &rest _)
+  "照 SAVELIST 重开 agent shell 并 resume 原会话；出错就跳过这个 buffer。"
+  (condition-case err
+      (cl-destructuring-bind (_tag bname vars) savelist
+        (let* ((default-directory (or (alist-get 'default-directory vars)
+                                      default-directory))
+               (identifier (alist-get 'identifier vars))
+               (session-id (alist-get 'session-id vars))
+               (config (and identifier session-id
+                            (require 'agent-shell nil t)
+                            (seq-find (lambda (config)
+                                        (eq (map-elt config :identifier) identifier))
+                                      (agent-shell--resolved-agent-configs)))))
+          (or (get-buffer bname)
+              (when config
+                (agent-shell--start :config config
+                                    :session-id session-id
+                                    :session-strategy 'new
+                                    :new-session t
+                                    :no-focus t)))))
+    (error
+     (message "[persp-mode] agent shell 恢复失败：%S" err)
+     nil)))
+
+;; 恢复布局用的隐藏 frame 会被排进 lighter 的 1 秒延时更新队列，
+;; 到点时 frame 已经删了，upstream 不查存活就报 frame-live-p
+(defun jgy/persp-skip-temp-frame-lighter (&optional frame)
+  "FRAME 是 persp-mode 的临时 frame 就跳过 lighter 更新。"
+  (not (equal "*persp-temp-frame*"
+              (frame-parameter (or frame (selected-frame)) 'name))))
+
 (use-package persp-mode
   :ensure t
   :init
   (setq persp-nil-name "main")
-  ;; 启动时不自动恢复上次会话，否则会把 agent-shell-hq 那个临时 workspace 拉回来，
-  ;; 也会和 `initial-buffer-choice' 打架；要恢复用 SPC TAB l
-  (setq persp-auto-resume-time -1)
+  ;; 启动 2 秒后自动恢复上次会话；dashboard 会被恢复的布局盖掉，要看它按 SPC a d
+  (setq persp-auto-resume-time 2.0)
+  ;; 退出、关 persp-mode、关最后一个 frame 都落盘，另外多留几份备份
+  (setq persp-auto-save-opt 3)
+  (setq persp-auto-save-num-of-backups 10)
   ;; 只收还没归属任何 workspace 的 buffer，magit/help 之类才会跟着当前 workspace 走
   (setq persp-add-buffer-on-after-change-major-mode 'free)
   ;; 从 main 里移除 buffer 时不再追问「要不要从所有 workspace 移除」
   (setq persp-remove-buffers-from-nil-persp-behaviour nil)
   :config
+  (add-hook 'persp-created-functions #'jgy/persp-mark-transient)
+  ;; 无文件 buffer 默认按 "*" 前缀被丢掉，这里补上存取规则，得挂在 persp-mode 启用前
+  (persp-def-buffer-save/load
+   :mode 'eshell-mode :tag-symbol 'def-eshell-buffer
+   :save-vars '(major-mode default-directory))
+  (persp-def-buffer-save/load
+   :mode 'agent-shell-mode :tag-symbol 'def-agent-shell-buffer
+   :save-vars '(major-mode default-directory)
+   :save-function #'jgy/persp-agent-shell-save
+   :load-function #'jgy/persp-agent-shell-load)
+  (run-with-idle-timer 300 t #'jgy/persp-save-quietly)
+  (advice-add 'persp-update-frame-lighter :before-while
+              #'jgy/persp-skip-temp-frame-lighter)
   (persp-mode 1))
 
 (when (eq system-type 'darwin)
@@ -735,10 +810,15 @@ Showing goes through `display-buffer', so popper picks the window."
 	:custom
 	(magit-ediff-dwim-show-on-hunks t)
   :config
+	(setq magit-display-buffer-function 'magit-display-buffer-fullframe-status-topleft-v1)
+  (setq magit-bury-buffer-function 'magit-restore-window-configuration)
   ;; magit only forwards prompts it recognizes; anything else silently
   ;; stalls in *magit-process*
   (add-to-list 'magit-process-password-prompt-regexps
-               "^.*Verification code: ?$"))
+               "^.*Verification code: ?$")
+	(magit-add-section-hook 'magit-status-sections-hook
+                        #'magit-insert-worktrees
+                        nil t))
 
 (use-package hl-todo
   :ensure t
@@ -780,11 +860,11 @@ Showing goes through `display-buffer', so popper picks the window."
   (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
   (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
 
-;; lsp advertises `snippetSupport' only when `yas-minor-mode' is fbound, which the
+;; eglot advertises `snippetSupport' only when `yas-minor-mode' is fbound, which the
 ;; `:hook' autoload satisfies from startup; servers then send parameter placeholders
 (use-package yasnippet
   :ensure t
-  :hook (lsp-mode . yas-minor-mode))
+  :hook (eglot-managed-mode . yas-minor-mode))
 
 ;; xxx-mode -> xxx-ts-mode 的 remap。只列 Emacs 30 自带 ts-mode 的语言：
 ;; haskell/markdown 的 ts-mode 要等 31 或第三方包，`treesit-auto--ready-p' 会跳过它们
@@ -800,43 +880,41 @@ Showing goes through `display-buffer', so popper picks the window."
   ;; 得把 ts-mode 直接注册进 `auto-mode-alist'（只注册 grammar 已装好的）
   (treesit-auto-add-to-auto-mode-alist))
 
-(use-package lsp-mode
-  :ensure t
+(use-package eglot
+  :ensure nil
+  :ensure-system-package (jdtls . "brew install jdtls")
   :init
   ;; jdt.ls 这种消息量大的 server，64K 的默认管道缓冲会成为瓶颈
   (setq read-process-output-max (* 1024 1024))
-  (setq lsp-keymap-prefix "C-c l")
-  ;; flycheck is not installed; pin the backend so a stray dependency cannot switch it
-  (setq lsp-diagnostics-provider :flymake)
   ;; treesit-auto 会把 go/lua/java 换成 ts-mode，那时只有 ts-mode 的 hook 会跑；
   ;; grammar 没装时又退回旧 mode，所以两边都挂
-  :hook ((go-mode . lsp-deferred)
-         (go-ts-mode . lsp-deferred)
-         (haskell-mode . lsp-deferred)
-         (lua-mode . lsp-deferred)
-         (lua-ts-mode . lsp-deferred)
-         (java-mode . lsp-deferred)
-         (java-ts-mode . lsp-deferred)
-         (lsp-mode . lsp-enable-which-key-integration))
-  :commands (lsp lsp-deferred)
-	:config
-  (with-eval-after-load 'evil
-    (evil-define-minor-mode-key 'normal 'lsp-mode
-      (kbd "K")  #'lsp-describe-thing-at-point
-      (kbd "gD") #'lsp-find-references
-      (kbd "gI") #'lsp-find-implementation)))
-
-(use-package lsp-ui
-  :ensure t
-  :commands lsp-ui-mode)
-
-(use-package dap-mode
-  :ensure t
-  :commands (dap-debug dap-debug-last dap-debug-restart dap-breakpoint-toggle
-             dap-continue dap-next dap-step-in dap-step-out dap-disconnect
-             dap-eval dap-eval-thing-at-point dap-switch-stack-frame)
+  :hook ((go-mode . eglot-ensure)
+         (go-ts-mode . eglot-ensure)
+         (haskell-mode . eglot-ensure)
+         (lua-mode . eglot-ensure)
+         (lua-ts-mode . eglot-ensure)
+         (java-mode . eglot-ensure)
+         (java-ts-mode . eglot-ensure))
+  :commands (eglot eglot-ensure)
   :config
-  (dap-auto-configure-mode 1))
+  (with-eval-after-load 'evil
+    (evil-define-minor-mode-key 'normal 'eglot--managed-mode
+      (kbd "K")  #'eldoc-doc-buffer
+      (kbd "gD") #'xref-find-references
+      (kbd "gI") #'eglot-find-implementation)))
+
+;; DAP client；dap-mode 硬依赖 lsp-mode，所以换成 dape
+(use-package dape
+  :ensure t
+  :commands (dape dape-breakpoint-toggle dape-breakpoint-remove-all
+             dape-continue dape-next dape-step-in dape-step-out
+             dape-quit dape-restart dape-evaluate-expression
+             dape-select-stack dape-info)
+  :custom
+  (dape-buffer-window-arrangement 'right)
+  :config
+  ;; 断点跟着文件走，不必先起 session 再打
+  (dape-breakpoint-global-mode 1))
 
 ;; Haskell
 (use-package haskell-mode
@@ -851,7 +929,7 @@ Showing goes through `display-buffer', so popper picks the window."
   :demand t
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
-  ;; java formatting belongs to jdt.ls, see `lsp-java-format-tab-size'
+  ;; java formatting belongs to jdt.ls
   (setf (alist-get 'java-mode apheleia-mode-alist nil t) nil)
   (setf (alist-get 'java-ts-mode apheleia-mode-alist nil t) nil)
   (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist nil t) nil)
@@ -872,8 +950,8 @@ Showing goes through `display-buffer', so popper picks the window."
 ;; Java
 (defvar jgy/sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/"))
 
-;; global tab-width is 2; lsp-java derives the jdt.ls formatter settings
-;; from `c-basic-offset' and `indent-tabs-mode', so these cover both sides
+;; global tab-width is 2; jdt.ls derives its formatter settings from
+;; `c-basic-offset' and `indent-tabs-mode', so these cover both sides
 (defun jgy/java-indent-setup ()
   (setq-local indent-tabs-mode nil
               tab-width 4)
@@ -889,30 +967,33 @@ Showing goes through `display-buffer', so popper picks the window."
   :ensure t
   :defer t)
 
-(use-package lsp-java
-  :ensure t
-  ;; lsp-mode 自己已经延迟到第一个 java buffer；那时再连带把 lsp-java 拉起来
-  :after lsp-mode
-  :init
-  ;; eclipse.jdt.ls itself needs JDK 21+, independent of what a project targets
-  (setq lsp-java-java-path (expand-file-name "25.0.3-tem/bin/java" jgy/sdkman-java-dir))
-  ;; JDKs offered to projects; :default is used when a project declares no release
-  (setq lsp-java-configuration-runtimes
-        (vector (list :name "JavaSE-1.8"
-                      :path (expand-file-name "8.0.492-zulu" jgy/sdkman-java-dir))
-                (list :name "JavaSE-17"
-                      :path (expand-file-name "17.0.19-tem" jgy/sdkman-java-dir)
+;; eclipse.jdt.ls 自己要 JDK 21+，跟项目 target 无关；jdtls 包装脚本默认认 JAVA_HOME，
+;; 而 shell 里那个是 17，所以显式指过去。
+;; 另外 jdt.ls 没有注解处理，Lombok 生成的成员（@Slf4j 的 `log'、@Data 的 accessor）
+;; 要靠这个 agent 去 patch ecj
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               `((java-mode java-ts-mode)
+                 . ("jdtls"
+                    "--java-executable"
+                    ,(expand-file-name "25.0.3-tem/bin/java" jgy/sdkman-java-dir)
+                    ,(concat "--jvm-arg=-javaagent:"
+                             (no-littering-expand-var-file-name "lombok.jar"))))))
+
+;; JDKs offered to projects; :default is used when a project declares no release。
+;; eglot 是在 temp buffer 里读这个变量的，挂 mode hook 里 setq-local 它看不见，只能设全局值
+(with-eval-after-load 'eglot
+  (setq-default eglot-workspace-configuration
+                `(:java
+                  (:configuration
+                   (:runtimes
+                    [(:name "JavaSE-1.8"
+                      :path ,(expand-file-name "8.0.492-zulu" jgy/sdkman-java-dir))
+                     (:name "JavaSE-17"
+                      :path ,(expand-file-name "17.0.19-tem" jgy/sdkman-java-dir)
                       :default t)
-                (list :name "JavaSE-25"
-                      :path (expand-file-name "25.0.3-tem" jgy/sdkman-java-dir))))
-  (setq lsp-java-save-actions-organize-imports nil)
-  :config
-  ;; jdt.ls has no annotation processing of its own, so Lombok-generated
-  ;; members (@Slf4j's `log', @Data's accessors) need the agent to patch ecj
-  (add-to-list 'lsp-java-vmargs
-               (concat "-javaagent:" (no-littering-expand-var-file-name "lombok.jar"))
-               t)
-  (require 'dap-java))
+                     (:name "JavaSE-25"
+                      :path ,(expand-file-name "25.0.3-tem" jgy/sdkman-java-dir))])))))
 
 ;; libghostty-vt terminal; the native module is a prebuilt binary fetched on first use
 (use-package ghostel
@@ -959,16 +1040,38 @@ Showing goes through `display-buffer', so popper picks the window."
 	:ensure-system-package
 	((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp")
-	 (pi-acp . "npm install -g @earendil-works/pi-coding-agent")
+	 (pi . "npm install -g @earendil-works/pi-coding-agent")
+	 (pi-acp . "npm install -g pi-acp")
 	 (codex-acp . "npm install -g @agentclientprotocol/codex-acp")
 	 (copilot . "npm install -g @github/copilot"))
-  :commands (agent-shell agent-shell-anthropic-start-claude-code
-						 agent-shell-pi-start-agent
-						 agent-shell-openai-start-codex
-						 agent-shell-github-start-copilot)
+;;  :commands (agent-shell agent-shell-anthropic-start-claude-code
+;;						 agent-shell-pi-start-agent
+;;						 agent-shell-openai-start-codex
+;;						 agent-shell-github-start-copilot)
   :custom
   (agent-shell-context-sources '(region))
 	(agent-shell-session-restore-verbosity 'full))
+
+(use-package agent-shell-manager
+	:ensure (:host github :repo "jethrokuan/agent-shell-manager")
+	:commands (agent-shell-manager-toggle)
+	:config
+	;; 包只绑了 emacs state，normal state 下这些单键全被 evil 吃掉。
+	;; 刷新按 evil 惯例挪到 gr，kill/logging 改大写，留着 k/l 当移动键。
+	(with-eval-after-load 'evil
+		(evil-set-initial-state 'agent-shell-manager-mode 'normal)
+		(evil-define-key* 'normal agent-shell-manager-mode-map
+			(kbd "RET") #'agent-shell-manager-goto
+			"gr" #'agent-shell-manager-refresh
+			"K"  #'agent-shell-manager-kill
+			"c"  #'agent-shell-manager-new
+			"r"  #'agent-shell-manager-restart
+			"d"  #'agent-shell-manager-delete-killed
+			"m"  #'agent-shell-manager-set-mode
+			"M"  #'agent-shell-manager-set-model
+			"t"  #'agent-shell-manager-view-traffic
+			"L"  #'agent-shell-manager-toggle-logging
+			"q"  #'quit-window)))
 
 (use-package gptel
   :ensure t
@@ -982,7 +1085,14 @@ Showing goes through `display-buffer', so popper picks the window."
 	(setq initial-buffer-choice #'agent-shell-dashboard)
 	:config
 	(add-hook 'agent-shell-dashboard-mode-hook
-						(lambda () (evil-commentary-mode -1))))
+						;; dashboard 的 g 是刷新，本地覆盖掉 evil-commentary 的 gc/gy 前缀
+						(lambda ()
+							(evil-local-set-key 'normal "g" #'agent-shell-dashboard-refresh))))
+
+;; agent-shell-hq-peek 要 posframe，但主文件的 Package-Requires 没写，elpaca 不会自动拉，先声明占好 load-path
+(use-package posframe
+  :ensure t
+  :defer t)
 
 (use-package agent-shell-hq
   :ensure (:host nil :repo "https://github.com/sreenivasvrao/agent-shell-hq"
