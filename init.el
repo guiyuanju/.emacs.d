@@ -152,8 +152,32 @@
               ("M-n" . vertico-repeat-next))
   :hook (minibuffer-setup . vertico-repeat-save))
 
+(defvar jgy/consult-recent-file-original-items nil
+  "consult 原来的 recent file `:items'，包一层之前先存下来。")
+
+(defun jgy/consult-recent-file-items ()
+  "把当前 workspace 的最近文件喂给 consult 原来的 `:items'。"
+  (let ((recentf-list (jgy/persp-recentf-list)))
+    (funcall jgy/consult-recent-file-original-items)))
+
+(defun jgy/consult-recentf-scoped (fn &rest args)
+  "调 FN 时把 `recentf-list' 收窄到当前 workspace。"
+  (let ((recentf-list (jgy/persp-recentf-list)))
+    (apply fn args)))
+
 (use-package consult
-  :ensure t)
+  :ensure t
+  :config
+  ;; buffer 候选只列当前 workspace 的，别的 workspace 的按 o narrow 还能翻出来
+  (setq consult-buffer-list-function #'persp-buffer-list-restricted)
+  ;; 最近文件同样按 workspace 收窄，consult-buffer 的 File 源和 SPC f r 都走这里
+  (unless jgy/consult-recent-file-original-items
+    (setq jgy/consult-recent-file-original-items
+          (plist-get consult-source-recent-file :items))
+    (setq consult-source-recent-file
+          (plist-put (copy-sequence consult-source-recent-file)
+                     :items #'jgy/consult-recent-file-items)))
+  (advice-add 'consult-recent-file :around #'jgy/consult-recentf-scoped))
 
 ;; Optionally use the `orderless' completion style.
 (use-package orderless
@@ -350,6 +374,11 @@
   (call-process "open" nil 0 nil "-R"
                 (or (buffer-file-name (buffer-base-buffer)) default-directory)))
 
+(defun jgy/ibuffer-workspace ()
+  "ibuffer 只列当前 workspace 的 buffer。"
+  (interactive)
+  (ibuffer nil "*Ibuffer*" '((predicate . (persp-contain-buffer-p (current-buffer))))))
+
 (defun jgy/toggle-popup-buffer (buffer create-fn)
   "Hide BUFFER when it has a window, show it when it exists, else call CREATE-FN.
 Showing goes through `display-buffer', so popper picks the window."
@@ -454,7 +483,7 @@ Showing goes through `display-buffer', so popper picks the window."
     "bb" '(consult-buffer :which-key "switch buffer")
     "bB" '(consult-project-buffer :which-key "switch project buffer")
     "bd" '(kill-current-buffer :which-key "kill buffer")
-    "bi" '(ibuffer :which-key "ibuffer")
+    "bi" '(jgy/ibuffer-workspace :which-key "ibuffer")
     "bl" '(evil-switch-to-windows-last-buffer :which-key "last buffer")
     "bm" '(bookmark-set :which-key "set bookmark")
     "bn" '(next-buffer :which-key "next buffer")
@@ -528,6 +557,7 @@ Showing goes through `display-buffer', so popper picks the window."
     "gR" '(vc-revert :which-key "revert file")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
     "gt" '(git-timemachine :which-key "file time machine")
+    "gw" '(jgy/worktree-open :which-key "worktree workspace")
     "gy" '(git-link :which-key "yank link to line")
     "gY" '(git-link-commit :which-key "yank link to commit")
 
@@ -659,6 +689,26 @@ Showing goes through `display-buffer', so popper picks the window."
 ;; workspace = 一组 buffer + 窗口布局，切走再切回来整套还原。
 ;; agent-shell-hq 本来就会自己 `(persp-mode 1)'，这里先配好再让它用
 
+(defun jgy/persp-recentf-track (file &rest _)
+  "FILE 确实进了 `recentf-list' 就记到当前 workspace 名下。"
+  (when (bound-and-true-p persp-mode)
+    (let ((file (recentf-expand-file-name file))
+          (persp (persp-get-current)))
+      (when (and (not (persp-nil-p persp)) (member file recentf-list))
+        (persp-set-parameter
+         'jgy/recentf
+         (seq-take (cons file (delete file (persp-parameter 'jgy/recentf persp)))
+                   recentf-max-saved-items)
+         persp)))))
+
+(defun jgy/persp-recentf-list ()
+  "当前 workspace 打开过的最近文件，顺序仍按全局的新旧排。
+main 和还没记录过任何文件的 workspace 给完整列表。"
+  (if-let* (((bound-and-true-p persp-mode))
+            (files (persp-parameter 'jgy/recentf)))
+      (seq-filter (lambda (file) (member file files)) recentf-list)
+    recentf-list))
+
 (defvar jgy/persp-transient-names '("*agent-shell*")
   "这些 workspace 只是临时选择器，不写进自动保存文件。")
 
@@ -728,6 +778,9 @@ Showing goes through `display-buffer', so popper picks the window."
   (setq persp-add-buffer-on-after-change-major-mode 'free)
   ;; 从 main 里移除 buffer 时不再追问「要不要从所有 workspace 移除」
   (setq persp-remove-buffers-from-nil-persp-behaviour nil)
+  ;; switch-to-buffer 之类的 `read-buffer' 也只提示当前 workspace 的 buffer；
+  ;; next/previous-buffer 由默认的 `persp-set-frame-buffer-predicate' 管
+  (setq persp-set-read-buffer-function t)
   :config
   (add-hook 'persp-created-functions #'jgy/persp-mark-transient)
   ;; 无文件 buffer 默认按 "*" 前缀被丢掉，这里补上存取规则，得挂在 persp-mode 启用前
@@ -739,10 +792,113 @@ Showing goes through `display-buffer', so popper picks the window."
    :save-vars '(major-mode default-directory)
    :save-function #'jgy/persp-agent-shell-save
    :load-function #'jgy/persp-agent-shell-load)
+  (advice-add 'recentf-add-file :after #'jgy/persp-recentf-track)
   (run-with-idle-timer 300 t #'jgy/persp-save-quietly)
   (advice-add 'persp-update-frame-lighter :before-while
               #'jgy/persp-skip-temp-frame-lighter)
   (persp-mode 1))
+
+;; worktree workspace：选 repo -> 选/建分支 -> 建 worktree -> 进对应 workspace
+(defvar jgy/code-directory "~/Code/okj/"
+  "各个 repo 所在的目录。")
+
+(defvar jgy/worktree-directory "~/Code/okj/worktree/"
+  "所有 worktree 的存放目录，它本身不是 repo。")
+
+(defun jgy/worktree--slug (branch)
+  "BRANCH 里的斜杠换成横线，用来拼目录名和 workspace 名。"
+  (replace-regexp-in-string "/" "-" branch))
+
+(defun jgy/worktree--repos ()
+  "`jgy/code-directory' 下除 `jgy/worktree-directory' 以外的 repo 名字。"
+  (let ((root (expand-file-name jgy/code-directory))
+        (worktree-root (file-name-as-directory
+                        (expand-file-name jgy/worktree-directory))))
+    (seq-filter
+     (lambda (name)
+       (let ((dir (file-name-as-directory (expand-file-name name root))))
+         ;; .git 在普通 repo 里是目录，在 worktree 里是文件
+         (and (not (equal dir worktree-root))
+              (file-exists-p (expand-file-name ".git" dir)))))
+     (directory-files root nil directory-files-no-dot-files-regexp))))
+
+(defun jgy/worktree--branches (repo-dir)
+  "REPO-DIR 的本地分支加远端分支，远端的去掉 remote 前缀后与本地去重。"
+  (let ((locals (process-lines "git" "-C" repo-dir "for-each-ref"
+                               "--format=%(refname:short)" "refs/heads"))
+        (remotes (seq-keep
+                  (lambda (ref)
+                    ;; origin/HEAD 和 remote 本身的那条 ref 都不是分支
+                    (when (string-match "\\`[^/]+/\\(.+\\)\\'" ref)
+                      (let ((branch (match-string 1 ref)))
+                        (unless (equal branch "HEAD") branch))))
+                  (process-lines "git" "-C" repo-dir "for-each-ref"
+                                 "--format=%(refname:short)" "refs/remotes"))))
+    (seq-uniq (append locals remotes))))
+
+(defun jgy/worktree--git (repo-dir &rest args)
+  "在 REPO-DIR 里跑 git ARGS，失败就把 git 自己的输出报出来。"
+  (with-temp-buffer
+    (unless (zerop (apply #'call-process "git" nil t nil "-C" repo-dir args))
+      (user-error "git %s: %s" (string-join args " ")
+                  (string-trim (buffer-string))))))
+
+(defun jgy/worktree--ref-p (repo-dir ref)
+  (zerop (call-process "git" nil nil nil "-C" repo-dir
+                       "show-ref" "--verify" "--quiet" ref)))
+
+(defun jgy/worktree--checkout-of (repo-dir branch)
+  "REPO-DIR 里已经 checkout 了 BRANCH 的目录，主 checkout 也算，没有就返回 nil。"
+  (with-temp-buffer
+    (when (zerop (call-process "git" nil t nil "-C" repo-dir
+                               "worktree" "list" "--porcelain"))
+      (goto-char (point-min))
+      (let ((target (concat "branch refs/heads/" branch))
+            path found)
+        (while (and (not found) (not (eobp)))
+          (let ((line (buffer-substring (line-beginning-position)
+                                        (line-end-position))))
+            (cond ((string-prefix-p "worktree " line)
+                   (setq path (string-remove-prefix "worktree " line)))
+                  ((equal line target) (setq found path))))
+          (forward-line 1))
+        found))))
+
+(defun jgy/worktree--ensure (repo-dir branch path)
+  "返回 BRANCH 的工作目录：已经 checkout 过就用那个，否则在 PATH 上建 worktree。
+本地分支直接用，只在远端的跟踪它，都不存在的从 HEAD 新建。"
+  (let ((existing (or (jgy/worktree--checkout-of repo-dir branch)
+                      (and (file-directory-p path) path))))
+    (if existing
+        (progn (message "Worktree exists: %s" (abbreviate-file-name existing))
+               existing)
+      (apply #'jgy/worktree--git repo-dir
+             (cond
+              ((jgy/worktree--ref-p repo-dir (concat "refs/heads/" branch))
+               (list "worktree" "add" path branch))
+              ((jgy/worktree--ref-p repo-dir (concat "refs/remotes/origin/" branch))
+               (list "worktree" "add" "-b" branch path (concat "origin/" branch)))
+              (t (list "worktree" "add" "-b" branch path))))
+      (message "Created worktree: %s" (abbreviate-file-name path))
+      path)))
+
+(defun jgy/worktree-open ()
+  "选一个 repo 和分支，按需建 worktree，再切到该分支的 workspace 打开它。
+workspace 按分支命名，所以不同 repo 的同名分支落在同一个 workspace 里。
+分支列表里没有的名字用 M-RET 直接输入，本地分支和 worktree 都会新建。"
+  (interactive)
+  (let* ((repos (or (jgy/worktree--repos)
+                    (user-error "No repo under %s" jgy/code-directory)))
+         (repo (completing-read "Repo: " repos nil t))
+         (repo-dir (expand-file-name repo (expand-file-name jgy/code-directory)))
+         (branch (string-trim (completing-read "Branch: "
+                                               (jgy/worktree--branches repo-dir))))
+         (path (expand-file-name (concat repo "_" (jgy/worktree--slug branch))
+                                 (expand-file-name jgy/worktree-directory))))
+    (when (string-empty-p branch) (user-error "Empty branch name"))
+    (let ((dir (jgy/worktree--ensure repo-dir branch path)))
+      (persp-switch (jgy/worktree--slug branch))
+      (persp-add-buffer (dired dir)))))
 
 (when (eq system-type 'darwin)
   (setq insert-directory-program "/opt/homebrew/bin/gls"))
