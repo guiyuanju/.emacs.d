@@ -503,6 +503,10 @@ Showing goes through `display-buffer', so popper picks the window."
     "fS" '(write-file :which-key "save as...")
     "fy" '(jgy/yank-buffer-path :which-key "yank file path")
     "fY" '(jgy/yank-buffer-path-relative :which-key "yank project path")
+    "f-" '(dired-jump :which-key "dired here")
+    "fd" '(dirvish :which-key "dirvish")
+    "fo" '(jgy/reveal-in-finder :which-key "reveal in finder")
+    "fp" '(dirvish-side :which-key "project sidebar")
 
     "g"  '(:ignore t :which-key "git")
     "g/" '(magit-dispatch :which-key "magit dispatch")
@@ -542,10 +546,6 @@ Showing goes through `display-buffer', so popper picks the window."
     "nu" '(obsidian-update :which-key "rescan vault")
 
     "o"  '(:ignore t :which-key "open")
-    "o-" '(dired-jump :which-key "dired here")
-    "od" '(dirvish :which-key "dirvish")
-    "oo" '(jgy/reveal-in-finder :which-key "reveal in finder")
-    "op" '(dirvish-side :which-key "project sidebar")
     "ou" '(vundo :which-key "undo tree")
 
     "p"  '(:ignore t :which-key "project")
