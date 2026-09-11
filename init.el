@@ -9,7 +9,6 @@
 (tool-bar-mode -1) ; disable tool bar, the same line as close, maximize buttons
 (scroll-bar-mode -1) ; disable visible scrollbar
 (tooltip-mode -1) ; disable tooltips
-(set-fringe-mode 0) ; fringe
 (blink-cursor-mode -1) ; disable cursor blinking
 (global-hl-line-mode 1) ; highlight current line
 (global-display-line-numbers-mode 1) ; enable line numbers in every buffer
@@ -18,16 +17,16 @@
 (set-frame-font (format "Iosevka Nerd Font Mono %d" my-font-size) nil t)
 (setq-default tab-width 2)
 
-;; * Function
+;; * Editor
 (setq global-auto-revert-non-file-buffers t) ; also revert Dired and other non-file buffers
 (global-auto-revert-mode 1) ; revert buffers when underlying files has changed
-(xterm-mouse-mode 1) ; enable mouse in terminal emacs
 (setq enable-recursive-minibuffers t) ; support opening new minibuffers from inside existing minibuffers.
 (setq read-extended-command-predicate #'command-completion-default-include-p) ; hide commands in M-x which do not work in the current mode
 (winner-mode 1) ; window layout undo/redo, bound to SPC w u / SPC w U
 (electric-pair-mode 1) ; 自动配对括号引号，`electric-pair-preserve-balance' 会避开已配对的
 (setq delete-by-moving-to-trash t)
 
+;; * Packages
 ;; Elpaca Elisp Package Manager
 (defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
@@ -88,7 +87,7 @@
 (setq history-length 1000)
 (savehist-mode 1) ; save what you enter into minibuffer prompts, M-p / M-n 翻
 
-;; Themes
+;; * Theme
 (use-package doom-themes
   :ensure t
   :custom
@@ -99,31 +98,17 @@
 
   (doom-themes-org-config))
 
-;; Path
+;; * Environment
+;; GUI 和 daemon 起的 Emacs 都不继承登录 shell 的环境，
+;; jdtls / rg / gls / npm 装的那些 agent 全靠它才找得到
 (use-package exec-path-from-shell
   :ensure t
-  :if (memq window-system '(mac ns x))
+  :if (eq system-type 'darwin)
   :config
   (setq exec-path-from-shell-variables '("PATH" "GOPATH" "JAVA_HOME"))
   (exec-path-from-shell-initialize))
 
-;; * Clipboard
-;; clipetty pushes kills out over OSC 52 (survives ssh/tmux), pbpaste pulls the other way
-(use-package clipetty
-  :ensure t
-  :config
-  (global-clipetty-mode 1))
-
-(defun jgy/pbpaste ()
-  (let ((text (with-temp-buffer
-                (call-process "pbpaste" nil t nil "-Prefer" "txt")
-                (buffer-string))))
-    (unless (string-empty-p text) text)))
-
-(unless (display-graphic-p)
-  (setq interprogram-paste-function #'jgy/pbpaste))
-
-;; Vertico
+;; * Completion
 (use-package vertico
   :ensure t
   :demand t ; :bind alone would defer the package and never run `vertico-mode'
@@ -152,32 +137,9 @@
               ("M-n" . vertico-repeat-next))
   :hook (minibuffer-setup . vertico-repeat-save))
 
-(defvar jgy/consult-recent-file-original-items nil
-  "consult 原来的 recent file `:items'，包一层之前先存下来。")
-
-(defun jgy/consult-recent-file-items ()
-  "把当前 workspace 的最近文件喂给 consult 原来的 `:items'。"
-  (let ((recentf-list (jgy/persp-recentf-list)))
-    (funcall jgy/consult-recent-file-original-items)))
-
-(defun jgy/consult-recentf-scoped (fn &rest args)
-  "调 FN 时把 `recentf-list' 收窄到当前 workspace。"
-  (let ((recentf-list (jgy/persp-recentf-list)))
-    (apply fn args)))
-
+;; 候选按 workspace 收窄的部分见下面 persp-mode 那节
 (use-package consult
-  :ensure t
-  :config
-  ;; buffer 候选只列当前 workspace 的，别的 workspace 的按 o narrow 还能翻出来
-  (setq consult-buffer-list-function #'persp-buffer-list-restricted)
-  ;; 最近文件同样按 workspace 收窄，consult-buffer 的 File 源和 SPC f r 都走这里
-  (unless jgy/consult-recent-file-original-items
-    (setq jgy/consult-recent-file-original-items
-          (plist-get consult-source-recent-file :items))
-    (setq consult-source-recent-file
-          (plist-put (copy-sequence consult-source-recent-file)
-                     :items #'jgy/consult-recent-file-items)))
-  (advice-add 'consult-recent-file :around #'jgy/consult-recentf-scoped))
+  :ensure t)
 
 ;; Optionally use the `orderless' completion style.
 (use-package orderless
@@ -191,7 +153,7 @@
 (use-package marginalia
   :ensure t
   :bind (:map minibuffer-local-map
-							("M-A" . marginalia-cycle))
+              ("M-A" . marginalia-cycle))
   ;; in `:init' because `:bind' defers the package
   :init
   (marginalia-mode 1))
@@ -199,9 +161,7 @@
 ;; act on the candidate at point in the minibuffer (or on the thing at point)
 (use-package embark
   :ensure t
-  ;; C-; does not survive most terminals, hence the C-c fallback
   :bind (("C-;" . embark-act)
-         ("C-c ;" . embark-act)
          ("C-c C-;" . embark-export))
   :init
   ;; 任何前缀键后按 C-h 走 completing-read，比 which-key 的分页好翻
@@ -219,6 +179,10 @@
   :ensure t
   :after (embark consult)
   :hook (embark-collect-mode . consult-preview-at-point-mode))
+
+(use-package nerd-icons
+  :ensure t
+  :defer t)
 
 (use-package nerd-icons-completion
   :ensure t
@@ -255,6 +219,7 @@
   (add-hook 'completion-at-point-functions #'cape-file)
   (add-hook 'completion-at-point-functions #'cape-elisp-block))
 
+;; * Evil
 (use-package evil
   :ensure t
   :init
@@ -299,8 +264,8 @@
   :config
   (evil-commentary-mode 1))
 
-
-;; * Commands used by the leader map
+;; * Commands
+;; 下面 leader map 用到的自定义命令
 (defun jgy/delete-this-file (&optional path force-p)
   "Delete PATH, defaulting to the current buffer's file, and kill its buffer."
   (interactive (list (buffer-file-name (buffer-base-buffer)) current-prefix-arg))
@@ -387,9 +352,9 @@ Showing goes through `display-buffer', so popper picks the window."
    ((get-buffer-window buffer) (popper--delete-popup (get-buffer-window buffer)))
    (t (display-buffer buffer))))
 
-(defun jgy/eshell-buffer-name (&optional global)
-  "Name `project-eshell' would use here, or the plain one when GLOBAL."
-  (if (and (not global) (project-current))
+(defun jgy/eshell-buffer-name ()
+  "Name `project-eshell' would use here, or the plain one outside a project."
+  (if (project-current)
       (project-prefixed-buffer-name "eshell")
     (or (bound-and-true-p eshell-buffer-name) "*eshell*")))
 
@@ -398,11 +363,6 @@ Showing goes through `display-buffer', so popper picks the window."
   (interactive)
   (jgy/toggle-popup-buffer (get-buffer (jgy/eshell-buffer-name))
                            (if (project-current) #'project-eshell #'eshell)))
-
-(defun jgy/eshell-toggle-global ()
-  "Toggle the project-independent eshell popup."
-  (interactive)
-  (jgy/toggle-popup-buffer (get-buffer (jgy/eshell-buffer-name t)) #'eshell))
 
 (defun jgy/ghostel-toggle-global ()
   "Toggle the project-independent ghostel popup."
@@ -418,6 +378,7 @@ Showing goes through `display-buffer', so popper picks the window."
       (jgy/toggle-popup-buffer (car (ghostel-project-buffer-list)) #'ghostel-project)
     (jgy/ghostel-toggle-global)))
 
+;; * Keybindings
 (use-package general
   :ensure t
   :config
@@ -463,21 +424,20 @@ Showing goes through `display-buffer', so popper picks the window."
 
     "a"  '(:ignore t :which-key "ai")
     "aa" '(agent-shell :which-key "agent shell")
-		"ad" '(agent-shell-manager-toggle :which-key "agent shell manager")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "claude code")
-    ;; "ad" '(agent-shell-dashboard :which-key "agent dashboard")
+    "ad" '(agent-shell-manager-toggle :which-key "agent shell manager")
     "ah" '(agent-shell-hq-toggle :which-key "agent sidebar")
-    "aP" '(agent-shell-hq-peek :which-key "peek agent")
     "ai" '(agent-shell-pi-start-agent :which-key "pi agent")
+    "aP" '(agent-shell-hq-peek :which-key "peek agent")
 
-    "ag" '(gptel :which-key "gptel chat")
-    "as" '(gptel-send :which-key "send")
-    "am" '(gptel-menu :which-key "gptel menu")
-    "ar" '(gptel-rewrite :which-key "rewrite region")
-    "ak" '(gptel-abort :which-key "abort request")
-    "ap" '(gptel-system-prompt :which-key "system prompt")
     "a+" '(gptel-add :which-key "add to context")
     "af" '(gptel-add-file :which-key "add file to context")
+    "ag" '(gptel :which-key "gptel chat")
+    "ak" '(gptel-abort :which-key "abort request")
+    "am" '(gptel-menu :which-key "gptel menu")
+    "ap" '(gptel-system-prompt :which-key "system prompt")
+    "ar" '(gptel-rewrite :which-key "rewrite region")
+    "as" '(gptel-send :which-key "send")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch buffer")
@@ -620,13 +580,13 @@ Showing goes through `display-buffer', so popper picks the window."
     "td" '(toggle-debug-on-error :which-key "debug on error")
     "te" '(jgy/eshell-toggle :which-key "eshell")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
-    "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tI" '(indent-tabs-mode :which-key "indent with tabs")
     "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
     "tn" '(popper-cycle :which-key "next popup")
     "tp" '(popper-toggle :which-key "popup")
     "tP" '(popper-toggle-type :which-key "popup <-> normal window")
     "tr" '(read-only-mode :which-key "read-only")
+    "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tT" '(consult-theme :which-key "choose theme")
     "tw" '(visual-line-mode :which-key "soft line wrapping"))
 
@@ -656,10 +616,11 @@ Showing goes through `display-buffer', so popper picks the window."
     "[t" #'hl-todo-previous
     "zx" #'kill-current-buffer))
 
+;; * Popups
 ;; 把辅助 buffer 收进底部可切换的 popup 窗口
 (use-package popper
   :ensure t
-  ;; 终端下收不到 C-`，leader 上另有 SPC t p / SPC t n；这两个键留给 GUI
+  ;; leader 上另有 SPC t p / SPC t n
   :bind (("C-`" . popper-toggle)
          ("M-`" . popper-cycle))
   :init
@@ -686,9 +647,15 @@ Showing goes through `display-buffer', so popper picks the window."
   (popper-mode 1)
   (popper-echo-mode 1))
 
+;; libghostty-vt terminal; the native module is a prebuilt binary fetched on first use
+(use-package ghostel
+  :ensure t
+  :commands (ghostel ghostel-project ghostel-project-next ghostel-project-previous
+             ghostel-project-buffer-list))
+
+;; * Workspaces
 ;; workspace = 一组 buffer + 窗口布局，切走再切回来整套还原。
 ;; agent-shell-hq 本来就会自己 `(persp-mode 1)'，这里先配好再让它用
-
 (defun jgy/persp-recentf-track (file &rest _)
   "FILE 确实进了 `recentf-list' 就记到当前 workspace 名下。"
   (when (bound-and-true-p persp-mode)
@@ -708,6 +675,18 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
             (files (persp-parameter 'jgy/recentf)))
       (seq-filter (lambda (file) (member file files)) recentf-list)
     recentf-list))
+
+(defvar jgy/consult-recent-file-items nil
+  "consult 原来的 recent file `:items'，包一层之前先存下来。")
+
+(defun jgy/persp-recentf-scoped (fn &rest args)
+  "调 FN 时把 `recentf-list' 收窄到当前 workspace。"
+  (let ((recentf-list (jgy/persp-recentf-list)))
+    (apply fn args)))
+
+(defun jgy/persp-consult-recent-file-items ()
+  "把当前 workspace 的最近文件喂给 consult 原来的 `:items'。"
+  (jgy/persp-recentf-scoped jgy/consult-recent-file-items))
 
 (defvar jgy/persp-transient-names '("*agent-shell*")
   "这些 workspace 只是临时选择器，不写进自动保存文件。")
@@ -769,7 +748,7 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
   :ensure t
   :init
   (setq persp-nil-name "main")
-  ;; 启动 2 秒后自动恢复上次会话；dashboard 会被恢复的布局盖掉，要看它按 SPC a d
+  ;; 启动 2 秒后自动恢复上次会话；dashboard 会被恢复的布局盖掉，要看它得 M-x agent-shell-dashboard
   (setq persp-auto-resume-time 2.0)
   ;; 退出、关 persp-mode、关最后一个 frame 都落盘，另外多留几份备份
   (setq persp-auto-save-opt 3)
@@ -793,11 +772,24 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
    :save-function #'jgy/persp-agent-shell-save
    :load-function #'jgy/persp-agent-shell-load)
   (advice-add 'recentf-add-file :after #'jgy/persp-recentf-track)
+  ;; consult 候选按 workspace 收窄。`consult-recent-file' 直接读 recentf-list，
+  ;; `consult-buffer' 的 File 源读自己的 `:items'，两个入口得分别包
+  (with-eval-after-load 'consult
+    ;; 别的 workspace 的 buffer 按 o narrow 还能翻出来
+    (setq consult-buffer-list-function #'persp-buffer-list-restricted)
+    (advice-add 'consult-recent-file :around #'jgy/persp-recentf-scoped)
+    (unless jgy/consult-recent-file-items
+      (setq jgy/consult-recent-file-items
+            (plist-get consult-source-recent-file :items))
+      (setq consult-source-recent-file
+            (plist-put (copy-sequence consult-source-recent-file)
+                       :items #'jgy/persp-consult-recent-file-items))))
   (run-with-idle-timer 300 t #'jgy/persp-save-quietly)
   (advice-add 'persp-update-frame-lighter :before-while
               #'jgy/persp-skip-temp-frame-lighter)
   (persp-mode 1))
 
+;; * Worktrees
 ;; worktree workspace：选 repo -> 选/建分支 -> 建 worktree -> 进对应 workspace
 (defvar jgy/code-directory "~/Code/okj/"
   "各个 repo 所在的目录。")
@@ -900,6 +892,7 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
       (persp-switch (jgy/worktree--slug branch))
       (persp-add-buffer (dired dir)))))
 
+;; * Files
 (when (eq system-type 'darwin)
   (setq insert-directory-program "/opt/homebrew/bin/gls"))
 
@@ -910,13 +903,18 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
         "-l --almost-all --human-readable --group-directories-first --no-group")
   ;; this command is useful when you want to close the window of `dirvish-side'
   ;; automatically when opening a file
-  (put 'dired-find-alternate-file 'disabled nil))
+  (put 'dired-find-alternate-file 'disabled nil)
+
+  ;; dirvish 的右侧属性会把长行挤出窗口右沿，行尾被截断后 `dired-next-line'
+  ;; 末段的 `vertical-motion' 会多跳一行；置 nil 让它退回 `forward-line'
+  (add-hook 'dired-mode-hook
+            (lambda () (setq-local line-move-ignore-invisible nil))))
 
 (use-package dirvish
   :ensure t
-	:init
-	(dirvish-override-dired-mode)
-	:custom
+  :init
+  (dirvish-override-dired-mode)
+  :custom
   (dirvish-quick-access-entries ; It's a custom option, `setq' won't work
    '(("h" "~/"                          "Home")
      ("d" "~/Downloads/"                "Downloads")))
@@ -955,24 +953,25 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
     "N"   #'dirvish-narrow
     "^"   #'dirvish-history-last))
 
+;; * Git
 ;; magit needs transient >= 0.13; Emacs 30 bundles 0.7.2.2, so shadow it early
 (elpaca transient)
 
 (use-package magit
   :ensure t
   :after transient
-	:init
-	(setq magit-process-connection-type t)
-	:custom
-	(magit-ediff-dwim-show-on-hunks t)
+  :init
+  (setq magit-process-connection-type t)
+  :custom
+  (magit-ediff-dwim-show-on-hunks t)
   :config
-	(setq magit-display-buffer-function 'magit-display-buffer-fullframe-status-topleft-v1)
+  (setq magit-display-buffer-function 'magit-display-buffer-fullframe-status-topleft-v1)
   (setq magit-bury-buffer-function 'magit-restore-window-configuration)
   ;; magit only forwards prompts it recognizes; anything else silently
   ;; stalls in *magit-process*
   (add-to-list 'magit-process-password-prompt-regexps
                "^.*Verification code: ?$")
-	(magit-add-section-hook 'magit-status-sections-hook
+  (magit-add-section-hook 'magit-status-sections-hook
                         #'magit-insert-worktrees
                         nil t))
 
@@ -1002,20 +1001,21 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   :custom
   ;; 链接钉在当前 commit 上，行号不会随分支后续改动跑偏；C-u C-u 临时换回分支名
   (git-link-use-commit t)
-	(git-link-open-in-browser t))
+  (git-link-open-in-browser t))
 
 ;; gutter diffs feed SPC g s/r and ]h/[h
 (use-package diff-hl
   :ensure t
   :demand t
   :config
-  ;; the fringe is disabled and terminal frames have none, so draw in the margin
+  ;; margin 画的是 +/-/! 字符，比 fringe 位图能多说明一点；想换回 fringe 删掉这行
   (diff-hl-margin-mode 1)
   (diff-hl-flydiff-mode 1)
   (global-diff-hl-mode 1)
   (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
   (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
 
+;; * Code
 ;; eglot advertises `snippetSupport' only when `yas-minor-mode' is fbound, which the
 ;; `:hook' autoload satisfies from startup; servers then send parameter placeholders
 (use-package yasnippet
@@ -1059,6 +1059,18 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
       (kbd "gD") #'xref-find-references
       (kbd "gI") #'eglot-find-implementation)))
 
+;; async format-on-save for every language; the RCS-patch apply keeps point put
+(use-package apheleia
+  :ensure t
+  :demand t
+  :config
+  (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
+  ;; java formatting belongs to jdt.ls
+  (setf (alist-get 'java-mode apheleia-mode-alist nil t) nil)
+  (setf (alist-get 'java-ts-mode apheleia-mode-alist nil t) nil)
+  (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist nil t) nil)
+  (apheleia-global-mode 1))
+
 ;; DAP client；dap-mode 硬依赖 lsp-mode，所以换成 dape
 (use-package dape
   :ensure t
@@ -1072,24 +1084,12 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   ;; 断点跟着文件走，不必先起 session 再打
   (dape-breakpoint-global-mode 1))
 
-;; Haskell
+;; * Languages
 (use-package haskell-mode
   :ensure t
   :mode ("\\.hs\\'" "\\.lhs\\'")
   :custom
   (haskell-process-type 'cabal-repl))
-
-;; async format-on-save for every language; the RCS-patch apply keeps point put
-(use-package apheleia
-  :ensure t
-  :demand t
-  :config
-  (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
-  ;; java formatting belongs to jdt.ls
-  (setf (alist-get 'java-mode apheleia-mode-alist nil t) nil)
-  (setf (alist-get 'java-ts-mode apheleia-mode-alist nil t) nil)
-  (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist nil t) nil)
-  (apheleia-global-mode 1))
 
 (use-package lua-mode
   :ensure t
@@ -1119,26 +1119,21 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
 (add-hook 'java-mode-hook #'jgy/java-indent-setup)
 (add-hook 'java-ts-mode-hook #'jgy/java-indent-setup)
 
-(use-package nerd-icons
-  :ensure t
-  :defer t)
-
-;; eclipse.jdt.ls 自己要 JDK 21+，跟项目 target 无关；jdtls 包装脚本默认认 JAVA_HOME，
-;; 而 shell 里那个是 17，所以显式指过去。
-;; 另外 jdt.ls 没有注解处理，Lombok 生成的成员（@Slf4j 的 `log'、@Data 的 accessor）
-;; 要靠这个 agent 去 patch ecj
 (with-eval-after-load 'eglot
+  ;; eclipse.jdt.ls 自己要 JDK 21+，跟项目 target 无关；jdtls 包装脚本默认认 JAVA_HOME，
+  ;; 而 shell 里那个是 17，所以显式指过去。
+  ;; 另外 jdt.ls 没有注解处理，Lombok 生成的成员（@Slf4j 的 `log'、@Data 的 accessor）
+  ;; 要靠这个 agent 去 patch ecj
   (add-to-list 'eglot-server-programs
                `((java-mode java-ts-mode)
                  . ("jdtls"
                     "--java-executable"
                     ,(expand-file-name "25.0.3-tem/bin/java" jgy/sdkman-java-dir)
                     ,(concat "--jvm-arg=-javaagent:"
-                             (no-littering-expand-var-file-name "lombok.jar"))))))
+                             (no-littering-expand-var-file-name "lombok.jar")))))
 
-;; JDKs offered to projects; :default is used when a project declares no release。
-;; eglot 是在 temp buffer 里读这个变量的，挂 mode hook 里 setq-local 它看不见，只能设全局值
-(with-eval-after-load 'eglot
+  ;; 供项目选用的 JDK，项目没声明 release 时用 :default 那个。
+  ;; eglot 是在 temp buffer 里读这个变量的，挂 mode hook 里 setq-local 它看不见，只能设全局值
   (setq-default eglot-workspace-configuration
                 `(:java
                   (:configuration
@@ -1151,24 +1146,50 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
                      (:name "JavaSE-25"
                       :path ,(expand-file-name "25.0.3-tem" jgy/sdkman-java-dir))])))))
 
-;; libghostty-vt terminal; the native module is a prebuilt binary fetched on first use
-(use-package ghostel
-  :ensure t
-  :commands (ghostel ghostel-project ghostel-project-next ghostel-project-previous
-             ghostel-project-buffer-list))
-
 (use-package csv-mode
   :ensure t
   :mode "\\.[ct]sv\\'")
 
 ;; * Notes
+;; C-c C-c p / v 的浏览器预览：pandoc 出片段，markdown-mode 套上 <head>，
+;; 样式用 github-markdown-css + highlight.js，明暗跟随系统
+(defconst jgy/markdown-preview-head "
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+<link rel=\"stylesheet\" media=\"(prefers-color-scheme: light)\"
+      href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css\" />
+<link rel=\"stylesheet\" media=\"(prefers-color-scheme: dark)\"
+      href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css\" />
+<style>
+  html { color-scheme: light dark; }
+  body { margin: 0; background: #ffffff; }
+  @media (prefers-color-scheme: dark) { body { background: #0d1117; } }
+  .markdown-body { box-sizing: border-box; max-width: 900px; margin: 0 auto; padding: 48px; }
+  @media (max-width: 767px) { .markdown-body { padding: 16px; } }
+</style>")
+
+(defconst jgy/markdown-preview-tail "
+<script src=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js\"></script>
+<script>
+  // pandoc 把语言标在 <pre> 上，highlight.js 认的是 <code> 的 class
+  document.querySelectorAll('pre[class] > code:not([class])').forEach(
+    function (c) { c.className = 'language-' + c.parentNode.className.split(/\\s+/)[0]; });
+  hljs.highlightAll();
+</script>")
+
 (use-package markdown-mode
   :ensure t
   :mode "\\.md\\'"
   :custom
   (markdown-fontify-code-blocks-natively t)
   ;; obsidian.el 的链接跳转不依赖它，但 [[...]] 的高亮和 `markdown-wiki-link-p' 依赖
-  (markdown-enable-wiki-links t))
+  (markdown-enable-wiki-links t)
+  ;; gfm 才有表格/任务列表/删除线；代码高亮交给 highlight.js，省得和它的 class 打架
+  (markdown-command "pandoc --from=gfm --to=html5 --no-highlight")
+  (markdown-css-paths
+   '("https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.min.css"))
+  (markdown-xhtml-header-content jgy/markdown-preview-head)
+  (markdown-xhtml-body-preamble "<article class=\"markdown-body\">")
+  (markdown-xhtml-body-epilogue (concat "</article>" jgy/markdown-preview-tail)))
 
 ;; ~/Documents/Garden，目录约定跟 .obsidian/app.json 保持一致
 (use-package obsidian
@@ -1193,41 +1214,44 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
 ;; ACP client; needs `npm install -g @agentclientprotocol/claude-agent-acp'
 (use-package agent-shell
   :ensure t
-	:ensure-system-package
-	((claude . "brew install claude-code")
+  :ensure-system-package
+  ((claude . "brew install claude-code")
    (claude-agent-acp . "npm install -g @agentclientprotocol/claude-agent-acp")
-	 (pi . "npm install -g @earendil-works/pi-coding-agent")
-	 (pi-acp . "npm install -g pi-acp")
-	 (codex-acp . "npm install -g @agentclientprotocol/codex-acp")
-	 (copilot . "npm install -g @github/copilot"))
-;;  :commands (agent-shell agent-shell-anthropic-start-claude-code
-;;						 agent-shell-pi-start-agent
-;;						 agent-shell-openai-start-codex
-;;						 agent-shell-github-start-copilot)
+   (pi . "npm install -g @earendil-works/pi-coding-agent")
+   (pi-acp . "npm install -g pi-acp")
+   (codex-acp . "npm install -g @agentclientprotocol/codex-acp")
+   (copilot . "npm install -g @github/copilot"))
+  ;; 几个 start 命令上游没写 autoload cookie，这里补桩；
+  ;; 它们分散在子模块里，但 agent-shell.el 自己 require 了全部子模块
+  :commands (agent-shell
+             agent-shell-anthropic-start-claude-code
+             agent-shell-openai-start-codex
+             agent-shell-github-start-copilot
+             agent-shell-pi-start-agent)
   :custom
   (agent-shell-context-sources '(region))
-	(agent-shell-session-restore-verbosity 'full))
+  (agent-shell-session-restore-verbosity 'full))
 
 (use-package agent-shell-manager
-	:ensure (:host github :repo "jethrokuan/agent-shell-manager")
-	:commands (agent-shell-manager-toggle)
-	:config
-	;; 包只绑了 emacs state，normal state 下这些单键全被 evil 吃掉。
-	;; 刷新按 evil 惯例挪到 gr，kill/logging 改大写，留着 k/l 当移动键。
-	(with-eval-after-load 'evil
-		(evil-set-initial-state 'agent-shell-manager-mode 'normal)
-		(evil-define-key* 'normal agent-shell-manager-mode-map
-			(kbd "RET") #'agent-shell-manager-goto
-			"gr" #'agent-shell-manager-refresh
-			"K"  #'agent-shell-manager-kill
-			"c"  #'agent-shell-manager-new
-			"r"  #'agent-shell-manager-restart
-			"d"  #'agent-shell-manager-delete-killed
-			"m"  #'agent-shell-manager-set-mode
-			"M"  #'agent-shell-manager-set-model
-			"t"  #'agent-shell-manager-view-traffic
-			"L"  #'agent-shell-manager-toggle-logging
-			"q"  #'quit-window)))
+  :ensure (:host github :repo "jethrokuan/agent-shell-manager")
+  :commands (agent-shell-manager-toggle)
+  :config
+  ;; 包只绑了 emacs state，normal state 下这些单键全被 evil 吃掉。
+  ;; 刷新按 evil 惯例挪到 gr，kill/logging 改大写，留着 k/l 当移动键。
+  (with-eval-after-load 'evil
+    (evil-set-initial-state 'agent-shell-manager-mode 'normal)
+    (evil-define-key* 'normal agent-shell-manager-mode-map
+      (kbd "RET") #'agent-shell-manager-goto
+      "gr" #'agent-shell-manager-refresh
+      "K"  #'agent-shell-manager-kill
+      "c"  #'agent-shell-manager-new
+      "r"  #'agent-shell-manager-restart
+      "d"  #'agent-shell-manager-delete-killed
+      "m"  #'agent-shell-manager-set-mode
+      "M"  #'agent-shell-manager-set-model
+      "t"  #'agent-shell-manager-view-traffic
+      "L"  #'agent-shell-manager-toggle-logging
+      "q"  #'quit-window)))
 
 (use-package gptel
   :ensure t
@@ -1235,15 +1259,15 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
              gptel-system-prompt gptel-add gptel-add-file))
 
 (use-package agent-shell-dashboard
-	:ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
-	:commands (agent-shell-dashboard)
-	:init
-	(setq initial-buffer-choice #'agent-shell-dashboard)
-	:config
-	(add-hook 'agent-shell-dashboard-mode-hook
-						;; dashboard 的 g 是刷新，本地覆盖掉 evil-commentary 的 gc/gy 前缀
-						(lambda ()
-							(evil-local-set-key 'normal "g" #'agent-shell-dashboard-refresh))))
+  :ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
+  :commands (agent-shell-dashboard)
+  :init
+  (setq initial-buffer-choice #'agent-shell-dashboard)
+  :config
+  (add-hook 'agent-shell-dashboard-mode-hook
+            ;; dashboard 的 g 是刷新，本地覆盖掉 evil-commentary 的 gc/gy 前缀
+            (lambda ()
+              (evil-local-set-key 'normal "g" #'agent-shell-dashboard-refresh))))
 
 ;; agent-shell-hq-peek 要 posframe，但主文件的 Package-Requires 没写，elpaca 不会自动拉，先声明占好 load-path
 (use-package posframe
@@ -1252,11 +1276,11 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
 
 (use-package agent-shell-hq
   :ensure (:host nil :repo "https://github.com/sreenivasvrao/agent-shell-hq"
-								 :files ("*.el"))
-	:after agent-shell
-	:init
-	;; sidebar/peek 是 `use-local-map' 装的只读选择器，自带 `suppress-keymap' 全键位；
-	;; 让 evil 在这两个 buffer 里进 emacs state，否则 j/k/n/p/RET 全被 normal state 抢走
-	(with-eval-after-load 'evil
-		(add-to-list 'evil-buffer-regexps
-								 '("\\` \\*agent-shell-hq-" . emacs))))
+                 :files ("*.el"))
+  :after agent-shell
+  :init
+  ;; sidebar/peek 是 `use-local-map' 装的只读选择器，自带 `suppress-keymap' 全键位；
+  ;; 让 evil 在这两个 buffer 里进 emacs state，否则 j/k/n/p/RET 全被 normal state 抢走
+  (with-eval-after-load 'evil
+    (add-to-list 'evil-buffer-regexps
+                 '("\\` \\*agent-shell-hq-" . emacs))))
