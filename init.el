@@ -342,7 +342,9 @@
 (defun jgy/ibuffer-workspace ()
   "ibuffer 只列当前 workspace 的 buffer。"
   (interactive)
-  (ibuffer nil "*Ibuffer*" '((predicate . (persp-contain-buffer-p (current-buffer))))))
+  (ibuffer nil "*Ibuffer*"
+           '((predicate . (or (persp-contain-buffer-p (current-buffer))
+                              (persp-buffer-free-p (current-buffer)))))))
 
 (defun jgy/toggle-popup-buffer (buffer create-fn)
   "Hide BUFFER when it has a window, show it when it exists, else call CREATE-FN.
@@ -744,6 +746,46 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
   (not (equal "*persp-temp-frame*"
               (frame-parameter (or frame (selected-frame)) 'name))))
 
+(defvar jgy/persp-untracked-name-regexps
+  '("\\` \\*SIDE :: " "\\`PREVIEW :: " "\\`\\*preview-temp\\*" "\\` \\*dirvish")
+  "名字匹配这些正则的 buffer 不进任何 workspace。")
+
+(defun jgy/persp-untracked-buffer-p (buffer)
+  "BUFFER 的名字是否匹配 `jgy/persp-untracked-name-regexps'。"
+  (let ((name (buffer-name buffer)))
+    (and name (seq-some (lambda (re) (string-match-p re name))
+                        jgy/persp-untracked-name-regexps))))
+
+(defun jgy/persp-untrack-buffer (&optional buffer)
+  "把 BUFFER 从所有 workspace 里摘掉，让它变回游离 buffer。"
+  (when (bound-and-true-p persp-mode)
+    (let ((buffer (or buffer (current-buffer)))
+          persp-autokill-buffer-on-remove
+          persp-autokill-persp-when-removed-last-buffer
+          persp-when-remove-buffer-switch-to-other-buffer)
+      (dolist (persp (persp--buffer-in-persps buffer))
+        (persp-remove-buffer buffer persp nil nil nil nil)))))
+
+;; dirvish 先建 dired buffer 再改名成 " *SIDE :: ..."，改名前已经被当前 workspace 收走，
+;; 于是在别的 workspace 里按 q 会被当成外来 buffer 追问
+(defun jgy/dirvish-side-untrack (buffer &rest _)
+  "BUFFER 改成侧边栏的隐藏名字之后，从所有 workspace 里摘掉。"
+  (jgy/persp-untrack-buffer buffer))
+
+(defun jgy/persp-free-buffers ()
+  "不属于任何 workspace 的 buffer，比如 *Messages*、*scratch*。"
+  (seq-filter (lambda (buffer)
+                (and (persp-buffer-free-p buffer)
+                     (not (persp-buffer-filtered-out-p buffer))))
+              (funcall persp-buffer-list-function)))
+
+(defun jgy/persp-buffer-list-with-free (fn &optional frame option &rest args)
+  "OPTION 是「只看当前 workspace」那档时，把游离 buffer 也算进来。"
+  (let ((buffers (apply fn frame option args)))
+    (if (eql (or option *persp-restrict-buffers-to*) 0)
+        (append buffers (seq-difference (jgy/persp-free-buffers) buffers))
+      buffers)))
+
 (use-package persp-mode
   :ensure t
   :init
@@ -762,6 +804,13 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
   (setq persp-set-read-buffer-function t)
   :config
   (add-hook 'persp-created-functions #'jgy/persp-mark-transient)
+  ;; dirvish 的侧边栏/预览 buffer 全程游离，免得跨 workspace 关它时被追问
+  (add-to-list 'persp-add-buffer-on-after-change-major-mode-filter-functions
+               #'jgy/persp-untracked-buffer-p)
+  (with-eval-after-load 'dirvish-side
+    (advice-add 'dirvish-side-root-conf :after #'jgy/dirvish-side-untrack))
+  ;; *Messages*、*scratch* 这类不属于任何 workspace 的 buffer 在哪个 workspace 都能看到
+  (advice-add 'persp-buffer-list-restricted :around #'jgy/persp-buffer-list-with-free)
   ;; 无文件 buffer 默认按 "*" 前缀被丢掉，这里补上存取规则，得挂在 persp-mode 启用前
   (persp-def-buffer-save/load
    :mode 'eshell-mode :tag-symbol 'def-eshell-buffer
@@ -1284,3 +1333,13 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   (with-eval-after-load 'evil
     (add-to-list 'evil-buffer-regexps
                  '("\\` \\*agent-shell-hq-" . emacs))))
+
+(use-package mood-line
+	:ensure t
+  :config
+  (mood-line-mode)
+  :custom
+  ;; (mood-line-glyph-alist mood-line-glyphs-fira-code)
+	;; (mood-line-glyph-alist mood-line-glyphs-unicode)
+	(mood-line-glyph-alist mood-line-glyphs-ascii))
+
