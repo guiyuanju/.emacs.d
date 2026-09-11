@@ -427,10 +427,9 @@ Showing goes through `display-buffer', so popper picks the window."
     "a"  '(:ignore t :which-key "ai")
     "aa" '(agent-shell :which-key "agent shell")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "claude code")
-    "ad" '(agent-shell-manager-toggle :which-key "agent shell manager")
-    "ah" '(agent-shell-hq-toggle :which-key "agent sidebar")
+    "aD" '(agent-shell-manager-toggle :which-key "agent shell manager")
+    "ad" '(agent-shell-hq-toggle :which-key "agent sidebar")
     "ai" '(agent-shell-pi-start-agent :which-key "pi agent")
-    "aP" '(agent-shell-hq-peek :which-key "peek agent")
 
     "a+" '(gptel-add :which-key "add to context")
     "af" '(gptel-add-file :which-key "add file to context")
@@ -705,39 +704,84 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
       (ignore-errors (persp-save-state-to-file)))))
 
 ;; agent-shell buffer 里的 process/timer 存不下来，只留重开会话要的三样
+(defvar-local jgy/agent-shell--deferred nil
+  "占位 buffer 上暂存的会话参数。")
+
+(define-derived-mode jgy/agent-shell-placeholder-mode fundamental-mode "AgentShell/待恢复"
+  "占位 major mode，让一次都没打开过的 agent shell 也能被 persp 原样存回去。")
+
 (defun jgy/persp-agent-shell-save (buffer tag _vars)
   "把 BUFFER 存成 TAG 开头的 savelist：agent 类型、会话 id、工作目录。"
   (with-current-buffer buffer
     (list tag (buffer-name buffer)
-          (list (cons 'default-directory default-directory)
-                (cons 'identifier (map-nested-elt agent-shell--state
-                                                  '(:agent-config :identifier)))
-                (cons 'session-id (map-nested-elt agent-shell--state
-                                                  '(:session :id)))))))
+          (or jgy/agent-shell--deferred
+              (list (cons 'default-directory default-directory)
+                    (cons 'identifier (map-nested-elt agent-shell--state
+                                                      '(:agent-config :identifier)))
+                    (cons 'session-id (map-nested-elt agent-shell--state
+                                                      '(:session :id))))))))
 
+;; 恢复时只摆个占位 buffer。ACP 进程和整段历史等它真被显示出来（切到所在
+;; workspace、或者直接切过去）才起，免得启动一次把所有 workspace 的 agent 全拉起来
 (defun jgy/persp-agent-shell-load (savelist &rest _)
-  "照 SAVELIST 重开 agent shell 并 resume 原会话；出错就跳过这个 buffer。"
+  "照 SAVELIST 建占位 buffer；出错就跳过这个 buffer。"
   (condition-case err
       (cl-destructuring-bind (_tag bname vars) savelist
-        (let* ((default-directory (or (alist-get 'default-directory vars)
-                                      default-directory))
+        (or (get-buffer bname)
+            (with-current-buffer (get-buffer-create bname)
+              (let ((persp-add-buffer-on-after-change-major-mode nil))
+                (jgy/agent-shell-placeholder-mode))
+              (setq-local jgy/agent-shell--deferred vars)
+              (setq-local default-directory (or (alist-get 'default-directory vars)
+                                                default-directory))
+              (insert "切到这个 buffer 时才会恢复会话…")
+              (set-buffer-modified-p nil)
+              ;; 这个变量的 buffer-local 值只在「某个窗口开始显示本 buffer」时被调用，
+              ;; 参数是那个窗口；frame 级的默认值走另一条路，不受影响
+              (setq-local window-buffer-change-functions
+                          (list #'jgy/agent-shell--materialize-soon))
+              (current-buffer))))
+    (error
+     (message "[persp-mode] agent shell 占位失败：%S" err)
+     nil)))
+
+(defun jgy/agent-shell--materialize-soon (window)
+  "WINDOW 开始显示占位 buffer 时排一次恢复；换 buffer 的活不能在窗口钩子里干。"
+  (when-let* ((buffer (window-buffer window))
+              ((buffer-local-value 'jgy/agent-shell--deferred buffer)))
+    (run-at-time 0 nil #'jgy/agent-shell--materialize buffer)))
+
+(defun jgy/agent-shell--materialize (placeholder)
+  "用 PLACEHOLDER 上存的参数重开 agent shell 并 resume 原会话，顶掉占位 buffer。"
+  (when (and (buffer-live-p placeholder)
+             (buffer-local-value 'jgy/agent-shell--deferred placeholder))
+    (condition-case err
+        (let* ((vars (buffer-local-value 'jgy/agent-shell--deferred placeholder))
+               (default-directory (buffer-local-value 'default-directory placeholder))
                (identifier (alist-get 'identifier vars))
                (session-id (alist-get 'session-id vars))
+               (windows (get-buffer-window-list placeholder nil t))
                (config (and identifier session-id
                             (require 'agent-shell nil t)
                             (seq-find (lambda (config)
                                         (eq (map-elt config :identifier) identifier))
                                       (agent-shell--resolved-agent-configs)))))
-          (or (get-buffer bname)
-              (when config
-                (agent-shell--start :config config
-                                    :session-id session-id
-                                    :session-strategy 'new
-                                    :new-session t
-                                    :no-focus t)))))
-    (error
-     (message "[persp-mode] agent shell 恢复失败：%S" err)
-     nil)))
+          (unless config (error "没找到 agent config：%S" identifier))
+          ;; agent-shell 要用同一个 buffer 名，先把名字让出来
+          (let ((kill-buffer-query-functions nil)) (kill-buffer placeholder))
+          (when-let* ((buffer (agent-shell--start :config config
+                                                  :session-id session-id
+                                                  :session-strategy 'new
+                                                  :new-session t
+                                                  :no-focus t))
+                      ((buffer-live-p buffer)))
+            (dolist (window windows)
+              (when (window-live-p window) (set-window-buffer window buffer)))))
+      (error
+       (message "[persp-mode] agent shell 恢复失败：%S" err)
+       (when (buffer-live-p placeholder)
+         (with-current-buffer placeholder
+           (setq-local jgy/agent-shell--deferred nil)))))))
 
 ;; 恢复布局用的隐藏 frame 会被排进 lighter 的 1 秒延时更新队列，
 ;; 到点时 frame 已经删了，upstream 不查存活就报 frame-live-p
@@ -818,6 +862,11 @@ main 和还没记录过任何文件的 workspace 给完整列表。"
   (persp-def-buffer-save/load
    :mode 'agent-shell-mode :tag-symbol 'def-agent-shell-buffer
    :save-vars '(major-mode default-directory)
+   :save-function #'jgy/persp-agent-shell-save
+   :load-function #'jgy/persp-agent-shell-load)
+  ;; 一次都没显示过的占位 buffer 也得能原样存回去，不然退出就丢了会话记录
+  (persp-def-buffer-save/load
+   :mode 'jgy/agent-shell-placeholder-mode :tag-symbol 'def-agent-shell-placeholder
    :save-function #'jgy/persp-agent-shell-save
    :load-function #'jgy/persp-agent-shell-load)
   (advice-add 'recentf-add-file :after #'jgy/persp-recentf-track)
@@ -971,6 +1020,9 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   ;; git-msg 在文件名后接 commit message，vc-info 在 mode line 显示分支
   (dirvish-attributes '(vc-state subtree-state nerd-icons collapse git-msg file-size))
   (dirvish-side-attributes '(vc-state subtree-state nerd-icons collapse file-size)) ; 侧边栏只 35 列，不放 git-msg
+  ;; 默认还带 (no-other-window . t)，`other-window' 会跳过侧边栏，C-j/C-k 进不去；
+  ;; 窗口本身是 dedicated 的，去掉它也不会有别的 buffer 被塞进来
+  (dirvish-side-window-parameters '((no-delete-other-windows . t)))
   (dirvish-mode-line-format '(:left (sort omit symlink) :right (vc-info index)))
   ;; 带修饰键的不会被 evil 抢走，普通字母键的见下面的 general-def
   :bind (:map dirvish-mode-map
@@ -978,6 +1030,7 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
               ("M-f" . dirvish-history-go-forward)
               ("M-b" . dirvish-history-go-backward)
               ("M-e" . dirvish-emerge-menu))
+	:hook (dired-mode-hook . (lambda () (display-line-numbers-mode -1)))
   :config
   ;; 侧边栏跟随当前 buffer：切 project 时换根目录，并展开到该文件
   (dirvish-side-follow-mode 1)
@@ -1077,13 +1130,23 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   :ensure t
   :demand t
   :custom
-  (treesit-auto-langs '(bash dockerfile go gomod java json lua rust toml yaml))
+  (treesit-auto-langs '(bash dockerfile go gomod java json lua python rust toml yaml))
   (treesit-auto-install 'prompt)
   :config
   (global-treesit-auto-mode)
   ;; remap 只能改已有的 mode；yaml/toml/dockerfile 这些 Emacs 本来没有基础 mode，
   ;; 得把 ts-mode 直接注册进 `auto-mode-alist'（只注册 grammar 已装好的）
   (treesit-auto-add-to-auto-mode-alist))
+
+;; eglot 只接受一个全局 workspace configuration，各语言分开存再拼起来；
+;; 之所以是函数：python 那份得按项目根现算 .venv 路径
+(defvar jgy/eglot-java-configuration nil
+  "jdt.ls 的 workspace configuration。")
+
+(defun jgy/eglot-workspace-configuration (server)
+  "SERVER 的 workspace configuration。"
+  (append (jgy/eglot-python-configuration server)
+          jgy/eglot-java-configuration))
 
 (use-package eglot
   :ensure nil
@@ -1099,9 +1162,13 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
          (lua-mode . eglot-ensure)
          (lua-ts-mode . eglot-ensure)
          (java-mode . eglot-ensure)
-         (java-ts-mode . eglot-ensure))
+         (java-ts-mode . eglot-ensure)
+         (python-mode . eglot-ensure)
+         (python-ts-mode . eglot-ensure))
   :commands (eglot eglot-ensure)
   :config
+  ;; eglot 是在 temp buffer 里读这个变量的，挂 mode hook 里 setq-local 它看不见，只能设全局值
+  (setq-default eglot-workspace-configuration #'jgy/eglot-workspace-configuration)
   (with-eval-after-load 'evil
     (evil-define-minor-mode-key 'normal 'eglot--managed-mode
       (kbd "K")  #'eldoc-doc-buffer
@@ -1152,6 +1219,57 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   :ensure t
   :mode "\\.rs\\'")
 
+;; Python
+;; basedpyright 只认 workspace configuration 里给的解释器，PATH 上那个 python 与它无关：
+;; 不给就按系统 python 的版本判语法（3.9 会把 `X | Y' 判成错）、也找不到项目依赖。
+;; 路径逐项目不同，所以这份配置得用函数现算
+(defun jgy/eglot-python-configuration (server)
+  "SERVER 所在项目的 Python 配置；项目没有 .venv 时返回 nil。"
+  (when-let* ((root (project-root (eglot--project server)))
+              (python (expand-file-name ".venv/bin/python" root))
+              ((file-executable-p python)))
+    ;; basedpyright 默认的 recommended 档要求全量标注，普通项目会被几百条 warning 淹掉；
+    ;; reportPrivateImportUsage 则是库没显式 re-export 就报（sqlglot 即如此），一并关掉
+    `(:python (:pythonPath ,python)
+      :basedpyright (:analysis (:typeCheckingMode "standard"
+                                :diagnosticSeverityOverrides
+                                (:reportPrivateImportUsage "none"))))))
+
+;; eglot 自带的候选是 pylsp/pyright/ruff 等挑第一个装了的，这里钉死 basedpyright
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((python-mode python-ts-mode)
+                 . ("basedpyright-langserver" "--stdio"))))
+
+;; SQLMesh
+;; 模型/审计的 .sql 交给 sqlmesh 自带的 language server：@宏与模型名补全、linter 诊断、
+;; 跨模型跳转、列级血缘 inlay hint。server 由项目 .venv 提供，但 pygls 不在项目依赖里，
+;; 用 uv 的临时叠加层带进来（pygls 2.x 改了 lsprotocol 的符号，sqlmesh 只吃 1.x）
+(defconst jgy/sqlmesh-lsp-command '("uv" "run" "--with" "pygls<2" "sqlmesh_lsp"))
+
+(defun jgy/sqlmesh-project-p ()
+  "当前目录是否在 SQLMesh 项目里。"
+  (locate-dominating-file
+   default-directory
+   (lambda (dir) (and (file-exists-p (expand-file-name "config.yaml" dir))
+                      (file-directory-p (expand-file-name "models" dir))))))
+
+(defun jgy/sqlmesh-setup ()
+  (when (jgy/sqlmesh-project-p)
+    (setq-local sql-product 'postgres)  ; redshift 方言在 sql-mode 里最接近 postgres
+    ;; pg_format 不认 MODEL (...) 头和 @宏，会把模型改坏；格式化改由 sqlmesh 自己做
+    (setq-local apheleia-inhibit t)
+    (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
+    (eglot-ensure)))
+
+(use-package sql
+  :ensure nil
+  :hook (sql-mode . jgy/sqlmesh-setup)
+  :config
+  (with-eval-after-load 'eglot
+    (add-to-list 'eglot-server-programs
+                 `((sql-mode :language-id "sql") . ,jgy/sqlmesh-lsp-command))))
+
 ;; Java
 (defvar jgy/sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/"))
 
@@ -1181,23 +1299,35 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
                     ,(concat "--jvm-arg=-javaagent:"
                              (no-littering-expand-var-file-name "lombok.jar")))))
 
-  ;; 供项目选用的 JDK，项目没声明 release 时用 :default 那个。
-  ;; eglot 是在 temp buffer 里读这个变量的，挂 mode hook 里 setq-local 它看不见，只能设全局值
-  (setq-default eglot-workspace-configuration
-                `(:java
-                  (:configuration
-                   (:runtimes
-                    [(:name "JavaSE-1.8"
-                      :path ,(expand-file-name "8.0.492-zulu" jgy/sdkman-java-dir))
-                     (:name "JavaSE-17"
-                      :path ,(expand-file-name "17.0.19-tem" jgy/sdkman-java-dir)
-                      :default t)
-                     (:name "JavaSE-25"
-                      :path ,(expand-file-name "25.0.3-tem" jgy/sdkman-java-dir))])))))
+  ;; 供项目选用的 JDK，项目没声明 release 时用 :default 那个
+  (setq jgy/eglot-java-configuration
+        `(:java
+          (:configuration
+           (:runtimes
+            [(:name "JavaSE-1.8"
+              :path ,(expand-file-name "8.0.492-zulu" jgy/sdkman-java-dir))
+             (:name "JavaSE-17"
+              :path ,(expand-file-name "17.0.19-tem" jgy/sdkman-java-dir)
+              :default t)
+             (:name "JavaSE-25"
+              :path ,(expand-file-name "25.0.3-tem" jgy/sdkman-java-dir))])))))
 
 (use-package csv-mode
   :ensure t
   :mode "\\.[ct]sv\\'")
+
+;; beancount v3 把 query 拆成了独立的 beanquery 包，bean-query 得单独装
+(use-package beancount
+  :ensure t
+  :ensure-system-package
+  ((bean-check . "brew install beancount")
+   (bean-query . "brew install beanquery"))
+  :mode ("\\.beancount\\'" "\\.bean\\'")
+  :custom
+  (beancount-use-ido nil)            ; 账户补全交给 vertico
+  :config
+  ;; mode 只设了 `outline-regexp'，`beancount-tab-dwim' 的折叠还得 outline 自己开
+  (add-hook 'beancount-mode-hook #'outline-minor-mode))
 
 ;; * Notes
 ;; C-c C-c p / v 的浏览器预览：pandoc 出片段，markdown-mode 套上 <head>，
@@ -1241,16 +1371,59 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   (markdown-xhtml-body-epilogue (concat "</article>" jgy/markdown-preview-tail)))
 
 ;; ~/Documents/Garden，目录约定跟 .obsidian/app.json 保持一致
+(defconst jgy/obsidian-vault "~/Documents/Garden")
+
+(defun jgy/obsidian-maybe-enable ()
+  "vault 里的 markdown 才拉起 obsidian。
+`obsidian-enable-minor-mode' 自己也判 vault，但那得先把整包加载进来；
+启动恢复里随便一个 .md 都会踩到，顺带触发全量扫描。"
+  (when (and buffer-file-name
+             (string-prefix-p (file-name-as-directory
+                               (expand-file-name jgy/obsidian-vault))
+                              (expand-file-name buffer-file-name)))
+    (obsidian-enable-minor-mode)))
+
+(defvar jgy/obsidian--scan-timer nil)
+
+(defun jgy/obsidian-ensure-cache (&rest _)
+  "缓存还没建就当场建，给真要读缓存的命令兜底。"
+  (unless obsidian-vault-cache
+    (when (timerp jgy/obsidian--scan-timer)
+      (cancel-timer jgy/obsidian--scan-timer)
+      (setq jgy/obsidian--scan-timer nil))
+    (obsidian-rescan-cache)))
+
+(defun jgy/obsidian-defer-first-scan (fn &rest args)
+  "`obsidian-mode' 的 :after-hook 带起来的首次全量扫描推到空闲时。"
+  (if (or obsidian-vault-cache (called-interactively-p 'any))
+      (apply fn args)
+    (unless (timerp jgy/obsidian--scan-timer)
+      (setq jgy/obsidian--scan-timer
+            (run-with-idle-timer
+             5 nil (lambda ()
+                     (setq jgy/obsidian--scan-timer nil)
+                     (obsidian-rescan-cache)))))))
+
 (use-package obsidian
   :ensure t
-  ;; `obsidian-enable-minor-mode' 只在 vault 内的 .md 里开 `obsidian-mode'
-  :hook (markdown-mode . obsidian-enable-minor-mode)
+  :hook (markdown-mode . jgy/obsidian-maybe-enable)
+  :commands (obsidian-enable-minor-mode)
   :custom
-  (obsidian-directory "~/Documents/Garden") ; 有 :set 校验路径，`setq' 不生效
+  (obsidian-directory jgy/obsidian-vault) ; 有 :set 校验路径，`setq' 不生效
   (obsidian-inbox-directory "notes")        ; `obsidian-capture' 和未命中的链接落在这里
   (obsidian-daily-notes-directory "journals")
   (obsidian-backlinks-panel-width 50)
+  (obsidian-use-update-timer nil)           ; 不要 5 分钟一次的轮询重扫
   :config
+  ;; `obsidian-cache-expiry' 和 `obsidian-update-idle-wait' 的 :set 不看
+  ;; `obsidian-use-update-timer'，加载时各自又把定时器起了一遍，在这里收尾
+  (obsidian-stop-update-timer)
+  (advice-add 'obsidian-update :around #'jgy/obsidian-defer-first-scan)
+  (dolist (cmd '(obsidian-jump obsidian-find-tag obsidian-insert-tag
+                 obsidian-insert-wikilink obsidian-backlink-jump
+                 obsidian-backlinks-mode obsidian-follow-link-at-point
+                 obsidian-capture obsidian-daily-note))
+    (advice-add cmd :before #'jgy/obsidian-ensure-cache))
   ;; `obsidian-mode' 自带的 keymap 是空的，且 minor mode map 会被 evil 的 normal state 盖掉
   (general-def
     :states 'normal
@@ -1334,12 +1507,47 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
     (add-to-list 'evil-buffer-regexps
                  '("\\` \\*agent-shell-hq-" . emacs))))
 
+(defun jgy/mood-line-segment-workspace ()
+  "当前 workspace 的名字。"
+  (when (bound-and-true-p persp-mode)
+    (let ((persp (get-current-persp)))
+      (propertize (safe-persp-name persp)
+                  'face (if persp 'mood-line-status-info 'mood-line-unimportant)))))
+
 (use-package mood-line
 	:ensure t
   :config
+  (setq mood-line-format
+        (mood-line-defformat
+         :left
+         (((mood-line-segment-modal)                 . " ")
+          ((or (mood-line-segment-buffer-status) " ") . " ")
+          ((jgy/mood-line-segment-workspace)         . "  ")
+          ((mood-line-segment-buffer-name)           . "  ")
+          ((mood-line-segment-anzu)                  . "  ")
+          ((mood-line-segment-multiple-cursors)      . "  ")
+          ((mood-line-segment-cursor-position)       . " ")
+          (mood-line-segment-scroll))
+         :right
+         (((mood-line-segment-vc)         . "  ")
+          ((mood-line-segment-major-mode) . "  ")
+          ((mood-line-segment-misc-info)  . "  ")
+          ((mood-line-segment-checker)    . "  ")
+          ((mood-line-segment-process)    . "  "))))
   (mood-line-mode)
   :custom
   ;; (mood-line-glyph-alist mood-line-glyphs-fira-code)
 	;; (mood-line-glyph-alist mood-line-glyphs-unicode)
 	(mood-line-glyph-alist mood-line-glyphs-ascii))
+
+(add-to-list 'auto-mode-alist '("uv\\.lock\\'" . toml-ts-mode))
+
+
+(defun jgy/send-to-agent-after-limit (buffer-name time-to-send prompt)
+	"Usage example: (jgy/send-to-agent-after-limit \"Claude Agent @ beancount-ledger\" \"21:05\" \"继续操作, 完成后commit然后push\")"
+		(run-at-time time-to-send nil
+				(lambda ()
+						(with-current-buffer (get-buffer buffer-name)
+						(agent-shell--insert-to-shell-buffer :text prompt :submit t :no-focus t))))
+		(message "%s %s" "timer set at" time-to-send))
 
