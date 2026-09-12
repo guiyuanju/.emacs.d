@@ -184,10 +184,21 @@
   :ensure t
   :defer t)
 
+(defun jgy/nerd-icons-completion-live-buffer (fn candidate category)
+  "Return no icon for a dead buffer, otherwise call FN with CANDIDATE and CATEGORY."
+  (if (and (eq category 'buffer)
+           (bufferp candidate)
+           (not (buffer-live-p candidate)))
+      ""
+    (funcall fn candidate category)))
+
 (use-package nerd-icons-completion
   :ensure t
   :after marginalia
   :config
+  ;; Consult candidates can retain a buffer object after the buffer is killed.
+  (advice-add 'nerd-icons-completion-get-icon :around
+              #'jgy/nerd-icons-completion-live-buffer)
   (nerd-icons-completion-mode)
   (add-hook 'marginalia-mode-hook #'nerd-icons-completion-marginalia-setup))
 
@@ -286,7 +297,7 @@
 (defun jgy/yank-buffer-path-relative ()
   "Copy the current buffer's path relative to the project root."
   (interactive)
-  (jgy/yank-buffer-path (when-let ((pr (project-current))) (project-root pr))))
+  (jgy/yank-buffer-path (when-let* ((pr (project-current))) (project-root pr))))
 
 (defun jgy/insert-buffer-path ()
   "Insert the current buffer's path at point."
@@ -1322,7 +1333,8 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   :ensure-system-package
   ((bean-check . "brew install beancount")
    (bean-query . "brew install beanquery"))
-  :mode ("\\.beancount\\'" "\\.bean\\'")
+  :mode (("\\.beancount\\'" . beancount-mode)
+         ("\\.bean\\'" . beancount-mode))
   :custom
   (beancount-use-ido nil)            ; 账户补全交给 vertico
   :config
@@ -1480,16 +1492,16 @@ workspace 按分支命名，所以不同 repo 的同名分支落在同一个 wor
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
              gptel-system-prompt gptel-add gptel-add-file))
 
-(use-package agent-shell-dashboard
-  :ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
-  :commands (agent-shell-dashboard)
-  :init
-  (setq initial-buffer-choice #'agent-shell-dashboard)
-  :config
-  (add-hook 'agent-shell-dashboard-mode-hook
-            ;; dashboard 的 g 是刷新，本地覆盖掉 evil-commentary 的 gc/gy 前缀
-            (lambda ()
-              (evil-local-set-key 'normal "g" #'agent-shell-dashboard-refresh))))
+;; (use-package agent-shell-dashboard
+;;   :ensure (:host github :repo "wandersoncferreira/agent-shell-dashboard")
+;;   :commands (agent-shell-dashboard)
+;;   :init
+;;   (setq initial-buffer-choice #'agent-shell-dashboard)
+;;   :config
+;;   (add-hook 'agent-shell-dashboard-mode-hook
+;;             ;; dashboard 的 g 是刷新，本地覆盖掉 evil-commentary 的 gc/gy 前缀
+;;             (lambda ()
+;;               (evil-local-set-key 'normal "g" #'agent-shell-dashboard-refresh))))
 
 ;; agent-shell-hq-peek 要 posframe，但主文件的 Package-Requires 没写，elpaca 不会自动拉，先声明占好 load-path
 (use-package posframe
