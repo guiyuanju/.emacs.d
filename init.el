@@ -31,9 +31,9 @@
 
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy/font-family "Iosevka Nerd Font Mono")
-(defvar jgy/code-directory "~/Code/okj/"
+(defvar jgy/code-directory "~/Code/Projects/"
   "Directory containing Git repositories.")
-(defvar jgy/worktree-directory "~/Code/okj/worktree/"
+(defvar jgy/worktree-directory "~/Code/Projects/worktree/"
   "Directory in which to create Git worktrees.")
 (defvar jgy/notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
@@ -78,9 +78,7 @@
       desktop-path (list jgy/state-directory)
       desktop-base-file-name "desktop.el"
       desktop-save t
-      desktop-restore-eager 5
-      desktop-restore-frames t
-      desktop-auto-save-timeout 30)
+      desktop-restore-eager 5)
 (tab-bar-mode 1)
 (tab-bar-history-mode 1)
 (desktop-save-mode 1)
@@ -89,7 +87,6 @@
 
 ;;; Package manager
 
-(defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
 (defvar elpaca-sources-directory (expand-file-name "sources/" elpaca-directory))
@@ -131,13 +128,13 @@
 (add-hook 'after-init-hook #'elpaca-process-queues)
 (elpaca `(,@elpaca-order))
 (elpaca elpaca-use-package
+  (setq use-package-always-ensure t)
   (elpaca-use-package-mode))
 (elpaca-wait)
 
 ;;; Environment
 
 (use-package exec-path-from-shell
-  :ensure t
   :if (eq system-type 'darwin)
   :custom
   (exec-path-from-shell-variables '("PATH" "GOPATH" "JAVA_HOME"))
@@ -147,7 +144,6 @@
 ;;; Completion
 
 (use-package vertico
-  :ensure t
   :demand t
   :custom
   (vertico-cycle t)
@@ -173,26 +169,25 @@
   :hook (minibuffer-setup . vertico-repeat-save))
 
 (use-package orderless
-  :ensure t
   :custom
   (completion-styles '(orderless basic))
   (completion-category-defaults nil)
   (completion-category-overrides '((file (styles partial-completion)))))
 
 (use-package marginalia
-  :ensure t
   :init
   (marginalia-mode 1))
 
-(use-package consult
-  :ensure t)
+(use-package consult)
 
 (use-package embark
-  :ensure t
   :bind (("C-;" . embark-act)
          ("C-c C-;" . embark-export))
   :init
   (setq prefix-help-command #'embark-prefix-help-command))
+
+(use-package embark-consult
+  :after (embark consult))
 
 (use-package which-key
   :ensure nil
@@ -203,7 +198,6 @@
   (which-key-mode 1))
 
 (use-package corfu
-  :ensure t
   :custom
   (corfu-auto t)
   (tab-always-indent 'complete)
@@ -211,7 +205,6 @@
   (global-corfu-mode 1))
 
 (use-package cape
-  :ensure t
   :init
   (dolist (function '(cape-file cape-dabbrev cape-elisp-block))
     (add-hook 'completion-at-point-functions function t)))
@@ -219,10 +212,8 @@
 ;;; Modal editing
 
 (use-package evil
-  :ensure t
   :init
-  (setq evil-want-integration t
-        evil-want-keybinding nil
+  (setq evil-want-keybinding nil
         evil-want-C-u-scroll t
         evil-want-C-i-jump nil
         evil-want-Y-yank-to-eol t
@@ -245,7 +236,6 @@
     (evil-global-set-key state (kbd "C-k") #'evil-window-prev)))
 
 (use-package evil-collection
-  :ensure t
   :after evil
   :init
   (setq evil-collection-repl-submit-state 'insert)
@@ -253,7 +243,6 @@
   (evil-collection-init))
 
 (use-package evil-commentary
-  :ensure t
   :after evil
   :config
   (evil-commentary-mode 1))
@@ -349,13 +338,6 @@ With FORCE, do not ask for confirmation."
      (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
      #'ghostel)))
 
-(defun jgy/tab-switch-or-create (name)
-  "Switch to tab NAME, creating it when necessary."
-  (if (member name (mapcar (lambda (tab) (alist-get 'name tab)) (tab-bar-tabs)))
-      (tab-bar-switch-to-tab name)
-    (tab-bar-new-tab)
-    (tab-bar-rename-tab name)))
-
 (defun jgy/notes-find ()
   "Find a file below `jgy/notes-directory'."
   (interactive)
@@ -383,7 +365,6 @@ With FORCE, do not ask for confirmation."
 ;;; Keybindings
 
 (use-package general
-  :ensure t
   :after evil
   :config
   (general-evil-setup t)
@@ -420,7 +401,7 @@ With FORCE, do not ask for confirmation."
     "aa" '(agent-shell :which-key "agent shell")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
-    "aD" '(agent-shell-manager-toggle :which-key "agent manager")
+    "ad" '(agent-shell-manager-toggle :which-key "agent manager")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
     "ag" '(gptel :which-key "gptel")
@@ -567,7 +548,6 @@ With FORCE, do not ask for confirmation."
 ;;; Popups and terminal
 
 (use-package popper
-  :ensure t
   :bind (("C-`" . popper-toggle)
          ("M-`" . popper-cycle))
   :custom
@@ -585,7 +565,6 @@ With FORCE, do not ask for confirmation."
   (popper-echo-mode 1))
 
 (use-package ghostel
-  :ensure t
   :commands (ghostel ghostel-project ghostel-project-buffer-list))
 
 ;;; Worktrees
@@ -666,7 +645,7 @@ With FORCE, do not ask for confirmation."
     (when (string-empty-p branch) (user-error "Branch cannot be empty"))
     (setq path (or (jgy/worktree--checkout repo branch)
                    (jgy/worktree--create repo branch path)))
-    (jgy/tab-switch-or-create (format "%s:%s" repo-name slug))
+    (tab-bar-switch-to-tab (format "%s:%s" repo-name slug))
     (dired path)))
 
 ;;; Files and Git
@@ -682,9 +661,7 @@ With FORCE, do not ask for confirmation."
     (setq dired-listing-switches "-alh")))
 
 (use-package magit
-  :ensure t
   :custom
-  (magit-process-connection-type t)
   (magit-ediff-dwim-show-on-hunks t)
   :config
   (setq magit-display-buffer-function
@@ -696,14 +673,12 @@ With FORCE, do not ask for confirmation."
                           #'magit-insert-worktrees nil t))
 
 (use-package git-link
-  :ensure t
   :commands (git-link git-link-homepage)
   :custom
   (git-link-use-commit t)
   (git-link-open-in-browser t))
 
 (use-package diff-hl
-  :ensure t
   :demand t
   :config
   (diff-hl-margin-mode 1)
@@ -715,11 +690,9 @@ With FORCE, do not ask for confirmation."
 ;;; Programming
 
 (use-package yasnippet
-  :ensure t
   :hook (eglot-managed-mode . yas-minor-mode))
 
 (use-package treesit-auto
-  :ensure t
   :demand t
   :custom
   (treesit-auto-langs '(bash dockerfile go gomod java json lua python rust toml yaml))
@@ -732,11 +705,6 @@ With FORCE, do not ask for confirmation."
 (declare-function eglot-find-implementation "eglot")
 (declare-function eglot-format-buffer "eglot")
 
-(defvar jgy/eglot-java-configuration nil)
-(defvar jgy/sdkman-java-directory (expand-file-name "~/.sdkman/candidates/java/"))
-(defvar jgy/jdtls-java-version "25.0.3-tem"
-  "SDKMAN Java version used to run jdtls; nil lets jdtls choose.")
-
 (defun jgy/eglot-python-configuration (server)
   "Return basedpyright settings for SERVER's project virtualenv."
   (when-let* ((root (project-root (eglot--project server)))
@@ -747,11 +715,6 @@ With FORCE, do not ask for confirmation."
                      (:typeCheckingMode "standard"
                       :diagnosticSeverityOverrides
                       (:reportPrivateImportUsage "none"))))))
-
-(defun jgy/eglot-workspace-configuration (server)
-  "Combine language-specific workspace settings for SERVER."
-  (append (jgy/eglot-python-configuration server)
-          jgy/eglot-java-configuration))
 
 (defun jgy/java-indent-setup ()
   "Use four-space indentation in Java buffers."
@@ -782,42 +745,20 @@ With FORCE, do not ask for confirmation."
 (use-package eglot
   :ensure nil
   :commands (eglot eglot-ensure)
-  :hook ((go-ts-mode haskell-mode lua-ts-mode rust-ts-mode
+  :hook ((go-ts-mode haskell-mode lua-mode lua-ts-mode rust-ts-mode
                   java-mode java-ts-mode python-mode python-ts-mode)
          . eglot-ensure)
   :init
   (setq read-process-output-max (* 1024 1024))
   :config
-  (setq-default eglot-workspace-configuration #'jgy/eglot-workspace-configuration)
+  (setq-default eglot-workspace-configuration #'jgy/eglot-python-configuration)
   (add-to-list 'eglot-server-programs
                '((python-mode python-ts-mode)
-                 . ("basedpyright-langserver" "--stdio")))
+                 . ("uvx" "--from" "basedpyright"
+                    "basedpyright-langserver" "--stdio")))
   (add-to-list 'eglot-server-programs
                '((sql-mode :language-id "sql")
                  . ("uv" "run" "--with" "pygls<2" "sqlmesh_lsp")))
-  (let* ((java (and jgy/jdtls-java-version
-                    (expand-file-name
-                     (format "%s/bin/java" jgy/jdtls-java-version)
-                     jgy/sdkman-java-directory)))
-         (lombok (expand-file-name "lombok.jar" jgy/state-directory))
-         (command (append '("jdtls")
-                          (when (and java (file-executable-p java))
-                            (list "--java-executable" java))
-                          (when (file-exists-p lombok)
-                            (list (concat "--jvm-arg=-javaagent:" lombok))))))
-    (add-to-list 'eglot-server-programs
-                 `((java-mode java-ts-mode) . ,command)))
-  (setq jgy/eglot-java-configuration
-        `(:java
-          (:configuration
-           (:runtimes
-            [(:name "JavaSE-1.8"
-              :path ,(expand-file-name "8.0.492-zulu" jgy/sdkman-java-directory))
-             (:name "JavaSE-17"
-              :path ,(expand-file-name "17.0.19-tem" jgy/sdkman-java-directory)
-              :default t)
-             (:name "JavaSE-25"
-              :path ,(expand-file-name "25.0.3-tem" jgy/sdkman-java-directory))]))))
   (with-eval-after-load 'evil
     (evil-define-minor-mode-key 'normal 'eglot--managed-mode
       (kbd "K") #'eldoc-doc-buffer
@@ -825,7 +766,6 @@ With FORCE, do not ask for confirmation."
       (kbd "gI") #'eglot-find-implementation)))
 
 (use-package apheleia
-  :ensure t
   :demand t
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
@@ -834,7 +774,6 @@ With FORCE, do not ask for confirmation."
   (apheleia-global-mode 1))
 
 (use-package dape
-  :ensure t
   :commands (dape dape-breakpoint-toggle dape-breakpoint-remove-all
              dape-continue dape-next dape-step-in dape-step-out dape-quit
              dape-restart dape-evaluate-expression)
@@ -846,7 +785,6 @@ With FORCE, do not ask for confirmation."
 ;;; Languages and notes
 
 (use-package haskell-mode
-  :ensure t
   :mode ("\\.hs\\'" "\\.lhs\\'")
   :custom
   (haskell-process-type 'cabal-repl))
@@ -856,11 +794,9 @@ With FORCE, do not ask for confirmation."
   :hook (sql-mode . jgy/sqlmesh-setup))
 
 (use-package csv-mode
-  :ensure t
   :mode "\\.[ct]sv\\'")
 
 (use-package beancount
-  :ensure t
   :mode (("\\.beancount\\'" . beancount-mode)
          ("\\.bean\\'" . beancount-mode))
   :custom
@@ -868,19 +804,17 @@ With FORCE, do not ask for confirmation."
   :hook (beancount-mode . outline-minor-mode))
 
 (use-package markdown-mode
-  :ensure t
   :mode "\\.md\\'"
   :custom
   (markdown-fontify-code-blocks-natively t)
   (markdown-enable-wiki-links t)
   (markdown-command "pandoc --from=gfm --to=html5"))
 
-(add-to-list 'auto-mode-alist '("uv\\.lock\\'" . toml-ts-mode))
+(add-to-list 'auto-mode-alist '("uv\\.lock\\'" . conf-toml-mode))
 
 ;;; AI
 
 (use-package agent-shell
-  :ensure t
   :commands (agent-shell agent-shell-anthropic-start-claude-code
              agent-shell-pi-start-agent)
   :custom
@@ -907,7 +841,6 @@ With FORCE, do not ask for confirmation."
       "q" #'quit-window)))
 
 (use-package gptel
-  :ensure t
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
              gptel-add gptel-add-file))
 
