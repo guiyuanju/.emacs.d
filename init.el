@@ -681,12 +681,8 @@ With FORCE, do not ask for confirmation."
             "-l --almost-all --human-readable --group-directories-first --no-group")
     (setq dired-listing-switches "-alh")))
 
-;; Magit requires a newer Transient than some Emacs builds bundle.
-(elpaca transient)
-
 (use-package magit
   :ensure t
-  :after transient
   :custom
   (magit-process-connection-type t)
   (magit-ediff-dwim-show-on-hunks t)
@@ -786,7 +782,7 @@ With FORCE, do not ask for confirmation."
 (use-package eglot
   :ensure nil
   :commands (eglot eglot-ensure)
-  :hook ((go-mode go-ts-mode haskell-mode lua-mode lua-ts-mode
+  :hook ((go-ts-mode haskell-mode lua-ts-mode rust-ts-mode
                   java-mode java-ts-mode python-mode python-ts-mode)
          . eglot-ensure)
   :init
@@ -855,18 +851,6 @@ With FORCE, do not ask for confirmation."
   :custom
   (haskell-process-type 'cabal-repl))
 
-(use-package lua-mode
-  :ensure t
-  :mode "\\.lua\\'")
-
-(use-package go-mode
-  :ensure t
-  :mode "\\.go\\'")
-
-(use-package rust-mode
-  :ensure t
-  :mode "\\.rs\\'")
-
 (use-package sql
   :ensure nil
   :hook (sql-mode . jgy/sqlmesh-setup))
@@ -898,7 +882,6 @@ With FORCE, do not ask for confirmation."
 (use-package agent-shell
   :ensure t
   :commands (agent-shell agent-shell-anthropic-start-claude-code
-             agent-shell-openai-start-codex agent-shell-github-start-copilot
              agent-shell-pi-start-agent)
   :custom
   (agent-shell-context-sources '(region))
@@ -926,6 +909,6 @@ With FORCE, do not ask for confirmation."
 (use-package gptel
   :ensure t
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
-             gptel-system-prompt gptel-add gptel-add-file))
+             gptel-add gptel-add-file))
 
 ;;; init.el ends here
