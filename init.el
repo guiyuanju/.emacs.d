@@ -71,8 +71,9 @@
 (savehist-mode 1)
 
 ;; Tabs are lightweight workspaces; desktop.el restores files and window state.
-(setq tab-bar-show 1
-      tab-bar-close-button-show nil
+;; Use the Custom setter so reloading init.el also refreshes every frame.
+(customize-set-variable 'tab-bar-show t)
+(setq tab-bar-close-button-show nil
       tab-bar-format '(tab-bar-format-history tab-bar-format-tabs tab-bar-separator)
       desktop-dirname jgy/state-directory
       desktop-path (list jgy/state-directory)
@@ -87,6 +88,8 @@
 
 ;;; Package manager
 
+;; Keep this in sync with elpaca/sources/elpaca/doc/installer.el.
+(defvar elpaca-installer-version 0.12)
 (defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
 (defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
 (defvar elpaca-sources-directory (expand-file-name "sources/" elpaca-directory))
@@ -843,5 +846,10 @@ With FORCE, do not ask for confirmation."
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
              gptel-add gptel-add-file))
+
+(use-package sdkman
+  :ensure (:host github :repo "systemhalted/sdkman.el")
+  :init
+  (global-sdkman-mode 1))
 
 ;;; init.el ends here
