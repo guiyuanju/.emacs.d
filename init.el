@@ -37,6 +37,8 @@
   "Directory in which to create Git worktrees.")
 (defvar jgy/notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
+(defvar jgy/deepseek-api-key nil
+  "DeepSeek API key, set in local.el.")
 
 ;; Machine-specific values belong in this ignored file.
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
@@ -75,6 +77,8 @@
 (customize-set-variable 'tab-bar-show t)
 (setq tab-bar-close-button-show nil
       tab-bar-format '(tab-bar-format-history tab-bar-format-tabs tab-bar-separator)
+      ;; A new workspace starts empty rather than inheriting the current buffer.
+      tab-bar-new-tab-choice "*scratch*"
       desktop-dirname jgy/state-directory
       desktop-path (list jgy/state-directory)
       desktop-base-file-name "desktop.el"
@@ -212,6 +216,22 @@
   (dolist (function '(cape-file cape-dabbrev cape-elisp-block))
     (add-hook 'completion-at-point-functions function t)))
 
+;;; Workspaces
+
+;; Each tab keeps its own buffer list.
+
+(use-package bufferlo
+  :demand t
+  :init
+  ;; Read when the mode turns on, so it must be set first.
+  (setq bufferlo-prefer-local-buffers 'tabs)
+  :config
+  (bufferlo-mode 1)
+  ;; Every consult buffer source reads the tab-local list; this also switches
+  ;; on `consult-source-other-buffer' (narrow "o") for the remaining buffers.
+  (with-eval-after-load 'consult
+    (setq consult-buffer-list-function #'bufferlo-local-buffers)))
+
 ;;; Modal editing
 
 (use-package evil
@@ -242,6 +262,8 @@
   :after evil
   :init
   (setq evil-collection-repl-submit-state 'insert)
+  ;; 让出 dired 中的 ";"，evil-collection 的 epa 绑定会与之冲突。
+  (setq evil-collection-key-blacklist '(";d" ";v" ";s" ";e"))
   :config
   (evil-collection-init))
 
@@ -389,6 +411,7 @@ With FORCE, do not ask for confirmation."
     "\\"  '(jgy/ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
+    "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
 
     "TAB"     '(:ignore t :which-key "workspace")
     "TAB TAB" '(tab-bar-switch-to-tab :which-key "switch")
@@ -416,7 +439,7 @@ With FORCE, do not ask for confirmation."
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
     "bd" '(kill-current-buffer :which-key "kill")
-    "bi" '(ibuffer :which-key "ibuffer")
+    "bi" '(ibuffer :which-key "ibuffer (all)")
     "bn" '(next-buffer :which-key "next")
     "bp" '(previous-buffer :which-key "previous")
     "br" '(revert-buffer :which-key "revert")
@@ -657,6 +680,8 @@ With FORCE, do not ask for confirmation."
   :ensure nil
   :hook (dired-mode . (lambda () (display-line-numbers-mode -1)))
   :config
+  (with-eval-after-load 'evil
+    (evil-define-key* 'normal dired-mode-map ";" #'dired-up-directory))
   (if-let* ((gls (executable-find "gls")))
       (setq insert-directory-program gls
             dired-listing-switches
@@ -743,7 +768,7 @@ With FORCE, do not ask for confirmation."
 
 (defun jgy/sqlmesh-setup ()
   "Enable SQLMesh's language server in SQLMesh projects."
-  (when (jgy/sqlmesh-project-p)
+  (when (and buffer-file-name (jgy/sqlmesh-project-p))
     (setq-local sql-product 'postgres
                 apheleia-inhibit t)
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
@@ -776,6 +801,10 @@ With FORCE, do not ask for confirmation."
   :demand t
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
+  (setf (alist-get 'sqlfluff apheleia-formatters)
+        '("sqlfluff" "format" "--dialect" "mysql"
+          "--disable-progress-bar" "-"))
+  (setf (alist-get 'sql-mode apheleia-mode-alist) 'sqlfluff)
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
   (apheleia-global-mode 1))
@@ -810,12 +839,50 @@ With FORCE, do not ask for confirmation."
   (beancount-use-ido nil)
   :hook (beancount-mode . outline-minor-mode))
 
+(defconst jgy/markdown-preview-head
+  (let ((gh "https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.css")
+        (hl "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11"))
+    (concat
+     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n"
+     (format "<link rel=\"stylesheet\" href=\"%s\"/>\n" gh)
+     (format "<link rel=\"stylesheet\" href=\"%s/styles/github.min.css\" media=\"(prefers-color-scheme: light)\"/>\n" hl)
+     (format "<link rel=\"stylesheet\" href=\"%s/styles/github-dark.min.css\" media=\"(prefers-color-scheme: dark)\"/>\n" hl)
+     ;; github-markdown-css scopes its palette to .markdown-body, so the page
+     ;; canvas and the reading column need setting separately.
+     "<style>\n"
+     "html { color-scheme: light dark; }\n"
+     "body { margin: 0; background: #ffffff; }\n"
+     "@media (prefers-color-scheme: dark) { body { background: #0d1117; } }\n"
+     ".markdown-body { box-sizing: border-box; max-width: 980px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }\n"
+     "@media (max-width: 767px) { .markdown-body { padding: 1.25rem; } }\n"
+     "</style>\n"
+     (format "<script src=\"%s/highlight.min.js\"></script>\n" hl)
+     ;; Pandoc names task-list elements differently than GitHub's stylesheet
+     ;; expects, so relabel them instead of restyling them.
+     "<script>addEventListener(\"DOMContentLoaded\", function () {\n"
+     "  hljs.highlightAll();\n"
+     "  document.querySelectorAll(\"ul.task-list > li\").forEach(function (li) {\n"
+     "    li.classList.add(\"task-list-item\");\n"
+     "    li.querySelectorAll(\"input[type=checkbox]\").forEach(function (box) {\n"
+     "      box.classList.add(\"task-list-item-checkbox\");\n"
+     "    });\n"
+     "  });\n"
+     "});</script>\n"))
+  "Head markup giving `markdown-preview' GitHub styling and highlight.js.")
+
+(use-package edit-indirect)
+
 (use-package markdown-mode
   :mode "\\.md\\'"
   :custom
   (markdown-fontify-code-blocks-natively t)
   (markdown-enable-wiki-links t)
-  (markdown-command "pandoc --from=gfm --to=html5"))
+  (markdown-content-type "text/html")
+  ;; highlight.js colours the blocks, so pandoc must not pre-tokenise them.
+  (markdown-command "pandoc --from=gfm --to=html5 --syntax-highlighting=none")
+  (markdown-xhtml-header-content jgy/markdown-preview-head)
+  (markdown-xhtml-body-preamble "<article class=\"markdown-body\">")
+  (markdown-xhtml-body-epilogue "</article>"))
 
 (add-to-list 'auto-mode-alist '("uv\\.lock\\'" . conf-toml-mode))
 
@@ -849,7 +916,11 @@ With FORCE, do not ask for confirmation."
 
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
-             gptel-add gptel-add-file))
+                   gptel-add gptel-add-file)
+  :config
+  (gptel-make-deepseek "DeepSeek"
+  :stream t
+  :key (lambda () jgy/deepseek-api-key)))
 
 (use-package sdkman
   :ensure (:host github :repo "systemhalted/sdkman.el")
