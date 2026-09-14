@@ -31,9 +31,9 @@
 
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy/font-family "Iosevka Nerd Font Mono")
-(defvar jgy/code-directory "~/Code/Projects/"
+(defvar jgy/code-directory "~/code/okj/"
   "Directory containing Git repositories.")
-(defvar jgy/worktree-directory "~/Code/Projects/worktree/"
+(defvar jgy/worktree-directory "~/code/okj/worktree/"
   "Directory in which to create Git worktrees.")
 (defvar jgy/notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
@@ -347,21 +347,29 @@ With FORCE, do not ask for confirmation."
       (select-window (display-buffer buf)))))
 
 (defun jgy/eshell-toggle ()
-  "Toggle the current project's Eshell."
+  "Toggle the current project's Eshell, or the global one outside projects.
+Called from inside an Eshell it hides that buffer, whatever its `cd'
+history has done to `default-directory'."
   (interactive)
-  (let* ((project (project-current))
-         (name (if project (project-prefixed-buffer-name "eshell") "*eshell*")))
-    (jgy/toggle-buffer (get-buffer name)
-                       (if project #'project-eshell #'eshell))))
+  (if (derived-mode-p 'eshell-mode)
+      (quit-window)
+    (let* ((project (project-current))
+           (name (if project (project-prefixed-buffer-name "eshell") "*eshell*")))
+      (jgy/toggle-buffer (get-buffer name)
+                         (if project #'project-eshell #'eshell)))))
 
 (defun jgy/ghostel-toggle ()
-  "Toggle the current project's Ghostel, or the global terminal outside projects."
+  "Toggle the current project's Ghostel, or the global terminal outside projects.
+Called from inside a Ghostel it hides that buffer, whatever its `cd'
+history has done to `default-directory'."
   (interactive)
-  (if (project-current)
-      (jgy/toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project)
-    (jgy/toggle-buffer
-     (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
-     #'ghostel)))
+  (if (derived-mode-p 'ghostel-mode)
+      (quit-window)
+    (if (project-current)
+        (jgy/toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project)
+      (jgy/toggle-buffer
+       (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
+       #'ghostel))))
 
 (defun jgy/notes-find ()
   "Find a file below `jgy/notes-directory'."
@@ -430,7 +438,8 @@ With FORCE, do not ask for confirmation."
     "ad" '(agent-shell-manager-toggle :which-key "agent manager")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
-    "ag" '(gptel :which-key "gptel")
+    "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
+    "aG" '(gptel :which-key "gptel session")
     "ak" '(gptel-abort :which-key "abort")
     "am" '(gptel-menu :which-key "menu")
     "ar" '(gptel-rewrite :which-key "rewrite")
@@ -544,13 +553,13 @@ With FORCE, do not ask for confirmation."
     "t"  '(:ignore t :which-key "toggle")
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
     "td" '(toggle-debug-on-error :which-key "debug on error")
-    "te" '(jgy/eshell-toggle :which-key "Eshell")
+    "tt" '(jgy/eshell-toggle :which-key "Eshell")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
     "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
     "tn" '(popper-cycle :which-key "next popup")
     "tp" '(popper-toggle :which-key "popup")
     "tr" '(read-only-mode :which-key "read only")
-    "tt" '(jgy/ghostel-toggle :which-key "terminal")
+    ;; "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tT" '(consult-theme :which-key "theme")
     "tw" '(visual-line-mode :which-key "wrap"))
 
@@ -621,6 +630,19 @@ With FORCE, do not ask for confirmation."
      (jgy/worktree--git-lines repo "for-each-ref" "--format=%(refname:strip=3)"
                               "refs/remotes/origin")))))
 
+(defun jgy/worktree--read-branch (repo)
+  "Read a branch name in REPO, keeping unknown names selectable.
+Vertico selects the prompt line when nothing matches, and `C-k' from the
+first candidate moves back up to it; `M-RET' submits the input outright."
+  (let* ((branches (jgy/worktree--branches repo))
+         (table
+          (lambda (string predicate action)
+            (if (eq action 'metadata)
+                '(metadata (display-sort-function . identity)
+                           (cycle-sort-function . identity))
+              (complete-with-action action branches string predicate)))))
+    (string-trim (completing-read "Branch: " table))))
+
 (defun jgy/worktree--checkout (repo branch)
   "Return the existing checkout for BRANCH in REPO, if any."
   (let ((lines (jgy/worktree--git-lines repo "worktree" "list" "--porcelain"))
@@ -639,7 +661,8 @@ With FORCE, do not ask for confirmation."
 
 (defun jgy/worktree--create (repo branch path)
   "Create a checkout of BRANCH from REPO at PATH."
-  (unless (zerop (call-process "git" nil nil nil "check-ref-format" "--branch" branch))
+  (unless (zerop (call-process "git" nil nil nil "-C" repo
+                               "check-ref-format" "--branch" branch))
     (user-error "Invalid branch name: %s" branch))
   (when (file-exists-p path)
     (user-error "Worktree path already exists: %s" path))
@@ -663,8 +686,7 @@ With FORCE, do not ask for confirmation."
                     (user-error "No repositories under %s" jgy/code-directory)))
          (repo-name (completing-read "Repository: " repos nil t))
          (repo (expand-file-name repo-name jgy/code-directory))
-         (branch (string-trim
-                  (completing-read "Branch: " (jgy/worktree--branches repo))))
+         (branch (jgy/worktree--read-branch repo))
          (slug (replace-regexp-in-string "[/\\]" "-" branch))
          (path (expand-file-name (format "%s_%s" repo-name slug)
                                  jgy/worktree-directory)))
@@ -917,10 +939,29 @@ With FORCE, do not ask for confirmation."
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
                    gptel-add gptel-add-file)
+  :init
+  ;; `gptel' 本身只负责创建/切换，这里补一个开关式的显示与隐藏。
+  (defun jgy/gptel-toggle ()
+    "显示最近的 gptel 会话；已经在其窗口中则隐藏它。"
+    (interactive)
+    (require 'gptel)
+    (if-let* ((win (get-window-with-predicate
+                    (lambda (w) (buffer-local-value 'gptel-mode (window-buffer w))))))
+        (if (eq win (selected-window))
+            (quit-window nil win)
+          (select-window win))
+      (if-let* ((buf (seq-find (lambda (b) (buffer-local-value 'gptel-mode b))
+                               (buffer-list))))
+          (display-buffer buf gptel-display-buffer-action)
+        (gptel (format "*%s*" (gptel-backend-name gptel-backend)) nil nil t))))
   :config
-  (gptel-make-deepseek "DeepSeek"
-  :stream t
-  :key (lambda () jgy/deepseek-api-key)))
+  (setq-default gptel-backend
+                (gptel-make-openai "DeepSeek"
+                  :host "://deepseek.com"
+                  :endpoint "/chat/completions"
+                  :stream t
+                  :key (lambda () jgy/deepseek-api-key)
+                  :models '(deepseek-flash deepseek-v4-pro))))
 
 (use-package sdkman
   :ensure (:host github :repo "systemhalted/sdkman.el")
