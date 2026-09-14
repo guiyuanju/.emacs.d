@@ -663,6 +663,10 @@ With FORCE, do not ask for confirmation."
             "-l --almost-all --human-readable --group-directories-first --no-group")
     (setq dired-listing-switches "-alh")))
 
+(use-package transient
+  :ensure t
+  :demand t)
+
 (use-package magit
   :custom
   (magit-ediff-dwim-show-on-hunks t)
