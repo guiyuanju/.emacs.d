@@ -26,6 +26,7 @@
 (global-auto-revert-mode 1)
 (electric-pair-mode 1)
 (winner-mode 1)
+(fringe-mode 0)
 (add-hook 'prog-mode-hook #'display-line-numbers-mode)
 (add-hook 'text-mode-hook #'display-line-numbers-mode)
 
