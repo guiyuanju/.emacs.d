@@ -958,7 +958,7 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :config
   (setq-default gptel-backend
                 (gptel-make-openai "DeepSeek"
-                  :host "://deepseek.com"
+                  :host "api.deepseek.com"
                   :endpoint "/chat/completions"
                   :stream t
                   :key (lambda () jgy/deepseek-api-key)
@@ -968,5 +968,14 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :ensure (:host github :repo "systemhalted/sdkman.el")
   :init
   (global-sdkman-mode 1))
+
+(use-package elfeed
+  :ensure t
+  :init
+  (setq elfeed-feeds
+      '(("https://catcoding.me/atom.xml" cat)
+        ("https://news.ycombinator.com/rss" hacker)
+        ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
+        ("https://sspai.com/feed" :fetch-link t :readable t sspai))))
 
 ;;; init.el ends here
