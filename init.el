@@ -41,6 +41,8 @@
 (defvar jgy/deepseek-api-key nil
   "DeepSeek API key, set in local.el.")
 
+(add-to-list 'load-path (locate-user-emacs-file "lisp"))
+
 ;; Machine-specific values belong in this ignored file.
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
 
@@ -255,7 +257,7 @@
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
-  (dolist (state '(normal visual))
+  (dolist (state '(normal visual insert))
     (evil-global-set-key state (kbd "C-j") #'evil-window-next)
     (evil-global-set-key state (kbd "C-k") #'evil-window-prev)))
 
@@ -436,7 +438,7 @@ history has done to `default-directory'."
     "aa" '(agent-shell :which-key "agent shell")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
-    "ad" '(agent-shell-manager-toggle :which-key "agent manager")
+    "ad" '(jgy/agent-manager-toggle :which-key "agent manager")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
     "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
@@ -797,6 +799,20 @@ first candidate moves back up to it; `M-RET' submits the input outright."
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
     (eglot-ensure)))
 
+(defvar jgy/sql-dialects '("mysql" "postgres" "redshift")
+  "sqlfluff dialects offered when formatting SQL.")
+
+(defvar-local jgy/sql-dialect "redshift"
+  "sqlfluff dialect used to format this buffer.")
+
+(defun jgy/sql-read-dialect (&rest _)
+  "Ask which dialect to format this SQL buffer with."
+  (interactive)
+  (when (derived-mode-p 'sql-mode)
+    (setq jgy/sql-dialect
+          (completing-read (format-prompt "SQL dialect" jgy/sql-dialect)
+                           jgy/sql-dialects nil t nil nil jgy/sql-dialect))))
+
 (use-package eglot
   :ensure nil
   :commands (eglot eglot-ensure)
@@ -825,11 +841,12 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
   (setf (alist-get 'sqlfluff apheleia-formatters)
-        '("sqlfluff" "format" "--dialect" "mysql"
+        '("sqlfluff" "format" "--dialect" jgy/sql-dialect
           "--disable-progress-bar" "-"))
   (setf (alist-get 'sql-mode apheleia-mode-alist) 'sqlfluff)
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
+  (advice-add 'apheleia-format-buffer :before #'jgy/sql-read-dialect)
   (apheleia-global-mode 1))
 
 (use-package dape
@@ -918,24 +935,10 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   (agent-shell-context-sources '(region))
   (agent-shell-session-restore-verbosity 'full))
 
-(use-package agent-shell-manager
-  :ensure (:host github :repo "jethrokuan/agent-shell-manager")
-  :commands agent-shell-manager-toggle
-  :config
-  (with-eval-after-load 'evil
-    (evil-set-initial-state 'agent-shell-manager-mode 'normal)
-    (evil-define-key* 'normal agent-shell-manager-mode-map
-      (kbd "RET") #'agent-shell-manager-goto
-      "gr" #'agent-shell-manager-refresh
-      "K" #'agent-shell-manager-kill
-      "c" #'agent-shell-manager-new
-      "r" #'agent-shell-manager-restart
-      "d" #'agent-shell-manager-delete-killed
-      "m" #'agent-shell-manager-set-mode
-      "M" #'agent-shell-manager-set-model
-      "t" #'agent-shell-manager-view-traffic
-      "L" #'agent-shell-manager-toggle-logging
-      "q" #'quit-window)))
+;; agent 的 tab 归属和树形面板都在 lisp/jgy-agent-manager.el。
+;; 归属要在 shell 创建时就记下来，所以 agent-shell 一加载就把它拉进来。
+(with-eval-after-load 'agent-shell (require 'jgy-agent-manager))
+(autoload 'jgy/agent-manager-toggle "jgy-agent-manager" nil t)
 
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
@@ -969,9 +972,46 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :init
   (global-sdkman-mode 1))
 
+(defun jgy/elfeed-evil-keys (mode _keymaps)
+  "Restore elfeed's own keys that evil-collection leaves to evil in MODE."
+  (when (eq mode 'elfeed)
+    (evil-define-key* 'normal elfeed-search-mode-map
+      "G" #'elfeed-search-fetch
+      "b" #'elfeed-search-browse-url
+      "B" #'elfeed-search-browse-url-secondary
+      "m" #'elfeed-search-mark
+      "M" #'elfeed-search-unmark
+      "r" #'elfeed-search-untag-unread
+      "u" #'elfeed-search-tag-unread
+      "t" #'elfeed-search-set-entry-title
+      "T" #'elfeed-search-set-feed-title
+      "o" #'elfeed-search-cycle-order
+      "O" #'elfeed-search-reverse-order
+      "@" #'elfeed-search-date-filter
+      "=" #'elfeed-search-feed-filter
+      "~" #'elfeed-search-exclude-feed-filter
+      "<" #'elfeed-search-first-entry
+      ">" #'elfeed-search-last-entry)
+    (evil-define-key* 'normal elfeed-show-mode-map
+      "b" #'elfeed-show-visit
+      "B" #'elfeed-show-visit-secondary
+      "R" #'elfeed-show-readable
+      "c" #'elfeed-show-copy-url-at-point
+      "u" #'elfeed-show-tag-unread
+      "n" #'elfeed-show-next
+      "p" #'elfeed-show-prev)))
+
+(defun jgy/elfeed-show-set-referer (&rest _)
+  "Send the entry's own URL as Referer so hotlink-protected images load."
+  (when-let* ((entry (bound-and-true-p elfeed-show-entry))
+              (link (elfeed-entry-link entry)))
+    (setq-local url-current-lastloc (url-generic-parse-url link))))
+
 (use-package elfeed
   :ensure t
   :init
+  (add-hook 'evil-collection-setup-hook #'jgy/elfeed-evil-keys)
+  (advice-add 'elfeed-show-refresh :before #'jgy/elfeed-show-set-referer)
   (setq elfeed-feeds
       '(("https://catcoding.me/atom.xml" cat)
         ("https://news.ycombinator.com/rss" hacker)
