@@ -63,15 +63,22 @@
         ;; 归属丢失时退回窗口扫描，只能找到仍显示着的 buffer。
         (alist-get 'index (tab-bar-get-buffer-tab buffer)))))
 
+(defun jgy/agent-shell--agent-window ()
+  "A window of the selected tab already showing an agent shell."
+  (seq-find (lambda (window)
+              (and (not (window-dedicated-p window))
+                   (provided-mode-derived-p
+                    (buffer-local-value 'major-mode (window-buffer window))
+                    'agent-shell-mode)))
+            (window-list nil 'no-minibuf)))
+
 (defun jgy/agent-shell--display-in-tab (buffer)
-  "Show BUFFER in the selected tab, reusing an agent-shell window if there is one."
-  (if-let* ((window (seq-find
-                     (lambda (window)
-                       (and (not (window-dedicated-p window))
-                            (provided-mode-derived-p
-                             (buffer-local-value 'major-mode (window-buffer window))
-                             'agent-shell-mode)))
-                     (window-list nil 'no-minibuf))))
+  "Show BUFFER in the selected tab, taking over a window rather than splitting.
+The panel itself is dedicated, so it never gets picked."
+  (if-let* ((window (or (jgy/agent-shell--agent-window)
+                        (and (not (window-dedicated-p (selected-window)))
+                             (selected-window))
+                        (get-largest-window nil nil))))
       (progn (set-window-buffer window buffer)
              (select-window window))
     (when-let* ((window (display-buffer buffer agent-shell-display-action)))
@@ -395,6 +402,9 @@ removed again in every tab it is switched to."
   (evil-define-key* 'normal jgy/agent-manager-mode-map
     (kbd "RET") #'jgy/agent-manager-goto
     (kbd "TAB") #'magit-section-toggle
+    ;; evil-collection 把 C-j/C-k 接管成 magit-section 翻页，这里放行回全局的窗口切换。
+    (kbd "C-j") nil
+    (kbd "C-k") nil
     "gr" #'jgy/agent-manager-refresh
     "T"  #'jgy/agent-manager-claim
     "c"  #'jgy/agent-manager-new

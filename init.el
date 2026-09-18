@@ -247,6 +247,8 @@
         evil-split-window-below t
         evil-vsplit-window-right t
         evil-symbol-word-search t
+        evil-search-module 'evil-search
+        evil-ex-search-vim-style-regexp t
         evil-kill-on-visual-paste nil
         evil-respect-visual-line-mode t
         evil-disable-insert-state-bindings t)
@@ -813,6 +815,10 @@ first candidate moves back up to it; `M-RET' submits the input outright."
           (completing-read (format-prompt "SQL dialect" jgy/sql-dialect)
                            jgy/sql-dialects nil t nil nil jgy/sql-dialect))))
 
+(defun jgy/sql-inhibit-format-on-save ()
+  "Format SQL buffers only on demand."
+  (derived-mode-p 'sql-mode))
+
 (use-package eglot
   :ensure nil
   :commands (eglot eglot-ensure)
@@ -847,6 +853,7 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
   (advice-add 'apheleia-format-buffer :before #'jgy/sql-read-dialect)
+  (add-hook 'apheleia-inhibit-functions #'jgy/sql-inhibit-format-on-save)
   (apheleia-global-mode 1))
 
 (use-package dape
