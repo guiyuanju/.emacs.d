@@ -150,10 +150,9 @@ The panel itself is dedicated, so it never gets picked."
      (agent-shell-buffers))))
 
 (defun agent-shell-lens-tab-name-format-status (name tab _index)
-  "Append status icons for the agent shells in TAB to tab NAME."
+  "Prepend status icons for the agent shells in TAB to tab NAME."
   (if-let* ((shells (agent-shell-lens--tab-shells tab)))
       (concat
-       name " "
        (mapconcat
         (lambda (shell)
           (let ((status (agent-shell-lens--status shell)))
@@ -162,7 +161,8 @@ The panel itself is dedicated, so it never gets picked."
                         'help-echo (format "%s: %s"
                                            (agent-shell-lens--kind shell) status)
                         'rear-nonsticky t)))
-        shells " "))
+        shells " ")
+       " " name)
     name))
 
 (defun agent-shell-lens--install-tab-name-formatter ()
@@ -187,9 +187,44 @@ The panel itself is dedicated, so it never gets picked."
                   (agent-shell-lens--status shell)))
           (agent-shell-buffers)))
 
+(defvar agent-shell-lens-notify-statuses '(ready blocked)
+  "Statuses that trigger a desktop notification when an agent enters them.")
+
+(defvar agent-shell-lens--last-statuses nil
+  "Alist of (SHELL . STATUS), used to detect status transitions to notify on.")
+
+(defun agent-shell-lens-notify (shell status)
+  "Show a desktop notification that SHELL's agent reached STATUS."
+  (let ((title (format "%s Agent" (agent-shell-lens--kind shell)))
+        (body (format "%s: %s" (buffer-name shell) status)))
+    (cond
+     ((executable-find "terminal-notifier")
+      (call-process "terminal-notifier" nil 0 nil
+                    "-title" title "-message" body))
+     ((executable-find "osascript")
+      (call-process "osascript" nil 0 nil "-e"
+                    (format "display notification %s with title %s"
+                            (prin1-to-string body) (prin1-to-string title))))
+     (t (message "%s: %s" title body)))))
+
+(defvar agent-shell-lens-notify-function #'agent-shell-lens-notify
+  "Function called with (SHELL STATUS) when an agent enters a notifiable status.")
+
+(defun agent-shell-lens--notify-transitions (snapshot)
+  "Notify for shells in SNAPSHOT whose status just entered a notifiable one."
+  (pcase-dolist (`(,shell ,_tab-id ,status) snapshot)
+    (let ((last (alist-get shell agent-shell-lens--last-statuses)))
+      (when (and last (not (eq last status))
+                 (memq status agent-shell-lens-notify-statuses))
+        (funcall agent-shell-lens-notify-function shell status))))
+  (setq agent-shell-lens--last-statuses
+        (mapcar (pcase-lambda (`(,shell ,_tab-id ,status)) (cons shell status))
+                snapshot)))
+
 (defun agent-shell-lens--refresh-tab-bar (&optional force)
   "Refresh tab status icons when their state changed, or always when FORCE."
   (let ((snapshot (agent-shell-lens--tab-status-snapshot)))
+    (agent-shell-lens--notify-transitions snapshot)
     (when (or force (not (equal snapshot agent-shell-lens--tab-status-snapshot)))
       (setq agent-shell-lens--tab-status-snapshot snapshot)
       (force-mode-line-update t))))

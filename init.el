@@ -440,7 +440,7 @@ history has done to `default-directory'."
     "aa" '(agent-shell :which-key "agent shell")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
-    "ad" '(agent-shell-lens-toggle :which-key "agent shell lens")
+    "al" '(agent-shell-lens-toggle :which-key "agent shell lens")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
     "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
