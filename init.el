@@ -440,7 +440,7 @@ history has done to `default-directory'."
     "aa" '(agent-shell :which-key "agent shell")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
-    "ad" '(jgy/agent-manager-toggle :which-key "agent manager")
+    "ad" '(agent-shell-lens-toggle :which-key "agent shell lens")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
     "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
@@ -942,10 +942,10 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   (agent-shell-context-sources '(region))
   (agent-shell-session-restore-verbosity 'full))
 
-;; agent 的 tab 归属和树形面板都在 lisp/jgy-agent-manager.el。
+;; agent 的 tab 状态、tab 归属和树形面板都在 lisp/agent-shell-lens.el。
 ;; 归属要在 shell 创建时就记下来，所以 agent-shell 一加载就把它拉进来。
-(with-eval-after-load 'agent-shell (require 'jgy-agent-manager))
-(autoload 'jgy/agent-manager-toggle "jgy-agent-manager" nil t)
+(with-eval-after-load 'agent-shell (require 'agent-shell-lens))
+(autoload 'agent-shell-lens-toggle "agent-shell-lens" nil t)
 
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
