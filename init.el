@@ -588,6 +588,7 @@ history has done to `default-directory'."
 ;;; Popups and terminal
 
 (use-package popper
+  :demand t
   :bind (("C-`" . popper-toggle)
          ("M-`" . popper-cycle))
   :custom
@@ -596,7 +597,7 @@ history has done to `default-directory'."
      "\\*Async Shell Command\\*" "\\*eldoc\\*" "Output\\*$"
      help-mode eshell-mode compilation-mode xref--xref-buffer-mode
      flymake-diagnostics-buffer-mode ghostel-mode))
-  (popper-window-height 0.33)
+  (popper-window-height 0.35)
   :init
   (require 'project)
   (setq popper-group-function #'popper-group-by-project)
@@ -823,7 +824,7 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :ensure nil
   :commands (eglot eglot-ensure)
   :hook ((go-ts-mode haskell-mode lua-mode lua-ts-mode rust-ts-mode
-                  java-mode java-ts-mode python-mode python-ts-mode)
+          swift-mode java-mode java-ts-mode python-mode python-ts-mode)
          . eglot-ensure)
   :init
   (setq read-process-output-max (* 1024 1024))
@@ -836,6 +837,8 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   (add-to-list 'eglot-server-programs
                '((sql-mode :language-id "sql")
                  . ("uv" "run" "--with" "pygls<2" "sqlmesh_lsp")))
+  (add-to-list 'eglot-server-programs
+               '(swift-mode . ("xcrun" "sourcekit-lsp")))
   (with-eval-after-load 'evil
     (evil-define-minor-mode-key 'normal 'eglot--managed-mode
       (kbd "K") #'eldoc-doc-buffer
@@ -850,6 +853,9 @@ first candidate moves back up to it; `M-RET' submits the input outright."
         '("sqlfluff" "format" "--dialect" jgy/sql-dialect
           "--disable-progress-bar" "-"))
   (setf (alist-get 'sql-mode apheleia-mode-alist) 'sqlfluff)
+  (setf (alist-get 'swift-format apheleia-formatters)
+        '("xcrun" "swift-format" "format" "-"))
+  (setf (alist-get 'swift-mode apheleia-mode-alist) 'swift-format)
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
   (advice-add 'apheleia-format-buffer :before #'jgy/sql-read-dialect)
@@ -871,6 +877,12 @@ first candidate moves back up to it; `M-RET' submits the input outright."
   :mode ("\\.hs\\'" "\\.lhs\\'")
   :custom
   (haskell-process-type 'cabal-repl))
+
+(use-package swift-mode
+  :mode "\\.swift\\'"
+  :custom
+  ;; Match swift-format's default indentation, which apheleia applies on save.
+  (swift-mode:basic-offset 2))
 
 (use-package sql
   :ensure nil
