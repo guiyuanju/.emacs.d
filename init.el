@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; A compact, project-oriented configuration built around Evil, Vertico,
-;; tab-bar workspaces, Eglot, Magit, and agent-shell.
+;; tab-bar workspaces, Eglot, Magit, and agent CLIs in Ghostel.
 
 ;;; Code:
 
@@ -371,10 +371,17 @@ history has done to `default-directory'."
   (if (derived-mode-p 'ghostel-mode)
       (quit-window)
     (if (project-current)
-        (jgy/toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project)
+        (jgy/toggle-buffer (seq-find (lambda (buffer) (not (ghostel-agents-buffer-p buffer)))
+                                     (ghostel-project-buffer-list))
+                           #'ghostel-project)
       (jgy/toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
+
+(defun jgy/popper-terminal-p (buffer)
+  "Non-nil for ghostel BUFFERs other than agents, which get regular windows."
+  (and (eq (buffer-local-value 'major-mode buffer) 'ghostel-mode)
+       (not (ghostel-agents-buffer-p buffer))))
 
 (defun jgy/notes-find ()
   "Find a file below `jgy/notes-directory'."
@@ -437,10 +444,13 @@ history has done to `default-directory'."
     "TAB U"   '(tab-bar-history-forward :which-key "history forward")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(agent-shell :which-key "agent shell")
-    "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
-    "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
-    "al" '(agent-shell-lens-toggle :which-key "agent shell lens")
+    "aa" '(ghostel-agents-toggle :which-key "agent toggle")
+    "aA" '(ghostel-agents-start :which-key "start agent")
+    "ac" '(jgy/agent-start-claude :which-key "Claude Code")
+    "ax" '(jgy/agent-start-codex :which-key "Codex")
+    "ai" '(jgy/agent-start-pi :which-key "Pi agent")
+    "al" '(ghostel-agents-switch :which-key "list agents")
+    "ae" '(ghostel-agents-send :which-key "send to agent")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
     "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
@@ -596,7 +606,7 @@ history has done to `default-directory'."
    '("\\*Messages\\*" "\\*Warnings\\*" "\\*Backtrace\\*"
      "\\*Async Shell Command\\*" "\\*eldoc\\*" "Output\\*$"
      help-mode eshell-mode compilation-mode xref--xref-buffer-mode
-     flymake-diagnostics-buffer-mode ghostel-mode))
+     flymake-diagnostics-buffer-mode jgy/popper-terminal-p))
   (popper-window-height 0.35)
   :init
   (require 'project)
@@ -947,17 +957,19 @@ first candidate moves back up to it; `M-RET' submits the input outright."
 
 ;;; AI
 
-(use-package agent-shell
-  :commands (agent-shell agent-shell-anthropic-start-claude-code
-             agent-shell-pi-start-agent)
-  :custom
-  (agent-shell-context-sources '(region))
-  (agent-shell-session-restore-verbosity 'full))
+(use-package ghostel-agents
+  :ensure nil
+  :commands (ghostel-agents-start ghostel-agents-toggle ghostel-agents-switch
+             ghostel-agents-send)
+  :autoload ghostel-agents-buffer-p
+  :config (ghostel-agents-mode 1))
 
-;; agent 的 tab 状态、tab 归属和树形面板都在 lisp/agent-shell-lens.el。
-;; 归属要在 shell 创建时就记下来，所以 agent-shell 一加载就把它拉进来。
-(with-eval-after-load 'agent-shell (require 'agent-shell-lens))
-(autoload 'agent-shell-lens-toggle "agent-shell-lens" nil t)
+(dolist (name '("claude" "codex" "pi"))
+  (defalias (intern (concat "jgy/agent-start-" name))
+    (lambda (&optional fresh)
+      (interactive "P")
+      (ghostel-agents-start name fresh))
+    (format "Start or show %s for the current project." name)))
 
 (use-package gptel
   :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
