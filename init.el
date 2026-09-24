@@ -32,14 +32,8 @@
 
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy/font-family "Iosevka Nerd Font Mono")
-(defvar jgy/code-directory "~/code/okj/"
-  "Directory containing Git repositories.")
-(defvar jgy/worktree-directory "~/code/okj/worktree/"
-  "Directory in which to create Git worktrees.")
 (defvar jgy/notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
-(defvar jgy/deepseek-api-key nil
-  "DeepSeek API key, set in local.el.")
 
 (add-to-list 'load-path (locate-user-emacs-file "lisp"))
 
@@ -255,6 +249,15 @@
   :config
   (evil-mode 1)
   (define-key evil-insert-state-map (kbd "C-g") #'evil-normal-state)
+  ;; 图形界面里 C-[ 与 ESC 键是不同事件；拆开后 agent 把 ESC 留给终端，C-[ 仍回 normal。
+  (defun jgy/decode-control-bracket (&optional frame)
+    (when (display-graphic-p frame)
+      (with-selected-frame (or frame (selected-frame))
+        (define-key input-decode-map [?\C-\[] [control-bracketleft]))))
+  (jgy/decode-control-bracket)
+  (add-hook 'after-make-frame-functions #'jgy/decode-control-bracket)
+  (define-key function-key-map [control-bracketleft] [escape])
+  (define-key evil-insert-state-map [control-bracketleft] #'evil-normal-state)
   (define-key evil-insert-state-map (kbd "C-h")
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
@@ -450,6 +453,7 @@ history has done to `default-directory'."
     "ax" '(jgy/agent-start-codex :which-key "Codex")
     "ai" '(jgy/agent-start-pi :which-key "Pi agent")
     "al" '(ghostel-agents-switch :which-key "list agents")
+    "aw" '(jgy/worktree-agent :which-key "agent in worktree")
     "ae" '(ghostel-agents-send :which-key "send to agent")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
@@ -620,97 +624,9 @@ history has done to `default-directory'."
 
 ;;; Worktrees
 
-(defun jgy/worktree--repos ()
-  "Return Git repositories directly below `jgy/code-directory'."
-  (let ((root (file-name-as-directory (expand-file-name jgy/code-directory)))
-        (worktrees (file-name-as-directory (expand-file-name jgy/worktree-directory))))
-    (seq-filter
-     (lambda (name)
-       (let ((directory (file-name-as-directory (expand-file-name name root))))
-         (and (not (equal directory worktrees))
-              (file-exists-p (expand-file-name ".git" directory)))))
-     (directory-files root nil directory-files-no-dot-files-regexp))))
-
-(defun jgy/worktree--git-lines (repo &rest args)
-  "Return lines from git -C REPO ARGS."
-  (apply #'process-lines "git" "-C" repo args))
-
-(defun jgy/worktree--branches (repo)
-  "Return local and origin branch names in REPO."
-  (seq-uniq
-   (append
-    (jgy/worktree--git-lines repo "for-each-ref" "--format=%(refname:short)"
-                             "refs/heads")
-    (seq-remove
-     (lambda (branch) (equal branch "HEAD"))
-     (jgy/worktree--git-lines repo "for-each-ref" "--format=%(refname:strip=3)"
-                              "refs/remotes/origin")))))
-
-(defun jgy/worktree--read-branch (repo)
-  "Read a branch name in REPO, keeping unknown names selectable.
-Vertico selects the prompt line when nothing matches, and `C-k' from the
-first candidate moves back up to it; `M-RET' submits the input outright."
-  (let* ((branches (jgy/worktree--branches repo))
-         (table
-          (lambda (string predicate action)
-            (if (eq action 'metadata)
-                '(metadata (display-sort-function . identity)
-                           (cycle-sort-function . identity))
-              (complete-with-action action branches string predicate)))))
-    (string-trim (completing-read "Branch: " table))))
-
-(defun jgy/worktree--checkout (repo branch)
-  "Return the existing checkout for BRANCH in REPO, if any."
-  (let ((lines (jgy/worktree--git-lines repo "worktree" "list" "--porcelain"))
-        path found)
-    (dolist (line lines found)
-      (cond
-       ((string-prefix-p "worktree " line)
-        (setq path (string-remove-prefix "worktree " line)))
-       ((equal line (concat "branch refs/heads/" branch))
-        (setq found path))))))
-
-(defun jgy/worktree--ref-p (repo ref)
-  "Return non-nil when REF exists in REPO."
-  (zerop (call-process "git" nil nil nil "-C" repo
-                       "show-ref" "--verify" "--quiet" ref)))
-
-(defun jgy/worktree--create (repo branch path)
-  "Create a checkout of BRANCH from REPO at PATH."
-  (unless (zerop (call-process "git" nil nil nil "-C" repo
-                               "check-ref-format" "--branch" branch))
-    (user-error "Invalid branch name: %s" branch))
-  (when (file-exists-p path)
-    (user-error "Worktree path already exists: %s" path))
-  (make-directory (file-name-directory path) t)
-  (let ((args (cond
-               ((jgy/worktree--ref-p repo (concat "refs/heads/" branch))
-                (list "worktree" "add" path branch))
-               ((jgy/worktree--ref-p repo (concat "refs/remotes/origin/" branch))
-                (list "worktree" "add" "--track" "-b" branch path
-                      (concat "origin/" branch)))
-               (t (list "worktree" "add" "-b" branch path)))))
-    (with-temp-buffer
-      (unless (zerop (apply #'call-process "git" nil t nil "-C" repo args))
-        (user-error "%s" (string-trim (buffer-string))))))
-  path)
-
-(defun jgy/worktree-open ()
-  "Open a branch worktree in a matching tab workspace."
-  (interactive)
-  (let* ((repos (or (jgy/worktree--repos)
-                    (user-error "No repositories under %s" jgy/code-directory)))
-         (repo-name (completing-read "Repository: " repos nil t))
-         (repo (expand-file-name repo-name jgy/code-directory))
-         (branch (jgy/worktree--read-branch repo))
-         (slug (replace-regexp-in-string "[/\\]" "-" branch))
-         (path (expand-file-name (format "%s_%s" repo-name slug)
-                                 jgy/worktree-directory)))
-    (when (string-empty-p branch) (user-error "Branch cannot be empty"))
-    (setq path (or (jgy/worktree--checkout repo branch)
-                   (jgy/worktree--create repo branch path)))
-    (tab-bar-switch-to-tab (format "%s:%s" repo-name slug))
-    (dired path)))
+(use-package jgy-worktree
+  :ensure nil
+  :commands jgy/worktree-open)
 
 ;;; Files and Git
 
@@ -957,46 +873,11 @@ first candidate moves back up to it; `M-RET' submits the input outright."
 
 ;;; AI
 
-(use-package ghostel-agents
+(use-package jgy-ai
   :ensure nil
-  :commands (ghostel-agents-start ghostel-agents-toggle ghostel-agents-switch
-             ghostel-agents-send)
-  :autoload ghostel-agents-buffer-p
-  :config (ghostel-agents-mode 1))
+  :demand t)
 
-(dolist (name '("claude" "codex" "pi"))
-  (defalias (intern (concat "jgy/agent-start-" name))
-    (lambda (&optional fresh)
-      (interactive "P")
-      (ghostel-agents-start name fresh))
-    (format "Start or show %s for the current project." name)))
-
-(use-package gptel
-  :commands (gptel gptel-send gptel-menu gptel-rewrite gptel-abort
-                   gptel-add gptel-add-file)
-  :init
-  ;; `gptel' 本身只负责创建/切换，这里补一个开关式的显示与隐藏。
-  (defun jgy/gptel-toggle ()
-    "显示最近的 gptel 会话；已经在其窗口中则隐藏它。"
-    (interactive)
-    (require 'gptel)
-    (if-let* ((win (get-window-with-predicate
-                    (lambda (w) (buffer-local-value 'gptel-mode (window-buffer w))))))
-        (if (eq win (selected-window))
-            (quit-window nil win)
-          (select-window win))
-      (if-let* ((buf (seq-find (lambda (b) (buffer-local-value 'gptel-mode b))
-                               (buffer-list))))
-          (display-buffer buf gptel-display-buffer-action)
-        (gptel (format "*%s*" (gptel-backend-name gptel-backend)) nil nil t))))
-  :config
-  (setq-default gptel-backend
-                (gptel-make-openai "DeepSeek"
-                  :host "api.deepseek.com"
-                  :endpoint "/chat/completions"
-                  :stream t
-                  :key (lambda () jgy/deepseek-api-key)
-                  :models '(deepseek-flash deepseek-v4-pro))))
+;;; Tools
 
 (use-package sdkman
   :ensure (:host github :repo "systemhalted/sdkman.el")
