@@ -246,12 +246,14 @@ Prompts for an agent to start when none is running."
                             (equal id (buffer-local-value 'ghostel-agents--tab buffer)))))))
     (if (null agents)
         name
-      (concat (mapconcat (lambda (buffer)
+      ;; `tab-bar-auto-width' only resizes tabs whose first char has a bare tab face.
+      (concat " "
+              (mapconcat (lambda (buffer)
                            (propertize (ghostel-agents--glyph buffer)
                                        'help-echo (format "%s: %s" (buffer-name buffer)
                                                           (buffer-local-value 'ghostel-agents-status buffer))))
                          agents " ")
-              " " name))))
+              "  " name))))
 
 (defun ghostel-agents--filter-tab-buffers (fn &rest args)
   "Around advice for `bufferlo-buffer-list' dropping agents owned by other tabs."

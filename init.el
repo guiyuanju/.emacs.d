@@ -41,10 +41,63 @@
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
 
 (add-to-list 'default-frame-alist '(undecorated-round . t))
-(add-to-list 'default-frame-alist
-             `(font . ,(format "%s %d" jgy/font-family my-font-size)))
+(defvar jgy/cjk-font-family "Sarasa Mono SC"
+  "Chinese font; Sarasa matches Iosevka's size and 2:1 width.")
+(defvar jgy/cjk-fallback-font-family "PingFang SC")
+(defvar jgy/font-casks '(("Iosevka Nerd Font Mono" . "font-iosevka-nerd-font")
+                         ("Sarasa Mono SC" . "font-sarasa-gothic"))
+  "Homebrew casks providing font families.")
+
+(defun jgy/font-available-p (family)
+  (find-font (font-spec :family family)))
+
+(defun jgy/apply-fonts ()
+  "Apply the default and Chinese fonts that are installed."
+  (when (jgy/font-available-p jgy/font-family)
+    (setf (alist-get 'font default-frame-alist)
+          (format "%s %d" jgy/font-family my-font-size))
+    (set-face-attribute 'default nil :family jgy/font-family :height (* my-font-size 10)))
+  ;; 固定中文字体族，否则粗体会回退到 Arial Unicode MS。
+  (let ((cjk (if (jgy/font-available-p jgy/cjk-font-family)
+                 jgy/cjk-font-family
+               jgy/cjk-fallback-font-family)))
+    (dolist (script '(han cjk-misc bopomofo))
+      (set-fontset-font t script (font-spec :family cjk)))))
+
+(defun jgy/ensure-fonts ()
+  "Install missing fonts with Homebrew in the background, then reapply them."
+  (interactive)
+  (let ((casks (delete-dups
+                (mapcar #'cdr (seq-remove (lambda (entry) (jgy/font-available-p (car entry)))
+                                          (seq-filter (lambda (entry)
+                                                        (member (car entry)
+                                                                (list jgy/font-family jgy/cjk-font-family)))
+                                                      jgy/font-casks))))))
+    (cond
+     ((null casks))
+     ((not (executable-find "brew"))
+      (display-warning 'fonts (format "Missing fonts; run: brew install --cask %s"
+                                      (string-join casks " "))))
+     (t
+      (message "Installing fonts: %s" (string-join casks " "))
+      (make-process
+       :name "jgy-font-install"
+       :buffer "*font-install*"
+       :command (append '("brew" "install" "--cask") casks)
+       :sentinel (lambda (process _event)
+                   (when (memq (process-status process) '(exit signal))
+                     (if (zerop (process-exit-status process))
+                         ;; macOS 注册新字体有延迟，立即应用会找不到。
+                         (run-with-timer 2 nil
+                                         (lambda ()
+                                           (clear-font-cache)
+                                           (jgy/apply-fonts)
+                                           (message "Fonts installed: %s" (string-join casks " "))))
+                       (display-warning 'fonts "Font install failed; see *font-install*")))))))))
+
 (when (display-graphic-p)
-  (set-face-attribute 'default nil :family jgy/font-family :height (* my-font-size 10)))
+  (jgy/apply-fonts)
+  (jgy/ensure-fonts))
 
 ;; Keep generated state out of the configuration root without another package.
 (defconst jgy/state-directory (locate-user-emacs-file "var/"))
