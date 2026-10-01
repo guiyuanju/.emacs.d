@@ -760,6 +760,7 @@ history has done to `default-directory'."
 
 (use-package diff-hl
   :demand t
+  :hook (dired-mode . diff-hl-dired-mode)
   :config
   (diff-hl-margin-mode 1)
   (diff-hl-flydiff-mode 1)
@@ -830,7 +831,6 @@ history has done to `default-directory'."
 
 (defun jgy/sql-read-dialect (&rest _)
   "Ask which dialect to format this SQL buffer with."
-  (interactive)
   (when (derived-mode-p 'sql-mode)
     (setq jgy/sql-dialect
           (completing-read (format-prompt "SQL dialect" jgy/sql-dialect)
