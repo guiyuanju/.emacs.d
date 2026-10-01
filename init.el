@@ -762,6 +762,9 @@ history has done to `default-directory'."
   :demand t
   :hook (dired-mode . diff-hl-dired-mode)
   :config
+  ;; desktop.el 可能恢复已被删除目录的 dired buffer。
+  (advice-add 'diff-hl-dired-update :before-while
+              (lambda () (file-directory-p default-directory)))
   (diff-hl-margin-mode 1)
   (diff-hl-flydiff-mode 1)
   (global-diff-hl-mode 1)
