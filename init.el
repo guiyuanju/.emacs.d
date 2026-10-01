@@ -31,7 +31,8 @@
 (add-hook 'text-mode-hook #'display-line-numbers-mode)
 
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
-(defvar jgy/font-family "Iosevka Nerd Font Mono")
+(defvar jgy/font-family "Sarasa Mono SC")
+(defvar jgy/variable-pitch-font-family "Sarasa UI SC")
 (defvar jgy/notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
 
@@ -41,28 +42,23 @@
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
 
 (add-to-list 'default-frame-alist '(undecorated-round . t))
-(defvar jgy/cjk-font-family "Sarasa Mono SC"
-  "Chinese font; Sarasa matches Iosevka's size and 2:1 width.")
-(defvar jgy/cjk-fallback-font-family "PingFang SC")
-(defvar jgy/font-casks '(("Iosevka Nerd Font Mono" . "font-iosevka-nerd-font")
-                         ("Sarasa Mono SC" . "font-sarasa-gothic"))
+(defvar jgy/font-casks '(("Sarasa Mono SC" . "font-sarasa-gothic"))
   "Homebrew casks providing font families.")
 
 (defun jgy/font-available-p (family)
   (find-font (font-spec :family family)))
 
 (defun jgy/apply-fonts ()
-  "Apply the default and Chinese fonts that are installed."
+  "Use Sarasa for every face and script."
   (when (jgy/font-available-p jgy/font-family)
     (setf (alist-get 'font default-frame-alist)
           (format "%s %d" jgy/font-family my-font-size))
-    (set-face-attribute 'default nil :family jgy/font-family :height (* my-font-size 10)))
-  ;; 固定中文字体族，否则粗体会回退到 Arial Unicode MS。
-  (let ((cjk (if (jgy/font-available-p jgy/cjk-font-family)
-                 jgy/cjk-font-family
-               jgy/cjk-fallback-font-family)))
-    (dolist (script '(han cjk-misc bopomofo))
-      (set-fontset-font t script (font-spec :family cjk)))))
+    (set-face-attribute 'default nil :family jgy/font-family :height (* my-font-size 10))
+    (set-face-attribute 'fixed-pitch nil :family jgy/font-family)
+    (set-face-attribute 'variable-pitch nil :family jgy/variable-pitch-font-family)
+    ;; 固定中日韩字体族，否则粗体会回退到 Arial Unicode MS。
+    (dolist (script '(han cjk-misc bopomofo kana hangul))
+      (set-fontset-font t script (font-spec :family jgy/font-family)))))
 
 (defun jgy/ensure-fonts ()
   "Install missing fonts with Homebrew in the background, then reapply them."
@@ -71,7 +67,7 @@
                 (mapcar #'cdr (seq-remove (lambda (entry) (jgy/font-available-p (car entry)))
                                           (seq-filter (lambda (entry)
                                                         (member (car entry)
-                                                                (list jgy/font-family jgy/cjk-font-family)))
+                                                                (list jgy/font-family)))
                                                       jgy/font-casks))))))
     (cond
      ((null casks))
@@ -345,6 +341,10 @@ Each new highlight takes the next face, so several can coexist."
   (setq evil-collection-repl-submit-state 'insert)
   ;; 让出 dired 中的 ";"，evil-collection 的 epa 绑定会与之冲突。
   (setq evil-collection-key-blacklist '(";d" ";v" ";s" ";e"))
+  ;; C-j/C-k 留给全局的窗口切换。
+  (setq evil-collection-binding-overrides
+        '((next-section-2 :enabled nil)
+          (prev-section-2 :enabled nil)))
   :config
   (evil-collection-init))
 
