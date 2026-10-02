@@ -716,6 +716,12 @@ history has done to `default-directory'."
 (use-package ghostel
   :commands (ghostel ghostel-project ghostel-project-buffer-list))
 
+;; ghostel 收到 OSC 9/777 时经 alert 发出 macOS 通知。
+(use-package alert
+  :defer t
+  :custom
+  (alert-default-style 'notifier))
+
 ;;; Worktrees
 
 (use-package jgy-worktree
