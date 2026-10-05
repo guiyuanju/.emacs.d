@@ -621,6 +621,7 @@ history has done to `default-directory'."
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
+    "gm" '(jgy/worktree-browse-mr :which-key "merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
@@ -726,7 +727,7 @@ history has done to `default-directory'."
 
 (use-package jgy-worktree
   :ensure nil
-  :commands jgy/worktree-open)
+  :commands (jgy/worktree-open jgy/worktree-browse-mr))
 
 ;;; Files and Git
 
