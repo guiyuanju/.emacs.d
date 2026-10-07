@@ -19,6 +19,7 @@
 
 (declare-function evil-define-key* "evil-core")
 (declare-function evil-ghostel--terminal-live-p "evil-ghostel")
+(declare-function evil-local-set-key "evil-core")
 (defvar evil-ghostel--escape-mode)
 
 (defgroup ghostel-agents nil
@@ -159,10 +160,41 @@ agent list.  ARGS is the target position, as a list."
   (advice-add 'evil-ghostel-goto-input-position :filter-args
               #'ghostel-agents--evil-stay-on-row))
 
+(defun ghostel-agents--scroll (key mods fallback)
+  "Send KEY with MODS so a full-screen agent scrolls its transcript.
+Without the alternate screen the history is in the buffer, so call FALLBACK."
+  (if (ghostel-alt-screen-p)
+      (ghostel-send-key key mods)
+    (call-interactively fallback)))
+
+(defun ghostel-agents-scroll-page-up ()
+  "Scroll the agent's transcript up a page."
+  (interactive)
+  (ghostel-agents--scroll "prior" nil 'evil-scroll-up))
+
+(defun ghostel-agents-scroll-page-down ()
+  "Scroll the agent's transcript down a page."
+  (interactive)
+  (ghostel-agents--scroll "next" nil 'evil-scroll-down))
+
+(defun ghostel-agents-scroll-top ()
+  "Scroll to the start of the agent's transcript."
+  (interactive)
+  (ghostel-agents--scroll "home" "ctrl" 'evil-goto-first-line))
+
+(defun ghostel-agents-scroll-bottom ()
+  "Scroll to the end of the agent's transcript."
+  (interactive)
+  (ghostel-agents--scroll "end" "ctrl" 'evil-goto-line))
+
 (defun ghostel-agents--setup-evil ()
-  "Send insert-state ESC to the agent rather than to evil."
+  "Send insert-state ESC to the agent, and let normal-state scroll keys reach it."
   (when (bound-and-true-p evil-ghostel-mode)
-    (setq evil-ghostel--escape-mode 'terminal)))
+    (setq evil-ghostel--escape-mode 'terminal)
+    (evil-local-set-key 'normal (kbd "C-u") #'ghostel-agents-scroll-page-up)
+    (evil-local-set-key 'normal (kbd "C-d") #'ghostel-agents-scroll-page-down)
+    (evil-local-set-key 'normal "gg" #'ghostel-agents-scroll-top)
+    (evil-local-set-key 'normal "G" #'ghostel-agents-scroll-bottom)))
 
 ;;; Commands
 
@@ -390,6 +422,8 @@ Each bar ends with the time left until that window resets."
   "o" #'ghostel-agents-dashboard-visit
   "C-j" #'ghostel-agents-dashboard-next-tab
   "C-k" #'ghostel-agents-dashboard-previous-tab
+  "C-S-j" #'ghostel-agents-dashboard-next-attention
+  "C-S-k" #'ghostel-agents-dashboard-previous-attention
   "] a" #'ghostel-agents-dashboard-next-attention
   "[ a" #'ghostel-agents-dashboard-previous-attention
   "q" #'ghostel-agents-dashboard)
@@ -407,6 +441,8 @@ Each bar ends with the time left until that window resets."
     "o" #'ghostel-agents-dashboard-visit
     (kbd "C-j") #'ghostel-agents-dashboard-next-tab
     (kbd "C-k") #'ghostel-agents-dashboard-previous-tab
+    (kbd "C-S-j") #'ghostel-agents-dashboard-next-attention
+    (kbd "C-S-k") #'ghostel-agents-dashboard-previous-attention
     "]a" #'ghostel-agents-dashboard-next-attention
     "[a" #'ghostel-agents-dashboard-previous-attention
     "gr" #'revert-buffer
@@ -529,6 +565,20 @@ FORWARD picks the direction; WHAT names those lines when there is none."
         (goto-char pos)
       (message "No %s%s" (if (funcall match start) "other " "") what))))
 
+(defun ghostel-agents--dashboard-enter (frame)
+  "Put point on the first agent needing attention when FRAME selects the dashboard."
+  (let ((window (frame-selected-window frame)))
+    (when (and (equal (buffer-name (window-buffer window)) ghostel-agents--dashboard-name)
+               (not (eq window (frame-old-selected-window frame))))
+      (with-current-buffer (window-buffer window)
+        (when-let* ((pos (save-excursion
+                           (goto-char (point-min))
+                           (while (not (or (eobp) (ghostel-agents--dashboard-attention-p (point))))
+                             (forward-line 1))
+                           (unless (eobp) (point)))))
+          (goto-char pos)
+          (set-window-point window pos))))))
+
 (defun ghostel-agents-dashboard-next-attention ()
   "Move to the next agent that is waiting or finished unseen."
   (interactive)
@@ -619,6 +669,7 @@ the first one."
         (add-function :around ghostel-notification-function #'ghostel-agents--on-notification)
         (advice-add 'bufferlo-buffer-list :around #'ghostel-agents--filter-tab-buffers)
         (add-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
+        (add-hook 'window-selection-change-functions #'ghostel-agents--dashboard-enter)
         (add-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
         (unless ghostel-agents--context-timer
           (setq ghostel-agents--context-timer
@@ -632,6 +683,7 @@ the first one."
     (remove-function ghostel-notification-function #'ghostel-agents--on-notification)
     (advice-remove 'bufferlo-buffer-list #'ghostel-agents--filter-tab-buffers)
     (remove-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
+    (remove-hook 'window-selection-change-functions #'ghostel-agents--dashboard-enter)
     (remove-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
     (when ghostel-agents--context-timer
       (cancel-timer ghostel-agents--context-timer)
