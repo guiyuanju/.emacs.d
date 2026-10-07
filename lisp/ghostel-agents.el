@@ -414,7 +414,8 @@ Each bar ends with the time left until that window resets."
 (define-derived-mode ghostel-agents-dashboard-mode special-mode "Agents"
   "Agents grouped under the tab they were started in."
   (setq-local revert-buffer-function (lambda (&rest _) (ghostel-agents--dashboard-render))
-              truncate-lines t)
+              truncate-lines t
+              mode-line-format nil)
   (display-line-numbers-mode -1)
   (hl-line-mode 1))
 
@@ -560,11 +561,32 @@ FORWARD picks the direction; WHAT names those lines when there is none."
   (interactive)
   (ghostel-agents--dashboard-step nil #'ghostel-agents--dashboard-tab-p "tab"))
 
+(defun ghostel-agents--dashboard-tab-target ()
+  "Return the agent to visit for the tab heading on the current line."
+  (save-excursion
+    (let (agents)
+      (while (and (zerop (forward-line 1))
+                  (get-text-property (point) 'ghostel-agents-buffer))
+        (push (get-text-property (point) 'ghostel-agents-buffer) agents))
+      (setq agents (nreverse agents))
+      (or (seq-find (lambda (buffer)
+                      (and (buffer-live-p buffer)
+                           (memq (buffer-local-value 'ghostel-agents-status buffer)
+                                 ghostel-agents-attention-statuses)))
+                    agents)
+          (car agents)))))
+
 (defun ghostel-agents-dashboard-visit ()
-  "Switch to the agent's tab and show it there."
+  "Switch to the agent's tab and show it there.
+On a tab heading, visit the first agent under it that needs attention, or else
+the first one."
   (interactive)
   (let ((buffer (or (get-text-property (point) 'ghostel-agents-buffer)
-                    (user-error "No agent on this line"))))
+                    (and (ghostel-agents--dashboard-tab-p (line-beginning-position))
+                         (ghostel-agents--dashboard-tab-target))
+                    (user-error (if (ghostel-agents--dashboard-tab-p (line-beginning-position))
+                                    "No agent in this tab"
+                                  "No agent on this line")))))
     (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
     (when-let* ((index (ghostel-agents--tab-index buffer)))
       (tab-bar-select-tab (1+ index)))
