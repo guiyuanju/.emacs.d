@@ -80,6 +80,9 @@
 (defvar ghostel-agents--usage nil
   "Plan usage windows as read from `ghostel-agents-usage-file'.")
 
+(defvar ghostel-agents--usage-minute nil
+  "Minute the reset countdowns were last drawn in.")
+
 ;;; Buffers
 
 (defun ghostel-agents-buffer-p (buffer)
@@ -314,12 +317,23 @@ a hidden status line keeps the last value."
                  (with-temp-buffer
                    (insert-file-contents ghostel-agents-usage-file)
                    (json-parse-buffer :object-type 'alist :null-object nil)))))
-    (unless (equal usage ghostel-agents--usage)
-      (setq ghostel-agents--usage usage)
+    (unless (and (equal usage ghostel-agents--usage)
+                 (or (null usage) (equal ghostel-agents--usage-minute
+                                         (floor (float-time) 60))))
+      (setq ghostel-agents--usage usage
+            ghostel-agents--usage-minute (floor (float-time) 60))
       (ghostel-agents--dashboard-schedule))))
 
+(defun ghostel-agents--duration (seconds)
+  "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
+  (let ((m (/ (max 0 (floor seconds)) 60)))
+    (cond ((< m 60) (format "%dm" m))
+          ((< m 1440) (format "%dh%dm" (/ m 60) (% m 60)))
+          (t (format "%dd%dh" (/ m 1440) (% (/ m 60) 24))))))
+
 (defun ghostel-agents--usage-insert ()
-  "Insert a labelled bar per Claude plan usage window that has not reset yet."
+  "Insert a labelled bar per Claude plan usage window that has not reset yet.
+Each bar ends with the time left until that window resets."
   (let ((label "claude"))
     (pcase-dolist (`(,key . ,name) '((five_hour . "5h") (seven_day . "7d")))
       (let-alist (alist-get key ghostel-agents--usage)
@@ -331,7 +345,12 @@ a hidden status line keeps the last value."
                     name " "
                     (propertize (make-string filled ?█) 'face face)
                     (propertize (make-string (- 10 filled) ?░) 'face 'shadow)
-                    (propertize (format " %d%%" (floor .used_percentage)) 'face face)
+                    (propertize (format " %3d%%" (floor .used_percentage)) 'face face)
+                    (if (numberp .resets_at)
+                        (propertize (concat " " (ghostel-agents--duration
+                                                 (- .resets_at (float-time))))
+                                    'face 'shadow)
+                      "")
                     "\n")
             (setq label "")))))))
 
