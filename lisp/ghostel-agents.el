@@ -440,12 +440,9 @@ Each bar ends with the time left until that window resets."
                             (ghostel-agents--dashboard-render))))))
 
 (defun ghostel-agents--dashboard-line (buffer last)
-  "Insert the tree lines for agent BUFFER; LAST picks the closing branch.
-The project name goes underneath in a smaller face, aligned in pixels with the
-agent name since the branch and glyph can render wider than their columns."
-  (let* ((root (ghostel-agents--identity buffer 'root))
-         (prefix (concat "  " (if last "└─ " "├─ ") (ghostel-agents--glyph buffer) " ")))
-    (insert (propertize (concat prefix
+  "Insert the tree line for agent BUFFER; LAST picks the closing branch."
+  (let ((root (ghostel-agents--identity buffer 'root)))
+    (insert (propertize (concat "  " (if last "└─ " "├─ ") (ghostel-agents--glyph buffer) " "
                                 (or (ghostel-agents--identity buffer 'agent) "agent")
                                 (if-let* ((used (buffer-local-value 'ghostel-agents-context buffer)))
                                     (propertize (format " %d%%" used) 'face
@@ -454,12 +451,9 @@ agent name since the branch and glyph can render wider than their columns."
                                                   'shadow))
                                   "")
                                 (if root
-                                    (concat "\n  " (if last " " "│")
-                                            (propertize " " 'display
-                                                        `(space :align-to (,(string-pixel-width prefix))))
-                                            (propertize (file-name-nondirectory
-                                                         (directory-file-name root))
-                                                        'face '(:inherit shadow :height 0.85)))
+                                    (propertize (concat " " (file-name-nondirectory
+                                                             (directory-file-name root)))
+                                                'face '(:inherit shadow :height 0.85))
                                   ""))
                         'ghostel-agents-buffer buffer
                         'help-echo (buffer-name buffer))
