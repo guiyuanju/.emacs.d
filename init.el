@@ -293,7 +293,7 @@
         evil-vsplit-window-right t
         evil-symbol-word-search t
         evil-search-module 'evil-search
-        evil-ex-search-persistent-highlight nil
+        evil-ex-search-persistent-highlight t
         evil-ex-search-vim-style-regexp t
         evil-kill-on-visual-paste nil
         evil-respect-visual-line-mode t
@@ -314,25 +314,14 @@
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
-  (evil-global-set-key 'normal "gh" #'jgy/toggle-highlight)
-  (evil-global-set-key 'visual "gh" #'jgy/toggle-highlight))
+  (evil-global-set-key 'normal "gh" #'symbol-overlay-put))
 
-(defun jgy/toggle-highlight ()
-  "Toggle a hi-lock highlight for the active region or the symbol at point.
-Each new highlight takes the next face, so several can coexist."
-  (interactive)
-  (let ((regexp (if (use-region-p)
-                    (regexp-quote (buffer-substring-no-properties
-                                   (region-beginning) (region-end)))
-                  (or (find-tag-default-as-symbol-regexp)
-                      (user-error "No symbol at point")))))
-    (if (evil-visual-state-p) (evil-exit-visual-state) (deactivate-mark))
-    (require 'hi-lock)
-    (unless hi-lock-mode (hi-lock-mode 1))
-    (if (assoc regexp hi-lock-interactive-lighters)
-        (hi-lock-unface-buffer regexp)
-      (let ((hi-lock-auto-select-face t))
-        (hi-lock-set-pattern regexp (hi-lock-read-face-name) nil nil nil)))))
+;; 光标停在高亮上时只有 n/N 生效，分别跳到下/上一处。
+(use-package symbol-overlay
+  :config
+  (setcdr symbol-overlay-map nil)
+  (keymap-set symbol-overlay-map "n" #'symbol-overlay-jump-next)
+  (keymap-set symbol-overlay-map "N" #'symbol-overlay-jump-prev))
 
 (use-package evil-collection
   :after evil
