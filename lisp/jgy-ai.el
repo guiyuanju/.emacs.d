@@ -11,12 +11,25 @@
 (defvar jgy/deepseek-api-key nil
   "DeepSeek API key, set in local.el.")
 
+(defun jgy/claude-check-statusline ()
+  "Say how to set up the status line the agent dashboard reads context usage from."
+  (let ((file (expand-file-name "~/.claude/settings.json"))
+        (script (expand-file-name "bin/claude-statusline" user-emacs-directory)))
+    (unless (and (file-readable-p file)
+                 (with-temp-buffer
+                   (insert-file-contents file)
+                   (search-forward "claude-statusline" nil t)))
+      (message "Agent dashboard: for context usage, add to %s: \"statusLine\": {\"type\": \"command\", \"command\": \"%s\"}"
+               (abbreviate-file-name file) script))))
+
 (use-package ghostel-agents
   :ensure nil
   :commands (ghostel-agents-start ghostel-agents-toggle ghostel-agents-switch
              ghostel-agents-send ghostel-agents-dashboard)
   :autoload ghostel-agents-buffer-p
-  :config (ghostel-agents-mode 1))
+  :config
+  (when (executable-find "claude") (jgy/claude-check-statusline))
+  (ghostel-agents-mode 1))
 
 (dolist (name '("claude" "codex" "pi"))
   (defalias (intern (concat "jgy/agent-start-" name))
