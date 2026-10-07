@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; 在 Ghostel 终端里跑 claude、codex、pi 等 agent CLI，按项目复用，按启动时的 tab 归属。
-;; `ghostel-agents-mode' 把各 agent 的状态图标挂到 tab 名前，并让 bufferlo 只列出本 tab 的 agent。
+;; `ghostel-agents-mode' 跟踪各 agent 的状态，并让 bufferlo 只列出本 tab 的 agent。
 ;; 状态来自 CLI 自己发出的 OSC 9;4 进度和 OSC 9/777 通知；
 ;; Pi 需要在 ~/.pi/agent/settings.json 里打开 terminal.showTerminalProgress。
 ;; 上下文用量从 Claude Code 状态栏（bin/claude-statusline）里的 "ctx N%" 读出，
@@ -194,12 +194,7 @@ With prefix arg FRESH, always start another instance."
       (with-current-buffer buffer
         (setq ghostel-agents--tab (ghostel-agents--tab-id))
         (ghostel-agents--setup-evil)
-        (add-hook 'kill-buffer-hook
-                  (lambda ()
-                    (force-mode-line-update t)
-                    (ghostel-agents--dashboard-schedule))
-                  nil t))
-      (force-mode-line-update t)
+        (add-hook 'kill-buffer-hook #'ghostel-agents--dashboard-schedule nil t))
       (ghostel-agents--dashboard-schedule))
     (setq ghostel-agents--last name)
     (ghostel-agents--show buffer)))
@@ -272,7 +267,6 @@ Prompts for an agent to start when none is running."
 (defun ghostel-agents--set-status (status)
   (unless (eq status ghostel-agents-status)
     (setq ghostel-agents-status status)
-    (force-mode-line-update t)
     (ghostel-agents--dashboard-schedule)))
 
 (defun ghostel-agents--seen-p ()
@@ -353,23 +347,6 @@ Each bar ends with the time left until that window resets."
                       "")
                     "\n")
             (setq label "")))))))
-
-(defun ghostel-agents-tab-name-format (name tab _index)
-  "Prepend status glyphs of the agents started in TAB to tab NAME."
-  (let* ((id (alist-get 'ghostel-agents-id (cdr tab)))
-         (agents (and id (ghostel-agents--buffers
-                          (lambda (buffer)
-                            (equal id (buffer-local-value 'ghostel-agents--tab buffer)))))))
-    (if (null agents)
-        name
-      ;; `tab-bar-auto-width' only resizes tabs whose first char has a bare tab face.
-      (concat " "
-              (mapconcat (lambda (buffer)
-                           (propertize (ghostel-agents--glyph buffer)
-                                       'help-echo (format "%s: %s" (buffer-name buffer)
-                                                          (buffer-local-value 'ghostel-agents-status buffer))))
-                         agents " ")
-              "  " name))))
 
 (defun ghostel-agents--filter-tab-buffers (fn &rest args)
   "Around advice for `bufferlo-buffer-list' dropping agents owned by other tabs."
@@ -628,7 +605,7 @@ the first one."
 
 ;;;###autoload
 (define-minor-mode ghostel-agents-mode
-  "Track agent status in the tab bar and keep agents with their tab."
+  "Track agent status for the dashboard and keep agents with their tab."
   :global t
   (if ghostel-agents-mode
       (progn
@@ -637,7 +614,6 @@ the first one."
         (advice-add 'bufferlo-buffer-list :around #'ghostel-agents--filter-tab-buffers)
         (add-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
         (add-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
-        (add-hook 'tab-bar-tab-name-format-functions #'ghostel-agents-tab-name-format)
         (unless ghostel-agents--context-timer
           (setq ghostel-agents--context-timer
                 (run-with-timer 0 ghostel-agents-context-interval
@@ -651,14 +627,12 @@ the first one."
     (advice-remove 'bufferlo-buffer-list #'ghostel-agents--filter-tab-buffers)
     (remove-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
     (remove-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
-    (remove-hook 'tab-bar-tab-name-format-functions #'ghostel-agents-tab-name-format)
     (when ghostel-agents--context-timer
       (cancel-timer ghostel-agents--context-timer)
       (setq ghostel-agents--context-timer nil))
     (when (boundp 'embark-transformer-alist)
       (setq embark-transformer-alist
-            (assq-delete-all 'ghostel-agent embark-transformer-alist))))
-  (force-mode-line-update t))
+            (assq-delete-all 'ghostel-agent embark-transformer-alist)))))
 
 (provide 'ghostel-agents)
 ;;; ghostel-agents.el ends here
