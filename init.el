@@ -462,10 +462,11 @@ history has done to `default-directory'."
 
 (defun jgy/ghostel-toggle ()
   "Toggle the current project's Ghostel, or the global terminal outside projects.
-Called from inside a Ghostel it hides that buffer, whatever its `cd'
-history has done to `default-directory'."
+Called from inside a non-agent Ghostel it hides that buffer, whatever its
+`cd' history has done to `default-directory'."
   (interactive)
-  (if (derived-mode-p 'ghostel-mode)
+  (if (and (derived-mode-p 'ghostel-mode)
+           (not (ghostel-agents-buffer-p (current-buffer))))
       (quit-window)
     (if (project-current)
         (jgy/toggle-buffer (seq-find (lambda (buffer) (not (ghostel-agents-buffer-p buffer)))
