@@ -279,9 +279,15 @@ Prompts for an agent to start when none is running."
           ((not (eq ghostel-agents-status 'waiting))
            (ghostel-agents--set-status 'working)))))
 
-(defun ghostel-agents--on-notification (&rest _)
-  (when (and (ghostel-agents-buffer-p (current-buffer)) (not (ghostel-agents--seen-p)))
-    (ghostel-agents--set-status 'waiting)))
+(defun ghostel-agents--on-notification (orig &rest args)
+  "Mark the agent `waiting' and pass the notification on to ORIG with ARGS.
+An `idle' agent finished while shown, so its later idle reminder is dropped."
+  (if (not (ghostel-agents-buffer-p (current-buffer)))
+      (apply orig args)
+    (unless (eq ghostel-agents-status 'idle)
+      (unless (ghostel-agents--seen-p)
+        (ghostel-agents--set-status 'waiting))
+      (apply orig args))))
 
 (defun ghostel-agents--acknowledge (&rest _)
   "Reset `done' and `waiting' once the agent is shown in the selected window."
@@ -610,7 +616,7 @@ the first one."
   (if ghostel-agents-mode
       (progn
         (add-function :before ghostel-progress-function #'ghostel-agents--on-progress)
-        (add-function :before ghostel-notification-function #'ghostel-agents--on-notification)
+        (add-function :around ghostel-notification-function #'ghostel-agents--on-notification)
         (advice-add 'bufferlo-buffer-list :around #'ghostel-agents--filter-tab-buffers)
         (add-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
         (add-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
