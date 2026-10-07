@@ -16,6 +16,7 @@
 (require 'tab-bar)
 
 (declare-function evil-local-set-key "evil-core")
+(declare-function evil-define-key* "evil-core")
 
 (defgroup ghostel-agents nil
   "Agent CLIs running in Ghostel."
@@ -142,8 +143,13 @@ With prefix arg FRESH, always start another instance."
       (with-current-buffer buffer
         (setq ghostel-agents--tab (ghostel-agents--tab-id))
         (ghostel-agents--bind-terminal-keys)
-        (add-hook 'kill-buffer-hook (lambda () (force-mode-line-update t)) nil t))
-      (force-mode-line-update t))
+        (add-hook 'kill-buffer-hook
+                  (lambda ()
+                    (force-mode-line-update t)
+                    (ghostel-agents--dashboard-schedule))
+                  nil t))
+      (force-mode-line-update t)
+      (ghostel-agents--dashboard-schedule))
     (setq ghostel-agents--last name)
     (ghostel-agents--show buffer)))
 
@@ -215,7 +221,8 @@ Prompts for an agent to start when none is running."
 (defun ghostel-agents--set-status (status)
   (unless (eq status ghostel-agents-status)
     (setq ghostel-agents-status status)
-    (force-mode-line-update t)))
+    (force-mode-line-update t)
+    (ghostel-agents--dashboard-schedule)))
 
 (defun ghostel-agents--seen-p ()
   (eq (window-buffer (selected-window)) (current-buffer)))
@@ -233,6 +240,8 @@ Prompts for an agent to start when none is running."
 
 (defun ghostel-agents--acknowledge (&rest _)
   "Reset `done' and `waiting' once the agent is shown in the selected window."
+  ;; 切 tab 也会走到这里，借机刷新看板里的 tab 列表。
+  (ghostel-agents--dashboard-schedule)
   (let ((buffer (window-buffer (selected-window))))
     (when (and (ghostel-agents-buffer-p buffer)
                (memq (buffer-local-value 'ghostel-agents-status buffer) '(done waiting)))
@@ -269,6 +278,188 @@ Prompts for an agent to start when none is running."
                              (let ((owner (buffer-local-value 'ghostel-agents--tab buffer)))
                                (and owner (not (equal owner id))))))
                       buffers))))))
+
+;;; Dashboard
+
+(defcustom ghostel-agents-attention-statuses '(waiting done)
+  "Statuses that `ghostel-agents-dashboard-next-attention' stops at."
+  :type '(repeat symbol))
+
+(defcustom ghostel-agents-dashboard-width 42
+  "Width of the dashboard side window."
+  :type 'natnum)
+
+(defconst ghostel-agents--dashboard-name " *agents*"
+  "Leading space keeps the dashboard out of `other-buffer' and buffer lists.")
+
+(defvar ghostel-agents--dashboard-timer nil)
+
+(defvar-keymap ghostel-agents-dashboard-mode-map
+  :parent special-mode-map
+  "RET" #'ghostel-agents-dashboard-visit
+  "o" #'ghostel-agents-dashboard-visit
+  "C-j" #'ghostel-agents-dashboard-next-attention
+  "C-k" #'ghostel-agents-dashboard-previous-attention
+  "q" #'ghostel-agents-dashboard)
+
+(define-derived-mode ghostel-agents-dashboard-mode special-mode "Agents"
+  "Agents grouped under the tab they were started in."
+  (setq-local revert-buffer-function (lambda (&rest _) (ghostel-agents--dashboard-render))
+              truncate-lines t)
+  (display-line-numbers-mode -1)
+  (hl-line-mode 1))
+
+(with-eval-after-load 'evil
+  (evil-define-key* 'normal ghostel-agents-dashboard-mode-map
+    (kbd "RET") #'ghostel-agents-dashboard-visit
+    "o" #'ghostel-agents-dashboard-visit
+    (kbd "C-j") #'ghostel-agents-dashboard-next-attention
+    (kbd "C-k") #'ghostel-agents-dashboard-previous-attention
+    "gr" #'revert-buffer
+    "q" #'ghostel-agents-dashboard))
+
+(defun ghostel-agents--dashboard-schedule ()
+  "Re-render the dashboard soon, coalescing bursts of changes."
+  (when (and (get-buffer ghostel-agents--dashboard-name)
+             (not (timerp ghostel-agents--dashboard-timer)))
+    (setq ghostel-agents--dashboard-timer
+          (run-with-timer 0.1 nil
+                          (lambda ()
+                            (setq ghostel-agents--dashboard-timer nil)
+                            (ghostel-agents--dashboard-render))))))
+
+(defun ghostel-agents--dashboard-line (buffer last)
+  "Insert the tree line for agent BUFFER; LAST picks the closing branch."
+  (let ((status (buffer-local-value 'ghostel-agents-status buffer))
+        (root (ghostel-agents--identity buffer 'root)))
+    (insert (propertize (concat "  " (if last "└─ " "├─ ")
+                                (ghostel-agents--glyph buffer) " "
+                                (or (ghostel-agents--identity buffer 'agent) "agent")
+                                (propertize (format " %s" status) 'face
+                                            (cadr (alist-get status ghostel-agents-status-glyphs)))
+                                (if root
+                                    (propertize (format "  %s" (file-name-nondirectory
+                                                                (directory-file-name root)))
+                                                'face 'shadow)
+                                  ""))
+                        'ghostel-agents-buffer buffer
+                        'help-echo (buffer-name buffer))
+            "\n")))
+
+(defun ghostel-agents--dashboard-render ()
+  "Redraw the dashboard, keeping point on the same agent."
+  (when-let* ((dashboard (get-buffer ghostel-agents--dashboard-name)))
+    (with-current-buffer dashboard
+      (let* ((window (get-buffer-window dashboard t))
+             (frame (if window (window-frame window) (selected-frame)))
+             (tabs (funcall tab-bar-tabs-function frame))
+             (agents (ghostel-agents--buffers))
+             (here (get-text-property (point) 'ghostel-agents-buffer))
+             (line (line-number-at-pos))
+             (inhibit-read-only t)
+             (attention 0))
+        (erase-buffer)
+        (cl-loop
+         for tab in tabs
+         for id = (alist-get 'ghostel-agents-id (cdr tab))
+         for owned = (and id (seq-filter
+                              (lambda (buffer)
+                                (equal id (buffer-local-value 'ghostel-agents--tab buffer)))
+                              agents))
+         do (insert (propertize (alist-get 'name tab) 'face
+                                (if (eq (car tab) 'current-tab) '(bold success) 'bold))
+                    "\n")
+         (setq agents (seq-difference agents owned))
+         (cl-loop for (buffer . rest) on owned
+                  do (ghostel-agents--dashboard-line buffer (null rest))))
+        (when agents
+          (insert (propertize "(tab closed)" 'face 'shadow) "\n")
+          (cl-loop for (buffer . rest) on agents
+                   do (ghostel-agents--dashboard-line buffer (null rest))))
+        (dolist (buffer (ghostel-agents--buffers))
+          (when (memq (buffer-local-value 'ghostel-agents-status buffer)
+                      ghostel-agents-attention-statuses)
+            (cl-incf attention)))
+        (setq header-line-format
+              (format " Agents  %s" (if (zerop attention)
+                                        (propertize "all quiet" 'face 'shadow)
+                                      (propertize (format "%d need you" attention)
+                                                  'face 'error))))
+        (goto-char (point-min))
+        (if-let* ((pos (and here (text-property-any (point-min) (point-max)
+                                                    'ghostel-agents-buffer here))))
+            (goto-char pos)
+          (forward-line (1- line)))
+        (when window (set-window-point window (point)))))))
+
+(defun ghostel-agents--dashboard-attention-p (pos)
+  (when-let* ((buffer (get-text-property pos 'ghostel-agents-buffer)))
+    (and (buffer-live-p buffer)
+         (memq (buffer-local-value 'ghostel-agents-status buffer)
+               ghostel-agents-attention-statuses))))
+
+(defun ghostel-agents--dashboard-step (forward)
+  "Move to the next agent needing attention, wrapping; FORWARD picks direction."
+  (let ((start (line-beginning-position))
+        (pos nil))
+    (save-excursion
+      (catch 'found
+        (dotimes (_ (count-lines (point-min) (point-max)))
+          (if forward
+              (when (or (/= 0 (forward-line 1)) (eobp)) (goto-char (point-min)))
+            (when (/= 0 (forward-line -1)) (goto-char (point-max)) (forward-line -1)))
+          (when (= (point) start) (throw 'found nil))
+          (when (ghostel-agents--dashboard-attention-p (point))
+            (throw 'found (setq pos (point)))))))
+    (if pos
+        (goto-char pos)
+      (message (if (ghostel-agents--dashboard-attention-p start)
+                   "No other agent needs attention"
+                 "No agent needs attention")))))
+
+(defun ghostel-agents-dashboard-next-attention ()
+  "Move to the next agent that is waiting or finished unseen."
+  (interactive)
+  (ghostel-agents--dashboard-step t))
+
+(defun ghostel-agents-dashboard-previous-attention ()
+  "Move to the previous agent that is waiting or finished unseen."
+  (interactive)
+  (ghostel-agents--dashboard-step nil))
+
+(defun ghostel-agents-dashboard-visit ()
+  "Switch to the agent's tab and show it there."
+  (interactive)
+  (let ((buffer (or (get-text-property (point) 'ghostel-agents-buffer)
+                    (user-error "No agent on this line"))))
+    (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
+    (when-let* ((index (ghostel-agents--tab-index buffer)))
+      (tab-bar-select-tab (1+ index)))
+    (when (window-parameter (selected-window) 'window-side)
+      (select-window (get-mru-window nil nil t)))
+    (ghostel-agents--show buffer)
+    ;; 看板是当前 tab 的侧窗，跟着到新 tab 里再开一份。
+    (unless (get-buffer-window ghostel-agents--dashboard-name)
+      (ghostel-agents--dashboard-display))))
+
+(defun ghostel-agents--dashboard-display ()
+  "Show the dashboard in a left side window and return that window."
+  (display-buffer-in-side-window
+   (get-buffer ghostel-agents--dashboard-name)
+   `((side . left) (slot . -1) (window-width . ,ghostel-agents-dashboard-width)
+     (window-parameters (no-delete-other-windows . t)))))
+
+;;;###autoload
+(defun ghostel-agents-dashboard ()
+  "Toggle a side window listing every agent under the tab it belongs to."
+  (interactive)
+  (if-let* ((window (get-buffer-window ghostel-agents--dashboard-name)))
+      (delete-window window)
+    (with-current-buffer (get-buffer-create ghostel-agents--dashboard-name)
+      (unless (derived-mode-p 'ghostel-agents-dashboard-mode)
+        (ghostel-agents-dashboard-mode)))
+    (ghostel-agents--dashboard-render)
+    (select-window (ghostel-agents--dashboard-display))))
 
 (defun ghostel-agents--embark-transform (_type target)
   (cons 'buffer target))

@@ -14,7 +14,7 @@
 (use-package ghostel-agents
   :ensure nil
   :commands (ghostel-agents-start ghostel-agents-toggle ghostel-agents-switch
-             ghostel-agents-send)
+             ghostel-agents-send ghostel-agents-dashboard)
   :autoload ghostel-agents-buffer-p
   :config (ghostel-agents-mode 1))
 

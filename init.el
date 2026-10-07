@@ -26,6 +26,8 @@
 (global-auto-revert-mode 1)
 (electric-pair-mode 1)
 (winner-mode 1)
+(keymap-global-set "s-j" (lambda () (interactive) (other-window 1)))
+(keymap-global-set "s-k" (lambda () (interactive) (other-window -1)))
 (fringe-mode 0)
 (add-hook 'prog-mode-hook #'display-line-numbers-mode)
 (add-hook 'text-mode-hook #'display-line-numbers-mode)
@@ -312,9 +314,6 @@
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
-  (dolist (state '(normal visual insert))
-    (evil-global-set-key state (kbd "C-j") #'evil-window-next)
-    (evil-global-set-key state (kbd "C-k") #'evil-window-prev))
   (evil-global-set-key 'normal "gh" #'jgy/toggle-highlight)
   (evil-global-set-key 'visual "gh" #'jgy/toggle-highlight))
 
@@ -341,10 +340,6 @@ Each new highlight takes the next face, so several can coexist."
   (setq evil-collection-repl-submit-state 'insert)
   ;; 让出 dired 中的 ";"，evil-collection 的 epa 绑定会与之冲突。
   (setq evil-collection-key-blacklist '(";d" ";v" ";s" ";e"))
-  ;; C-j/C-k 留给全局的窗口切换。
-  (setq evil-collection-binding-overrides
-        '((next-section-2 :enabled nil)
-          (prev-section-2 :enabled nil)))
   :config
   (evil-collection-init))
 
@@ -549,6 +544,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "ai" '(jgy/agent-start-pi :which-key "Pi agent")
     "al" '(ghostel-agents-switch :which-key "list agents")
     "aw" '(jgy/worktree-agent :which-key "agent in worktree")
+    "ad" '(ghostel-agents-dashboard :which-key "dashboard")
     "ae" '(ghostel-agents-send :which-key "send to agent")
     "a+" '(gptel-add :which-key "add context")
     "af" '(gptel-add-file :which-key "add file")
