@@ -381,10 +381,9 @@ Prompts for an agent to start when none is running."
                       ghostel-agents-attention-statuses)
             (cl-incf attention)))
         (setq header-line-format
-              (format " Agents  %s" (if (zerop attention)
-                                        (propertize "all quiet" 'face 'shadow)
-                                      (propertize (format "%d need you" attention)
-                                                  'face 'error))))
+              (if (zerop attention)
+                  (propertize "all quiet" 'face 'shadow)
+                (propertize (format "%d need you" attention) 'face 'error)))
         (goto-char (point-min))
         (if-let* ((pos (and here (text-property-any (point-min) (point-max)
                                                     'ghostel-agents-buffer here))))
