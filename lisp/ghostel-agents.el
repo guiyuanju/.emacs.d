@@ -5,7 +5,8 @@
 ;; `ghostel-agents-mode' 把各 agent 的状态图标挂到 tab 名前，并让 bufferlo 只列出本 tab 的 agent。
 ;; 状态来自 CLI 自己发出的 OSC 9;4 进度和 OSC 9/777 通知；
 ;; Pi 需要在 ~/.pi/agent/settings.json 里打开 terminal.showTerminalProgress。
-;; 上下文用量从 Claude Code 状态栏（bin/claude-statusline）里的 "ctx N%" 读出。
+;; 上下文用量从 Claude Code 状态栏（bin/claude-statusline）里的 "ctx N%" 读出，
+;; 套餐用量（5 小时、7 天）从该脚本写下的 `ghostel-agents-usage-file' 读出。
 
 ;;; Code:
 
@@ -66,6 +67,18 @@
   :type 'number)
 
 (defvar ghostel-agents--context-timer nil)
+
+(defcustom ghostel-agents-usage-file
+  (expand-file-name "claude-usage.json" (or (getenv "XDG_CACHE_HOME") "~/.cache"))
+  "File where bin/claude-statusline saves Claude's plan usage."
+  :type 'file)
+
+(defcustom ghostel-agents-usage-warning 80
+  "Plan usage percentage from which the dashboard highlights it."
+  :type 'natnum)
+
+(defvar ghostel-agents--usage nil
+  "Plan usage windows as read from `ghostel-agents-usage-file'.")
 
 ;;; Buffers
 
@@ -296,7 +309,30 @@ a hidden status line keeps the last value."
                         (string-to-number (match-string 1)))))))
         (when (and used (not (equal used ghostel-agents-context)))
           (setq ghostel-agents-context used)
-          (ghostel-agents--dashboard-schedule))))))
+          (ghostel-agents--dashboard-schedule)))))
+  (let ((usage (ignore-errors
+                 (with-temp-buffer
+                   (insert-file-contents ghostel-agents-usage-file)
+                   (json-parse-buffer :object-type 'alist :null-object nil)))))
+    (unless (equal usage ghostel-agents--usage)
+      (setq ghostel-agents--usage usage)
+      (ghostel-agents--dashboard-schedule))))
+
+(defun ghostel-agents--usage-string ()
+  "Describe the plan usage windows that have not reset yet, or return nil."
+  (when-let* ((parts
+               (delq nil
+                     (mapcar
+                      (lambda (window)
+                        (let-alist (alist-get (car window) ghostel-agents--usage)
+                          (when (and .used_percentage
+                                     (or (not (numberp .resets_at))
+                                         (> .resets_at (float-time))))
+                            (propertize (format "%s %d%%" (cdr window) (floor .used_percentage))
+                                        'face (if (>= .used_percentage ghostel-agents-usage-warning)
+                                                  'warning 'shadow)))))
+                      '((five_hour . "5h") (seven_day . "7d"))))))
+    (string-join parts (propertize " · " 'face 'shadow))))
 
 (defun ghostel-agents-tab-name-format (name tab _index)
   "Prepend status glyphs of the agents started in TAB to tab NAME."
@@ -440,9 +476,11 @@ agent name since the branch and glyph can render wider than their columns."
                       ghostel-agents-attention-statuses)
             (cl-incf attention)))
         (setq header-line-format
-              (if (zerop attention)
-                  (propertize "all quiet" 'face 'shadow)
-                (propertize (format "%d need you" attention) 'face 'error)))
+              (concat (if (zerop attention)
+                          (propertize "all quiet" 'face 'shadow)
+                        (propertize (format "%d need you" attention) 'face 'error))
+                      (when-let* ((usage (ghostel-agents--usage-string)))
+                        (concat "   " usage))))
         (goto-char (point-min))
         (if-let* ((pos (and here (text-property-any (point-min) (point-max)
                                                     'ghostel-agents-buffer here))))
