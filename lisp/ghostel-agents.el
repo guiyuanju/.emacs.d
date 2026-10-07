@@ -318,21 +318,23 @@ a hidden status line keeps the last value."
       (setq ghostel-agents--usage usage)
       (ghostel-agents--dashboard-schedule))))
 
-(defun ghostel-agents--usage-string ()
-  "Describe the plan usage windows that have not reset yet, or return nil."
-  (when-let* ((parts
-               (delq nil
-                     (mapcar
-                      (lambda (window)
-                        (let-alist (alist-get (car window) ghostel-agents--usage)
-                          (when (and .used_percentage
-                                     (or (not (numberp .resets_at))
-                                         (> .resets_at (float-time))))
-                            (propertize (format "%s %d%%" (cdr window) (floor .used_percentage))
-                                        'face (if (>= .used_percentage ghostel-agents-usage-warning)
-                                                  'warning 'shadow)))))
-                      '((five_hour . "5h") (seven_day . "7d"))))))
-    (string-join parts (propertize " · " 'face 'shadow))))
+(defun ghostel-agents--usage-insert ()
+  "Insert a labelled bar per Claude plan usage window that has not reset yet."
+  (let ((label "claude"))
+    (pcase-dolist (`(,key . ,name) '((five_hour . "5h") (seven_day . "7d")))
+      (let-alist (alist-get key ghostel-agents--usage)
+        (when (and .used_percentage
+                   (or (not (numberp .resets_at)) (> .resets_at (float-time))))
+          (let ((filled (min 10 (round .used_percentage 10)))
+                (face (if (>= .used_percentage ghostel-agents-usage-warning) 'warning 'shadow)))
+            (insert (propertize (format "%-8s" label) 'face 'bold)
+                    name " "
+                    (propertize (make-string filled ?█) 'face face)
+                    (propertize (make-string (- 10 filled) ?░) 'face 'shadow)
+                    (propertize (format " %d%%" (floor .used_percentage)) 'face face)
+                    "\n")
+            (setq label "")))))
+    (when (string-empty-p label) (insert "\n"))))
 
 (defun ghostel-agents-tab-name-format (name tab _index)
   "Prepend status glyphs of the agents started in TAB to tab NAME."
@@ -454,6 +456,7 @@ agent name since the branch and glyph can render wider than their columns."
              (inhibit-read-only t)
              (attention 0))
         (erase-buffer)
+        (ghostel-agents--usage-insert)
         (cl-loop
          for tab in tabs
          for id = (alist-get 'ghostel-agents-id (cdr tab))
@@ -476,11 +479,8 @@ agent name since the branch and glyph can render wider than their columns."
                       ghostel-agents-attention-statuses)
             (cl-incf attention)))
         (setq header-line-format
-              (concat (if (zerop attention)
-                          (propertize "all quiet" 'face 'shadow)
-                        (propertize (format "%d need you" attention) 'face 'error))
-                      (when-let* ((usage (ghostel-agents--usage-string)))
-                        (concat "   " usage))))
+              (unless (zerop attention)
+                (propertize (format "%d need you" attention) 'face 'error)))
         (goto-char (point-min))
         (if-let* ((pos (and here (text-property-any (point-min) (point-max)
                                                     'ghostel-agents-buffer here))))
