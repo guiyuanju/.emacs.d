@@ -340,6 +340,8 @@ Each new highlight takes the next face, so several can coexist."
   (setq evil-collection-repl-submit-state 'insert)
   ;; 让出 dired 中的 ";"，evil-collection 的 epa 绑定会与之冲突。
   (setq evil-collection-key-blacklist '(";d" ";v" ";s" ";e"))
+  ;; 用 evil-ghostel 自己的判断：全屏程序里 ESC 发给程序，否则回 normal。
+  (setq evil-collection-evil-ghostel-escape 'auto)
   :config
   (evil-collection-init))
 
@@ -714,6 +716,33 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
 
 (use-package ghostel
   :commands (ghostel ghostel-project ghostel-project-buffer-list))
+
+;; 普通态移动后 i/a 会把终端光标带到 point。
+(defun jgy/evil-ghostel-goto-input-position (pos)
+  "Drive the terminal cursor to POS, counting columns on the Emacs side.
+Replaces `evil-ghostel-goto-input-position', which takes the terminal's
+column and miscounts after wide prompt glyphs such as ➜."
+  (when-let* ((cursor (and ghostel--term (ghostel-cursor-point))))
+    (when (and (> pos cursor) (= (line-number-at-pos pos) (line-number-at-pos cursor)))
+      (setq pos (min pos (or (evil-ghostel--input-end) pos))))
+    (let* ((column (lambda (p) (save-excursion (goto-char p) (current-column))))
+           (dy (- (or (ghostel--viewport-row-at pos) 0)
+                  (or (ghostel--viewport-row-at cursor) 0)))
+           (dx (- (funcall column pos) (funcall column cursor))))
+      (dotimes (_ (abs dy)) (ghostel--send-encoded (if (> dy 0) "down" "up") ""))
+      (dotimes (_ (abs dx)) (ghostel--send-encoded (if (> dx 0) "right" "left") ""))
+      (unless (and (zerop dx) (zerop dy)) (evil-ghostel--sync-render))
+      (goto-char pos)
+      t)))
+
+(use-package evil-ghostel
+  :after (ghostel evil)
+  :hook (ghostel-mode . evil-ghostel-mode)
+  :custom
+  (evil-ghostel-initial-state 'normal)
+  :config
+  (advice-add 'evil-ghostel-goto-input-position :override
+              #'jgy/evil-ghostel-goto-input-position))
 
 ;; ghostel 收到 OSC 9/777 时经 alert 发出 macOS 通知。
 (use-package alert

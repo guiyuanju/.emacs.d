@@ -17,6 +17,10 @@
 
 (declare-function evil-local-set-key "evil-core")
 (declare-function evil-define-key* "evil-core")
+(declare-function evil-insert-state "evil-states")
+(declare-function evil-ghostel-goto-input-position "evil-ghostel")
+(declare-function evil-ghostel--input-end "evil-ghostel")
+(defvar evil-ghostel--escape-mode)
 
 (defgroup ghostel-agents nil
   "Agent CLIs running in Ghostel."
@@ -105,13 +109,33 @@
                  :key (lambda (tab) (alist-get 'ghostel-agents-id (cdr tab)))
                  :test #'equal)))
 
-(defun ghostel-agents--bind-terminal-keys ()
-  "Send ESC and \\`C-u' to the agent in insert state; \\`C-g' leaves insert state."
+(defun ghostel-agents--insert-at (pos)
+  "Move the agent's input cursor to POS on the cursor row, then insert.
+`evil-ghostel' leaves fullscreen TUIs alone.  Other rows are not driven,
+since up/down would recall history."
+  (when (and (fboundp 'evil-ghostel-goto-input-position)
+             (ghostel-point-on-cursor-row-p))
+    (let ((end (evil-ghostel--input-end)))
+      (evil-ghostel-goto-input-position (if end (min pos end) pos))))
+  (evil-insert-state 1))
+
+(defun ghostel-agents-insert ()
+  "Insert before point in the agent's input."
+  (interactive)
+  (ghostel-agents--insert-at (point)))
+
+(defun ghostel-agents-append ()
+  "Insert after point in the agent's input."
+  (interactive)
+  (ghostel-agents--insert-at (min (1+ (point)) (line-end-position))))
+
+(defun ghostel-agents--setup-evil ()
+  "Send insert-state ESC to the agent; make normal-state \\`i' and \\`a' insert at point."
+  (when (bound-and-true-p evil-ghostel-mode)
+    (setq evil-ghostel--escape-mode 'terminal))
   (when (fboundp 'evil-local-set-key)
-    (evil-local-set-key 'insert (kbd "<escape>")
-                        (lambda () (interactive) (ghostel-send-key "escape")))
-    (evil-local-set-key 'insert (kbd "C-u")
-                        (lambda () (interactive) (ghostel-send-key "u" "ctrl")))))
+    (evil-local-set-key 'normal "i" #'ghostel-agents-insert)
+    (evil-local-set-key 'normal "a" #'ghostel-agents-append)))
 
 ;;; Commands
 
@@ -142,7 +166,7 @@ With prefix arg FRESH, always start another instance."
                       (command . ,argv)))
       (with-current-buffer buffer
         (setq ghostel-agents--tab (ghostel-agents--tab-id))
-        (ghostel-agents--bind-terminal-keys)
+        (ghostel-agents--setup-evil)
         (add-hook 'kill-buffer-hook
                   (lambda ()
                     (force-mode-line-update t)
