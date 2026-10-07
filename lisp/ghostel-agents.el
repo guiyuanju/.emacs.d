@@ -380,10 +380,12 @@ a hidden status line keeps the last value."
                             (ghostel-agents--dashboard-render))))))
 
 (defun ghostel-agents--dashboard-line (buffer last)
-  "Insert the tree line for agent BUFFER; LAST picks the closing branch."
-  (let ((root (ghostel-agents--identity buffer 'root)))
-    (insert (propertize (concat "  " (if last "└─ " "├─ ")
-                                (ghostel-agents--glyph buffer) " "
+  "Insert the tree lines for agent BUFFER; LAST picks the closing branch.
+The project name goes underneath in a smaller face, aligned in pixels with the
+agent name since the branch and glyph can render wider than their columns."
+  (let* ((root (ghostel-agents--identity buffer 'root))
+         (prefix (concat "  " (if last "└─ " "├─ ") (ghostel-agents--glyph buffer) " ")))
+    (insert (propertize (concat prefix
                                 (or (ghostel-agents--identity buffer 'agent) "agent")
                                 (if-let* ((used (buffer-local-value 'ghostel-agents-context buffer)))
                                     (propertize (format " %d%%" used) 'face
@@ -392,9 +394,12 @@ a hidden status line keeps the last value."
                                                   'shadow))
                                   "")
                                 (if root
-                                    (propertize (format "  %s" (file-name-nondirectory
-                                                                (directory-file-name root)))
-                                                'face 'shadow)
+                                    (concat "\n  " (if last " " "│")
+                                            (propertize " " 'display
+                                                        `(space :align-to (,(string-pixel-width prefix))))
+                                            (propertize (file-name-nondirectory
+                                                         (directory-file-name root))
+                                                        'face '(:inherit shadow :height 0.85)))
                                   ""))
                         'ghostel-agents-buffer buffer
                         'help-echo (buffer-name buffer))
@@ -446,8 +451,11 @@ a hidden status line keeps the last value."
         (when window (set-window-point window (point)))))))
 
 (defun ghostel-agents--dashboard-attention-p (pos)
+  "Non-nil when POS starts the first line of an agent needing attention."
   (when-let* ((buffer (get-text-property pos 'ghostel-agents-buffer)))
-    (and (buffer-live-p buffer)
+    (and (not (and (> pos (point-min))
+                   (eq buffer (get-text-property (1- pos) 'ghostel-agents-buffer))))
+         (buffer-live-p buffer)
          (memq (buffer-local-value 'ghostel-agents-status buffer)
                ghostel-agents-attention-statuses))))
 
