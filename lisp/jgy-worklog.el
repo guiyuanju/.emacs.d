@@ -3,7 +3,8 @@
 ;;; Commentary:
 ;; 在 agents 看板底部列出当前项目对应的 worklog 待办。
 ;; 项目卡 frontmatter 的 `repos' 含当前项目根目录（worktree 按主仓库算）即视为对应；
-;; 没有对应的卡时列出所有带 #now 的待办。
+;; 待办取 Todo 段的未完成项，加上任意段落里带 #waiting 的未完成项；
+;; 没有对应的卡时列出所有带 #now 或 #waiting 的待办。
 
 ;;; Code:
 
@@ -42,7 +43,8 @@
 
 (defun jgy-worklog--parse (file)
   "Parse card FILE into a plist of :id :status :repos :file :todos.
-Each todo is (TEXT . LINE) for an open checkbox under the Todo heading."
+Each todo is (TEXT . LINE) for an open checkbox under the Todo heading,
+or anywhere when tagged #waiting."
   (with-temp-buffer
     (insert-file-contents file)
     (let (id status repos todos in-todo)
@@ -55,7 +57,8 @@ Each todo is (TEXT . LINE) for an open checkbox under the Todo heading."
            ((string-match "\\`repos: *\\(.+\\)" line)
             (setq repos (jgy-worklog--repo-list (match-string 1 line))))
            ((string-prefix-p "## " line) (setq in-todo (string= line "## Todo")))
-           ((and in-todo (string-match "\\`- \\[ \\] \\(.+\\)" line))
+           ((and (string-match "\\`- \\[ \\] \\(.+\\)" line)
+                 (or in-todo (string-match-p "#waiting\\>" line)))
             (push (cons (match-string 1 line) (line-number-at-pos)) todos))))
         (forward-line 1))
       (list :id id :status status :repos repos :file file :todos (nreverse todos)))))
@@ -93,13 +96,16 @@ Each todo is (TEXT . LINE) for an open checkbox under the Todo heading."
       (project-root project))))
 
 (defun jgy-worklog--display (text)
-  "Return TEXT without inline fields and tags, with its due date appended."
+  "Return TEXT without inline fields and tags, with its due date appended.
+#now shows bold and #waiting dimmed."
   (let ((due (and (string-match "\\[due:: *\\([0-9-]+\\)\\]" text) (match-string 1 text)))
-        (now (string-match-p "#now\\>" text))
+        (face (cond ((string-match-p "#now\\>" text) 'bold)
+                    ((string-match-p "#waiting\\>" text) '(:inherit shadow :slant italic))
+                    (t 'default)))
         (clean (string-trim
                 (replace-regexp-in-string
                  " +" " " (replace-regexp-in-string "\\[[a-z]+::[^]]*\\]\\|#[[:alnum:]_-]+" "" text)))))
-    (concat (propertize clean 'face (if now 'bold 'default))
+    (concat (propertize clean 'face face)
             (if due (propertize (concat " " due) 'face 'shadow) ""))))
 
 (defun jgy-worklog--visit (file line)
@@ -128,7 +134,7 @@ FIRST omits the blank line before the heading."
 
 (defun jgy-worklog-dashboard-insert (frame)
   "Insert a Todo section for the worklog cards matching FRAME's current project.
-Without a matching card, list every #now todo instead."
+Without a matching card, list every #now or #waiting todo instead."
   (let* ((root (jgy-worklog--current-root frame))
          (repo (and root (jgy-worklog--main-repo root)))
          (cards (jgy-worklog--cards))
@@ -142,7 +148,7 @@ Without a matching card, list every #now todo instead."
          (dolist (card (or matched cards))
            (when-let* ((todos (if matched
                                   (plist-get card :todos)
-                                (seq-filter (lambda (todo) (string-match-p "#now\\>" (car todo)))
+                                (seq-filter (lambda (todo) (string-match-p "#\\(?:now\\|waiting\\)\\>" (car todo)))
                                             (plist-get card :todos)))))
              (jgy-worklog--insert-card card todos first)
              (setq first nil))))))))
