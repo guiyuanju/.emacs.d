@@ -414,8 +414,7 @@ Each bar ends with the time left until that window resets."
 (define-derived-mode ghostel-agents-dashboard-mode special-mode "Agents"
   "Agents grouped under the tab they were started in."
   (setq-local revert-buffer-function (lambda (&rest _) (ghostel-agents--dashboard-render))
-              truncate-lines t
-              mode-line-format nil)
+              truncate-lines t)
   (display-line-numbers-mode -1)
   (hl-line-mode 1))
 
@@ -460,6 +459,21 @@ Each bar ends with the time left until that window resets."
                         'help-echo (buffer-name buffer))
             "\n")))
 
+(defun ghostel-agents--dashboard-mode-line ()
+  "Return the dashboard mode line: its name and a count of agents by state."
+  (let* ((statuses (mapcar (lambda (buffer) (buffer-local-value 'ghostel-agents-status buffer))
+                           (ghostel-agents--buffers)))
+         (working (seq-count (lambda (status) (eq status 'working)) statuses))
+         (attention (seq-count (lambda (status) (memq status ghostel-agents-attention-statuses))
+                               statuses)))
+    (list " " (propertize "Agents" 'face 'mode-line-buffer-id) "  "
+          (string-join
+           (delq nil (list (format "%d total" (length statuses))
+                           (and (> working 0) (format "%d working" working))
+                           (and (> attention 0)
+                                (propertize (format "%d need you" attention) 'face 'error))))
+           " · "))))
+
 (defun ghostel-agents--dashboard-render ()
   "Redraw the dashboard, keeping point on the same agent."
   (when-let* ((dashboard (get-buffer ghostel-agents--dashboard-name)))
@@ -470,8 +484,7 @@ Each bar ends with the time left until that window resets."
              (agents (ghostel-agents--buffers))
              (here (get-text-property (point) 'ghostel-agents-buffer))
              (line (line-number-at-pos))
-             (inhibit-read-only t)
-             (attention 0))
+             (inhibit-read-only t))
         (erase-buffer)
         (ghostel-agents--usage-insert)
         (cl-loop
@@ -494,13 +507,7 @@ Each bar ends with the time left until that window resets."
           (insert (propertize "(tab closed)" 'face 'shadow 'ghostel-agents-tab t) "\n")
           (cl-loop for (buffer . rest) on agents
                    do (ghostel-agents--dashboard-line buffer (null rest))))
-        (dolist (buffer (ghostel-agents--buffers))
-          (when (memq (buffer-local-value 'ghostel-agents-status buffer)
-                      ghostel-agents-attention-statuses)
-            (cl-incf attention)))
-        (setq header-line-format
-              (unless (zerop attention)
-                (propertize (format "%d need you" attention) 'face 'error)))
+        (setq mode-line-format (ghostel-agents--dashboard-mode-line))
         (goto-char (point-min))
         (if-let* ((pos (and here (text-property-any (point-min) (point-max)
                                                     'ghostel-agents-buffer here))))
