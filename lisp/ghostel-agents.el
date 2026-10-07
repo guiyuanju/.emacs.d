@@ -443,10 +443,10 @@ Prompts for an agent to start when none is running."
       (ghostel-agents--dashboard-display))))
 
 (defun ghostel-agents--dashboard-display ()
-  "Show the dashboard in a left side window and return that window."
+  "Show the dashboard in a right side window and return that window."
   (display-buffer-in-side-window
    (get-buffer ghostel-agents--dashboard-name)
-   `((side . left) (slot . -1) (window-width . ,ghostel-agents-dashboard-width)
+   `((side . right) (slot . -1) (window-width . ,ghostel-agents-dashboard-width)
      (window-parameters (no-delete-other-windows . t)))))
 
 ;;;###autoload
