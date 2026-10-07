@@ -333,8 +333,7 @@ a hidden status line keeps the last value."
                     (propertize (make-string (- 10 filled) ?░) 'face 'shadow)
                     (propertize (format " %d%%" (floor .used_percentage)) 'face face)
                     "\n")
-            (setq label "")))))
-    (when (string-empty-p label) (insert "\n"))))
+            (setq label "")))))))
 
 (defun ghostel-agents-tab-name-format (name tab _index)
   "Prepend status glyphs of the agents started in TAB to tab NAME."
@@ -387,8 +386,10 @@ a hidden status line keeps the last value."
   :parent special-mode-map
   "RET" #'ghostel-agents-dashboard-visit
   "o" #'ghostel-agents-dashboard-visit
-  "C-j" #'ghostel-agents-dashboard-next-attention
-  "C-k" #'ghostel-agents-dashboard-previous-attention
+  "C-j" #'ghostel-agents-dashboard-next-tab
+  "C-k" #'ghostel-agents-dashboard-previous-tab
+  "] a" #'ghostel-agents-dashboard-next-attention
+  "[ a" #'ghostel-agents-dashboard-previous-attention
   "q" #'ghostel-agents-dashboard)
 
 (define-derived-mode ghostel-agents-dashboard-mode special-mode "Agents"
@@ -402,8 +403,10 @@ a hidden status line keeps the last value."
   (evil-define-key* 'normal ghostel-agents-dashboard-mode-map
     (kbd "RET") #'ghostel-agents-dashboard-visit
     "o" #'ghostel-agents-dashboard-visit
-    (kbd "C-j") #'ghostel-agents-dashboard-next-attention
-    (kbd "C-k") #'ghostel-agents-dashboard-previous-attention
+    (kbd "C-j") #'ghostel-agents-dashboard-next-tab
+    (kbd "C-k") #'ghostel-agents-dashboard-previous-tab
+    "]a" #'ghostel-agents-dashboard-next-attention
+    "[a" #'ghostel-agents-dashboard-previous-attention
     "gr" #'revert-buffer
     "q" #'ghostel-agents-dashboard))
 
@@ -464,14 +467,17 @@ agent name since the branch and glyph can render wider than their columns."
                               (lambda (buffer)
                                 (equal id (buffer-local-value 'ghostel-agents--tab buffer)))
                               agents))
-         do (insert (propertize (alist-get 'name tab) 'face
-                                (if (eq (car tab) 'current-tab) '(bold success) 'bold))
-                    "\n")
+         do (unless (bobp) (insert "\n"))
+         (insert (propertize (format "[%s]" (alist-get 'name tab))
+                             'face (if (eq (car tab) 'current-tab) '(bold success) 'bold)
+                             'ghostel-agents-tab t)
+                 "\n")
          (setq agents (seq-difference agents owned))
          (cl-loop for (buffer . rest) on owned
                   do (ghostel-agents--dashboard-line buffer (null rest))))
         (when agents
-          (insert (propertize "(tab closed)" 'face 'shadow) "\n")
+          (unless (bobp) (insert "\n"))
+          (insert (propertize "(tab closed)" 'face 'shadow 'ghostel-agents-tab t) "\n")
           (cl-loop for (buffer . rest) on agents
                    do (ghostel-agents--dashboard-line buffer (null rest))))
         (dolist (buffer (ghostel-agents--buffers))
@@ -497,8 +503,13 @@ agent name since the branch and glyph can render wider than their columns."
          (memq (buffer-local-value 'ghostel-agents-status buffer)
                ghostel-agents-attention-statuses))))
 
-(defun ghostel-agents--dashboard-step (forward)
-  "Move to the next agent needing attention, wrapping; FORWARD picks direction."
+(defun ghostel-agents--dashboard-tab-p (pos)
+  "Non-nil when POS is on a tab heading."
+  (get-text-property pos 'ghostel-agents-tab))
+
+(defun ghostel-agents--dashboard-step (forward match what)
+  "Move to the next line whose start satisfies MATCH, wrapping.
+FORWARD picks the direction; WHAT names those lines when there is none."
   (let ((start (line-beginning-position))
         (pos nil))
     (save-excursion
@@ -508,23 +519,33 @@ agent name since the branch and glyph can render wider than their columns."
               (when (or (/= 0 (forward-line 1)) (eobp)) (goto-char (point-min)))
             (when (/= 0 (forward-line -1)) (goto-char (point-max)) (forward-line -1)))
           (when (= (point) start) (throw 'found nil))
-          (when (ghostel-agents--dashboard-attention-p (point))
+          (when (funcall match (point))
             (throw 'found (setq pos (point)))))))
     (if pos
         (goto-char pos)
-      (message (if (ghostel-agents--dashboard-attention-p start)
-                   "No other agent needs attention"
-                 "No agent needs attention")))))
+      (message "No %s%s" (if (funcall match start) "other " "") what))))
 
 (defun ghostel-agents-dashboard-next-attention ()
   "Move to the next agent that is waiting or finished unseen."
   (interactive)
-  (ghostel-agents--dashboard-step t))
+  (ghostel-agents--dashboard-step t #'ghostel-agents--dashboard-attention-p
+                                  "agent needing attention"))
 
 (defun ghostel-agents-dashboard-previous-attention ()
   "Move to the previous agent that is waiting or finished unseen."
   (interactive)
-  (ghostel-agents--dashboard-step nil))
+  (ghostel-agents--dashboard-step nil #'ghostel-agents--dashboard-attention-p
+                                  "agent needing attention"))
+
+(defun ghostel-agents-dashboard-next-tab ()
+  "Move to the next tab heading."
+  (interactive)
+  (ghostel-agents--dashboard-step t #'ghostel-agents--dashboard-tab-p "tab"))
+
+(defun ghostel-agents-dashboard-previous-tab ()
+  "Move to the previous tab heading."
+  (interactive)
+  (ghostel-agents--dashboard-step nil #'ghostel-agents--dashboard-tab-p "tab"))
 
 (defun ghostel-agents-dashboard-visit ()
   "Switch to the agent's tab and show it there."
