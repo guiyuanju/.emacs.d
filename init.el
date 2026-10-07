@@ -997,6 +997,12 @@ column and miscounts after wide prompt glyphs such as ➜."
   :ensure nil
   :demand t)
 
+(use-package jgy-worklog
+  :ensure nil
+  :demand t
+  :config
+  (jgy-worklog-dashboard-mode 1))
+
 ;;; Tools
 
 (use-package sdkman

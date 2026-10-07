@@ -416,6 +416,12 @@ Each bar ends with the time left until that window resets."
 
 (defvar ghostel-agents--dashboard-timer nil)
 
+(defvar ghostel-agents-dashboard-functions nil
+  "Functions inserting extra sections at the end of the dashboard.
+Each is called with the dashboard's frame and usually inserts through
+`ghostel-agents-dashboard-insert-section'.  A line whose text has the
+property `ghostel-agents-action' runs that function on visit.")
+
 (defvar-keymap ghostel-agents-dashboard-mode-map
   :parent special-mode-map
   "RET" #'ghostel-agents-dashboard-visit
@@ -431,7 +437,10 @@ Each bar ends with the time left until that window resets."
 (define-derived-mode ghostel-agents-dashboard-mode special-mode "Agents"
   "Agents grouped under the tab they were started in."
   (setq-local revert-buffer-function (lambda (&rest _) (ghostel-agents--dashboard-render))
-              truncate-lines t)
+              truncate-lines nil
+              truncate-partial-width-windows nil
+              word-wrap t
+              word-wrap-by-category t)
   (display-line-numbers-mode -1)
   (hl-line-mode 1))
 
@@ -458,6 +467,21 @@ Each bar ends with the time left until that window resets."
                             (setq ghostel-agents--dashboard-timer nil)
                             (ghostel-agents--dashboard-render))))))
 
+(defface ghostel-agents-section
+  '((t :inherit (font-lock-keyword-face bold) :overline t :extend t))
+  "Face for dashboard section titles.")
+
+(defun ghostel-agents-dashboard-insert-section (title body)
+  "Insert section TITLE followed by what BODY inserts.
+BODY is a function of no arguments; the title is dropped when it inserts nothing."
+  (let ((start (point)))
+    (unless (bobp) (insert "\n"))
+    (insert (propertize (concat title "\n") 'face 'ghostel-agents-section))
+    (let ((after-title (point)))
+      (funcall body)
+      (when (= (point) after-title)
+        (delete-region start (point))))))
+
 (defun ghostel-agents--dashboard-line (buffer last)
   "Insert the tree line for agent BUFFER; LAST picks the closing branch."
   (let ((root (ghostel-agents--identity buffer 'root)))
@@ -475,7 +499,8 @@ Each bar ends with the time left until that window resets."
                                                 'face '(:inherit shadow :height 0.85))
                                   ""))
                         'ghostel-agents-buffer buffer
-                        'help-echo (buffer-name buffer))
+                        'help-echo (buffer-name buffer)
+                        'wrap-prefix (if last "     " "  │  "))
             "\n")))
 
 (defun ghostel-agents--dashboard-mode-line ()
@@ -505,27 +530,32 @@ Each bar ends with the time left until that window resets."
              (line (line-number-at-pos))
              (inhibit-read-only t))
         (erase-buffer)
-        (ghostel-agents--usage-insert)
-        (cl-loop
-         for tab in tabs
-         for id = (alist-get 'ghostel-agents-id (cdr tab))
-         for owned = (and id (seq-filter
-                              (lambda (buffer)
-                                (equal id (buffer-local-value 'ghostel-agents--tab buffer)))
-                              agents))
-         do (unless (bobp) (insert "\n"))
-         (insert (propertize (format "[%s]" (alist-get 'name tab))
-                             'face (if (eq (car tab) 'current-tab) '(bold success) 'bold)
-                             'ghostel-agents-tab t)
-                 "\n")
-         (setq agents (seq-difference agents owned))
-         (cl-loop for (buffer . rest) on owned
-                  do (ghostel-agents--dashboard-line buffer (null rest))))
-        (when agents
-          (unless (bobp) (insert "\n"))
-          (insert (propertize "(tab closed)" 'face 'shadow 'ghostel-agents-tab t) "\n")
-          (cl-loop for (buffer . rest) on agents
-                   do (ghostel-agents--dashboard-line buffer (null rest))))
+        (ghostel-agents-dashboard-insert-section "Usage" #'ghostel-agents--usage-insert)
+        (ghostel-agents-dashboard-insert-section
+         "Agents"
+         (lambda ()
+           (cl-loop
+            for tab in tabs
+            for first = t then nil
+            for id = (alist-get 'ghostel-agents-id (cdr tab))
+            for owned = (and id (seq-filter
+                                 (lambda (buffer)
+                                   (equal id (buffer-local-value 'ghostel-agents--tab buffer)))
+                                 agents))
+            do (unless first (insert "\n"))
+            (insert (propertize (format "[%s]" (alist-get 'name tab))
+                                'face (if (eq (car tab) 'current-tab) '(bold success) 'bold)
+                                'ghostel-agents-tab t)
+                    "\n")
+            (setq agents (seq-difference agents owned))
+            (cl-loop for (buffer . rest) on owned
+                     do (ghostel-agents--dashboard-line buffer (null rest))))
+           (when agents
+             (when tabs (insert "\n"))
+             (insert (propertize "(tab closed)" 'face 'shadow 'ghostel-agents-tab t) "\n")
+             (cl-loop for (buffer . rest) on agents
+                      do (ghostel-agents--dashboard-line buffer (null rest))))))
+        (run-hook-with-args 'ghostel-agents-dashboard-functions frame)
         (setq mode-line-format (ghostel-agents--dashboard-mode-line))
         (goto-char (point-min))
         (if-let* ((pos (and here (text-property-any (point-min) (point-max)
@@ -616,11 +646,15 @@ FORWARD picks the direction; WHAT names those lines when there is none."
                     agents)
           (car agents)))))
 
-(defun ghostel-agents-dashboard-visit ()
+(cl-defun ghostel-agents-dashboard-visit ()
   "Switch to the agent's tab and show it there.
-On a tab heading, visit the first agent under it that needs attention, or else
+On a line carrying `ghostel-agents-action', run that instead.  On a tab heading,
+visit the first agent under it that needs attention, or else
 the first one."
   (interactive)
+  (when-let* ((action (get-text-property (line-beginning-position) 'ghostel-agents-action)))
+    (funcall action)
+    (cl-return-from ghostel-agents-dashboard-visit))
   (let ((buffer (or (get-text-property (point) 'ghostel-agents-buffer)
                     (and (ghostel-agents--dashboard-tab-p (line-beginning-position))
                          (ghostel-agents--dashboard-tab-target))
