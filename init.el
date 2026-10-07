@@ -672,7 +672,8 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "tr" '(read-only-mode :which-key "read only")
     "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tT" '(consult-theme :which-key "theme")
-    "tw" '(visual-line-mode :which-key "wrap"))
+    "tw" '(visual-line-mode :which-key "wrap")
+    "tW" '(toggle-truncate-lines :which-key "truncate lines"))
 
   (keymap-unset help-map "r" t)
   (keymap-set help-map "r r" #'jgy/reload-config)
@@ -1030,5 +1031,9 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
         ("https://news.ycombinator.com/rss" hacker)
         ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
         ("https://sspai.com/feed" :fetch-link t :readable t sspai))))
+
+(use-package jgy-log
+  :ensure nil
+  :mode ("\\.log\\'" . jgy/log-mode))
 
 ;;; init.el ends here
