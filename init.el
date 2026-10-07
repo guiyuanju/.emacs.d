@@ -1061,3 +1061,46 @@ column and miscounts after wide prompt glyphs such as ➜."
   :mode ("\\.log\\'" . jgy/log-mode))
 
 ;;; init.el ends here
+
+
+;; workspace: 可以分为company和personl的workspace
+;; - project： 一个文件夹对应一个项目（比如一个要开发的feature）， 文件夹下包括
+  ;; - 所有涉及的git repo， 切换到相同分支
+  ;; - 资源文件： 文档， 资料等
+  ;; - 项目信息： 详细信息，todo等
+  ;; - knowledge （local）： agent维护的和当前project密切相关的knowledge
+    ;; - 项目完成后对全局有用的信息上升整理到全局的knowledge
+;; - emacs tab： 一个emacs tab对应一个项目， 一个tab里包括
+  ;; - 对应的几个repo
+  ;; - agents
+  ;; - agent dashboard： 显示agent状态，todo等信息
+;; - knowledge （global）：agent维护的knowledge base，维护全局（比如公司）的共享的信息，包括光从代码看不出的东西
+;; - inbox
+;; - goal： 存放和追踪目标比如okr
+;; 
+;; tag: 通过代码找到对应tag的todo
+;; - #now: 表示当前正在关注的todo
+;; - #waiting： 表示等待他人的todo
+;; 
+;; workflow
+;; - 每天早晚
+;; - 每周开始结束
+;; - 每月开始结束
+;; - 工作过程中的log
+;; - 整理为能放到简历的经历
+;; 
+;; 文件夹结构
+;; - workspace/
+  ;; - me/
+  ;; - okj/
+    ;; - knowledge/
+    ;; - projects/
+      ;; - feature_xxx/
+        ;; - repo1/
+        ;; - repo2/
+        ;; - refs/
+        ;; - knowledge/
+        ;; - project.md
+    ;; - inbox.md
+    ;; - goal.md
+ ;;  
