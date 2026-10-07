@@ -4,3 +4,5 @@
 !early-init.el
 !lisp
 !lisp/**
+!bin
+!bin/**

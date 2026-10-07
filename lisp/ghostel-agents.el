@@ -5,21 +5,20 @@
 ;; `ghostel-agents-mode' 把各 agent 的状态图标挂到 tab 名前，并让 bufferlo 只列出本 tab 的 agent。
 ;; 状态来自 CLI 自己发出的 OSC 9;4 进度和 OSC 9/777 通知；
 ;; Pi 需要在 ~/.pi/agent/settings.json 里打开 terminal.showTerminalProgress。
+;; 上下文用量来自 Claude Code 的 statusLine 脚本 bin/claude-statusline。
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'filenotify)
 (require 'consult)
 (require 'ghostel)
 (require 'project)
 (require 'seq)
 (require 'tab-bar)
 
-(declare-function evil-local-set-key "evil-core")
 (declare-function evil-define-key* "evil-core")
-(declare-function evil-insert-state "evil-states")
-(declare-function evil-ghostel-goto-input-position "evil-ghostel")
-(declare-function evil-ghostel--input-end "evil-ghostel")
+(declare-function evil-ghostel--terminal-live-p "evil-ghostel")
 (defvar evil-ghostel--escape-mode)
 
 (defgroup ghostel-agents nil
@@ -54,6 +53,26 @@
 (put 'ghostel-agents--tab 'permanent-local t)
 
 (defvar ghostel-agents--tab-id-counter 0)
+
+(defcustom ghostel-agents-context-directory (locate-user-emacs-file "var/agent-context/")
+  "Directory where agents report their context usage, one file per agent."
+  :type 'directory)
+
+(defcustom ghostel-agents-context-warning 70
+  "Context usage percentage from which the dashboard highlights an agent."
+  :type 'natnum)
+
+(defvar-local ghostel-agents--id nil
+  "Id under which the agent reports its context usage.")
+(put 'ghostel-agents--id 'permanent-local t)
+
+(defvar-local ghostel-agents-context nil
+  "Percentage of the agent's context window in use, or nil when unknown.")
+(put 'ghostel-agents-context 'permanent-local t)
+
+(defvar ghostel-agents--id-counter 0)
+
+(defvar ghostel-agents--context-watch nil)
 
 ;;; Buffers
 
@@ -109,33 +128,31 @@
                  :key (lambda (tab) (alist-get 'ghostel-agents-id (cdr tab)))
                  :test #'equal)))
 
-(defun ghostel-agents--insert-at (pos)
-  "Move the agent's input cursor to POS on the cursor row, then insert.
-`evil-ghostel' leaves fullscreen TUIs alone.  Other rows are not driven,
-since up/down would recall history."
-  (when (and (fboundp 'evil-ghostel-goto-input-position)
-             (ghostel-point-on-cursor-row-p))
-    (let ((end (evil-ghostel--input-end)))
-      (evil-ghostel-goto-input-position (if end (min pos end) pos))))
-  (evil-insert-state 1))
+(defun ghostel-agents--evil-prompt-active-p (orig)
+  "Let `evil-ghostel' edit an agent's input although the CLI runs fullscreen.
+ORIG is `evil-ghostel--prompt-active-p'."
+  (or (funcall orig)
+      (and (ghostel-agents-buffer-p (current-buffer))
+           (evil-ghostel--terminal-live-p))))
 
-(defun ghostel-agents-insert ()
-  "Insert before point in the agent's input."
-  (interactive)
-  (ghostel-agents--insert-at (point)))
+(defun ghostel-agents--evil-stay-on-row (args)
+  "Keep `evil-ghostel' cursor moves in an agent on the cursor row.
+Up/down would recall history.  ARGS is the target position, as a list."
+  (if (and (ghostel-agents-buffer-p (current-buffer))
+           (not (ghostel-point-on-cursor-row-p (car args))))
+      (list (ghostel-cursor-point))
+    args))
 
-(defun ghostel-agents-append ()
-  "Insert after point in the agent's input."
-  (interactive)
-  (ghostel-agents--insert-at (min (1+ (point)) (line-end-position))))
+(with-eval-after-load 'evil-ghostel
+  (advice-add 'evil-ghostel--prompt-active-p :around
+              #'ghostel-agents--evil-prompt-active-p)
+  (advice-add 'evil-ghostel-goto-input-position :filter-args
+              #'ghostel-agents--evil-stay-on-row))
 
 (defun ghostel-agents--setup-evil ()
-  "Send insert-state ESC to the agent; make normal-state \\`i' and \\`a' insert at point."
+  "Send insert-state ESC to the agent rather than to evil."
   (when (bound-and-true-p evil-ghostel-mode)
-    (setq evil-ghostel--escape-mode 'terminal))
-  (when (fboundp 'evil-local-set-key)
-    (evil-local-set-key 'normal "i" #'ghostel-agents-insert)
-    (evil-local-set-key 'normal "a" #'ghostel-agents-append)))
+    (setq evil-ghostel--escape-mode 'terminal)))
 
 ;;; Commands
 
@@ -160,15 +177,24 @@ With prefix arg FRESH, always start another instance."
                       (format "*%s*" name))))
       ;; 先显示再启动，终端才能按窗口尺寸初始化。
       (ghostel-agents--show buffer)
-      (ghostel-exec buffer (car argv) (cdr argv)
-                    `((kind . agent) (agent . ,name)
-                      (root . ,(expand-file-name default-directory))
-                      (command . ,argv)))
+      (let* ((id (format "%d-%d" (emacs-pid) (cl-incf ghostel-agents--id-counter)))
+             (ghostel-environment
+              (append (list (concat "GHOSTEL_AGENTS_ID=" id)
+                            (concat "GHOSTEL_AGENTS_CONTEXT_DIR="
+                                    (expand-file-name ghostel-agents-context-directory)))
+                      ghostel-environment)))
+        (ghostel-exec buffer (car argv) (cdr argv)
+                      `((kind . agent) (agent . ,name)
+                        (root . ,(expand-file-name default-directory))
+                        (command . ,argv)))
+        (with-current-buffer buffer (setq ghostel-agents--id id)))
       (with-current-buffer buffer
         (setq ghostel-agents--tab (ghostel-agents--tab-id))
         (ghostel-agents--setup-evil)
         (add-hook 'kill-buffer-hook
                   (lambda ()
+                    (ignore-errors
+                      (delete-file (ghostel-agents--context-file ghostel-agents--id)))
                     (force-mode-line-update t)
                     (ghostel-agents--dashboard-schedule))
                   nil t))
@@ -271,6 +297,32 @@ Prompts for an agent to start when none is running."
                (memq (buffer-local-value 'ghostel-agents-status buffer) '(done waiting)))
       (with-current-buffer buffer (ghostel-agents--set-status 'idle)))))
 
+(defun ghostel-agents--context-file (id)
+  (expand-file-name (concat id ".json") ghostel-agents-context-directory))
+
+(defun ghostel-agents--context-read (file)
+  "Store the context usage reported in FILE on the agent its name identifies."
+  (when-let* ((id (file-name-base file))
+              (buffer (seq-find (lambda (buffer)
+                                  (equal id (buffer-local-value 'ghostel-agents--id buffer)))
+                                (ghostel-agents--buffers)))
+              (data (ignore-errors
+                      (with-temp-buffer
+                        (insert-file-contents file)
+                        (json-parse-buffer :null-object nil)))))
+    (let ((used (gethash "used_percentage" data)))
+      (unless (equal used (buffer-local-value 'ghostel-agents-context buffer))
+        (with-current-buffer buffer (setq ghostel-agents-context used))
+        (ghostel-agents--dashboard-schedule)))))
+
+(defun ghostel-agents--context-event (event)
+  "Handle file-notify EVENT from `ghostel-agents-context-directory'."
+  (pcase-let* ((`(,_ ,action ,file ,new) event)
+               (file (if (eq action 'renamed) new file)))
+    (when (and (memq action '(created changed renamed))
+               (string-suffix-p ".json" file))
+      (ghostel-agents--context-read file))))
+
 (defun ghostel-agents-tab-name-format (name tab _index)
   "Prepend status glyphs of the agents started in TAB to tab NAME."
   (let* ((id (alist-get 'ghostel-agents-id (cdr tab)))
@@ -361,6 +413,12 @@ Prompts for an agent to start when none is running."
                                 (or (ghostel-agents--identity buffer 'agent) "agent")
                                 (propertize (format " %s" status) 'face
                                             (cadr (alist-get status ghostel-agents-status-glyphs)))
+                                (if-let* ((used (buffer-local-value 'ghostel-agents-context buffer)))
+                                    (propertize (format " %d%%" used) 'face
+                                                (if (>= used ghostel-agents-context-warning)
+                                                    'warning
+                                                  'shadow))
+                                  "")
                                 (if root
                                     (propertize (format "  %s" (file-name-nondirectory
                                                                 (directory-file-name root)))
@@ -499,6 +557,11 @@ Prompts for an agent to start when none is running."
         (add-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
         (add-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
         (add-hook 'tab-bar-tab-name-format-functions #'ghostel-agents-tab-name-format)
+        (make-directory ghostel-agents-context-directory t)
+        (unless ghostel-agents--context-watch
+          (setq ghostel-agents--context-watch
+                (file-notify-add-watch ghostel-agents-context-directory '(change)
+                                       #'ghostel-agents--context-event)))
         (with-eval-after-load 'embark
           (defvar embark-transformer-alist)
           (add-to-list 'embark-transformer-alist
@@ -509,6 +572,9 @@ Prompts for an agent to start when none is running."
     (remove-hook 'window-selection-change-functions #'ghostel-agents--acknowledge)
     (remove-hook 'window-buffer-change-functions #'ghostel-agents--acknowledge)
     (remove-hook 'tab-bar-tab-name-format-functions #'ghostel-agents-tab-name-format)
+    (when ghostel-agents--context-watch
+      (file-notify-rm-watch ghostel-agents--context-watch)
+      (setq ghostel-agents--context-watch nil))
     (when (boundp 'embark-transformer-alist)
       (setq embark-transformer-alist
             (assq-delete-all 'ghostel-agent embark-transformer-alist))))
