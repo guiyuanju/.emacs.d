@@ -534,7 +534,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "ax" '(jgy/agent-start-codex :which-key "Codex")
     "ai" '(jgy/agent-start-pi :which-key "Pi agent")
     "al" '(ghostel-agents-switch :which-key "list agents")
-    "aw" '(jgy/worktree-agent :which-key "agent in worktree")
+    "aw" '(jgy/project-agent :which-key "agent in project")
     "ad" '(ghostel-agents-dashboard :which-key "dashboard")
     "ae" '(ghostel-agents-send :which-key "send to agent")
     "a+" '(gptel-add :which-key "add context")
@@ -609,11 +609,11 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
-    "gm" '(jgy/worktree-browse-mr :which-key "merge request")
+    "gm" '(jgy/browse-mr :which-key "merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
-    "gw" '(jgy/worktree-open :which-key "worktree")
+    "gw" '(jgy/project-clone :which-key "clone into project")
     "gy" '(git-link :which-key "copy link")
 
     "i"  '(:ignore t :which-key "insert")
@@ -636,6 +636,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "pd" '(project-dired :which-key "root")
     "pf" '(project-find-file :which-key "file")
     "pk" '(project-kill-buffers :which-key "kill buffers")
+    "po" '(jgy/project-open :which-key "open project folder")
     "pp" '(project-switch-project :which-key "switch")
     "pr" '(project-query-replace-regexp :which-key "replace")
 
@@ -739,11 +740,14 @@ column and miscounts after wide prompt glyphs such as ➜."
   :custom
   (alert-default-style 'notifier))
 
-;;; Worktrees
+;;; Project folders
 
-(use-package jgy-worktree
+(use-package jgy-project
   :ensure nil
-  :commands (jgy/worktree-open jgy/worktree-browse-mr))
+  :init
+  ;; 项目文件夹自成一个 project，里面 clone 的仓库仍按各自的仓库根算。
+  (setopt project-vc-extra-root-markers '("project.md"))
+  :commands (jgy/project-open jgy/project-clone jgy/project-root jgy/browse-mr))
 
 ;;; Files and Git
 

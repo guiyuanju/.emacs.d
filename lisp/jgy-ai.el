@@ -65,17 +65,16 @@
                   :key (lambda () jgy/deepseek-api-key)
                   :models '(deepseek-flash deepseek-v4-pro))))
 
-(defun jgy/worktree-agent (agent branch)
-  "Start AGENT on BRANCH of the current repository in a new worktree and tab."
+(defun jgy/project-agent (agent)
+  "Start AGENT at the root of the current project folder."
   (interactive
    (list (progn (require 'ghostel-agents)
                 (completing-read "Agent: " ghostel-agents-programs nil t nil nil
-                                 (or ghostel-agents--last "claude")))
-         (string-trim
-          (read-string "Branch: " (format-time-string "agent/%m%d-%H%M")))))
-  (require 'jgy-worktree)
-  (jgy/worktree--visit (jgy/worktree--main-repo) branch)
-  (ghostel-agents-start agent))
+                                 (or ghostel-agents--last "claude")))))
+  (require 'jgy-project)
+  (let ((default-directory (or (jgy/project-root)
+                               (user-error "Not inside a project folder"))))
+    (ghostel-agents-start agent)))
 
 (provide 'jgy-ai)
 ;;; jgy-ai.el ends here

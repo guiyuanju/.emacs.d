@@ -1,17 +1,16 @@
 ;;; jgy-worklog.el --- Worklog todos in the agents dashboard -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 在 agents 看板底部列出当前项目对应的 worklog 待办。
-;; 项目卡 frontmatter 的 `repos' 含当前项目根目录（worktree 按主仓库算）即视为对应；
+;; 在 agents 看板底部列出当前项目文件夹的 project.md 待办。
 ;; 待办取 Todo 段的未完成项，加上任意段落里带 #waiting 的未完成项；
-;; 没有对应的卡时列出所有带 #now 或 #waiting 的待办。
+;; 不在项目文件夹里时列出所有带 #now 或 #waiting 的待办。
 
 ;;; Code:
 
 (require 'cl-lib)
-(require 'project)
 (require 'seq)
 (require 'subr-x)
+(require 'jgy-project)
 
 (declare-function ghostel-agents--dashboard-schedule "ghostel-agents")
 (declare-function ghostel-agents-dashboard-insert-section "ghostel-agents")
@@ -21,8 +20,8 @@
   "Worklog todos in the agents dashboard."
   :group 'tools)
 
-(defcustom jgy-worklog-directory "~/Documents/Garden/worklog/"
-  "Root of the worklog repository."
+(defcustom jgy-worklog-directory jgy/project-directory
+  "Directory containing one folder per project."
   :type 'directory)
 
 (defvar jgy-worklog--cache nil
@@ -34,34 +33,27 @@
 (defun jgy-worklog--card-files ()
   "Return every project card file."
   (file-expand-wildcards
-   (expand-file-name "projects/*/README.md" jgy-worklog-directory)))
-
-(defun jgy-worklog--repo-list (value)
-  "Parse a frontmatter list VALUE such as \"[~/a, ~/b]\" into true names."
-  (thread-last (split-string (string-trim value "\\[" "\\]") "," t "[ \t\"']+")
-               (mapcar (lambda (path) (file-name-as-directory (file-truename path))))))
+   (expand-file-name "*/project.md" jgy-worklog-directory)))
 
 (defun jgy-worklog--parse (file)
-  "Parse card FILE into a plist of :id :status :repos :file :todos.
+  "Parse card FILE into a plist of :id :status :file :todos.
 Each todo is (TEXT . LINE) for an open checkbox under the Todo heading,
 or anywhere when tagged #waiting."
   (with-temp-buffer
     (insert-file-contents file)
-    (let (id status repos todos in-todo)
+    (let (id status todos in-todo)
       (goto-char (point-min))
       (while (not (eobp))
         (let ((line (buffer-substring-no-properties (point) (line-end-position))))
           (cond
            ((string-match "\\`id: *\\(.+\\)" line) (setq id (string-trim (match-string 1 line))))
            ((string-match "\\`status: *\\([a-z]+\\)" line) (setq status (match-string 1 line)))
-           ((string-match "\\`repos: *\\(.+\\)" line)
-            (setq repos (jgy-worklog--repo-list (match-string 1 line))))
            ((string-prefix-p "## " line) (setq in-todo (string= line "## Todo")))
            ((and (string-match "\\`- \\[ \\] \\(.+\\)" line)
                  (or in-todo (string-match-p "#waiting\\>" line)))
             (push (cons (match-string 1 line) (line-number-at-pos)) todos))))
         (forward-line 1))
-      (list :id id :status status :repos repos :file file :todos (nreverse todos)))))
+      (list :id id :status status :file file :todos (nreverse todos)))))
 
 (defun jgy-worklog--cards ()
   "Return parsed active cards, re-reading only when a card file changed."
@@ -71,29 +63,17 @@ or anywhere when tagged #waiting."
                         files)))
     (unless (equal stamp (car jgy-worklog--cache))
       (setq jgy-worklog--cache (cons stamp (mapcar #'jgy-worklog--parse files))))
-    (seq-filter (lambda (card) (equal (plist-get card :status) "active"))
+    (seq-filter (lambda (card) (member (plist-get card :status) '("active" "waiting")))
                 (cdr jgy-worklog--cache))))
 
-(defun jgy-worklog--main-repo (root)
-  "Return ROOT, or the main repository when ROOT is a git worktree."
-  (let ((dotgit (expand-file-name ".git" root)))
-    (or (and (file-regular-p dotgit)
-             (with-temp-buffer
-               (insert-file-contents dotgit)
-               (and (re-search-forward "^gitdir: *\\(.+\\)/\\.git/worktrees/" nil t)
-                    (file-name-as-directory (file-truename (match-string 1))))))
-        (file-name-as-directory (file-truename root)))))
-
 (defun jgy-worklog--current-root (frame)
-  "Return the project root of the main window in FRAME's current tab."
+  "Return the project folder of the main window in FRAME's current tab."
   (let* ((selected (frame-selected-window frame))
          (window (if (window-parameter selected 'window-side)
                      (get-mru-window frame nil t)
                    selected)))
-    (when-let* ((window)
-                (project (with-current-buffer (window-buffer window)
-                           (project-current nil))))
-      (project-root project))))
+    (when window
+      (jgy/project-root (buffer-local-value 'default-directory (window-buffer window))))))
 
 (defun jgy-worklog--display (text)
   "Return TEXT without inline fields and tags, with its due date appended.
@@ -133,16 +113,17 @@ FIRST omits the blank line before the heading."
                       "\n")))
 
 (defun jgy-worklog-dashboard-insert (frame)
-  "Insert a Todo section for the worklog cards matching FRAME's current project.
-Without a matching card, list every #now or #waiting todo instead."
+  "Insert a Todo section for the project folder shown in FRAME's current tab.
+Outside a project folder, list every #now or #waiting todo instead."
   (let* ((root (jgy-worklog--current-root frame))
-         (repo (and root (jgy-worklog--main-repo root)))
          (cards (jgy-worklog--cards))
-         (matched (and repo (seq-filter (lambda (card) (member repo (plist-get card :repos)))
+         (matched (and root (seq-filter (lambda (card)
+                                          (file-equal-p (file-name-directory (plist-get card :file))
+                                                        root))
                                         cards))))
     (setq jgy-worklog--last-root root)
     (ghostel-agents-dashboard-insert-section
-     (concat "Todo · " (if matched (file-name-nondirectory (directory-file-name repo)) "#now"))
+     (concat "Todo · " (if matched (plist-get (car matched) :id) "#now"))
      (lambda ()
        (let ((first t))
          (dolist (card (or matched cards))
