@@ -137,7 +137,7 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
     (agents-deepseek--fetch)
     (agents-deepseek--scan)
     (list "deepseek"
-          (list "bal"
+          (list "balance"
                 (propertize
                  (if agents-deepseek--balance
                      (concat
