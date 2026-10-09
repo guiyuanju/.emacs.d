@@ -27,7 +27,7 @@
 (use-package agent-shell
   :defer t
   :custom
-  (agent-shell-session-strategy 'new)
+  (agent-shell-session-strategy 'prompt)
   (agent-shell-context-sources '(region))
   (agent-shell-dot-subdir-function #'jgy/agent-shell-dot-subdir))
 
