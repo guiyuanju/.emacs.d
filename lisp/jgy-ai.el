@@ -51,6 +51,7 @@
   (agents-root-function #'jgy/agent-root)
   (agents-start-function #'jgy/agent-shell-start)
   :config
+  (require 'agents-deepseek)
   (agents-mode 1))
 
 ;; desktop 恢复的、或回退后新开的 Ghostel 里的 CLI 仍由它跟踪。

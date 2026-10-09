@@ -94,7 +94,7 @@ It is a plist: :files the `files' identity last seen, :file the file shown,
   "Functions returning an agent's plan usage, shown on the dashboard.
 Each returns (NAME . WINDOWS), or nil when it knows none.  WINDOWS lists
 \(LABEL PERCENT RESETS-AT), like (\"5h\" 42 1790963218); RESETS-AT is
-seconds since the epoch, or nil."
+seconds since the epoch, or nil.  WINDOWS may also be a string of text rows."
   :type '(repeat function))
 
 (defvar agents--usage nil
@@ -435,9 +435,9 @@ A window past its reset counts as empty; an agent whose windows all
 reset is left out, as it has not run since."
   (let* ((now (float-time))
          (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
-         (rows (seq-filter (lambda (row) (seq-remove past (cdr row))) agents--usage))
+         (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (seq-remove past (cdr row)))) agents--usage))
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
-         (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
+         (count (apply #'max 1 (mapcar (lambda (row) (if (stringp (cdr row)) 0 (length (cdr row)))) rows)))
          (window (get-buffer-window (current-buffer) t))
          (columns (if window (window-body-width window) agents-dashboard-width))
          ;; 每个窗口除了条还要 14 列：5h、百分比和重置倒计时；窗口之间空 3 列，行尾留 1 列。
@@ -446,20 +446,24 @@ reset is left out, as it has not run since."
                                 count)))))
     (pcase-dolist (`(,name . ,windows) rows)
       (insert agents--indent name (make-string (- (+ name-width 2) (string-width name)) ?\s)
-              (mapconcat
-               (lambda (window)
-                 (pcase-let* ((`(,label ,percentage ,resets)
-                               (if (funcall past window) (list (car window) 0 nil) window)))
-                   (concat (propertize label 'face 'shadow) " "
-                           (agents--usage-bar percentage bar)
-                           (propertize (format " %3d%%" (floor percentage))
-                                       'face (if (>= percentage agents-usage-warning)
-                                                 'warning
-                                               'default))
-                           (propertize (format " %-5s"
-                                               (if resets (agents--duration (- resets now)) ""))
-                                       'face 'shadow))))
-               windows "   ")
+              (if (stringp windows)
+                  (replace-regexp-in-string
+                   "\n" (concat "\n" agents--indent (make-string (+ name-width 2) ?\s))
+                   windows t t)
+                (mapconcat
+                 (lambda (window)
+                   (pcase-let* ((`(,label ,percentage ,resets)
+                                 (if (funcall past window) (list (car window) 0 nil) window)))
+                     (concat (propertize label 'face 'shadow) " "
+                             (agents--usage-bar percentage bar)
+                             (propertize (format " %3d%%" (floor percentage))
+                                         'face (if (>= percentage agents-usage-warning)
+                                                   'warning
+                                                 'default))
+                             (propertize (format " %-5s"
+                                                 (if resets (agents--duration (- resets now)) ""))
+                                         'face 'shadow))))
+                 windows "   "))
               "\n"))))
 
 (defun agents--filter-tab-buffers (fn &rest args)
