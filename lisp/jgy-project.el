@@ -1,63 +1,70 @@
 ;;; jgy-project.el --- Project folders opened as tab workspaces -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 一个项目一个 git 仓库（含 project.md，代码仓库作为 submodule），一个同名 tab。
+;; 一个项目一个文件夹（含 project.md 和 clone 进来的代码仓库），一个同名 tab。
+;; 项目放在各 workspace 的 projects/ 下，如 ~/workspace/okj/projects/<id>/。
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'project)
 (require 'seq)
 (require 'subr-x)
 (require 'tab-bar)
 
-(declare-function magit-call-git "magit-process")
-(declare-function magit-submodule-add-1 "magit-submodule")
-(defvar magit-this-process)
+(declare-function magit-clone-regular "magit-clone")
 
-(defvar jgy/code-directory "~/Code/okj/"
-  "Directory containing the main Git checkouts, used as clone sources.")
-(defvar jgy/project-directory "~/workspace/okj/projects/"
-  "Directory containing one folder per project.")
+(defvar jgy/code-directory "~/Code/"
+  "Directory whose <group>/<repo> Git checkouts are clone sources.")
+(defvar jgy/workspace-directory "~/workspace/"
+  "Directory containing workspaces, each with a projects/ folder.")
 
 (defun jgy/project-root (&optional directory)
   "Return the project folder containing DIRECTORY, or nil."
   (when-let* ((root (locate-dominating-file (or directory default-directory)
                                             "project.md")))
-    (and (file-in-directory-p root jgy/project-directory)
+    (and (file-in-directory-p root jgy/workspace-directory)
          (file-name-as-directory (expand-file-name root)))))
 
-(defun jgy/project--names ()
-  "Return the project folder names, newest first."
-  (let ((default-directory (expand-file-name jgy/project-directory)))
-    (sort (seq-filter (lambda (name) (file-exists-p (expand-file-name "project.md" name)))
-                      (directory-files "." nil directory-files-no-dot-files-regexp))
-          (lambda (a b) (file-newer-than-file-p (expand-file-name "project.md" a)
-                                                (expand-file-name "project.md" b))))))
+(defun jgy/project--folders ()
+  "Return the project folders of every workspace, newest first."
+  (sort (file-expand-wildcards
+         (expand-file-name "*/projects/*/project.md" jgy/workspace-directory))
+        #'file-newer-than-file-p))
 
-(defun jgy/project--create (id title)
-  "Create the repository and project.md for ID with TITLE."
-  (let* ((default-directory (file-name-as-directory
-                             (expand-file-name id jgy/project-directory)))
-         (file (expand-file-name "project.md")))
-    (make-directory default-directory t)
-    (with-temp-file file
-      (insert (format "---\nid: %s\ntitle: %s\nstatus: active\nstart: %s\nend:\n---\n\n"
-                      id title (format-time-string "%F"))
-              "## 目标\n\n## Todo\n\n## 资源\n\n## 成果\n\n## 日志\n"))
-    (with-temp-file ".gitignore" (insert ".DS_Store\n"))
-    (dolist (args `(("init" "-q" "-b" "main")
-                    ("add" "project.md" ".gitignore")
-                    ("commit" "-q" "-m" ,(concat "Init " id))))
-      (unless (zerop (apply #'call-process "git" nil nil nil args))
-        (user-error "git %s failed in %s" (car args) default-directory)))
-    file))
+(defun jgy/project--read-workspace ()
+  "Read a workspace name and return its projects folder."
+  (let* ((names (mapcar (lambda (dir) (file-name-nondirectory (directory-file-name
+                                                                (file-name-directory dir))))
+                        (file-expand-wildcards
+                         (expand-file-name "*/projects/" jgy/workspace-directory))))
+         (name (if (cdr names)
+                   (completing-read "Workspace: " names nil t)
+                 (or (car names) (user-error "No workspace under %s" jgy/workspace-directory)))))
+    (expand-file-name (concat name "/projects/") jgy/workspace-directory)))
+
+(defun jgy/project--create (file id title)
+  "Create project.md FILE for ID with TITLE."
+  (make-directory (file-name-directory file) t)
+  (with-temp-file file
+    (insert (format "---\nid: %s\ntitle: %s\nstatus: active\nstart: %s\nend:\n---\n\n"
+                    id title (format-time-string "%F"))
+            "## 目标\n\n## Todo\n\n## 资源\n\n## 成果\n\n## 日志\n")))
 
 (defun jgy/project-open (id)
   "Switch to the tab of project ID, creating the project when it is new."
-  (interactive (list (string-trim (completing-read "Project: " (jgy/project--names)))))
+  (interactive (list (string-trim
+                      (completing-read "Project: "
+                                       (mapcar (lambda (file) (file-name-nondirectory
+                                                               (directory-file-name
+                                                                (file-name-directory file))))
+                                               (jgy/project--folders))))))
   (when (string-empty-p id) (user-error "Project id cannot be empty"))
-  (let ((file (expand-file-name (concat id "/project.md") jgy/project-directory)))
+  (let ((file (or (seq-find (lambda (file) (string-suffix-p (concat "/" id "/project.md") file))
+                            (jgy/project--folders))
+                  (expand-file-name (concat id "/project.md") (jgy/project--read-workspace)))))
     (unless (file-exists-p file)
-      (jgy/project--create id (read-string "Title: ")))
+      (jgy/project--create file id (read-string "Title: ")))
     (tab-bar-switch-to-tab id)
     (find-file file)))
 
@@ -68,32 +75,37 @@
                                                 (user-error "Not inside a project folder")))))
 
 (defun jgy/project-clone (repo)
-  "Add REPO's origin as a submodule of the current project.
-REPO is a checkout under `jgy/code-directory'."
+  "Clone the origin of REPO, a <group>/<repo> checkout under `jgy/code-directory'."
   (interactive
    (list (completing-read
           "Repository: "
-          (seq-filter (lambda (name)
-                        (file-exists-p (expand-file-name (concat name "/.git")
-                                                         jgy/code-directory)))
-                      (directory-files jgy/code-directory nil
-                                       directory-files-no-dot-files-regexp))
+          (mapcar (lambda (git) (file-relative-name (directory-file-name (file-name-directory git))
+                                                    (expand-file-name jgy/code-directory)))
+                  (file-expand-wildcards (expand-file-name "*/*/.git" jgy/code-directory)))
           nil t)))
   (let* ((root (or (jgy/project-root) (user-error "Not inside a project folder")))
-         (default-directory root)
+         (target (expand-file-name (file-name-nondirectory (directory-file-name repo)) root))
          (url (car (process-lines "git" "-C" (expand-file-name repo jgy/code-directory)
                                   "remote" "get-url" "origin"))))
-    (when (file-exists-p repo) (user-error "%s already exists" (expand-file-name repo)))
-    (require 'magit-submodule)
-    (magit-submodule-add-1 url repo repo)
-    ;; 代码仓库里的提交不让项目仓库显示为改动。
-    (add-function :after (process-sentinel magit-this-process)
-                  (lambda (process _event)
-                    (when (and (eq (process-status process) 'exit)
-                               (zerop (process-exit-status process)))
-                      (let ((default-directory root))
-                        (magit-call-git "config" "-f" ".gitmodules"
-                                        (format "submodule.%s.ignore" repo) "all")))))))
+    (when (file-exists-p target) (user-error "%s already exists" target))
+    (require 'magit-clone)
+    (magit-clone-regular url target nil)))
+
+;; 项目文件夹整个算一个 project，含所有 clone；文件由 fd 列出，遵守各 clone 的 .gitignore。
+(defun jgy/project-try (directory)
+  "Return the project folder containing DIRECTORY as a project."
+  (when-let* ((root (jgy/project-root directory)))
+    (cons 'jgy root)))
+
+(cl-defmethod project-root ((project (head jgy)))
+  (cdr project))
+
+(cl-defmethod project-files ((project (head jgy)) &optional dirs)
+  (mapcan (lambda (dir)
+            (let ((default-directory (file-name-as-directory (expand-file-name dir))))
+              (mapcar #'expand-file-name
+                      (process-lines "fd" "--type" "f" "--hidden" "--exclude" ".git"))))
+          (or dirs (list (project-root project)))))
 
 (defun jgy/project--glab-json (&rest args)
   "Return the parsed JSON output of glab ARGS."

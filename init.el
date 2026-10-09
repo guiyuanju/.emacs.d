@@ -745,8 +745,8 @@ column and miscounts after wide prompt glyphs such as ➜."
 (use-package jgy-project
   :ensure nil
   :init
-  ;; 还没 git init 的项目文件夹也算一个 project。
-  (setopt project-vc-extra-root-markers '("project.md"))
+  (add-hook 'project-find-functions #'jgy/project-try)
+  :autoload jgy/project-try
   :commands (jgy/project-open jgy/project-clone jgy/project-visit-file jgy/project-root
              jgy/browse-mr))
 

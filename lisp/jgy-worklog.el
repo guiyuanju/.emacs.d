@@ -20,8 +20,8 @@
   "Worklog todos in the agents dashboard."
   :group 'tools)
 
-(defcustom jgy-worklog-directory jgy/project-directory
-  "Directory containing one folder per project."
+(defcustom jgy-worklog-directory jgy/workspace-directory
+  "Directory containing workspaces, each with a projects/ folder."
   :type 'directory)
 
 (defvar jgy-worklog--cache nil
@@ -33,7 +33,7 @@
 (defun jgy-worklog--card-files ()
   "Return every project card file."
   (file-expand-wildcards
-   (expand-file-name "*/project.md" jgy-worklog-directory)))
+   (expand-file-name "*/projects/*/project.md" jgy-worklog-directory)))
 
 (defun jgy-worklog--parse (file)
   "Parse card FILE into a plist of :id :status :file :todos.
@@ -137,7 +137,7 @@ Outside a project folder, list every #now or #waiting todo instead."
 (defcustom jgy-worklog-hints
   '(("项目"
      ("SPC TAB o" . "打开 / 新建项目")
-     ("SPC TAB c" . "加代码仓库（submodule）")
+     ("SPC TAB c" . "clone 代码仓库到项目")
      ("SPC TAB p" . "打开 project.md")
      ("SPC a c" . "在项目根启动 agent"))
     ("对 agent 说"
