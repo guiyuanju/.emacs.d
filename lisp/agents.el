@@ -436,9 +436,11 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
       (when (= (point) after-title)
         (delete-region start (point))))))
 
-(defun agents--dashboard-line (buffer last)
-  "Insert the tree line for agent BUFFER; LAST picks the closing branch."
+(defun agents--dashboard-line (buffer last &optional tab-name)
+  "Insert the tree line for agent BUFFER; LAST picks the closing branch.
+The agent's project is named only when it differs from TAB-NAME."
   (let* ((root (agents--identity buffer 'root))
+         (project (and root (file-name-nondirectory (directory-file-name root))))
          (head (concat "  " (if last "└─ " "├─ ") (agents--glyph buffer) " "
                        (or (agents--identity buffer 'agent) "agent")
                        (if-let* ((used (buffer-local-value 'agents-context buffer)))
@@ -447,14 +449,13 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
                                            'warning
                                          'shadow))
                          "")
-                       (if root
-                           (propertize (concat " " (file-name-nondirectory
-                                                    (directory-file-name root)))
+                       (if (and project (not (equal project tab-name)))
+                           (propertize (concat " " project)
                                        'face '(:inherit shadow :height 0.85))
                          "")))
          (brief (agents--brief buffer)))
     (insert (propertize (concat head
-                                (if brief (agents--brief-label buffer brief (string-width head)) "")
+                                (if brief (agents--brief-label buffer brief head) "")
                                 "\n")
                         'agents-buffer buffer
                         'help-echo (if brief
@@ -471,19 +472,30 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
               ((not (string-empty-p text))))
     text))
 
-(defun agents--brief-label (buffer brief used)
-  "BRIEF cut to the dashboard width left after USED columns.
-Dimmed unless agent BUFFER is working or waiting."
+(defun agents--brief-label (buffer brief head)
+  "BRIEF in small type, cut to the dashboard width left after HEAD.
+Measured in pixels, as fonts draw glyphs like ◐ and … wider than
+`string-width' says.  Dimmed unless agent BUFFER is working or waiting."
   (let* ((window (get-buffer-window (current-buffer) t))
-         ;; `window-max-chars-per-line' 会选中窗口，把看板的 point 拽到窗口 point。
-         (room (- (if window (window-body-width window) agents-dashboard-width)
-                  used 3)))
-    (if (< room 4)
+         (char (frame-char-width (if window (window-frame window) (selected-frame))))
+         (gap "  ")
+         (face `(:inherit ,(if (memq (buffer-local-value 'agents-status buffer) '(working waiting))
+                               'default
+                             'shadow)
+                 :height 0.85))
+         (width (lambda (text)
+                  (string-pixel-width (propertize text 'face face) (current-buffer))))
+         ;; 留一列给折行标记；`window-max-chars-per-line' 会选中窗口，把看板的 point 拽到窗口 point。
+         (room (- (if window (window-body-width window t) (* agents-dashboard-width char))
+                  (string-pixel-width (concat head gap) (current-buffer))
+                  char))
+         (text (truncate-string-to-width brief (/ room (max 1 (funcall width "x")))
+                                         nil nil "…")))
+    (while (and (> (string-width text) 1) (> (funcall width text) room))
+      (setq text (truncate-string-to-width brief (1- (string-width text)) nil nil "…")))
+    (if (< room (* 4 char))
         ""
-      (propertize (concat "  " (truncate-string-to-width brief room nil nil "…"))
-                  'face (if (memq (buffer-local-value 'agents-status buffer) '(working waiting))
-                            'default
-                          'shadow)))))
+      (concat gap (propertize text 'face face)))))
 
 (defun agents--files (buffer)
   "Files agent BUFFER edited this turn, as its `files' identity returns them."
@@ -586,7 +598,7 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                     "\n")
             (setq agents (seq-difference agents owned))
             (cl-loop for (buffer . rest) on owned
-                     do (agents--dashboard-line buffer (null rest))))
+                     do (agents--dashboard-line buffer (null rest) (alist-get 'name tab))))
            (when agents
              (when tabs (insert "\n"))
              (insert (propertize "(tab closed)" 'face 'shadow 'agents-tab t) "\n")
