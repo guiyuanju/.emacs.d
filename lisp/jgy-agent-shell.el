@@ -1,7 +1,7 @@
-;;; jgy-agent-shell.el --- Run agents.el's agents through agent-shell -*- lexical-binding: t; -*-
+;;; jgy-agent-shell.el --- Run jgy-agents.el's agents through agent-shell -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 用 agent-shell（ACP）代替 Ghostel 里的 CLI；tab 归属、看板和快捷键由 agents.el 负责。
+;; 用 agent-shell（ACP）代替 Ghostel 里的 CLI；tab 归属、看板和快捷键由 jgy-agents.el 负责。
 ;; 套餐用量取自 claude-agent-acp 在 usage_update 的 _meta 里转发的 rate limit，
 ;; 按 bin/claude-statusline 的格式写进 `agents-usage-file'。
 ;; 本轮文件变化以开始时的 Git commit 与已有未提交内容为基准，缓存 diff 交给看板。
@@ -13,11 +13,12 @@
 (require 'acp)
 (require 'cl-lib)
 (require 'agent-shell)
-(require 'agents)
+(require 'jgy-agents)
 (require 'map)
 (require 'jgy-agent-diff)
 (add-hook 'jgy-agent-diff-update-hook #'agents-dashboard-refresh)
 
+(defvar agents-usage-file)
 (defvar no-littering-var-directory)
 
 (defconst jgy/agent-shell-configs
@@ -55,7 +56,7 @@
     (agents-dashboard-refresh)))
 
 (defun jgy/agent-shell--brief ()
-  "What the agent is doing, for the `brief' identity of agents.el."
+  "What the agent is doing, for the `brief' identity of jgy-agents.el."
   (if jgy/agent-shell--asking
       (concat "? " jgy/agent-shell--asking)
     (or jgy/agent-shell--plan-step jgy/agent-shell--last-tool)))

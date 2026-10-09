@@ -1,4 +1,4 @@
-;;; agents-deepseek.el --- DeepSeek balance and observed account spending -*- lexical-binding: t; -*-
+;;; jgy-agents-deepseek.el --- DeepSeek balance and observed account spending -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; Account balance comes from /user/balance; spending estimates track observed balance decreases.
@@ -6,7 +6,7 @@
 
 ;;; Code:
 
-(require 'agents-usage)
+(require 'jgy-agents-usage)
 (require 'json)
 (require 'subr-x)
 
@@ -198,5 +198,5 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
 
 (add-to-list 'agents-usage-functions #'agents-usage-deepseek t)
 
-(provide 'agents-deepseek)
-;;; agents-deepseek.el ends here
+(provide 'jgy-agents-deepseek)
+;;; jgy-agents-deepseek.el ends here

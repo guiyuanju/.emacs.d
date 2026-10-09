@@ -1,7 +1,7 @@
 ;;; agents-deepseek-test.el --- DeepSeek dashboard checks -*- lexical-binding: t; -*-
 
 (require 'ert)
-(require 'agents-deepseek)
+(require 'jgy-agents-deepseek)
 
 (ert-deftest agents-deepseek-balance-validation ()
   (should (equal (agents-deepseek--parse-balance

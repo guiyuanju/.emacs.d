@@ -1,6 +1,6 @@
 ;;; agents-turn-diff-test.el --- Turn diff regression checks -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'agents)
+(require 'jgy-agents)
 
 (ert-deftest agents-turn-diff-uses-captured-patch ()
   (let ((agent (generate-new-buffer " *turn-diff-test*"))

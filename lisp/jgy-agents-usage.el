@@ -1,16 +1,16 @@
-;;; agents-usage.el --- Claude and Codex plan usage for the dashboard -*- lexical-binding: t; -*-
+;;; jgy-agents-usage.el --- Claude and Codex plan usage for the dashboard -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; The plan usage rows at the top of the agents dashboard.  Claude's windows
 ;; come from the file bin/claude-statusline writes; Codex's from its newest
 ;; session log.  Other agents add a row by pushing onto
-;; `agents-usage-functions' (see agents-deepseek.el).
+;; `agents-usage-functions' (see jgy-agents-deepseek.el).
 ;;
-;; agents.el drives the refresh through `agents-usage-scan'.
+;; jgy-agents.el drives the refresh through `agents-usage-scan'.
 
 ;;; Code:
 
-(require 'agents)
+(require 'jgy-agents)
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
@@ -238,5 +238,5 @@ name carries `agents-action' runs it when the line is visited."
             agents--usage-minute (floor (float-time) 60))
       (agents--dashboard-schedule))))
 
-(provide 'agents-usage)
-;;; agents-usage.el ends here
+(provide 'jgy-agents-usage)
+;;; jgy-agents-usage.el ends here

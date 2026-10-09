@@ -1,4 +1,4 @@
-;;; agents-ghostel.el --- Agent CLIs in Ghostel for agents.el -*- lexical-binding: t; -*-
+;;; jgy-agents-ghostel.el --- Agent CLIs in Ghostel for jgy-agents.el -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; 在 Ghostel 终端里跑 claude、codex、pi 等 agent CLI。
@@ -8,7 +8,7 @@
 
 ;;; Code:
 
-(require 'agents)
+(require 'jgy-agents)
 (require 'ghostel)
 
 (declare-function evil-ghostel--terminal-live-p "evil-ghostel")
@@ -144,5 +144,5 @@ Only rows below the last horizontal rule count, so the transcript cannot match."
     (remove-function ghostel-progress-function #'agents-ghostel--on-progress)
     (remove-function ghostel-notification-function #'agents-ghostel--on-notification)))
 
-(provide 'agents-ghostel)
-;;; agents-ghostel.el ends here
+(provide 'jgy-agents-ghostel)
+;;; jgy-agents-ghostel.el ends here

@@ -1,12 +1,12 @@
 ;;; jgy-ai.el --- Agent CLIs -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; agent 由 agents.el 管理（tab 归属、看板），经 agent-shell 用 ACP 运行；
+;; agent 由 jgy-agents.el 管理（tab 归属、看板），经 agent-shell 用 ACP 运行；
 ;; 在项目文件夹内时以项目根为工作目录。
 
 ;;; Code:
 
-(declare-function agents-project-root "agents")
+(declare-function agents-project-root "jgy-agents")
 (declare-function jgy/project-root "jgy-project")
 
 (defun jgy/agent-root ()
@@ -43,7 +43,7 @@
   :init
   (run-with-idle-timer 30 nil #'jgy/agent-update-check))
 
-(use-package agents
+(use-package jgy-agents
   :ensure nil
   :commands (agents-start agents-toggle agents-switch agents-send agents-dashboard)
   :autoload (agents-buffer-p agents-project-root)
@@ -51,14 +51,14 @@
   (agents-root-function #'jgy/agent-root)
   (agents-start-function #'jgy/agent-shell-start)
   :config
-  (require 'agents-usage)
-  (require 'agents-deepseek)
+  (require 'jgy-agents-usage)
+  (require 'jgy-agents-deepseek)
   (agents-mode 1))
 
 ;; desktop 恢复的、或回退后新开的 Ghostel 里的 CLI 仍由它跟踪。
-(use-package agents-ghostel
+(use-package jgy-agents-ghostel
   :ensure nil
-  :after (agents ghostel)
+  :after (jgy-agents ghostel)
   :autoload agents-ghostel-start
   :config
   (when (executable-find "claude") (jgy/claude-check-statusline))

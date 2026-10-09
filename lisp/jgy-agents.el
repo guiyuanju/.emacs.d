@@ -1,10 +1,10 @@
-;;; agents.el --- Agents tracked per project and tab, with a dashboard -*- lexical-binding: t; -*-
+;;; jgy-agents.el --- Agents tracked per project and tab, with a dashboard -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; 按项目复用 agent，按启动时的 tab 归属；`agents-mode' 跟踪状态，并让 bufferlo 只列出本 tab 的 agent。
 ;; 前端（Ghostel 里的 CLI、agent-shell 等）设 `agents-start-function' 来启动 agent，
 ;; 在其 buffer 里设 `agents-identity'，状态经 `agents-report' 上报。
-;; 套餐用量（5 小时、7 天）由 agents-usage.el 的 `agents-usage-functions' 读出，
+;; 套餐用量（5 小时、7 天）由 jgy-agents-usage.el 的 `agents-usage-functions' 读出，
 ;; 经 `agents-usage-scan' 定期刷新。
 ;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件；
 ;; 给出 `brief'，看板就在 agent 那行末尾写它正在做什么。
@@ -23,8 +23,8 @@
 
 (declare-function evil-define-key* "evil-core")
 
-(declare-function agents--usage-insert "agents-usage")
-(declare-function agents-usage-scan "agents-usage")
+(declare-function agents--usage-insert "jgy-agents-usage")
+(declare-function agents-usage-scan "jgy-agents-usage")
 
 
 (defgroup agents nil
@@ -1084,6 +1084,6 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
       (setq embark-transformer-alist
             (assq-delete-all 'agent-buffer embark-transformer-alist)))))
 
-(provide 'agents)
-;;; agents.el ends here
+(provide 'jgy-agents)
+;;; jgy-agents.el ends here
 

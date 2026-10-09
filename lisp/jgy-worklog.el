@@ -12,10 +12,10 @@
 (require 'subr-x)
 (require 'jgy-project)
 
-(declare-function agents--dashboard-schedule "agents")
-(declare-function agents-dashboard-define-key "agents")
-(declare-function agents-dashboard-heading "agents")
-(declare-function agents-dashboard-insert-section "agents")
+(declare-function agents--dashboard-schedule "jgy-agents")
+(declare-function agents-dashboard-define-key "jgy-agents")
+(declare-function agents-dashboard-heading "jgy-agents")
+(declare-function agents-dashboard-insert-section "jgy-agents")
 (defvar agents-dashboard-functions)
 
 (defgroup jgy-worklog nil
@@ -167,7 +167,7 @@ Nil hides the Hints section."
   (setq jgy-worklog--hints-shown (not jgy-worklog--hints-shown))
   (agents--dashboard-schedule))
 
-(with-eval-after-load 'agents
+(with-eval-after-load 'jgy-agents
   (agents-dashboard-define-key "?" #'jgy-worklog-toggle-hints))
 
 (defun jgy-worklog-dashboard-insert-hints (_frame)
