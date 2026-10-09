@@ -36,6 +36,12 @@
   :ensure nil
   :autoload (jgy/agent-shell-start jgy/agent-shell-dot-subdir))
 
+(use-package jgy-agent-update
+  :ensure nil
+  :commands jgy/agent-update-check
+  :init
+  (run-with-idle-timer 30 nil #'jgy/agent-update-check))
+
 (use-package agents
   :ensure nil
   :commands (agents-start agents-toggle agents-switch agents-send agents-dashboard)
