@@ -1,7 +1,7 @@
 ;;; agents-deepseek.el --- DeepSeek balance and local Pi usage -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; Account balance comes from /user/balance; tokens cover only local Pi logs.
+;; Account balance comes from /user/balance; cost estimates cover only local Pi logs.
 ;; The key stays in local.el and is sent to curl on stdin, never in argv.
 
 ;;; Code:
@@ -18,7 +18,7 @@
 (defvar agents-deepseek--requested 0)
 (defvar agents-deepseek--updated nil)
 (defvar agents-deepseek--process nil)
-(defvar agents-deepseek--tokens nil)
+(defvar agents-deepseek--cost nil)
 (defvar agents-deepseek--scanned 0)
 (defvar agents-deepseek--day nil)
 (defvar agents-deepseek--files (make-hash-table :test #'equal))
@@ -82,15 +82,15 @@
            (delete-process agents-deepseek--process))
          (when (buffer-live-p buffer) (kill-buffer buffer)))))))
 
-(defun agents-deepseek--file-tokens (file day)
-  "Read DeepSeek assistant token counts from Pi FILE for local DAY.
+(defun agents-deepseek--file-cost (file day)
+  "Read DeepSeek assistant cost estimates in USD from Pi FILE for local DAY.
 Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
   (let* ((attrs (file-attributes file))
          (stamp (list day (file-attribute-modification-time attrs)
                       (file-attribute-size attrs)))
          (cached (gethash file agents-deepseek--files)))
     (if (equal stamp (car cached)) (cdr cached)
-      (let ((total 0))
+      (let ((total 0) (missing nil))
         (with-temp-buffer
           (insert-file-contents file)
           (goto-char (point-min))
@@ -101,24 +101,27 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
                              :object-type 'alist)))
                    (message (alist-get 'message entry))
                    (time (alist-get 'timestamp message))
-                   (tokens (alist-get 'totalTokens (alist-get 'usage message))))
+                   (cost (alist-get 'total (alist-get 'cost (alist-get 'usage message)))))
               (when (and (equal (alist-get 'role message) "assistant")
                          (equal (alist-get 'provider message) "deepseek")
-                         (numberp time) (numberp tokens) (>= tokens 0)
+                         (numberp time)
                          (equal day (format-time-string "%F" (/ time 1000.0))))
-                (cl-incf total tokens)))
+                (if (and (numberp cost) (>= cost 0))
+                    (cl-incf total cost)
+                  (setq missing t))))
             (forward-line 1)))
+        (setq total (unless missing total))
         (puthash file (cons stamp total) agents-deepseek--files)
         total))))
 
 (defun agents-deepseek--scan ()
-  "Count today's local Pi DeepSeek tokens at most once per minute."
+  "Sum today's local Pi DeepSeek cost estimates at most once per minute."
   (let ((day (format-time-string "%F")))
     (when (or (not (equal day agents-deepseek--day))
               (>= (- (float-time) agents-deepseek--scanned) 60))
       (setq agents-deepseek--scanned (float-time)
             agents-deepseek--day day
-            agents-deepseek--tokens
+            agents-deepseek--cost
             (condition-case nil
                 (let* ((dir (expand-file-name agents-deepseek-sessions-directory))
                        (midnight (float-time (date-to-time (concat day " 00:00:00"))))
@@ -127,12 +130,14 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
                     (dolist (file (directory-files-recursively dir "\\.jsonl\\'"))
                       (when (>= (float-time (file-attribute-modification-time
                                              (file-attributes file))) midnight)
-                        (cl-incf total (agents-deepseek--file-tokens file day)))))
+                        (let ((cost (agents-deepseek--file-cost file day)))
+                          (unless cost (error "Missing cost in Pi log"))
+                          (cl-incf total cost)))))
                   total)
               (error nil))))))
 
 (defun agents-usage-deepseek ()
-  "Return account balance and explicitly scoped local Pi token usage."
+  "Return account balance and explicitly scoped local Pi estimated cost."
   (when (bound-and-true-p jgy/deepseek-api-key)
     (agents-deepseek--fetch)
     (agents-deepseek--scan)
@@ -152,15 +157,10 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
                 nil)
           (list "today"
                 (propertize
-                 (if agents-deepseek--tokens
-                     (concat (cond ((>= agents-deepseek--tokens 1000000)
-                                    (format "%.1fM" (/ agents-deepseek--tokens 1000000.0)))
-                                   ((>= agents-deepseek--tokens 1000)
-                                    (format "%.1fk" (/ agents-deepseek--tokens 1000.0)))
-                                   (t (number-to-string agents-deepseek--tokens)))
-                             " tok")
+                 (if agents-deepseek--cost
+                     (format "~$%.4f" agents-deepseek--cost)
                    "?")
-                 'help-echo "Today's DeepSeek tokens from local Pi logs only; excludes elfeed and other clients.")
+                 'help-echo "Today's estimated DeepSeek cost in USD from local Pi logs only (local timezone); excludes Elfeed and other clients/API keys. Uses Pi's recorded model prices, not an API-key bill. ? means unavailable or missing cost records.")
                 nil))))
 
 (add-to-list 'agents-usage-functions #'agents-usage-deepseek t)
