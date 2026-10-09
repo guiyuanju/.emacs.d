@@ -452,10 +452,10 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
 `cd' history has done to `default-directory'."
   (interactive)
   (if (and (derived-mode-p 'ghostel-mode)
-           (not (ghostel-agents-buffer-p (current-buffer))))
+           (not (agents-buffer-p (current-buffer))))
       (quit-window)
     (if (project-current)
-        (jgy/toggle-buffer (seq-find (lambda (buffer) (not (ghostel-agents-buffer-p buffer)))
+        (jgy/toggle-buffer (seq-find (lambda (buffer) (not (agents-buffer-p buffer)))
                                      (ghostel-project-buffer-list))
                            #'ghostel-project)
       (jgy/toggle-buffer
@@ -465,7 +465,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
 (defun jgy/popper-terminal-p (buffer)
   "Non-nil for ghostel BUFFERs other than agents, which get regular windows."
   (and (eq (buffer-local-value 'major-mode buffer) 'ghostel-mode)
-       (not (ghostel-agents-buffer-p buffer))))
+       (not (agents-buffer-p buffer))))
 
 (defun jgy/notes-find ()
   "Find a file below `jgy/notes-directory'."
@@ -532,14 +532,14 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "TAB U"   '(tab-bar-history-forward :which-key "history forward")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(ghostel-agents-toggle :which-key "agent toggle")
-    "aA" '(ghostel-agents-start :which-key "start agent")
+    "aa" '(agents-toggle :which-key "agent toggle")
+    "aA" '(agents-start :which-key "start agent")
     "ac" '(jgy/agent-start-claude :which-key "Claude Code")
     "ax" '(jgy/agent-start-codex :which-key "Codex")
     "ai" '(jgy/agent-start-pi :which-key "Pi agent")
-    "al" '(ghostel-agents-switch :which-key "list agents")
-    "ad" '(ghostel-agents-dashboard :which-key "dashboard")
-    "ae" '(ghostel-agents-send :which-key "send to agent")
+    "al" '(agents-switch :which-key "list agents")
+    "ad" '(agents-dashboard :which-key "dashboard")
+    "ae" '(agents-send :which-key "send to agent")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -621,7 +621,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "ns" '(jgy/notes-search :which-key "search")
 
     "o"  '(:ignore t :which-key "open")
-    "od" '(ghostel-agents-dashboard :which-key "agent dashboard")
+    "od" '(agents-dashboard :which-key "agent dashboard")
     "oe" '(jgy/eshell-toggle :which-key "Eshell")
     "of" '(jgy/reveal-in-finder :which-key "reveal in Finder")
     "op" '(popper-toggle :which-key "popup")

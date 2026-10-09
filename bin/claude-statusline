@@ -1,6 +1,6 @@
 #!/bin/sh
-# Claude Code status line; ghostel-agents reads the "ctx N%" part off the screen
-# and the plan usage from the file written here.
+# Claude Code status line; agents-ghostel reads the "ctx N%" part off the screen
+# and agents.el the plan usage from the file written here.
 input=$(cat)
 dir=${XDG_CACHE_HOME:-$HOME/.cache}
 mkdir -p "$dir"

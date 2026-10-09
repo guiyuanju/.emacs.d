@@ -12,9 +12,9 @@
 (require 'subr-x)
 (require 'jgy-project)
 
-(declare-function ghostel-agents--dashboard-schedule "ghostel-agents")
-(declare-function ghostel-agents-dashboard-insert-section "ghostel-agents")
-(defvar ghostel-agents-dashboard-functions)
+(declare-function agents--dashboard-schedule "agents")
+(declare-function agents-dashboard-insert-section "agents")
+(defvar agents-dashboard-functions)
 
 (defgroup jgy-worklog nil
   "Worklog todos in the agents dashboard."
@@ -102,12 +102,12 @@ or anywhere when tagged #waiting."
 FIRST omits the blank line before the heading."
   (unless first (insert "\n"))
   (insert (propertize (format "[%s]" (plist-get card :id)) 'face 'bold
-                      'ghostel-agents-tab t
-                      'ghostel-agents-action (jgy-worklog--visit (plist-get card :file) 1))
+                      'agents-tab t
+                      'agents-action (jgy-worklog--visit (plist-get card :file) 1))
           "\n")
   (cl-loop for ((text . line) . rest) on todos
            do (insert (propertize (concat "  " (if rest "├─ " "└─ ") (jgy-worklog--display text))
-                                  'ghostel-agents-action
+                                  'agents-action
                                   (jgy-worklog--visit (plist-get card :file) line)
                                   'wrap-prefix (if rest "  │  " "     "))
                       "\n")))
@@ -122,7 +122,7 @@ Outside a project folder, list every #now or #waiting todo instead."
                                                         root))
                                         cards))))
     (setq jgy-worklog--last-root root)
-    (ghostel-agents-dashboard-insert-section
+    (agents-dashboard-insert-section
      (concat "Todo · " (if matched (plist-get (car matched) :id) "#now"))
      (lambda ()
        (let ((first t))
@@ -151,7 +151,7 @@ Nil hides the Hints section."
 
 (defun jgy-worklog-dashboard-insert-hints (_frame)
   "Insert the Hints section from `jgy-worklog-hints'."
-  (ghostel-agents-dashboard-insert-section
+  (agents-dashboard-insert-section
    "Hints"
    (lambda ()
      (let ((width (apply #'max 0 (mapcar (lambda (pair) (string-width (car pair)))
@@ -164,16 +164,16 @@ Nil hides the Hints section."
 
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
-  (when (and (fboundp 'ghostel-agents--dashboard-schedule)
+  (when (and (fboundp 'agents--dashboard-schedule)
              (not (equal (jgy-worklog--current-root frame) jgy-worklog--last-root)))
-    (ghostel-agents--dashboard-schedule)))
+    (agents--dashboard-schedule)))
 
 (defun jgy-worklog--after-save ()
   "Re-render the dashboard after saving a worklog file."
   (when (and buffer-file-name
-             (fboundp 'ghostel-agents--dashboard-schedule)
+             (fboundp 'agents--dashboard-schedule)
              (file-in-directory-p buffer-file-name jgy-worklog-directory))
-    (ghostel-agents--dashboard-schedule)))
+    (agents--dashboard-schedule)))
 
 ;;;###autoload
 (define-minor-mode jgy-worklog-dashboard-mode
@@ -181,12 +181,12 @@ Nil hides the Hints section."
   :global t
   (if jgy-worklog-dashboard-mode
       (progn
-        (add-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
-        (add-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints 90)
+        (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+        (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints 90)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
-    (remove-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
-    (remove-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints)
+    (remove-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+    (remove-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints)
     (remove-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
     (remove-hook 'after-save-hook #'jgy-worklog--after-save)))
 
