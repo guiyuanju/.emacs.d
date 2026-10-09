@@ -1038,7 +1038,8 @@ column and miscounts after wide prompt glyphs such as ➜."
       "=" #'elfeed-search-feed-filter
       "~" #'elfeed-search-exclude-feed-filter
       "<" #'elfeed-search-first-entry
-      ">" #'elfeed-search-last-entry)
+      ">" #'elfeed-search-last-entry
+      "a" #'jgy/elfeed-ai-digest)
     (evil-define-key* 'normal elfeed-show-mode-map
       "b" #'elfeed-show-visit
       "B" #'elfeed-show-visit-secondary
@@ -1046,7 +1047,8 @@ column and miscounts after wide prompt glyphs such as ➜."
       "c" #'elfeed-show-copy-url-at-point
       "u" #'elfeed-show-tag-unread
       "n" #'elfeed-show-next
-      "p" #'elfeed-show-prev)))
+      "p" #'elfeed-show-prev
+      "a" #'jgy/elfeed-ai-summarize)))
 
 (defun jgy/elfeed-show-set-referer (&rest _)
   "Send the entry's own URL as Referer so hotlink-protected images load."
@@ -1064,6 +1066,14 @@ column and miscounts after wide prompt glyphs such as ➜."
         ("https://news.ycombinator.com/rss" hacker)
         ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
         ("https://sspai.com/feed" :fetch-link t :readable t sspai))))
+
+(use-package gptel
+  :defer t)
+
+(use-package jgy-elfeed-ai
+  :ensure nil
+  :after elfeed
+  :commands (jgy/elfeed-ai-summarize jgy/elfeed-ai-digest jgy/elfeed-ai-set-backend))
 
 (use-package jgy-log
   :ensure nil
