@@ -5,6 +5,7 @@
 ;; 套餐用量取自 claude-agent-acp 在 usage_update 的 _meta 里转发的 rate limit，
 ;; 按 bin/claude-statusline 的格式写进 `agents-usage-file'。
 ;; 本轮写盘的工具调用经 identity 的 `files' 交给看板，行数由 oldText/newText 算出。
+;; identity 的 `brief' 依次取等待批准的工具调用、plan 里进行中的一项、最近一次工具调用。
 
 ;;; Code:
 
@@ -129,14 +130,64 @@ Failed calls count only toward files another call already wrote."
                   (setf (alist-get 'line entry) line))))))))
     files))
 
+(defvar-local jgy/agent-shell--asking nil
+  "Title of the tool call waiting for permission, or nil.")
+
+(defvar-local jgy/agent-shell--plan-step nil
+  "This turn's plan entry in progress, or nil.")
+
+(defvar-local jgy/agent-shell--last-tool nil
+  "Title of this turn's latest tool call, or nil.")
+
+(defun jgy/agent-shell--set-brief (var value)
+  "Set brief source VAR to VALUE, re-rendering the dashboard when it changes."
+  (unless (equal (symbol-value var) value)
+    (set var value)
+    (agents-dashboard-refresh)))
+
+(defun jgy/agent-shell--brief ()
+  "What the agent is doing, for the `brief' identity of agents.el."
+  (if jgy/agent-shell--asking
+      (concat "? " jgy/agent-shell--asking)
+    (or jgy/agent-shell--plan-step jgy/agent-shell--last-tool)))
+
+(defun jgy/agent-shell--track-plan (notification)
+  "Remember the plan entry in progress carried by NOTIFICATION."
+  (when (equal (map-nested-elt notification '(params update sessionUpdate)) "plan")
+    (let ((entries (map-nested-elt notification '(params update entries))))
+      (jgy/agent-shell--set-brief
+       'jgy/agent-shell--plan-step
+       (when-let* (((sequencep entries))
+                   (entry (seq-find (lambda (entry)
+                                      (equal (map-elt entry 'status) "in_progress"))
+                                    entries)))
+         (or (map-elt entry 'content) (map-elt entry 'step)))))))
+
+(defun jgy/agent-shell--tool-title (data)
+  "Title of the tool call in event DATA, or nil when it has none."
+  (let ((title (map-nested-elt data '(:tool-call :title))))
+    (and (stringp title) (not (string-empty-p title)) title)))
+
 (defun jgy/agent-shell--on-event (event)
-  "Report agent-shell EVENT to `agents-report' and track this turn's edits."
+  "Report agent-shell EVENT to `agents-report'; track this turn's edits and brief."
   (pcase (map-elt event :event)
     ('input-submitted
      (setq jgy/agent-shell--edits nil
-           jgy/agent-shell--changes-cache nil)
+           jgy/agent-shell--changes-cache nil
+           jgy/agent-shell--asking nil
+           jgy/agent-shell--plan-step nil
+           jgy/agent-shell--last-tool nil)
      (agents-dashboard-refresh))
-    ('tool-call-update (jgy/agent-shell--track-edit (map-elt event :data))))
+    ('tool-call-update
+     (jgy/agent-shell--track-edit (map-elt event :data))
+     (when-let* ((title (jgy/agent-shell--tool-title (map-elt event :data))))
+       (jgy/agent-shell--set-brief 'jgy/agent-shell--last-tool title)))
+    ('permission-request
+     (jgy/agent-shell--set-brief 'jgy/agent-shell--asking
+                                 (or (jgy/agent-shell--tool-title (map-elt event :data))
+                                     "permission")))
+    ('permission-response
+     (jgy/agent-shell--set-brief 'jgy/agent-shell--asking nil)))
   (pcase (map-elt event :event)
     ((or 'input-submitted 'permission-response 'tool-call-update 'agent-message-chunk)
      (agents-report 'working))
@@ -180,11 +231,15 @@ Failed calls count only toward files another call already wrote."
       (setq agents-identity `((kind . agent) (agent . ,name) (root . ,root)
                               (insert . jgy/agent-shell--insert)
                               (context . jgy/agent-shell--context)
-                              (files . jgy/agent-shell--files)))
+                              (files . jgy/agent-shell--files)
+                              (brief . jgy/agent-shell--brief)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'jgy/agent-shell--on-event)
       (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
                                       :buffer buffer
-                                      :on-notification #'jgy/agent-shell--save-usage))
+                                      :on-notification #'jgy/agent-shell--save-usage)
+      (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
+                                      :buffer buffer
+                                      :on-notification #'jgy/agent-shell--track-plan))
     buffer))
 
 (provide 'jgy-agent-shell)

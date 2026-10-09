@@ -5,7 +5,8 @@
 ;; 前端（Ghostel 里的 CLI、agent-shell 等）设 `agents-start-function' 来启动 agent，
 ;; 在其 buffer 里设 `agents-identity'，状态经 `agents-report' 上报。
 ;; 套餐用量（5 小时、7 天）从 bin/claude-statusline 写下的 `agents-usage-file' 读出。
-;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件。
+;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件；
+;; 给出 `brief'，看板就在 agent 那行末尾写它正在做什么。
 
 ;;; Code:
 
@@ -86,7 +87,8 @@ Keys: `kind' is `agent'; `agent' its name; `root' its directory; `insert' a
 function inserting a string into its input; `context' a function returning
 its context usage percentage or nil; `files' a function returning the files
 it edited this turn, in the order first edited, as alists with keys `file'
-\(absolute), `added', `removed', `active' (still being written) and `line'.")
+\(absolute), `added', `removed', `active' (still being written) and `line';
+`brief' a function returning a line on what it is doing, or nil.")
 (put 'agents-identity 'permanent-local t)
 
 (defvar agents-identity-functions nil
@@ -436,25 +438,52 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
 
 (defun agents--dashboard-line (buffer last)
   "Insert the tree line for agent BUFFER; LAST picks the closing branch."
-  (let ((root (agents--identity buffer 'root)))
-    (insert (propertize (concat "  " (if last "└─ " "├─ ") (agents--glyph buffer) " "
-                                (or (agents--identity buffer 'agent) "agent")
-                                (if-let* ((used (buffer-local-value 'agents-context buffer)))
-                                    (propertize (format " %d%%" used) 'face
-                                                (if (>= used agents-context-warning)
-                                                    'warning
-                                                  'shadow))
-                                  "")
-                                (if root
-                                    (propertize (concat " " (file-name-nondirectory
-                                                             (directory-file-name root)))
-                                                'face '(:inherit shadow :height 0.85))
-                                  "")
+  (let* ((root (agents--identity buffer 'root))
+         (head (concat "  " (if last "└─ " "├─ ") (agents--glyph buffer) " "
+                       (or (agents--identity buffer 'agent) "agent")
+                       (if-let* ((used (buffer-local-value 'agents-context buffer)))
+                           (propertize (format " %d%%" used) 'face
+                                       (if (>= used agents-context-warning)
+                                           'warning
+                                         'shadow))
+                         "")
+                       (if root
+                           (propertize (concat " " (file-name-nondirectory
+                                                    (directory-file-name root)))
+                                       'face '(:inherit shadow :height 0.85))
+                         "")))
+         (brief (agents--brief buffer)))
+    (insert (propertize (concat head
+                                (if brief (agents--brief-label buffer brief (string-width head)) "")
                                 "\n")
                         'agents-buffer buffer
-                        'help-echo (buffer-name buffer)
+                        'help-echo (if brief
+                                       (concat (buffer-name buffer) "\n" brief)
+                                     (buffer-name buffer))
                         'wrap-prefix (if last "     " "  │  ")))
     (agents--dashboard-files buffer (if last "       " "  │    "))))
+
+(defun agents--brief (buffer)
+  "What agent BUFFER says it is doing, on one line, or nil."
+  (when-let* ((brief (agents--identity buffer 'brief))
+              (text (with-current-buffer buffer (ignore-errors (funcall brief))))
+              (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
+              ((not (string-empty-p text))))
+    text))
+
+(defun agents--brief-label (buffer brief used)
+  "BRIEF cut to the dashboard width left after USED columns.
+Dimmed unless agent BUFFER is working or waiting."
+  (let* ((window (get-buffer-window (current-buffer) t))
+         ;; `window-max-chars-per-line' 会选中窗口，把看板的 point 拽到窗口 point。
+         (room (- (if window (window-body-width window) agents-dashboard-width)
+                  used 3)))
+    (if (< room 4)
+        ""
+      (propertize (concat "  " (truncate-string-to-width brief room nil nil "…"))
+                  'face (if (memq (buffer-local-value 'agents-status buffer) '(working waiting))
+                            'default
+                          'shadow)))))
 
 (defun agents--files (buffer)
   "Files agent BUFFER edited this turn, as its `files' identity returns them."
