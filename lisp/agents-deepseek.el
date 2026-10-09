@@ -136,24 +136,32 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
   (when (bound-and-true-p jgy/deepseek-api-key)
     (agents-deepseek--fetch)
     (agents-deepseek--scan)
-    (cons "deepseek"
-          (concat
-           (if agents-deepseek--balance
-               (concat (mapconcat (lambda (row) (concat (car row) " " (cdr row)))
-                                  agents-deepseek--balance " / ")
-                       (when agents-deepseek--error
-                         (propertize " stale" 'face 'warning)))
-             (propertize (if agents-deepseek--error "balance unavailable" "balance loading")
-                         'face (if agents-deepseek--error 'warning 'shadow)))
-           " · Pi today "
-           (if agents-deepseek--tokens
-               (concat (cond ((>= agents-deepseek--tokens 1000000)
-                              (format "%.1fM" (/ agents-deepseek--tokens 1000000.0)))
-                             ((>= agents-deepseek--tokens 1000)
-                              (format "%.1fk" (/ agents-deepseek--tokens 1000.0)))
-                             (t (number-to-string agents-deepseek--tokens)))
-                       " tok")
-             "?")))))
+    (list "deepseek"
+          (list "bal"
+                (propertize
+                 (if agents-deepseek--balance
+                     (concat
+                      (mapconcat (lambda (row)
+                                   (concat (if (equal (car row) "CNY") "¥" "$")
+                                           (cdr row)))
+                                 agents-deepseek--balance " / ")
+                      (if agents-deepseek--error " stale" ""))
+                   (if agents-deepseek--error "unavailable" "loading"))
+                 'face (if agents-deepseek--error 'warning 'default)
+                 'help-echo "DeepSeek account balance; refreshed every 5 minutes. stale means the last refresh failed.")
+                nil)
+          (list "today"
+                (propertize
+                 (if agents-deepseek--tokens
+                     (concat (cond ((>= agents-deepseek--tokens 1000000)
+                                    (format "%.1fM" (/ agents-deepseek--tokens 1000000.0)))
+                                   ((>= agents-deepseek--tokens 1000)
+                                    (format "%.1fk" (/ agents-deepseek--tokens 1000.0)))
+                                   (t (number-to-string agents-deepseek--tokens)))
+                             " tok")
+                   "?")
+                 'help-echo "Today's DeepSeek tokens from local Pi logs only; excludes elfeed and other clients.")
+                nil))))
 
 (add-to-list 'agents-usage-functions #'agents-usage-deepseek t)
 

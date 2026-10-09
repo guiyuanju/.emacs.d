@@ -94,7 +94,8 @@ It is a plist: :files the `files' identity last seen, :file the file shown,
   "Functions returning an agent's plan usage, shown on the dashboard.
 Each returns (NAME . WINDOWS), or nil when it knows none.  WINDOWS lists
 \(LABEL PERCENT RESETS-AT), like (\"5h\" 42 1790963218); RESETS-AT is
-seconds since the epoch, or nil.  WINDOWS may also be a string of text rows."
+seconds since the epoch, or nil.  PERCENT may instead be a formatted string
+for a metric without a bar.  WINDOWS may also be a string of text rows."
   :type '(repeat function))
 
 (defvar agents--usage nil
@@ -454,15 +455,21 @@ reset is left out, as it has not run since."
                  (lambda (window)
                    (pcase-let* ((`(,label ,percentage ,resets)
                                  (if (funcall past window) (list (car window) 0 nil) window)))
-                     (concat (propertize label 'face 'shadow) " "
-                             (agents--usage-bar percentage bar)
-                             (propertize (format " %3d%%" (floor percentage))
-                                         'face (if (>= percentage agents-usage-warning)
-                                                   'warning
-                                                 'default))
-                             (propertize (format " %-5s"
-                                                 (if resets (agents--duration (- resets now)) ""))
-                                         'face 'shadow))))
+                     (if (stringp percentage)
+                         (concat (propertize label 'face 'shadow)
+                                 (make-string (max 1 (- (+ bar 14)
+                                                        (string-width label)
+                                                        (string-width percentage))) ?\s)
+                                 percentage)
+                       (concat (propertize label 'face 'shadow) " "
+                               (agents--usage-bar percentage bar)
+                               (propertize (format " %3d%%" (floor percentage))
+                                           'face (if (>= percentage agents-usage-warning)
+                                                     'warning
+                                                   'default))
+                               (propertize (format " %-5s"
+                                                   (if resets (agents--duration (- resets now)) ""))
+                                           'face 'shadow)))))
                  windows "   "))
               "\n"))))
 
