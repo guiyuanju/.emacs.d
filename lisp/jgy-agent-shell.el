@@ -79,6 +79,15 @@ Prefers its description, as the title of a shell command is the command."
             (list (map-nested-elt data '(:tool-call :description))
                   (map-nested-elt data '(:tool-call :title)))))
 
+(defun jgy/agent-shell--follow-diff (enabled)
+  "Start tracking at enable time, or cancel all work when ENABLED is nil."
+  (if enabled
+      (jgy-agent-diff-begin (alist-get 'root agents-identity))
+    (jgy-agent-diff-cancel)
+    (setq jgy-agent-diff--repos nil
+          jgy-agent-diff--seen nil
+          jgy-agent-diff--finished t)))
+
 (defun jgy/agent-shell--on-event (event)
   "Report agent-shell EVENT to `agents-report'; track this turn's edits and brief."
   (pcase (map-elt event :event)
@@ -86,7 +95,8 @@ Prefers its description, as the title of a shell command is the command."
      (setq jgy/agent-shell--asking nil
            jgy/agent-shell--plan-step nil
            jgy/agent-shell--last-tool nil)
-     (jgy-agent-diff-begin (alist-get 'root agents-identity))
+     (jgy/agent-shell--follow-diff agents--diff-follow)
+     (setq jgy-agent-diff--files nil)
      (when agents--diff-follow
        (setq agents--diff-follow (plist-put agents--diff-follow :files nil)))
      (when-let* ((diff (get-buffer (agents--diff-buffer-name (current-buffer)))))
@@ -94,11 +104,13 @@ Prefers its description, as the title of a shell command is the command."
          (setq header-line-format "Previous turn · waiting for changes")))
      (agents-dashboard-refresh))
     ('tool-call-update
-     (jgy-agent-diff-tool (map-nested-elt event '(:data :tool-call-id))
-                          (map-nested-elt event '(:data :tool-call)))
+     (when agents--diff-follow
+       (jgy-agent-diff-tool (map-nested-elt event '(:data :tool-call-id))
+                            (map-nested-elt event '(:data :tool-call))))
      (when-let* ((title (jgy/agent-shell--tool-title (map-elt event :data))))
        (jgy/agent-shell--set-brief 'jgy/agent-shell--last-tool title)))
-    ((or 'turn-complete 'error) (jgy-agent-diff-request nil nil t))
+    ((or 'turn-complete 'error)
+     (when agents--diff-follow (jgy-agent-diff-request nil nil t)))
     ('clean-up (jgy-agent-diff-cancel))
     ('permission-request
      (jgy/agent-shell--set-brief 'jgy/agent-shell--asking
@@ -150,6 +162,7 @@ Prefers its description, as the title of a shell command is the command."
                               (insert . jgy/agent-shell--insert)
                               (context . jgy/agent-shell--context)
                               (files . jgy/agent-shell--files)
+                              (follow-diff . jgy/agent-shell--follow-diff)
                               (brief . jgy/agent-shell--brief)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'jgy/agent-shell--on-event)
       (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
