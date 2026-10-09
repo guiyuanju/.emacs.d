@@ -134,6 +134,33 @@ Outside a project folder, list every #now or #waiting todo instead."
              (jgy-worklog--insert-card card todos first)
              (setq first nil))))))))
 
+(defcustom jgy-worklog-hints
+  '(("项目"
+     ("SPC p o" . "打开 / 新建项目")
+     ("SPC g w" . "clone 仓库到项目")
+     ("SPC a w" . "在项目根启动 agent"))
+    ("对 agent 说"
+     ("开工" . "列出 #now #waiting")
+     ("记一下：…" . "追加到项目日志")
+     ("周回顾 月回顾" . "在 workspace 根说")
+     ("结项 <id>" . "成果进 career.md")))
+  "Hint groups shown at the bottom of the dashboard, as (TITLE (KEY . TEXT)...).
+Nil hides the Hints section."
+  :type '(repeat (cons string (alist :key-type string :value-type string))))
+
+(defun jgy-worklog-dashboard-insert-hints (_frame)
+  "Insert the Hints section from `jgy-worklog-hints'."
+  (ghostel-agents-dashboard-insert-section
+   "Hints"
+   (lambda ()
+     (let ((width (apply #'max 0 (mapcar (lambda (pair) (string-width (car pair)))
+                                         (apply #'append (mapcar #'cdr jgy-worklog-hints))))))
+       (dolist (group jgy-worklog-hints)
+         (insert (propertize (car group) 'face 'shadow) "\n")
+         (pcase-dolist (`(,key . ,text) (cdr group))
+           (insert "  " (propertize key 'face 'help-key-binding)
+                   (make-string (- width (string-width key)) ?\s) "  " text "\n")))))))
+
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
   (when (and (fboundp 'ghostel-agents--dashboard-schedule)
@@ -154,9 +181,11 @@ Outside a project folder, list every #now or #waiting todo instead."
   (if jgy-worklog-dashboard-mode
       (progn
         (add-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+        (add-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints 90)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
     (remove-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+    (remove-hook 'ghostel-agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints)
     (remove-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
     (remove-hook 'after-save-hook #'jgy-worklog--after-save)))
 
