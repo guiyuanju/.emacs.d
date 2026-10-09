@@ -196,6 +196,12 @@
   :config
   (exec-path-from-shell-initialize))
 
+(use-package server
+  :ensure nil
+  :config
+  (unless (server-running-p)
+    (server-start)))
+
 ;;; Completion
 
 (use-package vertico
