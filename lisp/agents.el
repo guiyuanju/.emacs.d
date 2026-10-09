@@ -102,7 +102,7 @@ for a metric without a bar.  WINDOWS may also be a string of text rows."
   "Plan usage as `agents-usage-functions' last returned it.")
 
 (defvar agents--codex-usage nil
-  "Codex usage windows, as ((FILE MTIME) . RATE-LIMITS) for the log they came from.")
+  "Codex usage windows, as ((FILE MTIME) . WINDOWS) for the logs they came from.")
 
 (defvar agents--usage-minute nil
   "Minute the reset countdowns were last drawn in.")
@@ -358,14 +358,14 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
                    collect (list label it (let ((resets (alist-get 'resets_at window)))
                                             (and (numberp resets) resets)))))))
 
-(defun agents--codex-log ()
-  "Codex's newest session log, or nil."
-  ;; 日志在 年/月/日/rollout-时间-….jsonl，按名字排序就是按时间。
+(defun agents--codex-logs ()
+  "Codex session logs, newest first.
+Logs live in 年/月/日/rollout-时间-….jsonl, so name order is time order."
   (let ((dir (expand-file-name agents-codex-sessions-directory)))
     (dotimes (_ 3)
       (setq dir (and dir (file-directory-p dir)
                      (car (last (directory-files dir t "\\`[0-9]+\\'"))))))
-    (and dir (car (last (directory-files dir t "\\`rollout-.*\\.jsonl\\'"))))))
+    (and dir (reverse (directory-files dir t "\\`rollout-.*\\.jsonl\\'")))))
 
 (defun agents--codex-rate-limits (file)
   "Rate limits of the last token count in Codex session log FILE, or nil."
@@ -381,26 +381,43 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
                                                                  (line-end-position))
                                                :object-type 'alist :null-object nil))))))
 
+(defun agents--codex-windows (limits)
+  "Usage windows described by Codex rate LIMITS, or nil when it has none.
+Recent logs can carry a LIMITS map whose windows are null; those count as
+none, so the last real reading is kept instead of replacing it."
+  (when limits
+    (cl-loop for key in '(primary secondary)
+             for window = (alist-get key limits)
+             for minutes = (alist-get 'window_minutes window)
+             when (and minutes (alist-get 'used_percent window))
+             collect (list (if (>= minutes 1440)
+                               (format "%dd" (/ minutes 1440))
+                             (format "%dh" (/ minutes 60)))
+                           it
+                           (alist-get 'resets_at window)))))
+
+(defun agents--codex-usage-windows (logs)
+  "Windows from the newest of LOGS that carries any, or nil.
+Recent logs can report none once a limit is reached; the newest real
+reading is then kept instead of the row disappearing."
+  (seq-some (lambda (file)
+              (ignore-errors
+                (agents--codex-windows (agents--codex-rate-limits file))))
+            logs))
+
 (defun agents-usage-codex ()
-  "Codex's plan usage, from its newest session log.
-A log without any keeps the usage read from the one before."
-  (when-let* ((file (agents--codex-log)))
-    (let ((stamp (list file (file-attribute-modification-time (file-attributes file)))))
+  "Codex's plan usage, from its newest session log that reports any.
+Recent logs report none once a limit is reached; the last reading then
+stays, so the row and its reset countdown remain visible."
+  (when-let* ((logs (agents--codex-logs)))
+    (let ((stamp (list (car logs)
+                       (file-attribute-modification-time (file-attributes (car logs))))))
       (unless (equal stamp (car agents--codex-usage))
         (setq agents--codex-usage
-              (cons stamp (or (ignore-errors (agents--codex-rate-limits file))
+              (cons stamp (or (agents--codex-usage-windows logs)
                               (cdr agents--codex-usage))))))
-    (when-let* ((limits (cdr agents--codex-usage)))
-      (cons "codex"
-            (cl-loop for key in '(primary secondary)
-                     for window = (alist-get key limits)
-                     for minutes = (alist-get 'window_minutes window)
-                     when (and minutes (alist-get 'used_percent window))
-                     collect (list (if (>= minutes 1440)
-                                       (format "%dd" (/ minutes 1440))
-                                     (format "%dh" (/ minutes 60)))
-                                   it
-                                   (alist-get 'resets_at window)))))))
+    (when-let* ((windows (cdr agents--codex-usage)))
+      (cons "codex" windows))))
 
 (defun agents--duration (seconds)
   "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
@@ -434,11 +451,11 @@ It turns `warning' from `agents-usage-warning'."
 
 (defun agents--usage-insert ()
   "Insert a row per agent in `agents--usage', with a bar per usage window.
-A window past its reset counts as empty, but the agent stays listed
-so a reset is visible instead of the row silently disappearing."
+A window past its reset counts as empty, and a row with no windows is
+left out; anything the agent ever reported stays listed."
   (let* ((now (float-time))
          (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
-         (rows agents--usage)
+         (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (cdr row))) agents--usage))
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
          (count (apply #'max 1 (mapcar (lambda (row) (if (stringp (cdr row)) 0 (length (cdr row)))) rows)))
          (window (get-buffer-window (current-buffer) t))
