@@ -6,4 +6,7 @@
 !lisp/**
 !bin
 !bin/**
+!tests
+!tests/**
 !AGENTS.md
+*.elc

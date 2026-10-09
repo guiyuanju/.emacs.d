@@ -1,0 +1,21 @@
+#!/bin/sh
+# Byte-compile lisp/ with warnings as errors, then run every ert test under
+# tests/, in a batch Emacs that sees the elpaca builds but not init.el.
+cd "$(dirname "$0")/.." || exit 1
+exec emacs -Q --batch --eval '
+(let ((root default-directory)
+      (out (make-temp-file "emacs-test-" t)))
+  (dolist (dir (file-expand-wildcards (expand-file-name "elpaca/builds/*" root)))
+    (add-to-list (quote load-path) dir))
+  (add-to-list (quote load-path) (expand-file-name "lisp" root))
+  (setq byte-compile-error-on-warn t
+        byte-compile-dest-file-function
+        (lambda (file) (expand-file-name (concat (file-name-base file) ".elc") out)))
+  (let ((failed (seq-remove (quote byte-compile-file)
+                            (file-expand-wildcards (expand-file-name "lisp/*.el" root)))))
+    (delete-directory out t)
+    (when failed
+      (message "Byte-compilation failed: %s" (mapconcat (quote file-name-nondirectory) failed " "))
+      (kill-emacs 1)))
+  (mapc (quote load) (file-expand-wildcards (expand-file-name "tests/*.el" root)))
+  (ert-run-tests-batch-and-exit))'
