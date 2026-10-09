@@ -23,6 +23,7 @@
 (declare-function gptel-request "gptel-request")
 (declare-function gptel-api-key-from-auth-source "gptel-request")
 (declare-function exec-path-from-shell-getenvs "exec-path-from-shell")
+(declare-function evil-define-key* "evil-core")
 (defvar gptel-backend)
 (defvar gptel-model)
 (defvar gptel-use-tools)
@@ -290,7 +291,7 @@ DIGEST picks the digest model."
 (define-key jgy-elfeed-ai-digest-mode-map (kbd "<return>") #'org-open-at-point)
 
 (with-eval-after-load 'evil
-  (evil-define-key '(normal motion) jgy-elfeed-ai-digest-mode-map
+  (evil-define-key* '(normal motion) jgy-elfeed-ai-digest-mode-map
     (kbd "RET") #'org-open-at-point
     (kbd "<return>") #'org-open-at-point))
 

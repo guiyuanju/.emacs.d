@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; 按项目复用 agent，按启动时的 tab 归属；`agents-mode' 跟踪状态，并让 bufferlo 只列出本 tab 的 agent。
-;; 前端（Ghostel 里的 CLI、agent-shell 等）设 `agents-start-function' 来启动 agent，
+;; 前端（agent-shell）设 `agents-start-function' 来启动 agent，
 ;; 在其 buffer 里设 `agents-identity'，状态经 `agents-report' 上报。
 ;; 套餐用量（5 小时、7 天）由 jgy-agents-usage.el 的 `agents-usage-functions' 读出，
 ;; 经 `agents-usage-scan' 定期刷新。
@@ -14,7 +14,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'consult)
 (require 'diff-mode)
 (require 'project)
 (require 'seq)
@@ -22,6 +21,8 @@
 (require 'tab-bar)
 
 (declare-function evil-define-key* "evil-core")
+(declare-function consult--read "consult")
+(declare-function consult--buffer-preview "consult")
 
 (declare-function agents--usage-insert "jgy-agents-usage")
 (declare-function agents-usage-scan "jgy-agents-usage")
@@ -85,7 +86,7 @@ It is a plist: :files the `files' identity last seen, :file the file shown,
 
 (defvar-local agents-identity nil
   "Alist describing the agent in this buffer.
-Keys: `kind' is `agent'; `agent' its name; `root' its directory; `insert' a
+Keys: `agent' is its name; `root' its directory; `insert' a
 function inserting a string into its input; `context' a function returning
 its context usage percentage or nil; `files' a function returning the files
 it edited this turn, in provider edit order, as alists with keys `file'
@@ -95,19 +96,12 @@ it edited this turn, in provider edit order, as alists with keys `file'
 `brief' a function returning a line on what it is doing, or nil.")
 (put 'agents-identity 'permanent-local t)
 
-(defvar agents-identity-functions nil
-  "Functions of a buffer returning its identity when `agents-identity' is unset.")
-
-(defun agents--identity-alist (buffer)
-  (or (buffer-local-value 'agents-identity buffer)
-      (run-hook-with-args-until-success 'agents-identity-functions buffer)))
-
 (defun agents-buffer-p (buffer)
   "Non-nil when BUFFER runs an agent."
-  (eq (alist-get 'kind (agents--identity-alist buffer)) 'agent))
+  (and (buffer-local-value 'agents-identity buffer) t))
 
 (defun agents--identity (buffer key)
-  (alist-get key (agents--identity-alist buffer)))
+  (alist-get key (buffer-local-value 'agents-identity buffer)))
 
 (defun agents-project-root ()
   "Return the current project's root, or `default-directory' outside a project."
@@ -203,6 +197,7 @@ Prompts for an agent to start when none is running."
 (defun agents-switch ()
   "Pick any running agent buffer with preview, across all projects."
   (interactive)
+  (require 'consult)
   (let* ((names (or (mapcar #'buffer-name (agents--buffers))
                     (user-error "No agent running")))
          (buffer (get-buffer (consult--read names
@@ -1051,6 +1046,10 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
 (defun agents--embark-transform (_type target)
   (cons 'buffer target))
 
+(defvar embark-transformer-alist)
+(with-eval-after-load 'embark
+  (add-to-list 'embark-transformer-alist '(agent-buffer . agents--embark-transform)))
+
 ;;;###autoload
 (define-minor-mode agents-mode
   "Track agent status for the dashboard and keep agents with their tab."
@@ -1066,11 +1065,7 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
         (unless agents--context-timer
           (setq agents--context-timer
                 (run-with-timer 0 agents-context-interval
-                                #'agents--context-scan)))
-        (with-eval-after-load 'embark
-          (defvar embark-transformer-alist)
-          (add-to-list 'embark-transformer-alist
-                       '(agent-buffer . agents--embark-transform))))
+                                #'agents--context-scan))))
     (advice-remove 'bufferlo-buffer-list #'agents--filter-tab-buffers)
     (remove-hook 'window-selection-change-functions #'agents--acknowledge)
     (remove-hook 'window-buffer-change-functions #'agents--acknowledge)
@@ -1079,10 +1074,7 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
     (remove-hook 'tab-bar-tab-post-open-functions #'agents--dashboard-follow)
     (when agents--context-timer
       (cancel-timer agents--context-timer)
-      (setq agents--context-timer nil))
-    (when (boundp 'embark-transformer-alist)
-      (setq embark-transformer-alist
-            (assq-delete-all 'agent-buffer embark-transformer-alist)))))
+      (setq agents--context-timer nil))))
 
 (provide 'jgy-agents)
 ;;; jgy-agents.el ends here

@@ -3,7 +3,7 @@
 ;;; Commentary:
 ;; 用 agent-shell（ACP）代替 Ghostel 里的 CLI；tab 归属、看板和快捷键由 jgy-agents.el 负责。
 ;; 套餐用量取自 claude-agent-acp 在 usage_update 的 _meta 里转发的 rate limit，
-;; 按 bin/claude-statusline 的格式写进 `agents-usage-file'。
+;; 经 `agents-usage-save-claude' 交给看板。
 ;; 本轮文件变化以开始时的 Git commit 与已有未提交内容为基准，缓存 diff 交给看板。
 ;; identity 的 `brief' 依次取等待批准的工具调用、plan 里进行中的一项、最近一次工具调用。
 ;; 工具调用结束后按内容检测变化，提交不会清空本轮 diff。
@@ -18,8 +18,7 @@
 (require 'jgy-agent-diff)
 (add-hook 'jgy-agent-diff-update-hook #'agents-dashboard-refresh)
 
-(defvar agents-usage-file)
-(defvar no-littering-var-directory)
+(declare-function agents-usage-save-claude "jgy-agents-usage")
 
 (defcustom jgy-agent-shell-header-separator "›"
   "Glyph separating fields in the agent-shell header line.
@@ -49,9 +48,7 @@ candidates: →, ·, //."
   (expand-file-name
    subdir
    (expand-file-name (file-name-nondirectory (directory-file-name (agent-shell-cwd)))
-                     (expand-file-name "agent-shell"
-                                       (or (bound-and-true-p no-littering-var-directory)
-                                           user-emacs-directory)))))
+                     (locate-user-emacs-file "agent-shell/"))))
 
 (defun jgy/agent-shell--files ()
   "Return cached file changes relative to the start of this turn."
@@ -139,17 +136,14 @@ Prefers its description, as the title of a shell command is the command."
       (round (* 100.0 used) size))))
 
 (defun jgy/agent-shell--save-usage (notification)
-  "Write the plan usage windows carried by NOTIFICATION to `agents-usage-file'."
+  "Save the plan usage windows carried by NOTIFICATION for the dashboard."
   (when-let* ((windows (map-nested-elt notification
                                        '(params update _meta _claude/rateLimit unifiedWindows))))
-    (let ((usage (mapcar (pcase-lambda (`(,key . ,window))
-                           `(,key (used_percentage . ,(round (* 100 (or (map-elt window 'utilization) 0))))
-                                  (resets_at . ,(map-elt window 'resetsAt))))
-                         windows))
-          (temp (make-temp-file (expand-file-name "claude-usage"
-                                                  (file-name-directory agents-usage-file)))))
-      (with-temp-file temp (insert (json-encode usage)))
-      (rename-file temp agents-usage-file t))))
+    (agents-usage-save-claude
+     (mapcar (pcase-lambda (`(,key . ,window))
+               `(,key (used_percentage . ,(round (* 100 (or (map-elt window 'utilization) 0))))
+                      (resets_at . ,(map-elt window 'resetsAt))))
+             windows))))
 
 (defun jgy/agent-shell--insert (text)
   "Insert TEXT at this shell's prompt without submitting it."

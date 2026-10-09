@@ -2,8 +2,8 @@
 
 ;;; Commentary:
 ;; The plan usage rows at the top of the agents dashboard.  Claude's windows
-;; come from the file bin/claude-statusline writes; Codex's from its newest
-;; session log.  Other agents add a row by pushing onto
+;; come from the rate limits agent-shell forwards, kept in `agents-usage-file'
+;; so they survive a restart; Codex's from its newest session log.  Other agents add a row by pushing onto
 ;; `agents-usage-functions' (see jgy-agents-deepseek.el).
 ;;
 ;; jgy-agents.el drives the refresh through `agents-usage-scan'.
@@ -12,12 +12,12 @@
 
 (require 'jgy-agents)
 (require 'cl-lib)
+(require 'json)
 (require 'seq)
 (require 'subr-x)
 
-(defcustom agents-usage-file
-  (expand-file-name "claude-usage.json" (or (getenv "XDG_CACHE_HOME") "~/.cache"))
-  "File where bin/claude-statusline saves Claude's plan usage."
+(defcustom agents-usage-file (locate-user-emacs-file "var/claude-usage.json")
+  "File keeping Claude's last plan usage, as `agents-usage-save-claude' wrote it."
   :type 'file
   :group 'agents)
 
@@ -62,8 +62,18 @@ for a metric without a bar.  WINDOWS may also be a string of text rows."
   (interactive)
   (browse-url agents-claude-usage-url))
 
+(defun agents-usage-save-claude (usage)
+  "Save Claude's plan USAGE to `agents-usage-file'.
+USAGE maps window keys like `five_hour' to alists with `used_percentage'
+and `resets_at'."
+  (make-directory (file-name-directory agents-usage-file) t)
+  (let ((temp (make-temp-file (expand-file-name "claude-usage"
+                                                (file-name-directory agents-usage-file)))))
+    (with-temp-file temp (insert (json-encode usage)))
+    (rename-file temp agents-usage-file t)))
+
 (defun agents-usage-claude ()
-  "Claude's plan usage, as bin/claude-statusline saved it in `agents-usage-file'.
+  "Claude's plan usage, as `agents-usage-save-claude' saved it.
 A file without any windows, or none at all, keeps the last reading, so the
 row stays visible while Claude Code reconnects instead of dropping out."
   (let ((usage (ignore-errors

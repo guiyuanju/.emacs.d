@@ -18,23 +18,11 @@
 (declare-function agents-dashboard-insert-section "jgy-agents")
 (defvar agents-dashboard-functions)
 
-(defgroup jgy-worklog nil
-  "Worklog todos in the agents dashboard."
-  :group 'tools)
-
-(defcustom jgy-worklog-directory jgy/workspace-directory
-  "Directory containing workspaces, each with a projects/ folder."
-  :type 'directory)
-
 (defvar jgy-worklog--cache nil
   "Parsed cards, as (STAMP . CARDS); STAMP lists each card's file and mtime.")
 
 (defvar jgy-worklog--last-root nil
   "Project root the dashboard last showed todos for.")
-
-(defun jgy-worklog--card-files ()
-  "Return every project card file."
-  (jgy/project-files jgy-worklog-directory))
 
 (defun jgy-worklog--parse (file)
   "Parse card FILE into a plist of :id :status :file :todos.
@@ -58,7 +46,7 @@ or anywhere when tagged #waiting."
 
 (defun jgy-worklog--cards ()
   "Return parsed active cards, re-reading only when a card file changed."
-  (let* ((files (jgy-worklog--card-files))
+  (let* ((files (jgy/project-files))
          (stamp (mapcar (lambda (file)
                           (cons file (file-attribute-modification-time (file-attributes file))))
                         files)))
@@ -153,13 +141,14 @@ Outside a project folder, list every #now or #waiting todo instead."
   "Re-render the dashboard after saving a worklog file."
   (when (and buffer-file-name
              (fboundp 'agents--dashboard-schedule)
-             (file-in-directory-p buffer-file-name jgy-worklog-directory))
+             (file-in-directory-p buffer-file-name jgy/workspace-directory))
     (agents--dashboard-schedule)))
 
 ;;;###autoload
 (define-minor-mode jgy-worklog-dashboard-mode
   "Show worklog todos for the current project in the agents dashboard."
   :global t
+  :group 'agents
   (if jgy-worklog-dashboard-mode
       (progn
         (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)

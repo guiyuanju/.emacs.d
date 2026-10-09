@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; A compact, project-oriented configuration built around Evil, Vertico,
-;; tab-bar workspaces, Eglot, Magit, and agent CLIs in Ghostel.
+;; tab-bar workspaces, Eglot, Magit, and agents in agent-shell.
 
 ;;; Code:
 
@@ -83,12 +83,9 @@
 (defun jgy/ensure-fonts ()
   "Install missing fonts with Homebrew in the background, then reapply them."
   (interactive)
-  (let ((casks (delete-dups
-                (mapcar #'cdr (seq-remove (lambda (entry) (jgy/font-available-p (car entry)))
-                                          (seq-filter (lambda (entry)
-                                                        (member (car entry)
-                                                                (list jgy/font-family)))
-                                                      jgy/font-casks))))))
+  (let ((casks (when-let* (((not (jgy/font-available-p jgy/font-family)))
+                           (cask (alist-get jgy/font-family jgy/font-casks nil nil #'equal)))
+                 (list cask))))
     (cond
      ((null casks))
      ((not (executable-find "brew"))
@@ -514,24 +511,16 @@ history has done to `default-directory'."
 
 (defun jgy/ghostel-toggle ()
   "Toggle the current project's Ghostel, or the global terminal outside projects.
-Called from inside a non-agent Ghostel it hides that buffer, whatever its
-`cd' history has done to `default-directory'."
+Called from inside a Ghostel it hides that buffer, whatever its `cd'
+history has done to `default-directory'."
   (interactive)
-  (if (and (derived-mode-p 'ghostel-mode)
-           (not (agents-buffer-p (current-buffer))))
-      (quit-window)
-    (if (project-current)
-        (jgy/toggle-buffer (seq-find (lambda (buffer) (not (agents-buffer-p buffer)))
-                                     (ghostel-project-buffer-list))
-                           #'ghostel-project)
-      (jgy/toggle-buffer
+  (cond
+   ((derived-mode-p 'ghostel-mode) (quit-window))
+   ((project-current)
+    (jgy/toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project))
+   (t (jgy/toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
-
-(defun jgy/popper-terminal-p (buffer)
-  "Non-nil for ghostel BUFFERs other than agents, which get regular windows."
-  (and (eq (buffer-local-value 'major-mode buffer) 'ghostel-mode)
-       (not (agents-buffer-p buffer))))
 
 (defun jgy/notes-find ()
   "Find a file below `jgy/notes-directory'."
@@ -755,7 +744,7 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
    '("\\*Messages\\*" "\\*Warnings\\*" "\\*Backtrace\\*"
      "\\*Async Shell Command\\*" "\\*eldoc\\*" "Output\\*$"
      help-mode eshell-mode compilation-mode xref--xref-buffer-mode
-     flymake-diagnostics-buffer-mode jgy/popper-terminal-p))
+     flymake-diagnostics-buffer-mode ghostel-mode))
   (popper-window-height 0.35)
   :init
   (require 'project)
@@ -1058,9 +1047,53 @@ column and miscounts after wide prompt glyphs such as ➜."
 
 ;;; AI
 
-(use-package jgy-ai
+;; agent 由 jgy-agents 管理（tab 归属、看板），经 agent-shell 用 ACP 运行；
+;; 在项目文件夹内时以项目根为工作目录。
+
+(defun jgy/agent-root ()
+  "Return the project folder when inside one, else the version-control root."
+  (or (jgy/project-root) (agents-project-root)))
+
+(use-package agent-shell
+  :defer t
+  :custom
+  (agent-shell-header-style 'text)
+  ;; An 8-frame braille ring instead of agent-shell's default "░░░" bar.
+  ;; Alternatives: wave, arc, bouncingBar, arrow.
+  (agent-shell-busy-indicator-frames 'dots-block)
+  (agent-shell-session-strategy 'prompt)
+  (agent-shell-session-restore-verbosity 'full)
+  (agent-shell-context-sources '(region))
+  (agent-shell-dot-subdir-function #'jgy/agent-shell-dot-subdir))
+
+(use-package jgy-agent-shell
   :ensure nil
-  :demand t)
+  :autoload (jgy/agent-shell-start jgy/agent-shell-dot-subdir))
+
+(use-package jgy-agent-update
+  :ensure nil
+  :commands jgy/agent-update-check
+  :init
+  (run-with-idle-timer 30 nil #'jgy/agent-update-check))
+
+(use-package jgy-agents
+  :ensure nil
+  :commands (agents-start agents-toggle agents-switch agents-send agents-dashboard)
+  :autoload agents-project-root
+  :custom
+  (agents-root-function #'jgy/agent-root)
+  (agents-start-function #'jgy/agent-shell-start)
+  :config
+  (require 'jgy-agents-usage)
+  (require 'jgy-agents-deepseek)
+  (agents-mode 1))
+
+(dolist (name '("claude" "codex" "pi"))
+  (defalias (intern (concat "jgy/agent-start-" name))
+    (lambda (&optional fresh)
+      (interactive "P")
+      (agents-start name fresh))
+    (format "Start or show %s for the current project." name)))
 
 (use-package jgy-worklog
   :ensure nil
