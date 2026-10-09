@@ -16,6 +16,7 @@
 (require 'elfeed)
 (require 'elfeed-show)
 (require 'elfeed-search)
+(require 'elfeed-link)
 
 (declare-function eww-readable-dom "eww")
 (declare-function gptel-make-deepseek "gptel-openai-extras")
@@ -280,6 +281,19 @@ DIGEST picks the digest model."
 
 ;;; Digest
 
+(define-derived-mode jgy-elfeed-ai-digest-mode org-mode "Elfeed Digest"
+  "Read an Elfeed digest and follow its entry links."
+  (setq-local org-return-follows-link t)
+  (read-only-mode 1))
+
+(define-key jgy-elfeed-ai-digest-mode-map (kbd "RET") #'org-open-at-point)
+(define-key jgy-elfeed-ai-digest-mode-map (kbd "<return>") #'org-open-at-point)
+
+(with-eval-after-load 'evil
+  (evil-define-key '(normal motion) jgy-elfeed-ai-digest-mode-map
+    (kbd "RET") #'org-open-at-point
+    (kbd "<return>") #'org-open-at-point))
+
 (defun jgy-elfeed-ai--digest-input (entries)
   "Return the digest prompt for ENTRIES."
   (with-output-to-string
@@ -292,7 +306,9 @@ DIGEST picks the digest model."
         (princ (format "\n\n订阅源：%s\n标题：%s\n链接：%s\n内容：%s"
                        (or (and feed (elfeed-feed-title feed)) "?")
                        (elfeed-entry-title entry)
-                       (elfeed-entry-link entry)
+                       (format "elfeed:%s#%s"
+                               (car (elfeed-entry-id entry))
+                               (cdr (elfeed-entry-id entry)))
                        (truncate-string-to-width text 400 nil nil "…")))))))
 
 ;;;###autoload
@@ -307,8 +323,7 @@ DIGEST picks the digest model."
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (org-mode)
-        (setq-local org-return-follows-link t)
+        (jgy-elfeed-ai-digest-mode)
         (insert (format "#+title: %s · %d 条 · %s\n\n生成中…\n" filter (length entries) backend)))
       (read-only-mode 1))
     (display-buffer buf)

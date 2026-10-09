@@ -1,0 +1,30 @@
+;;; elfeed-digest-test.el --- Digest navigation tests -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'jgy-elfeed-ai)
+(require 'evil)
+
+(ert-deftest jgy-elfeed-digest-input-links-to-entry ()
+  (let ((entry (elfeed-entry--create :id '("feed" . "entry")
+                                    :title "Title" :link "https://example.org")))
+    (cl-letf (((symbol-function 'jgy-elfeed-ai--rss-text) (lambda (_) "Text")))
+      (should (string-match-p "链接：elfeed:feed#entry"
+                              (jgy-elfeed-ai--digest-input (list entry)))))))
+
+(ert-deftest jgy-elfeed-digest-enter-opens-entry-in-evil-states ()
+  (let ((entry (elfeed-entry--create :id '("feed" . "entry")))
+        (elfeed-db t) (elfeed-db-entries (make-hash-table :test #'equal)) opened)
+    (puthash (elfeed-entry-id entry) entry elfeed-db-entries)
+    (with-temp-buffer
+      (jgy-elfeed-ai-digest-mode)
+      (let ((inhibit-read-only t)) (insert "- [[elfeed:feed#entry][Title]]\n"))
+      (goto-char 8)
+      (evil-local-mode 1)
+      (cl-letf (((symbol-function 'elfeed-db-get-entry)
+                 (lambda (id) (should (equal id '("feed" . "entry"))) entry))
+                ((symbol-function 'elfeed-show-entry) (lambda (value) (setq opened value))))
+        (dolist (state '(normal motion insert))
+          (evil-change-state state)
+          (dolist (key '("RET" "<return>"))
+            (setq opened nil)
+            (call-interactively (key-binding (kbd key)))
+            (should (eq opened entry))))))))
