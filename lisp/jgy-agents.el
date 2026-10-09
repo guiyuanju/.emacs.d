@@ -452,22 +452,24 @@ Binds it in evil's normal state too."
   "Face added to the dashboard line of an agent that finished unseen.")
 
 (defface agents-tab-heading
-  '((((background dark)) :background "#242b34" :extend t)
-    (t :background "#edf0f4" :extend t))
-  "Face of a tab heading in the agents dashboard.")
+  '((t :inherit shadow))
+  "Face of an inactive tab heading in the agents dashboard.")
 
 (defface agents-tab-heading-current
-  '((((background dark)) :background "#3b4a5c" :extend t)
-    (t :background "#ccd9e8" :extend t))
+  '((((background dark)) :inherit bold :background "#3b4a5c" :extend t)
+    (t :inherit bold :background "#ccd9e8" :extend t))
   "Face of the current tab's heading in the agents dashboard.")
 
 (defun agents-dashboard-heading (name &optional current)
   "NAME as a dashboard heading, highlighted when CURRENT."
   (propertize name 'face (if current '(success bold) 'bold)))
 
+(defconst agents--tab-prefix "▸ "
+  "Prefix of a tab heading in the agents dashboard.")
+
 (defun agents--tab-heading (text current)
-  "TEXT as a tab heading with a background, stronger when CURRENT."
-  (let ((heading (agents-dashboard-heading text current)))
+  "TEXT prefixed as a tab heading, banded when CURRENT."
+  (let ((heading (concat agents--tab-prefix text)))
     (add-face-text-property 0 (length heading)
                             (if current 'agents-tab-heading-current 'agents-tab-heading)
                             t heading)
