@@ -28,11 +28,10 @@
   :defer t
   :custom
   (agent-shell-header-style 'text)
-  ;; Spin a partial ring clockwise instead of agent-shell's default
-  ;; bouncing "░░░" bar.  Alternatives: dots-block (braille spinner),
-  ;; ("◴" "◷" "◶" "◵") quadrants, wave.
-  (agent-shell-busy-indicator-frames
-   '("◜" "◠" "◝" "◞" "◡" "◟"))
+  ;; A small bouncing braille dot instead of agent-shell's default
+  ;; bouncing "░░░" bar.  Alternatives: dots-block (8-frame ring),
+  ;; wave, arc, arrow.
+  (agent-shell-busy-indicator-frames '("⠁" "⠂" "⠄" "⠂"))
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
