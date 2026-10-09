@@ -22,6 +22,15 @@
 (defvar agents-deepseek--state nil)
 (defvar agents-deepseek--loaded-key nil)
 
+(defcustom agents-deepseek-usage-url "https://platform.deepseek.com/usage"
+  "Page the dashboard's DeepSeek usage row opens on RET."
+  :type 'string)
+
+(defun agents-deepseek-open-usage ()
+  "Open DeepSeek's usage page in a browser."
+  (interactive)
+  (browse-url agents-deepseek-usage-url))
+
 (defun agents-deepseek--load-state ()
   "Restore observations for this key, without storing the key itself."
   (let ((key (secure-hash 'sha256 jgy/deepseek-api-key)))
@@ -159,7 +168,9 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
   "Return account balance and observed account spending."
   (when (bound-and-true-p jgy/deepseek-api-key)
     (agents-deepseek--fetch)
-    (list "deepseek"
+    (list (propertize "deepseek"
+                      'agents-action #'agents-deepseek-open-usage
+                      'help-echo "RET opens DeepSeek's usage page")
           (list "balance"
                 (propertize
                  (if agents-deepseek--balance

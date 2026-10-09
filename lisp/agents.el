@@ -461,7 +461,8 @@ It turns `warning' from `agents-usage-warning'."
 (defun agents--usage-insert ()
   "Insert a row per agent in `agents--usage', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
-left out; anything the agent ever reported stays listed."
+left out; anything the agent ever reported stays listed.  A row whose
+name carries `agents-action' runs it when the line is visited."
   (let* ((now (float-time))
          (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
          (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (cdr row))) agents--usage))
@@ -474,7 +475,10 @@ left out; anything the agent ever reported stays listed."
                                    (* count 14) (* (1- count) 3))
                                 count)))))
     (pcase-dolist (`(,name . ,windows) rows)
-      (insert agents--indent name (make-string (- (+ name-width 2) (string-width name)) ?\s)
+      (insert (if-let* ((action (get-text-property 0 'agents-action name)))
+                  (propertize agents--indent 'agents-action action)
+                agents--indent)
+              name (make-string (- (+ name-width 2) (string-width name)) ?\s)
               (if (stringp windows)
                   (replace-regexp-in-string
                    "\n" (concat "\n" agents--indent (make-string (+ name-width 2) ?\s))
