@@ -26,11 +26,15 @@
     (and (file-in-directory-p root jgy/workspace-directory)
          (file-name-as-directory (expand-file-name root)))))
 
+(defun jgy/project-files (&optional directory)
+  "Return every project card under DIRECTORY, defaulting to the workspaces."
+  (file-expand-wildcards
+   (expand-file-name "*/projects/*/project.md"
+                     (or directory jgy/workspace-directory))))
+
 (defun jgy/project--folders ()
   "Return the project folders of every workspace, newest first."
-  (sort (file-expand-wildcards
-         (expand-file-name "*/projects/*/project.md" jgy/workspace-directory))
-        #'file-newer-than-file-p))
+  (sort (jgy/project-files) #'file-newer-than-file-p))
 
 (defun jgy/project--read-workspace ()
   "Read a workspace name and return its projects folder."

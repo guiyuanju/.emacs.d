@@ -15,7 +15,6 @@
 (defvar agents-deepseek--balance nil)
 (defvar agents-deepseek--error nil)
 (defvar agents-deepseek--requested 0)
-(defvar agents-deepseek--updated nil)
 (defvar agents-deepseek--process nil)
 (defvar agents-deepseek-state-file
   (locate-user-emacs-file "var/deepseek-spending.json"))
@@ -145,7 +144,6 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                                  (setq agents-deepseek--balance
                                        (agents-deepseek--parse-balance
                                         (json-parse-buffer :object-type 'alist :array-type 'list))
-                                       agents-deepseek--updated (float-time)
                                        agents-deepseek--error nil)
                                  (agents-deepseek--record agents-deepseek--balance))
                              (error (setq agents-deepseek--error t)))

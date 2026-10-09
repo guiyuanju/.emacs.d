@@ -18,6 +18,7 @@
 (require 'diff-mode)
 (require 'project)
 (require 'seq)
+(require 'subr-x)
 (require 'tab-bar)
 
 (declare-function evil-define-key* "evil-core")

@@ -34,8 +34,7 @@
 
 (defun jgy-worklog--card-files ()
   "Return every project card file."
-  (file-expand-wildcards
-   (expand-file-name "*/projects/*/project.md" jgy-worklog-directory)))
+  (jgy/project-files jgy-worklog-directory))
 
 (defun jgy-worklog--parse (file)
   "Parse card FILE into a plist of :id :status :file :todos.
