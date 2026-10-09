@@ -7,6 +7,7 @@
 ;; 套餐用量（5 小时、7 天）从 bin/claude-statusline 写下的 `agents-usage-file' 读出。
 ;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件；
 ;; 给出 `brief'，看板就在 agent 那行末尾写它正在做什么。
+;; 看板上按 d 看文件或整个项目还没提交的改动；agent 那行写着本轮跑了多久。
 
 ;;; Code:
 
@@ -49,6 +50,11 @@
 (put 'agents--tab 'permanent-local t)
 
 (defvar agents--tab-id-counter 0)
+
+(defvar-local agents--turn nil
+  "Times the agent's latest turn started and finished, as (START . END).
+END is nil while the turn runs.")
+(put 'agents--turn 'permanent-local t)
 
 (defcustom agents-context-warning 70
   "Context usage percentage from which the dashboard highlights an agent."
@@ -265,7 +271,14 @@ Prompts for an agent to start when none is running."
 (defun agents-report (event)
   "Update the current agent buffer's status for EVENT.
 EVENT is `working', `finished' or `attention'; what it becomes depends on
-whether the agent is shown in the selected window."
+whether the agent is shown in the selected window.
+`working' after `finished' starts a turn, which `agents--turn' times."
+  ;; 按事件而不是状态分轮：等批准时看一眼会把 waiting 清成 idle，批准后不算新一轮。
+  (pcase event
+    ('working (when (or (null agents--turn) (cdr agents--turn))
+                (setq agents--turn (list (float-time)))))
+    ('finished (when (and agents--turn (null (cdr agents--turn)))
+                 (setcdr agents--turn (float-time)))))
   (pcase event
     ('finished (agents--set-status (if (agents--seen-p) 'idle 'done)))
     ('working (unless (eq agents-status 'waiting)
@@ -282,8 +295,16 @@ whether the agent is shown in the selected window."
                (memq (buffer-local-value 'agents-status buffer) '(done waiting)))
       (with-current-buffer buffer (agents--set-status 'idle)))))
 
+(defvar agents--turn-labels nil
+  "Turn durations as last drawn, to redraw when a running one ticks over.")
+
 (defun agents--context-scan ()
-  "Update each agent's context usage; an unknown value keeps the last one."
+  "Update each agent's context usage; an unknown value keeps the last one.
+Also redraws the dashboard when plan usage or a turn's duration changed."
+  (let ((labels (mapcar #'agents--turn-label (agents--buffers))))
+    (unless (equal labels agents--turn-labels)
+      (setq agents--turn-labels labels)
+      (agents--dashboard-schedule)))
   (dolist (buffer (agents--buffers))
     (with-current-buffer buffer
       (let ((used (when-let* ((context (agents--identity buffer 'context)))
@@ -372,17 +393,24 @@ Each is called with the dashboard's frame and usually inserts through
 `agents-dashboard-insert-section'.  A line whose text has the
 property `agents-action' runs that function on visit.")
 
+(defconst agents--dashboard-keys
+  '(("RET" . agents-dashboard-visit)
+    ("o" . agents-dashboard-visit)
+    ("d" . agents-dashboard-diff)
+    ("C-j" . agents-dashboard-next-tab)
+    ("C-k" . agents-dashboard-previous-tab)
+    ("C-S-j" . agents-dashboard-next-attention)
+    ("C-S-k" . agents-dashboard-previous-attention)
+    ("] a" . agents-dashboard-next-attention)
+    ("[ a" . agents-dashboard-previous-attention)
+    ("q" . agents-dashboard))
+  "Dashboard bindings in `keymap-set' syntax, for Emacs and evil's normal state.")
+
 (defvar-keymap agents-dashboard-mode-map
-  :parent special-mode-map
-  "RET" #'agents-dashboard-visit
-  "o" #'agents-dashboard-visit
-  "C-j" #'agents-dashboard-next-tab
-  "C-k" #'agents-dashboard-previous-tab
-  "C-S-j" #'agents-dashboard-next-attention
-  "C-S-k" #'agents-dashboard-previous-attention
-  "] a" #'agents-dashboard-next-attention
-  "[ a" #'agents-dashboard-previous-attention
-  "q" #'agents-dashboard)
+  :parent special-mode-map)
+
+(pcase-dolist (`(,key . ,command) agents--dashboard-keys)
+  (keymap-set agents-dashboard-mode-map key command))
 
 (define-derived-mode agents-dashboard-mode special-mode "Agents"
   "Agents grouped under the tab they were started in."
@@ -391,21 +419,15 @@ property `agents-action' runs that function on visit.")
               truncate-partial-width-windows nil
               word-wrap t
               word-wrap-by-category t)
+  ;; brief 按窗口宽度截断，宽度一变就得重画。
+  (add-hook 'window-size-change-functions #'agents--dashboard-resized nil t)
   (display-line-numbers-mode -1)
   (hl-line-mode 1))
 
 (with-eval-after-load 'evil
-  (evil-define-key* 'normal agents-dashboard-mode-map
-    (kbd "RET") #'agents-dashboard-visit
-    "o" #'agents-dashboard-visit
-    (kbd "C-j") #'agents-dashboard-next-tab
-    (kbd "C-k") #'agents-dashboard-previous-tab
-    (kbd "C-S-j") #'agents-dashboard-next-attention
-    (kbd "C-S-k") #'agents-dashboard-previous-attention
-    "]a" #'agents-dashboard-next-attention
-    "[a" #'agents-dashboard-previous-attention
-    "gr" #'revert-buffer
-    "q" #'agents-dashboard))
+  ;; normal state 下另加 gr 刷新。
+  (pcase-dolist (`(,key . ,command) (cons '("g r" . revert-buffer) agents--dashboard-keys))
+    (evil-define-key* 'normal agents-dashboard-mode-map (key-parse key) command)))
 
 (defun agents--dashboard-schedule ()
   "Re-render the dashboard soon, coalescing bursts of changes."
@@ -416,6 +438,9 @@ property `agents-action' runs that function on visit.")
                           (lambda ()
                             (setq agents--dashboard-timer nil)
                             (agents--dashboard-render))))))
+
+(defun agents--dashboard-resized (_window)
+  (agents--dashboard-schedule))
 
 (defun agents-dashboard-refresh ()
   "Re-render the dashboard soon; for frontends whose agent changed."
@@ -439,21 +464,12 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
 (defun agents--dashboard-line (buffer last &optional tab-name)
   "Insert the tree line for agent BUFFER; LAST picks the closing branch.
 The agent's project is named only when it differs from TAB-NAME."
-  (let* ((root (agents--identity buffer 'root))
-         (project (and root (file-name-nondirectory (directory-file-name root))))
-         (head (concat "  " (if last "└─ " "├─ ") (agents--glyph buffer) " "
-                       (or (agents--identity buffer 'agent) "agent")
-                       (if-let* ((used (buffer-local-value 'agents-context buffer)))
-                           (propertize (format " %d%%" used) 'face
-                                       (if (>= used agents-context-warning)
-                                           'warning
-                                         'shadow))
-                         "")
-                       (if (and project (not (equal project tab-name)))
-                           (propertize (concat " " project)
-                                       'face '(:inherit shadow :height 0.85))
-                         "")))
-         (brief (agents--brief buffer)))
+  (let ((head (concat (agents--tree-prefix last 'branch) (agents--glyph buffer) " "
+                      (or (agents--identity buffer 'agent) "agent")
+                      (agents--context-label buffer)
+                      (agents--turn-label buffer)
+                      (agents--project-label buffer tab-name)))
+        (brief (agents--brief buffer)))
     (insert (propertize (concat head
                                 (if brief (agents--brief-label buffer brief head) "")
                                 "\n")
@@ -461,8 +477,43 @@ The agent's project is named only when it differs from TAB-NAME."
                         'help-echo (if brief
                                        (concat (buffer-name buffer) "\n" brief)
                                      (buffer-name buffer))
-                        'wrap-prefix (if last "     " "  │  ")))
-    (agents--dashboard-files buffer (if last "       " "  │    "))))
+                        'wrap-prefix (agents--tree-prefix last 'wrap)))
+    (agents--dashboard-files buffer (agents--tree-prefix last 'file))))
+
+(defun agents--tree-prefix (last part)
+  "Tree drawing starting a line of an agent node; LAST picks the closing branch.
+PART is `branch' for the agent's own line, `wrap' for its continuation
+lines and `file' for the files listed under it."
+  (concat "  "
+          (cond ((eq part 'branch) (if last "└─ " "├─ "))
+                (last "   ")
+                (t "│  "))
+          (if (eq part 'file) "  " "")))
+
+(defun agents--context-label (buffer)
+  "Context usage of agent BUFFER, highlighted from `agents-context-warning'."
+  (if-let* ((used (buffer-local-value 'agents-context buffer)))
+      (propertize (format " %d%%" used)
+                  'face (if (>= used agents-context-warning) 'warning 'shadow))
+    ""))
+
+(defun agents--turn-label (buffer)
+  "How long agent BUFFER's latest turn has run, or ran, once past a minute."
+  (pcase (buffer-local-value 'agents--turn buffer)
+    (`(,start . ,end)
+     (let ((seconds (- (or end (float-time)) start)))
+       (if (>= seconds 60)
+           (propertize (concat " " (agents--duration seconds)) 'face 'shadow)
+         "")))
+    (_ "")))
+
+(defun agents--project-label (buffer tab-name)
+  "Name of agent BUFFER's project in small type, unless it is TAB-NAME."
+  (let* ((root (agents--identity buffer 'root))
+         (project (and root (file-name-nondirectory (directory-file-name root)))))
+    (if (and project (not (equal project tab-name)))
+        (propertize (concat " " project) 'face '(:inherit shadow :height 0.85))
+      "")))
 
 (defun agents--brief (buffer)
   "What agent BUFFER says it is doing, on one line, or nil."
@@ -535,6 +586,7 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
     (dolist (file (seq-take files agents-dashboard-files))
       (insert (propertize (concat prefix (agents--file-label file root) "\n")
                           'agents-buffer buffer
+                          'agents-file (alist-get 'file file)
                           'agents-action (lambda () (agents--visit-file buffer file))
                           'wrap-prefix prefix)))
     (when rest
@@ -575,8 +627,16 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
              (frame (if window (window-frame window) (selected-frame)))
              (tabs (funcall tab-bar-tabs-function frame))
              (agents (agents--buffers))
-             (here (get-text-property (point) 'agents-buffer))
+             ;; 光标所在的 agent 或 tab，及在它下面第几行、第几列；重画后回到原处。
+             (anchor (seq-some (lambda (prop)
+                                 (when-let* ((value (get-text-property (line-beginning-position)
+                                                                       prop)))
+                                   (cons prop value)))
+                               '(agents-buffer agents-tab)))
+             (offset (and anchor (count-lines (agents--dashboard-find anchor)
+                                              (line-beginning-position))))
              (line (line-number-at-pos))
+             (column (current-column))
              (inhibit-read-only t))
         (erase-buffer)
         (agents-dashboard-insert-section "Usage" #'agents--usage-insert)
@@ -594,24 +654,35 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
             do (unless first (insert "\n"))
             (insert (propertize (format "[%s]" (alist-get 'name tab))
                                 'face (if (eq (car tab) 'current-tab) '(bold success) 'bold)
-                                'agents-tab t)
+                                'agents-tab (or id (alist-get 'name tab)))
                     "\n")
             (setq agents (seq-difference agents owned))
             (cl-loop for (buffer . rest) on owned
                      do (agents--dashboard-line buffer (null rest) (alist-get 'name tab))))
            (when agents
              (when tabs (insert "\n"))
-             (insert (propertize "(tab closed)" 'face 'shadow 'agents-tab t) "\n")
+             (insert (propertize "(tab closed)" 'face 'shadow 'agents-tab 'closed) "\n")
              (cl-loop for (buffer . rest) on agents
                       do (agents--dashboard-line buffer (null rest))))))
         (run-hook-with-args 'agents-dashboard-functions frame)
         (setq mode-line-format (agents--dashboard-mode-line))
         (goto-char (point-min))
-        (if-let* ((pos (and here (text-property-any (point-min) (point-max)
-                                                    'agents-buffer here))))
-            (goto-char pos)
+        (if-let* ((pos (and anchor (agents--dashboard-find anchor))))
+            (progn
+              (goto-char pos)
+              (forward-line offset)
+              (unless (equal (get-text-property (point) (car anchor)) (cdr anchor))
+                (goto-char pos)))
           (forward-line (1- line)))
+        (move-to-column column)
         (when window (set-window-point window (point)))))))
+
+(defun agents--dashboard-find (anchor)
+  "Start of the first dashboard text whose property (car ANCHOR) is (cdr ANCHOR)."
+  (save-excursion
+    (goto-char (point-min))
+    (when-let* ((match (text-property-search-forward (car anchor) (cdr anchor) t)))
+      (prop-match-beginning match))))
 
 (defun agents--dashboard-attention-p (pos)
   "Non-nil when POS starts the first line of an agent needing attention."
@@ -709,6 +780,25 @@ the first one."
   ;; 看板是当前 tab 的侧窗，跟着到新 tab 里再开一份。
   (unless (get-buffer-window agents--dashboard-name)
     (agents--dashboard-display)))
+
+(defun agents-dashboard-diff ()
+  "Show the uncommitted changes to the file on this line in the agent's tab.
+On any other line of an agent, show those of its whole project."
+  (interactive)
+  (let* ((pos (line-beginning-position))
+         (buffer (or (get-text-property pos 'agents-buffer)
+                     (user-error "No agent on this line")))
+         (file (get-text-property pos 'agents-file))
+         (root (or (agents--identity buffer 'root) (user-error "Agent has no project"))))
+    (agents--visit buffer
+                   (lambda ()
+                     ;; git 在 default-directory 里跑；文件可能在项目里嵌套的另一个仓库。
+                     (let ((default-directory (if file (file-name-directory file) root)))
+                       (cond ((null file) (vc-root-diff nil t))
+                             ((vc-backend file) (vc-diff nil t (list (vc-backend file) (list file))))
+                             (t (find-file file)
+                                (message "%s is not under version control"
+                                         (file-name-nondirectory file)))))))))
 
 (defun agents--visit-file (buffer file)
   "Open FILE, edited by agent BUFFER, at its line in the agent's tab."

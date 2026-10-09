@@ -98,13 +98,16 @@ NEW may be the whole file or a fragment; nil when FILE no longer contains it."
               (map-elt call :locations))))
 
 (defun jgy/agent-shell--cached-changes (id call)
-  "`jgy/agent-shell--changes' of CALL, remembered under ID once it completed.
-The file is read only then, and later edits would move the text it looks for."
-  (if (equal (map-elt call :status) "completed")
-      (or (alist-get id jgy/agent-shell--changes-cache nil nil #'equal)
-          (setf (alist-get id jgy/agent-shell--changes-cache nil nil #'equal)
-                (jgy/agent-shell--changes call)))
-    (jgy/agent-shell--changes call)))
+  "`jgy/agent-shell--changes' of CALL, remembered under ID.
+Recomputed when CALL's status, diffs or locations change, as comparing
+whole files on each dashboard render adds up; never once it completed,
+as the file is read only then and later edits would move the text it looks for."
+  (let ((key (list (map-elt call :status) (map-elt call :diffs) (map-elt call :locations)))
+        (cached (alist-get id jgy/agent-shell--changes-cache nil nil #'equal)))
+    (if (and cached (or (equal (caar cached) "completed") (equal (car cached) key)))
+        (cdr cached)
+      (cdr (setf (alist-get id jgy/agent-shell--changes-cache nil nil #'equal)
+                 (cons key (jgy/agent-shell--changes call)))))))
 
 (defun jgy/agent-shell--files ()
   "Files this turn's tool calls wrote, for the `files' identity of agents.el.
