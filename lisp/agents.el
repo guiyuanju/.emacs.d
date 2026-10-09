@@ -345,18 +345,27 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
             agents--usage-minute (floor (float-time) 60))
       (agents--dashboard-schedule))))
 
+(defvar agents--claude-usage nil
+  "Claude's usage windows from the last file that carried any.")
+
 (defun agents-usage-claude ()
-  "Claude's plan usage, as bin/claude-statusline saved it in `agents-usage-file'."
-  (when-let* ((usage (ignore-errors
-                       (with-temp-buffer
-                         (insert-file-contents agents-usage-file)
-                         (json-parse-buffer :object-type 'alist :null-object nil)))))
-    (cons "claude"
-          (cl-loop for (key . label) in '((five_hour . "5h") (seven_day . "7d"))
-                   for window = (alist-get key usage)
-                   when (alist-get 'used_percentage window)
-                   collect (list label it (let ((resets (alist-get 'resets_at window)))
-                                            (and (numberp resets) resets)))))))
+  "Claude's plan usage, as bin/claude-statusline saved it in `agents-usage-file'.
+A file without any windows, or none at all, keeps the last reading, so the
+row stays visible while Claude Code reconnects instead of dropping out."
+  (let ((usage (ignore-errors
+                 (with-temp-buffer
+                   (insert-file-contents agents-usage-file)
+                   (json-parse-buffer :object-type 'alist :null-object nil)))))
+    (when-let* ((windows
+                 (when usage
+                   (cl-loop for (key . label) in '((five_hour . "5h") (seven_day . "7d"))
+                            for window = (alist-get key usage)
+                            when (alist-get 'used_percentage window)
+                            collect (list label it (let ((resets (alist-get 'resets_at window)))
+                                                     (and (numberp resets) resets)))))))
+      (setq agents--claude-usage windows))
+    (when agents--claude-usage
+      (cons "claude" agents--claude-usage))))
 
 (defun agents--codex-logs ()
   "Codex session logs, newest first.
