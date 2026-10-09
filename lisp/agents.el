@@ -114,8 +114,10 @@ for a metric without a bar.  WINDOWS may also be a string of text rows."
 Keys: `kind' is `agent'; `agent' its name; `root' its directory; `insert' a
 function inserting a string into its input; `context' a function returning
 its context usage percentage or nil; `files' a function returning the files
-it edited this turn, in the order first edited, as alists with keys `file'
+it edited this turn, in provider edit order, as alists with keys `file'
 \(absolute), `added', `removed', `active' (still being written) and `line';
+`diff' may hold a cached turn patch (an empty string means no net change);
+`directory' is the base directory for paths in that patch.
 `brief' a function returning a line on what it is doing, or nil.")
 (put 'agents-identity 'permanent-local t)
 
@@ -1012,12 +1014,15 @@ On any other line of an agent, show those of its whole project."
                             (setq agents--diff-timer nil)
                             (agents--diff-update))))))
 
-(defun agents--diff-latest (old new)
+(defun agents--diff-latest (old new &optional current)
   "The entry of NEW, a `files' identity, changed since OLD, or nil.
-Of several, the one still being written, else the last."
+Of several, prefer the active file or CURRENT; keep an unchanged CURRENT."
   (let ((changed (seq-remove (lambda (file) (member file old)) new)))
     (or (seq-find (lambda (file) (alist-get 'active file)) changed)
-        (car (last changed)))))
+        (seq-find (lambda (file) (equal (alist-get 'file file) current)) changed)
+        (unless (and (> (length changed) 1)
+                     (seq-find (lambda (file) (equal (alist-get 'file file) current)) new))
+          (car (last changed))))))
 
 (defun agents--diff-insert (file)
   "Insert FILE's uncommitted changes, or the whole file when git does not track it."
@@ -1049,10 +1054,16 @@ FILE is an entry of its `files' identity; point goes to the hunk at its line."
         (path (alist-get 'file file)))
     (with-current-buffer diff
       (let ((inhibit-read-only t))
-        (agents--diff-insert path)
+        (if (assq 'diff file)
+            (progn
+              (erase-buffer)
+              (insert (or (alist-get 'diff file) ""))
+              (when (zerop (buffer-size)) (insert "No net changes this turn.\n")))
+          (agents--diff-insert path))
         (unless (derived-mode-p 'diff-mode) (diff-mode))
         (setq buffer-read-only t
-              default-directory (file-name-directory path))))
+              header-line-format (and (assq 'diff file) "This turn · file changes")
+              default-directory (or (alist-get 'directory file) (file-name-directory path)))))
     (let* ((anchor (or (get-buffer-window buffer)
                        (get-mru-window nil nil t)))
            (window (display-buffer
@@ -1077,7 +1088,7 @@ Agents in other tabs catch up when their tab is selected."
   (dolist (buffer (agents--buffers))
     (when-let* ((state (buffer-local-value 'agents--diff-follow buffer)))
       (let* ((files (agents--files buffer))
-             (latest (agents--diff-latest (plist-get state :files) files))
+             (latest (agents--diff-latest (plist-get state :files) files (plist-get state :file)))
              (file (or latest
                        (and (plist-get state :pending)
                             (seq-find (lambda (file)
