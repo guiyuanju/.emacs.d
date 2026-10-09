@@ -6,6 +6,7 @@
 ;; 按 bin/claude-statusline 的格式写进 `agents-usage-file'。
 ;; 本轮写盘的工具调用经 identity 的 `files' 交给看板，行数由 oldText/newText 算出。
 ;; identity 的 `brief' 依次取等待批准的工具调用、plan 里进行中的一项、最近一次工具调用。
+;; shell 命令改的文件不经编辑工具：每条命令跑完对比项目里 git 仓库的改动，新变的文件也交给看板。
 
 ;;; Code:
 
@@ -109,6 +110,58 @@ as the file is read only then and later edits would move the text it looks for."
       (cdr (setf (alist-get id jgy/agent-shell--changes-cache nil nil #'equal)
                  (cons key (jgy/agent-shell--changes call)))))))
 
+(defvar-local jgy/agent-shell--dirty nil
+  "Files git saw changed in the project at the last scan, as (FILE . MTIME).")
+
+(defvar-local jgy/agent-shell--shell-changes nil
+  "Files this turn's shell commands changed, newest first.
+Each is (FILE ADDED REMOVED MTIME), counted against git's last commit.")
+
+(defun jgy/agent-shell--repos (root)
+  "ROOT and the git repositories directly in it.
+Projects keep code repositories in subdirectories ROOT's repository ignores."
+  (cons root (seq-filter (lambda (dir) (file-exists-p (expand-file-name ".git" dir)))
+                         (directory-files root t "\\`[^.]" t))))
+
+(defun jgy/agent-shell--dirty-files (root)
+  "Changed and untracked files git sees under ROOT, as (FILE . MTIME)."
+  (let (files)
+    (dolist (dir (jgy/agent-shell--repos root))
+      (let ((default-directory (file-name-as-directory dir)))
+        (with-temp-buffer
+          (when (eq 0 (process-file "git" nil t nil "ls-files" "-z" "--modified"
+                                    "--others" "--exclude-standard" "--" "."))
+            (dolist (name (split-string (buffer-string) "\0" t))
+              (let ((file (expand-file-name name)))
+                (when-let* ((attributes (file-attributes file)))
+                  (push (cons file (file-attribute-modification-time attributes)) files))))))))
+    files))
+
+(defun jgy/agent-shell--git-counts (file)
+  "Lines (ADDED REMOVED) in FILE since git's last commit; all added when untracked."
+  (let ((default-directory (file-name-directory file)))
+    (with-temp-buffer
+      (if (and (eq 0 (process-file "git" nil t nil "diff" "--numstat" "HEAD" "--"
+                                   (file-name-nondirectory file)))
+               (re-search-backward "^\\([0-9]+\\)\t\\([0-9]+\\)" nil t))
+          (list (string-to-number (match-string 1)) (string-to-number (match-string 2)))
+        (erase-buffer)
+        (insert-file-contents file)
+        (list (count-lines (point-min) (point-max)) 0)))))
+
+(defun jgy/agent-shell--scan-shell-changes ()
+  "Record files git sees changed since the last scan as shell changes."
+  (when-let* ((root (alist-get 'root agents-identity))
+              (dirty (jgy/agent-shell--dirty-files root)))
+    (let (changed)
+      (pcase-dolist (`(,file . ,mtime) dirty)
+        (unless (equal mtime (alist-get file jgy/agent-shell--dirty nil nil #'equal))
+          (setf (alist-get file jgy/agent-shell--shell-changes nil nil #'equal)
+                (append (jgy/agent-shell--git-counts file) (list mtime)))
+          (setq changed t)))
+      (setq jgy/agent-shell--dirty dirty)
+      (when changed (agents-dashboard-refresh)))))
+
 (defun jgy/agent-shell--files ()
   "Files this turn's tool calls wrote, for the `files' identity of agents.el.
 Failed calls count only toward files another call already wrote."
@@ -131,6 +184,13 @@ Failed calls count only toward files another call already wrote."
                   (setf (alist-get 'active entry) t))
                 (when line
                   (setf (alist-get 'line entry) line))))))))
+    ;; `setf' 把新文件放在 alist 头上，倒过来才是先改的在前。
+    (pcase-dolist (`(,file ,added ,removed ,mtime) (reverse jgy/agent-shell--shell-changes))
+      (unless (seq-find (lambda (entry) (equal (alist-get 'file entry) file)) files)
+        ;; mtime 让看板分得出同样行数的又一次改动。
+        (setq files (nconc files (list (list (cons 'file file) (cons 'added added)
+                                             (cons 'removed removed) (cons 'active nil)
+                                             (cons 'line nil) (cons 'mtime mtime)))))))
     files))
 
 (defvar-local jgy/agent-shell--asking nil
@@ -181,10 +241,16 @@ Prefers its description, as the title of a shell command is the command."
            jgy/agent-shell--changes-cache nil
            jgy/agent-shell--asking nil
            jgy/agent-shell--plan-step nil
-           jgy/agent-shell--last-tool nil)
+           jgy/agent-shell--last-tool nil
+           jgy/agent-shell--shell-changes nil
+           jgy/agent-shell--dirty (ignore-errors
+                                    (jgy/agent-shell--dirty-files (alist-get 'root agents-identity))))
      (agents-dashboard-refresh))
     ('tool-call-update
      (jgy/agent-shell--track-edit (map-elt event :data))
+     (when (and (equal (map-nested-elt event '(:data :tool-call :kind)) "execute")
+                (member (map-nested-elt event '(:data :tool-call :status)) '("completed" "failed")))
+       (ignore-errors (jgy/agent-shell--scan-shell-changes)))
      (when-let* ((title (jgy/agent-shell--tool-title (map-elt event :data))))
        (jgy/agent-shell--set-brief 'jgy/agent-shell--last-tool title)))
     ('permission-request
