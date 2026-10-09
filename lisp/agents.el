@@ -379,7 +379,7 @@ row stays visible while Claude Code reconnects instead of dropping out."
                         'help-echo "RET opens Claude's usage page")
             agents--claude-usage))))
 
-(defcustom agents-codex-usage-url "https://chatgpt.com/codex/settings/usage"
+(defcustom agents-codex-usage-url "https://chatgpt.com/settings/usage?tab=overview"
   "Page the dashboard's Codex usage row opens on RET."
   :type 'string)
 
