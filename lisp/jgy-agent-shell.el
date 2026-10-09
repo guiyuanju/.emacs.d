@@ -35,9 +35,45 @@
                                        (or (bound-and-true-p no-littering-var-directory)
                                            user-emacs-directory)))))
 
+(defvar-local jgy/agent-shell--edited-files nil
+  "Files reported by editing tools this turn, without filesystem scans.")
+
 (defun jgy/agent-shell--files ()
-  "Return cached file changes relative to the start of this turn."
-  jgy-agent-diff--files)
+  "Return scanned changes plus files reported directly by editing tools."
+  (append jgy-agent-diff--files
+          (cl-remove-if
+           (lambda (entry)
+             (assoc (alist-get 'file entry)
+                    (mapcar (lambda (file) (cons (alist-get 'file file) t))
+                            jgy-agent-diff--files)))
+           jgy/agent-shell--edited-files)))
+
+(defun jgy/agent-shell--track-files (tool)
+  "Remember explicit edits from TOOL without Git, file reads or copies."
+  (let* ((diffs (map-elt tool :diffs))
+         (editing (or diffs (member (map-elt tool :kind) '("edit" "delete" "move"))))
+         (root (alist-get 'root agents-identity))
+         (active (not (member (map-elt tool :status) '("completed" "failed"))))
+         hints)
+    (when (and editing root)
+      (dolist (diff (append diffs nil))
+        (when-let* ((path (map-elt diff :file)))
+          (push (cons path (map-elt diff :line)) hints)))
+      (dolist (location (append (map-elt tool :locations) nil))
+        (when-let* ((path (map-elt location 'path)))
+          (push (cons path (map-elt location 'line)) hints)))
+      (dolist (hint hints)
+        (let* ((path (expand-file-name (car hint) root))
+               (entry (seq-find (lambda (file) (equal (alist-get 'file file) path))
+                                jgy/agent-shell--edited-files)))
+          (unless entry
+            (setq entry `((file . ,path) (directory . ,root) (added . 0) (removed . 0)
+                          (active . nil) (line . nil)))
+            (setq jgy/agent-shell--edited-files
+                  (append jgy/agent-shell--edited-files (list entry))))
+          (setf (alist-get 'active entry) active)
+          (when (cdr hint) (setf (alist-get 'line entry) (cdr hint)))))
+      (when hints (agents-dashboard-refresh)))))
 
 (defvar-local jgy/agent-shell--asking nil
   "Title of the tool call waiting for permission, or nil.")
@@ -96,7 +132,8 @@ Prefers its description, as the title of a shell command is the command."
            jgy/agent-shell--plan-step nil
            jgy/agent-shell--last-tool nil)
      (jgy/agent-shell--follow-diff agents--diff-follow)
-     (setq jgy-agent-diff--files nil)
+     (setq jgy-agent-diff--files nil
+           jgy/agent-shell--edited-files nil)
      (when agents--diff-follow
        (setq agents--diff-follow (plist-put agents--diff-follow :files nil)))
      (when-let* ((diff (get-buffer (agents--diff-buffer-name (current-buffer)))))
@@ -104,12 +141,15 @@ Prefers its description, as the title of a shell command is the command."
          (setq header-line-format "Previous turn · waiting for changes")))
      (agents-dashboard-refresh))
     ('tool-call-update
+     (jgy/agent-shell--track-files (map-nested-elt event '(:data :tool-call)))
      (when agents--diff-follow
        (jgy-agent-diff-tool (map-nested-elt event '(:data :tool-call-id))
                             (map-nested-elt event '(:data :tool-call))))
      (when-let* ((title (jgy/agent-shell--tool-title (map-elt event :data))))
        (jgy/agent-shell--set-brief 'jgy/agent-shell--last-tool title)))
     ((or 'turn-complete 'error)
+     (dolist (file jgy/agent-shell--edited-files)
+       (setf (alist-get 'active file) nil))
      (when agents--diff-follow (jgy-agent-diff-request nil nil t)))
     ('clean-up (jgy-agent-diff-cancel))
     ('permission-request
