@@ -1,7 +1,7 @@
 ;;; jgy-project.el --- Project folders opened as tab workspaces -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 一个项目一个文件夹（含 project.md 和 clone 进来的仓库），一个同名 tab。
+;; 一个项目一个 git 仓库（含 project.md，代码仓库作为 submodule），一个同名 tab。
 
 ;;; Code:
 
@@ -9,7 +9,9 @@
 (require 'subr-x)
 (require 'tab-bar)
 
-(declare-function magit-clone-regular "magit-clone")
+(declare-function magit-call-git "magit-process")
+(declare-function magit-submodule-add-1 "magit-submodule")
+(defvar magit-this-process)
 
 (defvar jgy/code-directory "~/Code/okj/"
   "Directory containing the main Git checkouts, used as clone sources.")
@@ -32,13 +34,21 @@
                                                 (expand-file-name "project.md" b))))))
 
 (defun jgy/project--create (id title)
-  "Create the folder and project.md for ID with TITLE."
-  (let ((file (expand-file-name (concat id "/project.md") jgy/project-directory)))
-    (make-directory (file-name-directory file) t)
+  "Create the repository and project.md for ID with TITLE."
+  (let* ((default-directory (file-name-as-directory
+                             (expand-file-name id jgy/project-directory)))
+         (file (expand-file-name "project.md")))
+    (make-directory default-directory t)
     (with-temp-file file
       (insert (format "---\nid: %s\ntitle: %s\nstatus: active\nstart: %s\nend:\n---\n\n"
                       id title (format-time-string "%F"))
               "## 目标\n\n## Todo\n\n## 资源\n\n## 成果\n\n## 日志\n"))
+    (with-temp-file ".gitignore" (insert ".DS_Store\n"))
+    (dolist (args `(("init" "-q" "-b" "main")
+                    ("add" "project.md" ".gitignore")
+                    ("commit" "-q" "-m" ,(concat "Init " id))))
+      (unless (zerop (apply #'call-process "git" nil nil nil args))
+        (user-error "git %s failed in %s" (car args) default-directory)))
     file))
 
 (defun jgy/project-open (id)
@@ -58,7 +68,8 @@
                                                 (user-error "Not inside a project folder")))))
 
 (defun jgy/project-clone (repo)
-  "Clone REPO from `jgy/code-directory''s origin into the current project."
+  "Add REPO's origin as a submodule of the current project.
+REPO is a checkout under `jgy/code-directory'."
   (interactive
    (list (completing-read
           "Repository: "
@@ -69,12 +80,20 @@
                                        directory-files-no-dot-files-regexp))
           nil t)))
   (let* ((root (or (jgy/project-root) (user-error "Not inside a project folder")))
-         (target (expand-file-name repo root))
+         (default-directory root)
          (url (car (process-lines "git" "-C" (expand-file-name repo jgy/code-directory)
                                   "remote" "get-url" "origin"))))
-    (when (file-exists-p target) (user-error "%s already exists" target))
-    (require 'magit-clone)
-    (magit-clone-regular url target nil)))
+    (when (file-exists-p repo) (user-error "%s already exists" (expand-file-name repo)))
+    (require 'magit-submodule)
+    (magit-submodule-add-1 url repo repo)
+    ;; 代码仓库里的提交不让项目仓库显示为改动。
+    (add-function :after (process-sentinel magit-this-process)
+                  (lambda (process _event)
+                    (when (and (eq (process-status process) 'exit)
+                               (zerop (process-exit-status process)))
+                      (let ((default-directory root))
+                        (magit-call-git "config" "-f" ".gitmodules"
+                                        (format "submodule.%s.ignore" repo) "all")))))))
 
 (defun jgy/project--glab-json (&rest args)
   "Return the parsed JSON output of glab ARGS."

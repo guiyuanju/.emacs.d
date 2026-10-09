@@ -137,7 +137,7 @@ Outside a project folder, list every #now or #waiting todo instead."
 (defcustom jgy-worklog-hints
   '(("项目"
      ("SPC TAB o" . "打开 / 新建项目")
-     ("SPC TAB c" . "clone 仓库到项目")
+     ("SPC TAB c" . "加代码仓库（submodule）")
      ("SPC TAB p" . "打开 project.md")
      ("SPC a c" . "在项目根启动 agent"))
     ("对 agent 说"
