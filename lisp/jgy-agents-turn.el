@@ -9,6 +9,7 @@
 (require 'subr-x)
 (require 'generator)
 (require 'map)
+(require 'seq)
 
 (defvar-local jgy-agents-turn--repos nil)
 (defvar-local jgy-agents-turn--files nil)
@@ -204,108 +205,132 @@ FINAL requests a last full verification and stops accepting tool events."
            ((not (member kind '("read" "search" "think" "fetch" "switch_mode")))
             (jgy-agents-turn-request))))))))
 
+(defun jgy-agents-turn--owner (path)
+  "The repository owning PATH: the deepest one containing it."
+  (let (owner)
+    (dolist (repo jgy-agents-turn--repos owner)
+      (when (and (string-prefix-p (plist-get repo :dir) path)
+                 (or (null owner)
+                     (> (length (plist-get repo :dir)) (length (plist-get owner :dir)))))
+        (setq owner repo)))))
+
+(iter-defun jgy-agents-turn--repo-paths (repo requested)
+  "Names to scan in REPO: the REQUESTED absolute paths it owns, or when
+REQUESTED is t, every path changed from its commit, untracked, or seen."
+  (let ((dir (plist-get repo :dir)))
+    (if (eq requested t)
+        (delete-dups
+         (append
+          (split-string (jgy-agents-turn--await
+                         dir (cons "git" (jgy-agents-turn--changed-args (plist-get repo :head))))
+                        "\0" t)
+          (split-string (jgy-agents-turn--await
+                         dir (cons "git" (jgy-agents-turn--untracked-args)))
+                        "\0" t)
+          (hash-table-keys (plist-get repo :last))))
+      (mapcar (lambda (path) (file-relative-name path dir))
+              (seq-filter (lambda (path) (eq repo (jgy-agents-turn--owner path)))
+                          requested)))))
+
+(iter-defun jgy-agents-turn--baseline (repo name)
+  "NAME's text in REPO's starting commit, nil when absent, or `skip'."
+  (let* ((dir (plist-get repo :dir))
+         (head (plist-get repo :head))
+         (object (and head (concat head ":" (plist-get repo :prefix) name)))
+         (size (and object (iter-yield (list dir "git" "cat-file" "-s" object))))
+         (text (cond ((not (eq (car size) 0)) nil)
+                     ((> (string-to-number (cdr size)) jgy-agents-turn--limit) 'skip)
+                     (t (jgy-agents-turn--await dir (list "git" "show" object))))))
+    (if (and (stringp text) (string-match-p "\0" text)) 'skip text)))
+
+(iter-defun jgy-agents-turn--patch (dir name before after)
+  "Unified diff of NAME from text BEFORE to AFTER, either nil when absent."
+  (let ((old (make-temp-file "agent-before-"))
+        (new (make-temp-file "agent-after-"))
+        (from (if before (concat "a/" name) "/dev/null"))
+        (to (if after (concat "b/" name) "/dev/null")))
+    (setq jgy-agents-turn--temporary (list old new))
+    (unwind-protect
+        (let ((coding-system-for-write 'utf-8-unix))
+          (with-temp-file old (insert (or before "")))
+          (with-temp-file new (insert (or after "")))
+          (let ((result (iter-yield (list dir "diff" "-u" "--label" from "--label" to old new))))
+            (unless (memq (car result) '(0 1)) (error "Cannot compute turn diff"))
+            ;; An empty file appearing or vanishing has no hunks, but still a header.
+            (if (and (string-empty-p (cdr result)) (not (eq (null before) (null after))))
+                (format "--- %s\n+++ %s\n" from to)
+              (cdr result))))
+      (delete-file old) (delete-file new)
+      (setq jgy-agents-turn--temporary nil))))
+
+(iter-defun jgy-agents-turn--scan-path (repo name hint targeted verify)
+  "Rescan NAME in REPO; return its new file entry when its text changed.
+HINT is (PATH . LINE) from a tool event.  TARGETED checks Git's ignore
+rules, which the full listing applies already.  VERIFY reads the file
+even when its stamp is unchanged."
+  (let* ((dir (plist-get repo :dir))
+         (base (plist-get repo :base))
+         (last (plist-get repo :last))
+         (stamps (plist-get repo :stamps))
+         (path (expand-file-name name dir))
+         (stamp (jgy-agents-turn--stamp path))
+         entry)
+    (unless (or (and targeted
+                     (eq 0 (car (iter-yield (list dir "git" "check-ignore" "-q" "--" name)))))
+                (and (not verify) (not hint)
+                     (equal stamp (gethash name stamps 'unknown))))
+      (let ((before (gethash name base 'unknown)))
+        (when (eq before 'unknown)
+          (setq before (iter-yield-from (jgy-agents-turn--baseline repo name)))
+          (puthash name before base))
+        (let ((after (jgy-agents-turn--read path)))
+          (unless (equal after (gethash name last before))
+            (unless (or (eq before 'skip) (eq after 'skip))
+              (setq entry (jgy-agents-turn--entry
+                           path (iter-yield-from (jgy-agents-turn--patch dir name before after))
+                           dir))
+              (when (integerp (cdr hint))
+                (setf (alist-get 'line entry) (cdr hint))))
+            (puthash name after last))
+          (puthash name stamp stamps))))
+    entry))
+
+(defun jgy-agents-turn--publish (entry)
+  "Put ENTRY last in this turn's files, replacing its file's earlier entry."
+  (setq jgy-agents-turn--files
+        (append (cl-remove (alist-get 'file entry) jgy-agents-turn--files
+                           :key (lambda (row) (alist-get 'file row)) :test #'equal)
+                (list entry))))
+
+(defun jgy-agents-turn--mark-active (focus changed)
+  "Mark FOCUS active when this scan CHANGED it, and no other file.
+Only the most recent unambiguous edit chooses the focus; discovery order
+from Git does not imply edit order."
+  (setq jgy-agents-turn--files
+        (mapcar (lambda (entry)
+                  (let ((copy (copy-tree entry)))
+                    (setf (alist-get 'active copy)
+                          (and (member focus changed)
+                               (equal (alist-get 'file copy) focus)))
+                    copy))
+                jgy-agents-turn--files)))
+
 (iter-defun jgy-agents-turn--work (requested hints focus verify)
   "Scan REQUESTED paths or all paths (t), yielding external commands."
-  (let (changed changed-paths)
+  (let (changed)
     (dolist (repo jgy-agents-turn--repos)
       (condition-case err
-          (let* ((dir (plist-get repo :dir))
-                 (head (plist-get repo :head))
-                 (base (plist-get repo :base))
-                 (last (plist-get repo :last))
-                 (stamps (or (plist-get repo :stamps)
-                             (let ((table (make-hash-table :test #'equal)))
-                               (setf (plist-get repo :stamps) table) table)))
-                 (paths
-                  (if (eq requested t)
-                      (delete-dups
-                       (append
-                        (split-string
-                         (jgy-agents-turn--await
-                          dir (cons "git" (jgy-agents-turn--changed-args head))) "\0" t)
-                        (split-string
-                         (jgy-agents-turn--await
-                          dir (cons "git" (jgy-agents-turn--untracked-args))) "\0" t)
-                        (hash-table-keys last)))
-                    (mapcar (lambda (path) (file-relative-name path dir))
-                            (cl-remove-if-not
-                             (lambda (path)
-                               ;; A nested repository owns its own files.
-                               (eq repo (car (sort
-                                              (cl-remove-if-not
-                                               (lambda (candidate)
-                                                 (string-prefix-p (plist-get candidate :dir) path))
-                                               (copy-sequence jgy-agents-turn--repos))
-                                              (lambda (a b) (> (length (plist-get a :dir))
-                                                               (length (plist-get b :dir))))))))
-                             requested)))))
-            (dolist (name paths)
-              (let* ((path (expand-file-name name dir))
-                     (before (gethash name base 'unknown))
-                     (hint (assoc path hints))
-                     (stamp (jgy-agents-turn--stamp path))
-                     ;; Honor the same ignored-file boundary on the fast path.
-                     (ignored (and (not (eq requested t))
-                                   (eq 0 (car (iter-yield
-                                              (list dir "git" "check-ignore" "-q" "--" name)))))))
-                (unless (or ignored
-                            (and (not verify) (not hint)
-                                 (equal stamp (gethash name stamps 'unknown))))
-                  (when (eq before 'unknown)
-                    (let* ((object (and head (concat head ":" (plist-get repo :prefix) name)))
-                           (result (and object (iter-yield (list dir "git" "cat-file" "-s" object)))))
-                      (setq before
-                            (cond ((or (null result) (not (eq (car result) 0))) nil)
-                                  ((> (string-to-number (cdr result)) jgy-agents-turn--limit) 'skip)
-                                  (t (jgy-agents-turn--await dir (list "git" "show" object)))))
-                      (when (and (stringp before) (string-match-p "\0" before))
-                        (setq before 'skip))
-                      (puthash name before base)))
-                  (let ((after (jgy-agents-turn--read path)))
-                    (unless (equal after (gethash name last before))
-                      (unless (or (eq before 'skip) (eq after 'skip))
-                        (let ((old (make-temp-file "agent-before-"))
-                              (new (make-temp-file "agent-after-")))
-                          (setq jgy-agents-turn--temporary (list old new))
-                          (unwind-protect
-                              (let ((coding-system-for-write 'utf-8-unix))
-                                (with-temp-file old (insert (or before "")))
-                                (with-temp-file new (insert (or after "")))
-                                (let* ((result (iter-yield
-                                                (list dir "diff" "-u" "--label"
-                                                      (if before (concat "a/" name) "/dev/null")
-                                                      "--label" (if after (concat "b/" name) "/dev/null")
-                                                      old new)))
-                                       (patch (cdr result)))
-                                  (unless (memq (car result) '(0 1)) (error "Cannot compute turn diff"))
-                                  (when (and (string-empty-p patch) (not (eq (null before) (null after))))
-                                    (setq patch (format "--- %s\n+++ %s\n"
-                                                        (if before (concat "a/" name) "/dev/null")
-                                                        (if after (concat "b/" name) "/dev/null"))))
-                                  (let ((entry (jgy-agents-turn--entry path patch dir)))
-                                    (when (and hint (integerp (cdr hint)))
-                                      (setf (alist-get 'line entry) (cdr hint)))
-                                    (setq jgy-agents-turn--files
-                                          (append (cl-remove path jgy-agents-turn--files
-                                                             :key (lambda (row) (alist-get 'file row)) :test #'equal)
-                                                  (list entry))
-                                          changed t)
-                                    (push path changed-paths))))
-                            (delete-file old) (delete-file new)
-                            (setq jgy-agents-turn--temporary nil))))
-                      (puthash name after last))
-                    (puthash name stamp stamps))))))
+          (dolist (name (iter-yield-from (jgy-agents-turn--repo-paths repo requested)))
+            (let* ((hint (assoc (expand-file-name name (plist-get repo :dir)) hints))
+                   (entry (iter-yield-from
+                           (jgy-agents-turn--scan-path repo name hint
+                                                       (not (eq requested t)) verify))))
+              (when entry
+                (jgy-agents-turn--publish entry)
+                (push (alist-get 'file entry) changed))))
         (error (message "Turn diff refresh failed: %s" (error-message-string err)))))
-    ;; Only the most recent unambiguous edit chooses the focus.  Discovery
-    ;; order from Git does not imply edit order.
     (when changed
-      (setq jgy-agents-turn--files
-            (mapcar (lambda (entry)
-                      (let ((copy (copy-tree entry)))
-                        (setf (alist-get 'active copy)
-                              (and (member focus changed-paths)
-                                   (equal (alist-get 'file copy) focus)))
-                        copy)) jgy-agents-turn--files))
+      (jgy-agents-turn--mark-active focus changed)
       (run-hooks 'jgy-agents-turn-update-hook))))
 
 (defun jgy-agents-turn--start ()
