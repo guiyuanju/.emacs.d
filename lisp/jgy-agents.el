@@ -403,9 +403,8 @@ Binds it in evil's normal state too."
               truncate-partial-width-windows nil
               word-wrap t
               word-wrap-by-category t
-              ;; 没有左右边距，整行底色才能顶到窗口两边。
-              left-margin-width 0
-              right-margin-width 0
+              left-margin-width 1
+              right-margin-width 1
               ;; mode line 和别的窗口一样，写看板名和 agent 数目。
               mode-line-format '(:eval (agents--dashboard-mode-line)))
   ;; brief 按窗口宽度截断，宽度一变就得重画。
@@ -436,10 +435,7 @@ Binds it in evil's normal state too."
   (agents--diff-schedule))
 
 (defface agents-section
-  '((((background dark)) :inherit (font-lock-keyword-face bold)
-     :background "#2f3540" :extend t)
-    (t :inherit (font-lock-keyword-face bold)
-       :background "#dce1e8" :extend t))
+  '((t :inherit (font-lock-keyword-face bold)))
   "Face for dashboard section titles.")
 
 (defface agents-waiting-line
@@ -452,45 +448,14 @@ Binds it in evil's normal state too."
     (t :background "#e2f5e6" :extend t))
   "Face added to the dashboard line of an agent that finished unseen.")
 
-(defface agents-tab-heading
-  '((t :inherit shadow))
-  "Face of an inactive tab heading in the agents dashboard.")
-
-(defface agents-tab-heading-current
-  '((((background dark)) :inherit bold :background "#3b4a5c" :extend t)
-    (t :inherit bold :background "#ccd9e8" :extend t))
-  "Face of the current tab's heading in the agents dashboard.")
-
 (defun agents-dashboard-heading (name &optional current)
   "NAME as a dashboard heading, highlighted when CURRENT."
   (propertize name 'face (if current '(success bold) 'bold)))
 
-(defconst agents--tab-prefix "│ "
-  "Prefix of a tab heading in the agents dashboard.")
-
-(defun agents--dashboard-columns ()
-  "Columns a full-width dashboard line may fill, leaving the wrap column free."
-  (let ((window (get-buffer-window (current-buffer) t)))
-    (1- (if window (window-body-width window) agents-dashboard-width))))
-
-(defun agents--pad-line (text)
-  "TEXT filled with spaces to `agents--dashboard-columns'.
-Lets a background cover the whole row, since `:extend' only paints the
-space after the last character."
-  (concat text (make-string (max 0 (- (agents--dashboard-columns) (string-width text))) ?\s)))
-
-(defun agents--tab-heading (text current)
-  "TEXT prefixed as a tab heading, filled and banded when CURRENT."
-  (let ((heading (agents--pad-line (concat agents--tab-prefix text))))
-    (add-face-text-property 0 (length heading)
-                            (if current 'agents-tab-heading-current 'agents-tab-heading)
-                            t heading)
-    heading))
-
 (defun agents--section-title (title)
-  "Line for section TITLE, filled to the window, keeping TITLE's properties."
-  (let ((line (concat (agents--pad-line title) "\n")))
-    (add-face-text-property 0 (1- (length line)) 'agents-section t line)
+  "Line for section TITLE, carrying TITLE's text properties to its end."
+  (let ((line (concat title "\n")))
+    (add-face-text-property 0 (length title) 'agents-section t line)
     ;; 在标题行哪里按 RET 都算，比如 Todo 标题上的 `agents-action'。
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
@@ -708,8 +673,8 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                             (equal id (buffer-local-value 'agents--tab buffer)))
                           agents))
      do (unless first (insert "\n"))
-     (insert (propertize (agents--tab-heading (alist-get 'name tab)
-                                              (eq (car tab) 'current-tab))
+     (insert (propertize (agents-dashboard-heading (alist-get 'name tab)
+                                                   (eq (car tab) 'current-tab))
                          'agents-tab (or id (alist-get 'name tab)))
              "\n")
      (setq agents (seq-difference agents owned))
@@ -717,9 +682,7 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
        (agents--dashboard-line buffer (alist-get 'name tab))))
     (when agents
       (when tabs (insert "\n"))
-      (insert (propertize (agents--tab-heading "tab closed" nil)
-                          'agents-tab 'closed)
-              "\n")
+      (insert (propertize "tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
       (dolist (buffer agents)
         (agents--dashboard-line buffer)))))
 
