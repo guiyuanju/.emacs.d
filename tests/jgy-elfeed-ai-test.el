@@ -1,4 +1,4 @@
-;;; elfeed-digest-test.el --- Digest navigation tests -*- lexical-binding: t; -*-
+;;; jgy-elfeed-ai-test.el --- Digest navigation tests -*- lexical-binding: t; -*-
 (require 'ert)
 (require 'jgy-elfeed-ai)
 (require 'evil)

@@ -5,7 +5,7 @@
 ;; f 共用），抓不到就用 RSS 内容；总结存进条目 metadata，之后打开文章直接显示。
 ;; elfeed-search 里按 a 把当前过滤出的条目汇总成一份按订阅源分组的摘要。
 ;; 后端：claude 和 codex 走 CLI（订阅额度），deepseek 走 gptel（API key）。
-;; C-u a 临时换后端；M-x jgy/elfeed-ai-set-backend 改默认。
+;; C-u a 临时换后端；M-x jgy-elfeed-ai-set-backend 改默认。
 
 ;;; Code:
 
@@ -107,17 +107,17 @@ TEXT is read from OUTPUT-FILE when given, else from stdout."
 (defvar jgy-elfeed-ai--deepseek nil
   "The gptel DeepSeek backend, created on first use.")
 
-(defvar jgy/deepseek-api-key)
+(defvar jgy-deepseek-api-key)
 
 (defun jgy-elfeed-ai--deepseek-key ()
   "Return the DeepSeek API key from local.el, auth-source or the login shell."
-  (or (bound-and-true-p jgy/deepseek-api-key)
+  (or (bound-and-true-p jgy-deepseek-api-key)
       (ignore-errors (gptel-api-key-from-auth-source "api.deepseek.com"))
       (getenv "DEEPSEEK_API_KEY")
       (and (require 'exec-path-from-shell nil t)
            (cdr (assoc "DEEPSEEK_API_KEY"
                        (exec-path-from-shell-getenvs '("DEEPSEEK_API_KEY")))))
-      (user-error "No DeepSeek key: set jgy/deepseek-api-key in local.el")))
+      (user-error "No DeepSeek key: set jgy-deepseek-api-key in local.el")))
 
 (defun jgy-elfeed-ai--gptel (model input callback)
   "Send INPUT to DeepSeek MODEL through gptel, then call CALLBACK."
@@ -163,7 +163,7 @@ DIGEST picks the digest model."
                            (symbol-name jgy-elfeed-ai-backend))))
 
 ;;;###autoload
-(defun jgy/elfeed-ai-set-backend (backend)
+(defun jgy-elfeed-ai-set-backend (backend)
   "Use BACKEND to summarize from now on."
   (interactive (list (jgy-elfeed-ai--read-backend)))
   (setq jgy-elfeed-ai-backend backend)
@@ -250,7 +250,7 @@ DIGEST picks the digest model."
                 "\n")))))
 
 ;;;###autoload
-(defun jgy/elfeed-ai-summarize (&optional pick)
+(defun jgy-elfeed-ai-summarize (&optional pick)
   "Summarize the shown entry; with PICK, ask which backend to use."
   (interactive "P" elfeed-show-mode)
   (let ((entry elfeed-show-entry)
@@ -313,7 +313,7 @@ DIGEST picks the digest model."
                        (truncate-string-to-width text 400 nil nil "…")))))))
 
 ;;;###autoload
-(defun jgy/elfeed-ai-digest (&optional pick)
+(defun jgy-elfeed-ai-digest (&optional pick)
   "Digest the entries the search buffer shows; with PICK, ask for a backend."
   (interactive "P" elfeed-search-mode)
   (let* ((backend (if pick (jgy-elfeed-ai--read-backend) jgy-elfeed-ai-backend))

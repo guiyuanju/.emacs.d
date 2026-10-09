@@ -29,7 +29,7 @@
 (keymap-global-set "s-j" (lambda () (interactive) (other-window 1)))
 (keymap-global-set "s-k" (lambda () (interactive) (other-window -1)))
 (fringe-mode 0)
-;; Line numbers are off by default; use `jgy/toggle-line-numbers' (SPC t l) per buffer.
+;; Line numbers are off by default; use `jgy-toggle-line-numbers' (SPC t l) per buffer.
 (setq display-line-numbers nil)
 
 ;; A minimal mode line: modified flag, buffer, line, branch, and major mode.
@@ -50,10 +50,10 @@
                 mode-name
                 mode-line-end-spaces))
 
-(defvar my-font-size 14 "Default font size, overridable from local.el.")
-(defvar jgy/font-family "Sarasa Mono SC")
-(defvar jgy/variable-pitch-font-family "Sarasa UI SC")
-(defvar jgy/notes-directory "~/Documents/Garden/"
+(defvar jgy-font-size 14 "Default font size, overridable from local.el.")
+(defvar jgy-font-family "Sarasa Mono SC")
+(defvar jgy-variable-pitch-font-family "Sarasa UI SC")
+(defvar jgy-notes-directory "~/Documents/Garden/"
   "Root directory for notes.")
 
 (add-to-list 'load-path (locate-user-emacs-file "lisp"))
@@ -62,29 +62,29 @@
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
 
 (add-to-list 'default-frame-alist '(undecorated-round . t))
-(defvar jgy/font-casks '(("Sarasa Mono SC" . "font-sarasa-gothic"))
+(defvar jgy-font-casks '(("Sarasa Mono SC" . "font-sarasa-gothic"))
   "Homebrew casks providing font families.")
 
-(defun jgy/font-available-p (family)
+(defun jgy-font-available-p (family)
   (find-font (font-spec :family family)))
 
-(defun jgy/apply-fonts ()
+(defun jgy-apply-fonts ()
   "Use Sarasa for every face and script."
-  (when (jgy/font-available-p jgy/font-family)
+  (when (jgy-font-available-p jgy-font-family)
     (setf (alist-get 'font default-frame-alist)
-          (format "%s %d" jgy/font-family my-font-size))
-    (set-face-attribute 'default nil :family jgy/font-family :height (* my-font-size 10))
-    (set-face-attribute 'fixed-pitch nil :family jgy/font-family)
-    (set-face-attribute 'variable-pitch nil :family jgy/variable-pitch-font-family)
+          (format "%s %d" jgy-font-family jgy-font-size))
+    (set-face-attribute 'default nil :family jgy-font-family :height (* jgy-font-size 10))
+    (set-face-attribute 'fixed-pitch nil :family jgy-font-family)
+    (set-face-attribute 'variable-pitch nil :family jgy-variable-pitch-font-family)
     ;; 固定中日韩字体族，否则粗体会回退到 Arial Unicode MS。
     (dolist (script '(han cjk-misc bopomofo kana hangul))
-      (set-fontset-font t script (font-spec :family jgy/font-family)))))
+      (set-fontset-font t script (font-spec :family jgy-font-family)))))
 
-(defun jgy/ensure-fonts ()
+(defun jgy-ensure-fonts ()
   "Install missing fonts with Homebrew in the background, then reapply them."
   (interactive)
-  (let ((casks (when-let* (((not (jgy/font-available-p jgy/font-family)))
-                           (cask (alist-get jgy/font-family jgy/font-casks nil nil #'equal)))
+  (let ((casks (when-let* (((not (jgy-font-available-p jgy-font-family)))
+                           (cask (alist-get jgy-font-family jgy-font-casks nil nil #'equal)))
                  (list cask))))
     (cond
      ((null casks))
@@ -104,30 +104,30 @@
                          (run-with-timer 2 nil
                                          (lambda ()
                                            (clear-font-cache)
-                                           (jgy/apply-fonts)
+                                           (jgy-apply-fonts)
                                            (message "Fonts installed: %s" (string-join casks " "))))
                        (display-warning 'fonts "Font install failed; see *font-install*")))))))))
 
 (when (display-graphic-p)
-  (jgy/apply-fonts)
-  (jgy/ensure-fonts))
+  (jgy-apply-fonts)
+  (jgy-ensure-fonts))
 
 ;; Keep generated state out of the configuration root without another package.
-(defconst jgy/state-directory (locate-user-emacs-file "var/"))
-(defconst jgy/backup-directory (expand-file-name "backup/" jgy/state-directory))
-(defconst jgy/auto-save-directory (expand-file-name "auto-save/" jgy/state-directory))
-(dolist (directory (list jgy/state-directory jgy/backup-directory
-                         jgy/auto-save-directory))
+(defconst jgy-state-directory (locate-user-emacs-file "var/"))
+(defconst jgy-backup-directory (expand-file-name "backup/" jgy-state-directory))
+(defconst jgy-auto-save-directory (expand-file-name "auto-save/" jgy-state-directory))
+(dolist (directory (list jgy-state-directory jgy-backup-directory
+                         jgy-auto-save-directory))
   (make-directory directory t))
 
-(setq custom-file (expand-file-name "custom.el" jgy/state-directory)
-      backup-directory-alist `(("." . ,jgy/backup-directory))
-      auto-save-file-name-transforms `((".*" ,jgy/auto-save-directory t))
-      auto-save-list-file-prefix (expand-file-name ".saves-" jgy/auto-save-directory)
-      recentf-save-file (expand-file-name "recentf.el" jgy/state-directory)
-      save-place-file (expand-file-name "save-place.el" jgy/state-directory)
-      savehist-file (expand-file-name "savehist.el" jgy/state-directory)
-      project-list-file (expand-file-name "project-list.el" jgy/state-directory)
+(setq custom-file (expand-file-name "custom.el" jgy-state-directory)
+      backup-directory-alist `(("." . ,jgy-backup-directory))
+      auto-save-file-name-transforms `((".*" ,jgy-auto-save-directory t))
+      auto-save-list-file-prefix (expand-file-name ".saves-" jgy-auto-save-directory)
+      recentf-save-file (expand-file-name "recentf.el" jgy-state-directory)
+      save-place-file (expand-file-name "save-place.el" jgy-state-directory)
+      savehist-file (expand-file-name "savehist.el" jgy-state-directory)
+      project-list-file (expand-file-name "project-list.el" jgy-state-directory)
       recentf-max-saved-items 200
       history-length 1000)
 (load custom-file 'noerror 'nomessage)
@@ -140,15 +140,15 @@
 ;; Use the Custom setter so reloading init.el also refreshes every frame.
 (customize-set-variable 'tab-bar-show nil)
 
-(defun jgy/tab-name ()
+(defun jgy-tab-name ()
   "Name the current tab after its main window's buffer, not the dashboard's."
   (buffer-name (window-buffer (get-mru-window nil nil t))))
 
-(setq tab-bar-tab-name-function #'jgy/tab-name
+(setq tab-bar-tab-name-function #'jgy-tab-name
       ;; A new workspace starts empty rather than inheriting the current buffer.
       tab-bar-new-tab-choice "*scratch*"
-      desktop-dirname jgy/state-directory
-      desktop-path (list jgy/state-directory)
+      desktop-dirname jgy-state-directory
+      desktop-path (list jgy-state-directory)
       desktop-base-file-name "desktop.el"
       desktop-save t
       desktop-restore-eager 5)
@@ -170,7 +170,7 @@
 ;; Modus draws window dividers gray and gives header lines their own strip, and
 ;; agent-shell tints its header with font-lock colors.  Reuse the flat mode
 ;; line's colors for all of them so the frame looks like one piece.
-(defun jgy/modus-flat-faces ()
+(defun jgy-modus-flat-faces ()
   "Match dividers, header lines, and the agent-shell header to the flat mode line."
   (modus-themes-with-colors
     (set-face-attribute 'vertical-border nil :foreground bg-inactive)
@@ -187,9 +187,9 @@
                       agent-shell-session-mode agent-shell-session-directory
                       agent-shell-container-indicator))
         (set-face-attribute face nil :inherit nil :foreground fg-dim)))))
-(jgy/modus-flat-faces)
-(add-hook 'modus-themes-after-load-theme-hook #'jgy/modus-flat-faces)
-(with-eval-after-load 'agent-shell (jgy/modus-flat-faces))
+(jgy-modus-flat-faces)
+(add-hook 'modus-themes-after-load-theme-hook #'jgy-modus-flat-faces)
+(with-eval-after-load 'agent-shell (jgy-modus-flat-faces))
 
 ;;; Package manager
 
@@ -361,12 +361,12 @@
   (evil-mode 1)
   (define-key evil-insert-state-map (kbd "C-g") #'evil-normal-state)
   ;; 图形界面里 C-[ 与 ESC 键是不同事件；拆开后 agent 把 ESC 留给终端，C-[ 仍回 normal。
-  (defun jgy/decode-control-bracket (&optional frame)
+  (defun jgy-decode-control-bracket (&optional frame)
     (when (display-graphic-p frame)
       (with-selected-frame (or frame (selected-frame))
         (define-key input-decode-map [?\C-\[] [control-bracketleft]))))
-  (jgy/decode-control-bracket)
-  (add-hook 'after-make-frame-functions #'jgy/decode-control-bracket)
+  (jgy-decode-control-bracket)
+  (add-hook 'after-make-frame-functions #'jgy-decode-control-bracket)
   (define-key function-key-map [control-bracketleft] [escape])
   (define-key evil-insert-state-map [control-bracketleft] #'evil-normal-state)
   (define-key evil-insert-state-map (kbd "C-h")
@@ -421,7 +421,7 @@
 
 ;;; Commands
 
-(defun jgy/delete-this-file (&optional force)
+(defun jgy-delete-this-file (&optional force)
   "Delete the current file and kill its buffer.
 With FORCE, do not ask for confirmation."
   (interactive "P")
@@ -433,7 +433,7 @@ With FORCE, do not ask for confirmation."
       (when-let* ((buffer (get-file-buffer file)))
         (kill-buffer buffer)))))
 
-(defun jgy/buffer-path (&optional relative)
+(defun jgy-buffer-path (&optional relative)
   "Return the current path, optionally RELATIVE to its project."
   (let ((path (or (buffer-file-name (buffer-base-buffer)) default-directory)))
     (if-let* ((relative)
@@ -441,33 +441,33 @@ With FORCE, do not ask for confirmation."
         (file-relative-name path (project-root project))
       (abbreviate-file-name path))))
 
-(defun jgy/yank-buffer-path (&optional relative)
+(defun jgy-yank-buffer-path (&optional relative)
   "Copy the current path; with RELATIVE, use the project root."
   (interactive "P")
-  (message "Copied: %s" (kill-new (jgy/buffer-path relative))))
+  (message "Copied: %s" (kill-new (jgy-buffer-path relative))))
 
-(defun jgy/insert-buffer-path ()
+(defun jgy-insert-buffer-path ()
   "Insert the current buffer path."
   (interactive)
-  (insert (jgy/buffer-path)))
+  (insert (jgy-buffer-path)))
 
-(defun jgy/reload-config ()
+(defun jgy-reload-config ()
   "Reload init.el.  Restart when changing package declarations."
   (interactive)
   (load user-init-file nil 'nomessage)
   (message "Reloaded %s" (abbreviate-file-name user-init-file)))
 
-(defun jgy/search-directory ()
+(defun jgy-search-directory ()
   "Run ripgrep in `default-directory'."
   (interactive)
   (consult-ripgrep default-directory))
 
-(defun jgy/search-symbol-at-point ()
+(defun jgy-search-symbol-at-point ()
   "Run project ripgrep for the symbol at point."
   (interactive)
   (consult-ripgrep nil (thing-at-point 'symbol t)))
 
-(defun jgy/toggle-line-numbers ()
+(defun jgy-toggle-line-numbers ()
   "Cycle absolute, relative, and hidden line numbers."
   (interactive)
   (let ((next (pcase display-line-numbers
@@ -481,14 +481,14 @@ With FORCE, do not ask for confirmation."
       (display-line-numbers-mode -1))
     (message "Line numbers: %s" (or next "off"))))
 
-(defun jgy/reveal-in-finder ()
+(defun jgy-reveal-in-finder ()
   "Reveal the current path in Finder."
   (interactive)
   (unless (eq system-type 'darwin) (user-error "Finder is only available on macOS"))
   (call-process "open" nil 0 nil "-R"
                 (or (buffer-file-name (buffer-base-buffer)) default-directory)))
 
-(defun jgy/toggle-buffer (buffer create-function)
+(defun jgy-toggle-buffer (buffer create-function)
   "Hide BUFFER if visible, show it if live, otherwise call CREATE-FUNCTION."
   (if-let* ((window (and buffer (get-buffer-window buffer t))))
       (quit-window nil window)
@@ -497,7 +497,7 @@ With FORCE, do not ask for confirmation."
                  (save-window-excursion (funcall create-function)))))
       (select-window (display-buffer buf)))))
 
-(defun jgy/eshell-toggle ()
+(defun jgy-eshell-toggle ()
   "Toggle the current project's Eshell, or the global one outside projects.
 Called from inside an Eshell it hides that buffer, whatever its `cd'
 history has done to `default-directory'."
@@ -506,10 +506,10 @@ history has done to `default-directory'."
       (quit-window)
     (let* ((project (project-current))
            (name (if project (project-prefixed-buffer-name "eshell") "*eshell*")))
-      (jgy/toggle-buffer (get-buffer name)
+      (jgy-toggle-buffer (get-buffer name)
                          (if project #'project-eshell #'eshell)))))
 
-(defun jgy/ghostel-toggle ()
+(defun jgy-ghostel-toggle ()
   "Toggle the current project's Ghostel, or the global terminal outside projects.
 Called from inside a Ghostel it hides that buffer, whatever its `cd'
 history has done to `default-directory'."
@@ -517,32 +517,32 @@ history has done to `default-directory'."
   (cond
    ((derived-mode-p 'ghostel-mode) (quit-window))
    ((project-current)
-    (jgy/toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project))
-   (t (jgy/toggle-buffer
+    (jgy-toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project))
+   (t (jgy-toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
 
-(defun jgy/notes-find ()
-  "Find a file below `jgy/notes-directory'."
+(defun jgy-notes-find ()
+  "Find a file below `jgy-notes-directory'."
   (interactive)
-  (consult-find (expand-file-name jgy/notes-directory)))
+  (consult-find (expand-file-name jgy-notes-directory)))
 
-(defun jgy/notes-search ()
-  "Search `jgy/notes-directory' with ripgrep."
+(defun jgy-notes-search ()
+  "Search `jgy-notes-directory' with ripgrep."
   (interactive)
-  (consult-ripgrep (expand-file-name jgy/notes-directory)))
+  (consult-ripgrep (expand-file-name jgy-notes-directory)))
 
-(defun jgy/notes-new ()
+(defun jgy-notes-new ()
   "Create or open a note in the notes inbox."
   (interactive)
-  (let ((directory (expand-file-name "notes/" jgy/notes-directory)))
+  (let ((directory (expand-file-name "notes/" jgy-notes-directory)))
     (make-directory directory t)
     (find-file (read-file-name "Note: " directory nil nil nil))))
 
-(defun jgy/notes-daily ()
+(defun jgy-notes-daily ()
   "Open today's journal note."
   (interactive)
-  (let ((directory (expand-file-name "journals/" jgy/notes-directory)))
+  (let ((directory (expand-file-name "journals/" jgy-notes-directory)))
     (make-directory directory t)
     (find-file (expand-file-name (format-time-string "%Y-%m-%d.md") directory))))
 
@@ -552,32 +552,32 @@ history has done to `default-directory'."
   :after evil
   :config
   (general-evil-setup t)
-  (general-create-definer jgy/leader-keys
+  (general-create-definer jgy-leader-keys
     :states '(normal insert visual emacs motion)
     :keymaps 'override
     :prefix "SPC"
     :global-prefix "C-SPC")
 
-  (jgy/leader-keys
+  (jgy-leader-keys
     "SPC" '(project-find-file :which-key "project file")
     "."   '(find-file :which-key "find file")
     ","   '(consult-buffer :which-key "switch buffer")
     "/"   '(consult-ripgrep :which-key "search project")
-    "*"   '(jgy/search-symbol-at-point :which-key "search symbol")
+    "*"   '(jgy-search-symbol-at-point :which-key "search symbol")
     ":"   '(execute-extended-command :which-key "M-x")
     "'"   '(dired-jump :which-key "dired here")
     "`"   '(mode-line-other-buffer :which-key "last buffer")
     "\\"  '(vertico-repeat :which-key "resume completion")
-    ";"   '(jgy/ghostel-toggle :which-key "terminal")
+    ";"   '(jgy-ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
     "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
 
     "TAB"     '(:ignore t :which-key "project")
     "TAB TAB" '(tab-bar-switch-to-tab :which-key "switch")
-    "TAB o"   '(jgy/project-open :which-key "open project")
-    "TAB c"   '(jgy/project-clone :which-key "clone repo")
-    "TAB p"   '(jgy/project-visit-file :which-key "project.md")
+    "TAB o"   '(jgy-project-open :which-key "open project")
+    "TAB c"   '(jgy-project-clone :which-key "clone repo")
+    "TAB p"   '(jgy-project-visit-file :which-key "project.md")
     "TAB ["   '(tab-bar-switch-to-prev-tab :which-key "previous")
     "TAB ]"   '(tab-bar-switch-to-next-tab :which-key "next")
     "TAB d"   '(tab-bar-close-tab :which-key "close")
@@ -587,14 +587,14 @@ history has done to `default-directory'."
     "TAB U"   '(tab-bar-history-forward :which-key "history forward")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(agents-toggle :which-key "agent toggle")
-    "aA" '(agents-start :which-key "start agent")
-    "ac" '(jgy/agent-start-claude :which-key "Claude Code")
-    "ax" '(jgy/agent-start-codex :which-key "Codex")
-    "ai" '(jgy/agent-start-pi :which-key "Pi agent")
-    "al" '(agents-switch :which-key "list agents")
-    "ad" '(agents-dashboard :which-key "dashboard")
-    "ae" '(agents-send :which-key "send to agent")
+    "aa" '(jgy-agents-toggle :which-key "agent toggle")
+    "aA" '(jgy-agents-start :which-key "start agent")
+    "ac" '(jgy-agent-start-claude :which-key "Claude Code")
+    "ax" '(jgy-agent-start-codex :which-key "Codex")
+    "ai" '(jgy-agent-start-pi :which-key "Pi agent")
+    "al" '(jgy-agents-switch :which-key "list agents")
+    "ad" '(jgy-agents-dashboard :which-key "dashboard")
+    "ae" '(jgy-agents-send :which-key "send to agent")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -636,7 +636,7 @@ history has done to `default-directory'."
     "dr" '(dape-restart :which-key "restart")
 
     "f"  '(:ignore t :which-key "file")
-    "fD" '(jgy/delete-this-file :which-key "delete")
+    "fD" '(jgy-delete-this-file :which-key "delete")
     "fe" '((lambda () (interactive) (find-file user-emacs-directory))
             :which-key "emacs directory")
     "ff" '(find-file :which-key "find")
@@ -645,8 +645,8 @@ history has done to `default-directory'."
     "fr" '(consult-recent-file :which-key "recent")
     "fR" '(rename-visited-file :which-key "rename")
     "fs" '(save-buffer :which-key "save")
-    "fy" '(jgy/yank-buffer-path :which-key "copy path")
-    "fY" '((lambda () (interactive) (jgy/yank-buffer-path t))
+    "fy" '(jgy-yank-buffer-path :which-key "copy path")
+    "fY" '((lambda () (interactive) (jgy-yank-buffer-path t))
             :which-key "copy project path")
 
     "g"  '(:ignore t :which-key "Git")
@@ -657,31 +657,31 @@ history has done to `default-directory'."
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
-    "gm" '(jgy/browse-mr :which-key "merge request")
+    "gm" '(jgy-browse-mr :which-key "merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
     "gy" '(git-link :which-key "copy link")
 
     "i"  '(:ignore t :which-key "insert")
-    "if" '(jgy/insert-buffer-path :which-key "path")
+    "if" '(jgy-insert-buffer-path :which-key "path")
     "ir" '(consult-register :which-key "register")
     "iu" '(insert-char :which-key "character")
     "iy" '(consult-yank-pop :which-key "kill ring")
 
     "n"  '(:ignore t :which-key "notes")
-    "nc" '(jgy/notes-new :which-key "new")
-    "nd" '(jgy/notes-daily :which-key "daily")
-    "nn" '(jgy/notes-find :which-key "find")
-    "ns" '(jgy/notes-search :which-key "search")
+    "nc" '(jgy-notes-new :which-key "new")
+    "nd" '(jgy-notes-daily :which-key "daily")
+    "nn" '(jgy-notes-find :which-key "find")
+    "ns" '(jgy-notes-search :which-key "search")
 
     "o"  '(:ignore t :which-key "open")
-    "od" '(agents-dashboard :which-key "agent dashboard")
-    "oe" '(jgy/eshell-toggle :which-key "Eshell")
-    "of" '(jgy/reveal-in-finder :which-key "reveal in Finder")
+    "od" '(jgy-agents-dashboard :which-key "agent dashboard")
+    "oe" '(jgy-eshell-toggle :which-key "Eshell")
+    "of" '(jgy-reveal-in-finder :which-key "reveal in Finder")
     "op" '(popper-toggle :which-key "popup")
     "oP" '(popper-cycle :which-key "next popup")
-    "ot" '(jgy/ghostel-toggle :which-key "terminal")
+    "ot" '(jgy-ghostel-toggle :which-key "terminal")
 
     "p"  '(:ignore t :which-key "project")
     "p!" '(project-shell-command :which-key "command")
@@ -699,7 +699,7 @@ history has done to `default-directory'."
     "qr" '(restart-emacs :which-key "restart")
 
     "s"  '(:ignore t :which-key "search")
-    "sd" '(jgy/search-directory :which-key "directory")
+    "sd" '(jgy-search-directory :which-key "directory")
     "si" '(consult-imenu :which-key "symbols")
     "sI" '(consult-imenu-multi :which-key "project symbols")
     "sp" '(consult-ripgrep :which-key "project")
@@ -710,14 +710,14 @@ history has done to `default-directory'."
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
     "td" '(toggle-debug-on-error :which-key "debug on error")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
-    "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
+    "tl" '(jgy-toggle-line-numbers :which-key "line numbers")
     "tr" '(read-only-mode :which-key "read only")
     "tT" '(consult-theme :which-key "theme")
     "tw" '(visual-line-mode :which-key "wrap")
     "tW" '(toggle-truncate-lines :which-key "truncate lines"))
 
   (keymap-unset help-map "r" t)
-  (keymap-set help-map "r r" #'jgy/reload-config)
+  (keymap-set help-map "r r" #'jgy-reload-config)
   (which-key-add-key-based-replacements "SPC h r" "reload")
   (general-def evil-window-map
     "d" #'evil-window-delete
@@ -757,7 +757,7 @@ history has done to `default-directory'."
   :commands (ghostel ghostel-project ghostel-project-buffer-list))
 
 ;; 普通态移动后 i/a 会把终端光标带到 point。
-(defun jgy/evil-ghostel-goto-input-position (pos)
+(defun jgy-evil-ghostel-goto-input-position (pos)
   "Drive the terminal cursor to POS, counting columns on the Emacs side.
 Replaces `evil-ghostel-goto-input-position', which takes the terminal's
 column and miscounts after wide prompt glyphs such as ➜."
@@ -781,7 +781,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   (evil-ghostel-initial-state 'normal)
   :config
   (advice-add 'evil-ghostel-goto-input-position :override
-              #'jgy/evil-ghostel-goto-input-position))
+              #'jgy-evil-ghostel-goto-input-position))
 
 ;; ghostel 收到 OSC 9/777 时经 alert 发出 macOS 通知。
 (use-package alert
@@ -794,10 +794,10 @@ column and miscounts after wide prompt glyphs such as ➜."
 (use-package jgy-project
   :ensure nil
   :init
-  (add-hook 'project-find-functions #'jgy/project-try)
-  :autoload jgy/project-try
-  :commands (jgy/project-open jgy/project-clone jgy/project-visit-file jgy/project-root
-             jgy/browse-mr))
+  (add-hook 'project-find-functions #'jgy-project-try)
+  :autoload jgy-project-try
+  :commands (jgy-project-open jgy-project-clone jgy-project-visit-file jgy-project-root
+             jgy-browse-mr))
 
 ;;; Files and Git
 
@@ -866,7 +866,7 @@ column and miscounts after wide prompt glyphs such as ➜."
 (declare-function eglot-find-implementation "eglot")
 (declare-function eglot-format-buffer "eglot")
 
-(defun jgy/eglot-python-configuration (server)
+(defun jgy-eglot-python-configuration (server)
   "Return basedpyright settings for SERVER's project virtualenv."
   (when-let* ((root (project-root (eglot--project server)))
               (python (expand-file-name ".venv/bin/python" root))
@@ -877,7 +877,7 @@ column and miscounts after wide prompt glyphs such as ➜."
                       :diagnosticSeverityOverrides
                       (:reportPrivateImportUsage "none"))))))
 
-(defun jgy/java-indent-setup ()
+(defun jgy-java-indent-setup ()
   "Use four-space indentation in Java buffers."
   (setq-local indent-tabs-mode nil tab-width 4)
   (when (boundp 'c-basic-offset) (setq-local c-basic-offset 4))
@@ -885,9 +885,9 @@ column and miscounts after wide prompt glyphs such as ➜."
     (setq-local java-ts-mode-indent-offset 4)))
 
 (dolist (hook '(java-mode-hook java-ts-mode-hook))
-  (add-hook hook #'jgy/java-indent-setup))
+  (add-hook hook #'jgy-java-indent-setup))
 
-(defun jgy/sqlmesh-project-p ()
+(defun jgy-sqlmesh-project-p ()
   "Return non-nil when point is inside a SQLMesh project."
   (locate-dominating-file
    default-directory
@@ -895,28 +895,28 @@ column and miscounts after wide prompt glyphs such as ➜."
      (and (file-exists-p (expand-file-name "config.yaml" directory))
           (file-directory-p (expand-file-name "models" directory))))))
 
-(defun jgy/sqlmesh-setup ()
+(defun jgy-sqlmesh-setup ()
   "Enable SQLMesh's language server in SQLMesh projects."
-  (when (and buffer-file-name (jgy/sqlmesh-project-p))
+  (when (and buffer-file-name (jgy-sqlmesh-project-p))
     (setq-local sql-product 'postgres
                 apheleia-inhibit t)
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
     (eglot-ensure)))
 
-(defvar jgy/sql-dialects '("mysql" "postgres" "redshift")
+(defvar jgy-sql-dialects '("mysql" "postgres" "redshift")
   "sqlfluff dialects offered when formatting SQL.")
 
-(defvar-local jgy/sql-dialect "redshift"
+(defvar-local jgy-sql-dialect "redshift"
   "sqlfluff dialect used to format this buffer.")
 
-(defun jgy/sql-read-dialect (&rest _)
+(defun jgy-sql-read-dialect (&rest _)
   "Ask which dialect to format this SQL buffer with."
   (when (derived-mode-p 'sql-mode)
-    (setq jgy/sql-dialect
-          (completing-read (format-prompt "SQL dialect" jgy/sql-dialect)
-                           jgy/sql-dialects nil t nil nil jgy/sql-dialect))))
+    (setq jgy-sql-dialect
+          (completing-read (format-prompt "SQL dialect" jgy-sql-dialect)
+                           jgy-sql-dialects nil t nil nil jgy-sql-dialect))))
 
-(defun jgy/sql-inhibit-format-on-save ()
+(defun jgy-sql-inhibit-format-on-save ()
   "Format SQL buffers only on demand."
   (derived-mode-p 'sql-mode))
 
@@ -929,7 +929,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   :init
   (setq read-process-output-max (* 1024 1024))
   :config
-  (setq-default eglot-workspace-configuration #'jgy/eglot-python-configuration)
+  (setq-default eglot-workspace-configuration #'jgy-eglot-python-configuration)
   (add-to-list 'eglot-server-programs
                '((python-mode python-ts-mode)
                  . ("uvx" "--from" "basedpyright"
@@ -950,7 +950,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
   (setf (alist-get 'sqlfluff apheleia-formatters)
-        '("sqlfluff" "format" "--dialect" jgy/sql-dialect
+        '("sqlfluff" "format" "--dialect" jgy-sql-dialect
           "--disable-progress-bar" "-"))
   (setf (alist-get 'sql-mode apheleia-mode-alist) 'sqlfluff)
   (setf (alist-get 'swift-format apheleia-formatters)
@@ -958,8 +958,8 @@ column and miscounts after wide prompt glyphs such as ➜."
   (setf (alist-get 'swift-mode apheleia-mode-alist) 'swift-format)
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
-  (advice-add 'apheleia-format-buffer :before #'jgy/sql-read-dialect)
-  (add-hook 'apheleia-inhibit-functions #'jgy/sql-inhibit-format-on-save)
+  (advice-add 'apheleia-format-buffer :before #'jgy-sql-read-dialect)
+  (add-hook 'apheleia-inhibit-functions #'jgy-sql-inhibit-format-on-save)
   (apheleia-global-mode 1))
 
 (use-package dape
@@ -986,7 +986,7 @@ column and miscounts after wide prompt glyphs such as ➜."
 
 (use-package sql
   :ensure nil
-  :hook (sql-mode . jgy/sqlmesh-setup))
+  :hook (sql-mode . jgy-sqlmesh-setup))
 
 (use-package csv-mode
   :mode "\\.[ct]sv\\'")
@@ -998,7 +998,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   (beancount-use-ido nil)
   :hook (beancount-mode . outline-minor-mode))
 
-(defconst jgy/markdown-preview-head
+(defconst jgy-markdown-preview-head
   (let ((gh "https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.css")
         (hl "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11"))
     (concat
@@ -1039,7 +1039,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   (markdown-content-type "text/html")
   ;; highlight.js colours the blocks, so pandoc must not pre-tokenise them.
   (markdown-command "pandoc --from=gfm --to=html5 --syntax-highlighting=none")
-  (markdown-xhtml-header-content jgy/markdown-preview-head)
+  (markdown-xhtml-header-content jgy-markdown-preview-head)
   (markdown-xhtml-body-preamble "<article class=\"markdown-body\">")
   (markdown-xhtml-body-epilogue "</article>"))
 
@@ -1050,9 +1050,9 @@ column and miscounts after wide prompt glyphs such as ➜."
 ;; agent 由 jgy-agents 管理（tab 归属、看板），经 agent-shell 用 ACP 运行；
 ;; 在项目文件夹内时以项目根为工作目录。
 
-(defun jgy/agent-root ()
+(defun jgy-agent-root ()
   "Return the project folder when inside one, else the version-control root."
-  (or (jgy/project-root) (agents-project-root)))
+  (or (jgy-project-root) (jgy-agents-project-root)))
 
 (use-package agent-shell
   :defer t
@@ -1064,35 +1064,35 @@ column and miscounts after wide prompt glyphs such as ➜."
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
-  (agent-shell-dot-subdir-function #'jgy/agent-shell-dot-subdir))
+  (agent-shell-dot-subdir-function #'jgy-agent-shell-dot-subdir))
 
 (use-package jgy-agent-shell
   :ensure nil
-  :autoload (jgy/agent-shell-start jgy/agent-shell-dot-subdir))
+  :autoload (jgy-agent-shell-start jgy-agent-shell-dot-subdir))
 
 (use-package jgy-agent-update
   :ensure nil
-  :commands jgy/agent-update-check
+  :commands jgy-agent-update-check
   :init
-  (run-with-idle-timer 30 nil #'jgy/agent-update-check))
+  (run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
 (use-package jgy-agents
   :ensure nil
-  :commands (agents-start agents-toggle agents-switch agents-send agents-dashboard)
-  :autoload agents-project-root
+  :commands (jgy-agents-start jgy-agents-toggle jgy-agents-switch jgy-agents-send jgy-agents-dashboard)
+  :autoload jgy-agents-project-root
   :custom
-  (agents-root-function #'jgy/agent-root)
-  (agents-start-function #'jgy/agent-shell-start)
+  (jgy-agents-root-function #'jgy-agent-root)
+  (jgy-agents-start-function #'jgy-agent-shell-start)
   :config
   (require 'jgy-agents-usage)
   (require 'jgy-agents-deepseek)
-  (agents-mode 1))
+  (jgy-agents-mode 1))
 
 (dolist (name '("claude" "codex" "pi"))
-  (defalias (intern (concat "jgy/agent-start-" name))
+  (defalias (intern (concat "jgy-agent-start-" name))
     (lambda (&optional fresh)
       (interactive "P")
-      (agents-start name fresh))
+      (jgy-agents-start name fresh))
     (format "Start or show %s for the current project." name)))
 
 (use-package jgy-worklog
@@ -1108,7 +1108,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   :init
   (global-sdkman-mode 1))
 
-(defun jgy/elfeed-evil-keys (mode _keymaps)
+(defun jgy-elfeed-evil-keys (mode _keymaps)
   "Restore elfeed's own keys that evil-collection leaves to evil in MODE."
   (when (eq mode 'elfeed)
     (evil-define-key* 'normal elfeed-search-mode-map
@@ -1128,7 +1128,7 @@ column and miscounts after wide prompt glyphs such as ➜."
       "~" #'elfeed-search-exclude-feed-filter
       "<" #'elfeed-search-first-entry
       ">" #'elfeed-search-last-entry
-      "a" #'jgy/elfeed-ai-digest)
+      "a" #'jgy-elfeed-ai-digest)
     (evil-define-key* 'normal elfeed-show-mode-map
       "b" #'elfeed-show-visit
       "B" #'elfeed-show-visit-secondary
@@ -1137,9 +1137,9 @@ column and miscounts after wide prompt glyphs such as ➜."
       "u" #'elfeed-show-tag-unread
       "n" #'elfeed-show-next
       "p" #'elfeed-show-prev
-      "a" #'jgy/elfeed-ai-summarize)))
+      "a" #'jgy-elfeed-ai-summarize)))
 
-(defun jgy/elfeed-show-set-referer (&rest _)
+(defun jgy-elfeed-show-set-referer (&rest _)
   "Send the entry's own URL as Referer so hotlink-protected images load."
   (when-let* ((entry (bound-and-true-p elfeed-show-entry))
               (link (elfeed-entry-link entry)))
@@ -1148,8 +1148,8 @@ column and miscounts after wide prompt glyphs such as ➜."
 (use-package elfeed
   :ensure t
   :init
-  (add-hook 'evil-collection-setup-hook #'jgy/elfeed-evil-keys)
-  (advice-add 'elfeed-show-refresh :before #'jgy/elfeed-show-set-referer)
+  (add-hook 'evil-collection-setup-hook #'jgy-elfeed-evil-keys)
+  (advice-add 'elfeed-show-refresh :before #'jgy-elfeed-show-set-referer)
   (setq elfeed-feeds
       '(("https://catcoding.me/atom.xml" cat)
         ("https://news.ycombinator.com/rss" hacker)
@@ -1162,10 +1162,10 @@ column and miscounts after wide prompt glyphs such as ➜."
 (use-package jgy-elfeed-ai
   :ensure nil
   :after elfeed
-  :commands (jgy/elfeed-ai-summarize jgy/elfeed-ai-digest jgy/elfeed-ai-set-backend))
+  :commands (jgy-elfeed-ai-summarize jgy-elfeed-ai-digest jgy-elfeed-ai-set-backend))
 
 (use-package jgy-log
   :ensure nil
-  :mode ("\\.log\\'" . jgy/log-mode))
+  :mode ("\\.log\\'" . jgy-log-mode))
 
 ;;; init.el ends here

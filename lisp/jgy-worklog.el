@@ -12,11 +12,11 @@
 (require 'subr-x)
 (require 'jgy-project)
 
-(declare-function agents--dashboard-schedule "jgy-agents")
-(declare-function agents-dashboard-define-key "jgy-agents")
-(declare-function agents-dashboard-heading "jgy-agents")
-(declare-function agents-dashboard-insert-section "jgy-agents")
-(defvar agents-dashboard-functions)
+(declare-function jgy-agents--dashboard-schedule "jgy-agents")
+(declare-function jgy-agents-dashboard-define-key "jgy-agents")
+(declare-function jgy-agents-dashboard-heading "jgy-agents")
+(declare-function jgy-agents-dashboard-insert-section "jgy-agents")
+(defvar jgy-agents-dashboard-functions)
 
 (defvar jgy-worklog--cache nil
   "Parsed cards, as (STAMP . CARDS); STAMP lists each card's file and mtime.")
@@ -46,7 +46,7 @@ or anywhere when tagged #waiting."
 
 (defun jgy-worklog--cards ()
   "Return parsed active cards, re-reading only when a card file changed."
-  (let* ((files (jgy/project-files))
+  (let* ((files (jgy-project-files))
          (stamp (mapcar (lambda (file)
                           (cons file (file-attribute-modification-time (file-attributes file))))
                         files)))
@@ -62,7 +62,7 @@ or anywhere when tagged #waiting."
                      (get-mru-window frame nil t)
                    selected)))
     (when window
-      (jgy/project-root (buffer-local-value 'default-directory (window-buffer window))))))
+      (jgy-project-root (buffer-local-value 'default-directory (window-buffer window))))))
 
 (defun jgy-worklog--display (text)
   "Return TEXT without inline fields and tags, with its due date appended.
@@ -91,15 +91,15 @@ or anywhere when tagged #waiting."
 FIRST omits the blank line before the heading; BARE omits the heading."
   (unless (or first bare) (insert "\n"))
   (unless bare
-    (insert (propertize (agents-dashboard-heading (plist-get card :id))
-                        'agents-tab t
-                        'agents-action (jgy-worklog--visit (plist-get card :file) 1))
+    (insert (propertize (jgy-agents-dashboard-heading (plist-get card :id))
+                        'jgy-agents-tab t
+                        'jgy-agents-action (jgy-worklog--visit (plist-get card :file) 1))
             "\n"))
   (pcase-dolist (`(,text . ,line) todos)
     ;; ☐ 在等宽字体里占两列，折行接在它后面。
     (insert (propertize (concat "   " (propertize "☐" 'face 'shadow) " "
                                 (jgy-worklog--display text))
-                        'agents-action (jgy-worklog--visit (plist-get card :file) line)
+                        'jgy-agents-action (jgy-worklog--visit (plist-get card :file) line)
                         'wrap-prefix "      ")
             "\n")))
 
@@ -113,12 +113,12 @@ Outside a project folder, list every #now or #waiting todo instead."
                                                         root))
                                         cards))))
     (setq jgy-worklog--last-root root)
-    (agents-dashboard-insert-section
+    (jgy-agents-dashboard-insert-section
      ;; 只有当前项目一张卡时，标题就是它的标题：RET 打开它，下面不再重复。
      (if (and matched (null (cdr matched)))
          (propertize (concat "Todo · " (plist-get (car matched) :id))
-                     'agents-tab t
-                     'agents-action (jgy-worklog--visit (plist-get (car matched) :file) 1))
+                     'jgy-agents-tab t
+                     'jgy-agents-action (jgy-worklog--visit (plist-get (car matched) :file) 1))
        (concat "Todo · " (if matched (plist-get (car matched) :id) "#now")))
      (lambda ()
        (let ((first t)
@@ -133,28 +133,28 @@ Outside a project folder, list every #now or #waiting todo instead."
 
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
-  (when (and (fboundp 'agents--dashboard-schedule)
+  (when (and (fboundp 'jgy-agents--dashboard-schedule)
              (not (equal (jgy-worklog--current-root frame) jgy-worklog--last-root)))
-    (agents--dashboard-schedule)))
+    (jgy-agents--dashboard-schedule)))
 
 (defun jgy-worklog--after-save ()
   "Re-render the dashboard after saving a worklog file."
   (when (and buffer-file-name
-             (fboundp 'agents--dashboard-schedule)
-             (file-in-directory-p buffer-file-name jgy/workspace-directory))
-    (agents--dashboard-schedule)))
+             (fboundp 'jgy-agents--dashboard-schedule)
+             (file-in-directory-p buffer-file-name jgy-workspace-directory))
+    (jgy-agents--dashboard-schedule)))
 
 ;;;###autoload
 (define-minor-mode jgy-worklog-dashboard-mode
   "Show worklog todos for the current project in the agents dashboard."
   :global t
-  :group 'agents
+  :group 'jgy-agents
   (if jgy-worklog-dashboard-mode
       (progn
-        (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+        (add-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
-    (remove-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+    (remove-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
     (remove-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
     (remove-hook 'after-save-hook #'jgy-worklog--after-save)))
 

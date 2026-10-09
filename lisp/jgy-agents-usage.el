@@ -2,11 +2,11 @@
 
 ;;; Commentary:
 ;; The plan usage rows at the top of the agents dashboard.  Claude's windows
-;; come from the rate limits agent-shell forwards, kept in `agents-usage-file'
+;; come from the rate limits agent-shell forwards, kept in `jgy-agents-usage-file'
 ;; so they survive a restart; Codex's from its newest session log.  Other agents add a row by pushing onto
-;; `agents-usage-functions' (see jgy-agents-deepseek.el).
+;; `jgy-agents-usage-functions' (see jgy-agents-deepseek.el).
 ;;
-;; jgy-agents.el drives the refresh through `agents-usage-scan'.
+;; jgy-agents.el drives the refresh through `jgy-agents-usage-scan'.
 
 ;;; Code:
 
@@ -16,69 +16,70 @@
 (require 'seq)
 (require 'subr-x)
 
-(defcustom agents-usage-file (locate-user-emacs-file "var/claude-usage.json")
-  "File keeping Claude's last plan usage, as `agents-usage-save-claude' wrote it."
+(defcustom jgy-agents-usage-file (locate-user-emacs-file "var/claude-usage.json")
+  "File keeping Claude's last plan usage.
+`jgy-agents-usage-save-claude' writes it."
   :type 'file
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defcustom agents-usage-warning 80
+(defcustom jgy-agents-usage-warning 80
   "Plan usage percentage from which the dashboard highlights it."
   :type 'natnum
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defcustom agents-codex-sessions-directory "~/.codex/sessions"
+(defcustom jgy-agents-codex-sessions-directory "~/.codex/sessions"
   "Directory where Codex writes its session logs, which carry its plan usage."
   :type 'directory
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defcustom agents-usage-functions '(agents-usage-claude agents-usage-codex)
+(defcustom jgy-agents-usage-functions '(jgy-agents-usage-claude jgy-agents-usage-codex)
   "Functions returning an agent's plan usage, shown on the dashboard.
 Each returns (NAME . WINDOWS), or nil when it knows none.  WINDOWS lists
 \(LABEL PERCENT RESETS-AT), like (\"5h\" 42 1790963218); RESETS-AT is
 seconds since the epoch, or nil.  PERCENT may instead be a formatted string
 for a metric without a bar.  WINDOWS may also be a string of text rows."
   :type '(repeat function)
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defvar agents--usage nil
-  "Plan usage as `agents-usage-functions' last returned it.")
+(defvar jgy-agents--usage nil
+  "Plan usage as `jgy-agents-usage-functions' last returned it.")
 
-(defvar agents--codex-usage nil
+(defvar jgy-agents--codex-usage nil
   "Codex usage windows, as ((FILE MTIME) . WINDOWS) for the logs they came from.")
 
-(defvar agents--usage-minute nil
+(defvar jgy-agents--usage-minute nil
   "Minute the reset countdowns were last drawn in.")
 
-(defvar agents--claude-usage nil
+(defvar jgy-agents--claude-usage nil
   "Claude's usage windows from the last file that carried any.")
 
-(defcustom agents-claude-usage-url "https://claude.ai/settings/usage"
+(defcustom jgy-agents-claude-usage-url "https://claude.ai/settings/usage"
   "Page the dashboard's Claude usage row opens on RET."
   :type 'string
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defun agents-claude-open-usage ()
+(defun jgy-agents-claude-open-usage ()
   "Open Claude's plan usage page in a browser."
   (interactive)
-  (browse-url agents-claude-usage-url))
+  (browse-url jgy-agents-claude-usage-url))
 
-(defun agents-usage-save-claude (usage)
-  "Save Claude's plan USAGE to `agents-usage-file'.
+(defun jgy-agents-usage-save-claude (usage)
+  "Save Claude's plan USAGE to `jgy-agents-usage-file'.
 USAGE maps window keys like `five_hour' to alists with `used_percentage'
 and `resets_at'."
-  (make-directory (file-name-directory agents-usage-file) t)
+  (make-directory (file-name-directory jgy-agents-usage-file) t)
   (let ((temp (make-temp-file (expand-file-name "claude-usage"
-                                                (file-name-directory agents-usage-file)))))
+                                                (file-name-directory jgy-agents-usage-file)))))
     (with-temp-file temp (insert (json-encode usage)))
-    (rename-file temp agents-usage-file t)))
+    (rename-file temp jgy-agents-usage-file t)))
 
-(defun agents-usage-claude ()
-  "Claude's plan usage, as `agents-usage-save-claude' saved it.
+(defun jgy-agents-usage-claude ()
+  "Claude's plan usage, as `jgy-agents-usage-save-claude' saved it.
 A file without any windows, or none at all, keeps the last reading, so the
 row stays visible while Claude Code reconnects instead of dropping out."
   (let ((usage (ignore-errors
                  (with-temp-buffer
-                   (insert-file-contents agents-usage-file)
+                   (insert-file-contents jgy-agents-usage-file)
                    (json-parse-buffer :object-type 'alist :null-object nil)))))
     (when-let* ((windows
                  (when usage
@@ -87,33 +88,33 @@ row stays visible while Claude Code reconnects instead of dropping out."
                             when (alist-get 'used_percentage window)
                             collect (list label it (let ((resets (alist-get 'resets_at window)))
                                                      (and (numberp resets) resets)))))))
-      (setq agents--claude-usage windows))
-    (when agents--claude-usage
+      (setq jgy-agents--claude-usage windows))
+    (when jgy-agents--claude-usage
       (cons (propertize "claude"
-                        'agents-action #'agents-claude-open-usage
+                        'jgy-agents-action #'jgy-agents-claude-open-usage
                         'help-echo "RET opens Claude's usage page")
-            agents--claude-usage))))
+            jgy-agents--claude-usage))))
 
-(defcustom agents-codex-usage-url "https://chatgpt.com/settings/usage?tab=overview"
+(defcustom jgy-agents-codex-usage-url "https://chatgpt.com/settings/usage?tab=overview"
   "Page the dashboard's Codex usage row opens on RET."
   :type 'string
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defun agents-codex-open-usage ()
+(defun jgy-agents-codex-open-usage ()
   "Open Codex's plan usage page in a browser."
   (interactive)
-  (browse-url agents-codex-usage-url))
+  (browse-url jgy-agents-codex-usage-url))
 
-(defun agents--codex-logs ()
+(defun jgy-agents--codex-logs ()
   "Codex session logs, newest first.
 Logs live in 年/月/日/rollout-时间-….jsonl, so name order is time order."
-  (let ((dir (expand-file-name agents-codex-sessions-directory)))
+  (let ((dir (expand-file-name jgy-agents-codex-sessions-directory)))
     (dotimes (_ 3)
       (setq dir (and dir (file-directory-p dir)
                      (car (last (directory-files dir t "\\`[0-9]+\\'"))))))
     (and dir (reverse (directory-files dir t "\\`rollout-.*\\.jsonl\\'")))))
 
-(defun agents--codex-rate-limits (file)
+(defun jgy-agents--codex-rate-limits (file)
   "Rate limits of the last token count in Codex session log FILE, or nil."
   (with-temp-buffer
     ;; 日志可能有几十 MB，只读结尾。
@@ -127,7 +128,7 @@ Logs live in 年/月/日/rollout-时间-….jsonl, so name order is time order."
                                                                  (line-end-position))
                                                :object-type 'alist :null-object nil))))))
 
-(defun agents--codex-windows (limits)
+(defun jgy-agents--codex-windows (limits)
   "Usage windows described by Codex rate LIMITS, or nil when it has none.
 Recent logs can carry a LIMITS map whose windows are null; those count as
 none, so the last real reading is kept instead of replacing it."
@@ -142,76 +143,76 @@ none, so the last real reading is kept instead of replacing it."
                            it
                            (alist-get 'resets_at window)))))
 
-(defun agents--codex-usage-windows (logs)
+(defun jgy-agents--codex-usage-windows (logs)
   "Windows from the newest of LOGS that carries any, or nil.
 Recent logs can report none once a limit is reached; the newest real
 reading is then kept instead of the row disappearing."
   (seq-some (lambda (file)
               (ignore-errors
-                (agents--codex-windows (agents--codex-rate-limits file))))
+                (jgy-agents--codex-windows (jgy-agents--codex-rate-limits file))))
             logs))
 
-(defun agents-usage-codex ()
+(defun jgy-agents-usage-codex ()
   "Codex's plan usage, from its newest session log that reports any.
 Recent logs report none once a limit is reached; the last reading then
 stays, so the row and its reset countdown remain visible."
-  (when-let* ((logs (agents--codex-logs)))
+  (when-let* ((logs (jgy-agents--codex-logs)))
     (let ((stamp (list (car logs)
                        (file-attribute-modification-time (file-attributes (car logs))))))
-      (unless (equal stamp (car agents--codex-usage))
-        (setq agents--codex-usage
-              (cons stamp (or (agents--codex-usage-windows logs)
-                              (cdr agents--codex-usage))))))
-    (when-let* ((windows (cdr agents--codex-usage)))
+      (unless (equal stamp (car jgy-agents--codex-usage))
+        (setq jgy-agents--codex-usage
+              (cons stamp (or (jgy-agents--codex-usage-windows logs)
+                              (cdr jgy-agents--codex-usage))))))
+    (when-let* ((windows (cdr jgy-agents--codex-usage)))
       (cons (propertize "codex"
-                        'agents-action #'agents-codex-open-usage
+                        'jgy-agents-action #'jgy-agents-codex-open-usage
                         'help-echo "RET opens Codex's usage page")
             windows))))
 
 
-(defface agents-bar
+(defface jgy-agents-bar
   '((t :inherit font-lock-keyword-face))
   "Face of the used part of a plan usage bar."
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defface agents-bar-track
+(defface jgy-agents-bar-track
   '((((background dark)) :foreground "#333333")
     (t :foreground "#d4d4d4"))
   "Face of the unused part of a plan usage bar."
-  :group 'agents)
+  :group 'jgy-agents)
 
-(defun agents--usage-bar (percentage width)
+(defun jgy-agents--usage-bar (percentage width)
   "A bar WIDTH columns long filled to PERCENTAGE.
-It turns `warning' from `agents-usage-warning'."
+It turns `warning' from `jgy-agents-usage-warning'."
   (let ((filled (min width (round (* percentage width) 100))))
     (concat (propertize (make-string filled ?━)
-                        'face (if (>= percentage agents-usage-warning) 'warning 'agents-bar))
-            (propertize (make-string (- width filled) ?━) 'face 'agents-bar-track))))
+                        'face (if (>= percentage jgy-agents-usage-warning) 'warning 'jgy-agents-bar))
+            (propertize (make-string (- width filled) ?━) 'face 'jgy-agents-bar-track))))
 
-(defun agents--usage-insert ()
-  "Insert a row per agent in `agents--usage', with a bar per usage window.
+(defun jgy-agents--usage-insert ()
+  "Insert a row per agent in `jgy-agents--usage', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
 left out; anything the agent ever reported stays listed.  A row whose
-name carries `agents-action' runs it when the line is visited."
+name carries `jgy-agents-action' runs it when the line is visited."
   (let* ((now (float-time))
          (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
-         (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (cdr row))) agents--usage))
+         (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (cdr row))) jgy-agents--usage))
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
          (count (apply #'max 1 (mapcar (lambda (row) (if (stringp (cdr row)) 0 (length (cdr row)))) rows)))
          (window (get-buffer-window (current-buffer) t))
-         (columns (if window (window-body-width window) agents-dashboard-width))
+         (columns (if window (window-body-width window) jgy-agents-dashboard-width))
          ;; 每个窗口除了条还要 14 列：5h、百分比和重置倒计时；窗口之间空 3 列，行尾留 1 列。
-         (bar (max 4 (min 20 (/ (- columns (length agents--indent) name-width 2 1
+         (bar (max 4 (min 20 (/ (- columns (length jgy-agents--indent) name-width 2 1
                                    (* count 14) (* (1- count) 3))
                                 count)))))
     (pcase-dolist (`(,name . ,windows) rows)
-      (insert (if-let* ((action (get-text-property 0 'agents-action name)))
-                  (propertize agents--indent 'agents-action action)
-                agents--indent)
+      (insert (if-let* ((action (get-text-property 0 'jgy-agents-action name)))
+                  (propertize jgy-agents--indent 'jgy-agents-action action)
+                jgy-agents--indent)
               name (make-string (- (+ name-width 2) (string-width name)) ?\s)
               (if (stringp windows)
                   (replace-regexp-in-string
-                   "\n" (concat "\n" agents--indent (make-string (+ name-width 2) ?\s))
+                   "\n" (concat "\n" jgy-agents--indent (make-string (+ name-width 2) ?\s))
                    windows t t)
                 (mapconcat
                  (lambda (window)
@@ -224,29 +225,29 @@ name carries `agents-action' runs it when the line is visited."
                                                         (string-width percentage))) ?\s)
                                  percentage)
                        (concat (propertize label 'face 'shadow) " "
-                               (agents--usage-bar percentage bar)
+                               (jgy-agents--usage-bar percentage bar)
                                (propertize (format " %3d%%" (floor percentage))
-                                           'face (if (>= percentage agents-usage-warning)
+                                           'face (if (>= percentage jgy-agents-usage-warning)
                                                      'warning
                                                    'default))
                                (propertize (format " %-5s"
-                                                   (if resets (agents--duration (- resets now)) ""))
+                                                   (if resets (jgy-agents--duration (- resets now)) ""))
                                            'face 'shadow)))))
                  windows "   "))
               "\n"))))
 
 ;;; Scan
 
-(defun agents-usage-scan ()
+(defun jgy-agents-usage-scan ()
   "Refresh plan usage and redraw the dashboard when it changed."
   (let ((usage (delq nil (mapcar (lambda (function) (ignore-errors (funcall function)))
-                                 agents-usage-functions))))
-    (unless (and (equal usage agents--usage)
-                 (or (null usage) (equal agents--usage-minute
+                                 jgy-agents-usage-functions))))
+    (unless (and (equal usage jgy-agents--usage)
+                 (or (null usage) (equal jgy-agents--usage-minute
                                          (floor (float-time) 60))))
-      (setq agents--usage usage
-            agents--usage-minute (floor (float-time) 60))
-      (agents--dashboard-schedule))))
+      (setq jgy-agents--usage usage
+            jgy-agents--usage-minute (floor (float-time) 60))
+      (jgy-agents--dashboard-schedule))))
 
 (provide 'jgy-agents-usage)
 ;;; jgy-agents-usage.el ends here
