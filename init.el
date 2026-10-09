@@ -1078,15 +1078,20 @@ column and miscounts after wide prompt glyphs such as ➜."
 
 (use-package jgy-agents
   :ensure nil
-  :commands (jgy-agents-start jgy-agents-toggle jgy-agents-switch jgy-agents-send jgy-agents-dashboard)
+  :commands (jgy-agents-start jgy-agents-toggle jgy-agents-switch jgy-agents-send)
   :autoload jgy-agents-project-root
   :custom
   (jgy-agents-root-function #'jgy-agent-root)
   (jgy-agents-start-function #'jgy-agent-shell-start)
   :config
+  (jgy-agents-mode 1)
+  ;; 看板的用量段；它们会带上看板本身。
   (require 'jgy-agents-usage)
-  (require 'jgy-agents-deepseek)
-  (jgy-agents-mode 1))
+  (require 'jgy-agents-deepseek))
+
+(use-package jgy-agents-dashboard
+  :ensure nil
+  :commands jgy-agents-dashboard)
 
 (dolist (name '("claude" "codex" "pi"))
   (defalias (intern (concat "jgy-agent-start-" name))

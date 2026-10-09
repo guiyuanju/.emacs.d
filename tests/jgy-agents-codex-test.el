@@ -19,14 +19,14 @@
     (write-region text nil file)))
 
 (ert-deftest jgy-agents-codex-windows-ignore-null-limit-windows ()
-  (should (equal (jgy-agents--codex-windows
+  (should (equal (jgy-agents-usage--codex-windows
                   '((primary . nil) (secondary . nil)))
                  nil)))
 
 (ert-deftest jgy-agents-codex-keeps-newest-real-reading ()
   (let* ((root (make-temp-file "codex-sessions" t))
-         (jgy-agents-codex-sessions-directory root)
-         (jgy-agents--codex-usage nil))
+         (jgy-agents-usage-codex-sessions-directory root)
+         (jgy-agents-usage--codex nil))
     (unwind-protect
         (progn
           (jgy-agents-codex-test--write root "rollout-2026-10-10T03-44-22-a.jsonl"
@@ -39,8 +39,8 @@
 
 (ert-deftest jgy-agents-codex-without-any-reading-stays-hidden ()
   (let* ((root (make-temp-file "codex-sessions" t))
-         (jgy-agents-codex-sessions-directory root)
-         (jgy-agents--codex-usage nil))
+         (jgy-agents-usage-codex-sessions-directory root)
+         (jgy-agents-usage--codex nil))
     (unwind-protect
         (progn
           (jgy-agents-codex-test--write root "rollout-2026-10-10T03-44-32-b.jsonl"
@@ -50,14 +50,14 @@
 
 (ert-deftest jgy-agents-codex-row-opens-usage-page ()
   (let* ((root (make-temp-file "codex-sessions" t))
-         (jgy-agents-codex-sessions-directory root)
-         (jgy-agents--codex-usage nil))
+         (jgy-agents-usage-codex-sessions-directory root)
+         (jgy-agents-usage--codex nil))
     (unwind-protect
         (progn
           (jgy-agents-codex-test--write root "rollout-2026-10-10T03-44-22-a.jsonl"
                                     jgy-agents-codex-test--good)
           (should (eq (get-text-property 0 'jgy-agents-action (car (jgy-agents-usage-codex)))
-                      #'jgy-agents-codex-open-usage)))
+                      #'jgy-agents-usage-open-codex)))
       (delete-directory root t))))
 
 (provide 'jgy-agents-codex-test)

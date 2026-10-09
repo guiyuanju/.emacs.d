@@ -1,18 +1,18 @@
 ;;; jgy-agents-turn-diff-test.el --- Turn diff regression checks -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'jgy-agents)
+(require 'jgy-agents-follow)
 
 (ert-deftest jgy-agents-turn-diff-uses-captured-patch ()
   (let ((agent (generate-new-buffer " *turn-diff-test*"))
         (patch "--- a/code.el\n+++ b/code.el\n@@ -1 +1 @@\n-old\n+new\n"))
     (unwind-protect
-        (cl-letf (((symbol-function 'jgy-agents--diff-insert)
+        (cl-letf (((symbol-function 'jgy-agents-follow--insert)
                    (lambda (_) (insert "unrelated old working-tree change")))
                   ((symbol-function 'display-buffer) (lambda (&rest _) nil)))
-          (jgy-agents--diff-show agent `((file . "/tmp/code.el") (diff . ,patch)))
-          (with-current-buffer (jgy-agents--diff-buffer-name agent)
+          (jgy-agents-follow--show agent `((file . "/tmp/code.el") (diff . ,patch)))
+          (with-current-buffer (jgy-agents-follow--buffer-name agent)
             (should (equal (buffer-string) patch))))
-      (when-let* ((diff (get-buffer (jgy-agents--diff-buffer-name agent)))) (kill-buffer diff))
+      (when-let* ((diff (get-buffer (jgy-agents-follow--buffer-name agent)))) (kill-buffer diff))
       (kill-buffer agent))))
 
 (require 'jgy-agent-diff)
@@ -147,9 +147,9 @@
   (let* ((a '((file . "a") (diff . "old")))
          (b '((file . "b") (diff . "new")))
          (c '((file . "c") (diff . "new"))))
-    (should-not (jgy-agents--diff-latest (list a) (list a b c) "a"))
-    (should (equal b (jgy-agents--diff-latest (list a) (list a b) "a")))
-    (should (equal b (jgy-agents--diff-latest nil (list b c) "b")))))
+    (should-not (jgy-agents-follow--latest (list a) (list a b c) "a"))
+    (should (equal b (jgy-agents-follow--latest (list a) (list a b) "a")))
+    (should (equal b (jgy-agents-follow--latest nil (list b c) "b")))))
 
 (require 'jgy-agent-shell)
 (ert-deftest jgy-agent-diff-event-lifecycle ()
@@ -158,9 +158,8 @@
     (jgy-agent-diff-test--git dir "add" ".")
     (jgy-agent-diff-test--git dir "commit" "-qm" "initial")
     (setq jgy-agents-identity `((root . ,dir))
-          jgy-agents--diff-follow '(:files nil :file nil))
-    (cl-letf (((symbol-function 'jgy-agents-report) #'ignore)
-              ((symbol-function 'jgy-agents-dashboard-refresh) #'ignore)
+          jgy-agents-follow--state '(:files nil :file nil))
+    (cl-letf (((symbol-function 'jgy-agents-refresh) #'ignore)
               ((symbol-function 'display-buffer) (lambda (&rest _) nil)))
       (unwind-protect
           (progn
@@ -172,17 +171,17 @@
              '((:event . tool-call-update) (:data (:tool-call (:kind . "execute") (:status . "completed")))))
             (jgy-agent-diff-test--drain)
             (should (= 1 (length (jgy-agent-shell--files))))
-            (jgy-agents--diff-show (current-buffer) (car (jgy-agent-shell--files)))
+            (jgy-agents-follow--show (current-buffer) (car (jgy-agent-shell--files)))
             (let ((patch (alist-get 'diff (car (jgy-agent-shell--files)))))
               (jgy-agent-shell--on-event '((:event . turn-complete)))
               (jgy-agent-diff-test--drain)
               (should (equal patch (alist-get 'diff (car (jgy-agent-shell--files)))))
               (jgy-agent-shell--on-event '((:event . input-submitted)))
               (should-not (jgy-agent-shell--files))
-              (with-current-buffer (jgy-agents--diff-buffer-name (current-buffer))
+              (with-current-buffer (jgy-agents-follow--buffer-name (current-buffer))
                 (should (equal patch (buffer-string)))
                 (should (string-prefix-p "Previous turn" header-line-format)))))
-        (when-let* ((diff (get-buffer (jgy-agents--diff-buffer-name (current-buffer)))))
+        (when-let* ((diff (get-buffer (jgy-agents-follow--buffer-name (current-buffer)))))
           (kill-buffer diff))))))
 
 (ert-deftest jgy-agent-diff-empty-file-and-relative-path ()
@@ -289,7 +288,7 @@
                             `((:kind . "edit") (:status . "completed")
                               (:diffs . (((:file . ,path) (:line . 1))))))))
     (jgy-agent-diff-test--drain)
-    (let ((latest (jgy-agents--diff-latest nil jgy-agent-diff--files)))
+    (let ((latest (jgy-agents-follow--latest nil jgy-agent-diff--files)))
       (should (equal (alist-get 'file latest) (expand-file-name "a-last" dir))))
     (let ((before (copy-tree jgy-agent-diff--files)))
       (jgy-agent-diff-request nil nil t)
@@ -300,7 +299,7 @@
   (let ((old '(((file . "a") (diff . "old") (active . t))))
         (new '(((file . "a") (diff . "old") (active . nil))
                ((file . "b") (diff . "new") (active . nil)))))
-    (should (equal "b" (alist-get 'file (jgy-agents--diff-latest old new "a"))))))
+    (should (equal "b" (alist-get 'file (jgy-agents-follow--latest old new "a"))))))
 
 (ert-deftest jgy-agent-diff-final-verifies-content-despite-identical-stamp ()
   (jgy-agent-diff-test--repo
@@ -340,7 +339,7 @@
       (let ((entry (car jgy-agent-diff--files)))
         (with-temp-buffer
           (insert (alist-get 'diff entry))
-          (goto-char (jgy-agents--diff-hunk (alist-get 'line entry)))
+          (goto-char (jgy-agents-follow--hunk (alist-get 'line entry)))
           (should (looking-at "@@ -87,7 [+]87,7 @@")))))))
 
 (ert-deftest jgy-agent-diff-cancel-cleans-pending-patch-files ()

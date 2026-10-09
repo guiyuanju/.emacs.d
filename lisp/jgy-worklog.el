@@ -12,10 +12,9 @@
 (require 'subr-x)
 (require 'jgy-project)
 
-(declare-function jgy-agents--dashboard-schedule "jgy-agents")
-(declare-function jgy-agents-dashboard-define-key "jgy-agents")
-(declare-function jgy-agents-dashboard-heading "jgy-agents")
-(declare-function jgy-agents-dashboard-insert-section "jgy-agents")
+(declare-function jgy-agents-refresh "jgy-agents")
+(declare-function jgy-agents-dashboard-heading "jgy-agents-dashboard")
+(declare-function jgy-agents-dashboard-insert-section "jgy-agents-dashboard")
 (defvar jgy-agents-dashboard-functions)
 
 (defvar jgy-worklog--cache nil
@@ -133,16 +132,16 @@ Outside a project folder, list every #now or #waiting todo instead."
 
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
-  (when (and (fboundp 'jgy-agents--dashboard-schedule)
+  (when (and (fboundp 'jgy-agents-refresh)
              (not (equal (jgy-worklog--current-root frame) jgy-worklog--last-root)))
-    (jgy-agents--dashboard-schedule)))
+    (jgy-agents-refresh)))
 
 (defun jgy-worklog--after-save ()
   "Re-render the dashboard after saving a worklog file."
   (when (and buffer-file-name
-             (fboundp 'jgy-agents--dashboard-schedule)
+             (fboundp 'jgy-agents-refresh)
              (file-in-directory-p buffer-file-name jgy-workspace-directory))
-    (jgy-agents--dashboard-schedule)))
+    (jgy-agents-refresh)))
 
 ;;;###autoload
 (define-minor-mode jgy-worklog-dashboard-mode
@@ -151,7 +150,7 @@ Outside a project folder, list every #now or #waiting todo instead."
   :group 'jgy-agents
   (if jgy-worklog-dashboard-mode
       (progn
-        (add-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+        (add-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert 50)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
     (remove-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert)

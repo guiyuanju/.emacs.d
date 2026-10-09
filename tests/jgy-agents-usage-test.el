@@ -10,7 +10,7 @@
 (ert-deftest jgy-agents-claude-keeps-last-reading-when-file-has-none ()
   (let* ((file (make-temp-file "claude-usage" nil ".json"))
          (jgy-agents-usage-file file)
-         (jgy-agents--claude-usage nil))
+         (jgy-agents-usage--claude nil))
     (unwind-protect
         (progn
           (jgy-agents-usage-test--set-file
@@ -31,7 +31,7 @@
 (ert-deftest jgy-agents-claude-without-any-reading-stays-hidden ()
   (let* ((file (make-temp-file "claude-usage" nil ".json"))
          (jgy-agents-usage-file file)
-         (jgy-agents--claude-usage nil))
+         (jgy-agents-usage--claude nil))
     (unwind-protect
         (progn
           (jgy-agents-usage-test--set-file file "null")
@@ -41,27 +41,27 @@
 (ert-deftest jgy-agents-claude-row-opens-usage-page ()
   (let* ((file (make-temp-file "claude-usage" nil ".json"))
          (jgy-agents-usage-file file)
-         (jgy-agents--claude-usage nil))
+         (jgy-agents-usage--claude nil))
     (unwind-protect
         (progn
           (jgy-agents-usage-test--set-file
            file "{\"five_hour\":{\"used_percentage\":96,\"resets_at\":1791577800}}")
           (should (eq (get-text-property 0 'jgy-agents-action (car (jgy-agents-usage-claude)))
-                      #'jgy-agents-claude-open-usage)))
+                      #'jgy-agents-usage-open-claude)))
       (delete-file file))))
 
 (ert-deftest jgy-agents-usage-row-action-reaches-line-start ()
   (with-temp-buffer
-    (let ((jgy-agents--usage
+    (let ((jgy-agents-usage--rows
            (list (cons (propertize "deepseek" 'jgy-agents-action #'ignore)
                        (list (list "balance" "¥1.00" nil))))))
-      (jgy-agents--usage-insert)
+      (jgy-agents-usage--insert)
       (should (eq (get-text-property (point-min) 'jgy-agents-action) #'ignore)))))
 
 (ert-deftest jgy-agents-usage-plain-row-has-no-action ()
   (with-temp-buffer
-    (let ((jgy-agents--usage (list (cons "claude" (list (list "5h" 96 1791577800))))))
-      (jgy-agents--usage-insert)
+    (let ((jgy-agents-usage--rows (list (cons "claude" (list (list "5h" 96 1791577800))))))
+      (jgy-agents-usage--insert)
       (should-not (get-text-property (point-min) 'jgy-agents-action)))))
 
 (provide 'jgy-agents-usage-test)

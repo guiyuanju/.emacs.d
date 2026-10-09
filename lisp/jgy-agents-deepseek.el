@@ -149,7 +149,7 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                                  (jgy-agents-deepseek--record jgy-agents-deepseek--balance))
                              (error (setq jgy-agents-deepseek--error t)))
                          (kill-buffer (process-buffer process)))
-                       (jgy-agents--context-scan)))))
+                       (jgy-agents-usage-scan)))))
             ;; Only accept a single header value; no curl-config injection.
             (unless (string-match-p "\\`[A-Za-z0-9_-]+\\'" jgy-deepseek-api-key)
               (error "Invalid key format"))
@@ -163,10 +163,9 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
            (delete-process jgy-agents-deepseek--process))
          (when (buffer-live-p buffer) (kill-buffer buffer)))))))
 
-(defun jgy-agents-usage-deepseek ()
+(defun jgy-agents-deepseek-usage ()
   "Return account balance and observed account spending."
   (when (bound-and-true-p jgy-deepseek-api-key)
-    (jgy-agents-deepseek--fetch)
     (list (propertize "deepseek"
                       'jgy-agents-action #'jgy-agents-deepseek-open-usage
                       'help-echo "RET opens DeepSeek's usage page")
@@ -196,7 +195,13 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                            "Waiting for today's first balance sample.")))
                 nil))))
 
-(add-to-list 'jgy-agents-usage-functions #'jgy-agents-usage-deepseek t)
+(defun jgy-agents-deepseek--tick ()
+  "Refresh the balance while the dashboard is live."
+  (when (jgy-agents-dashboard-live-p)
+    (jgy-agents-deepseek--fetch)))
+
+(add-to-list 'jgy-agents-usage-functions #'jgy-agents-deepseek-usage t)
+(add-hook 'jgy-agents-tick-hook #'jgy-agents-deepseek--tick)
 
 (provide 'jgy-agents-deepseek)
 ;;; jgy-agents-deepseek.el ends here
