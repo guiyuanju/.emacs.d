@@ -16,6 +16,7 @@
 (require 'agents)
 (require 'map)
 (require 'jgy-agent-diff)
+(add-hook 'jgy-agent-diff-update-hook #'agents-dashboard-refresh)
 
 (defvar no-littering-var-directory)
 
@@ -93,10 +94,12 @@ Prefers its description, as the title of a shell command is the command."
          (setq header-line-format "Previous turn · waiting for changes")))
      (agents-dashboard-refresh))
     ('tool-call-update
-     (when (member (map-nested-elt event '(:data :tool-call :status)) '("completed" "failed"))
-       (when (jgy-agent-diff-scan) (agents-dashboard-refresh)))
+     (jgy-agent-diff-tool (map-nested-elt event '(:data :tool-call-id))
+                          (map-nested-elt event '(:data :tool-call)))
      (when-let* ((title (jgy/agent-shell--tool-title (map-elt event :data))))
        (jgy/agent-shell--set-brief 'jgy/agent-shell--last-tool title)))
+    ((or 'turn-complete 'error) (jgy-agent-diff-request nil nil t))
+    ('clean-up (jgy-agent-diff-cancel))
     ('permission-request
      (jgy/agent-shell--set-brief 'jgy/agent-shell--asking
                                  (or (jgy/agent-shell--tool-title (map-elt event :data))

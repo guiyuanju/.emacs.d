@@ -1017,7 +1017,14 @@ On any other line of an agent, show those of its whole project."
 (defun agents--diff-latest (old new &optional current)
   "The entry of NEW, a `files' identity, changed since OLD, or nil.
 Of several, prefer the active file or CURRENT; keep an unchanged CURRENT."
-  (let ((changed (seq-remove (lambda (file) (member file old)) new)))
+  (let ((changed
+         (seq-remove
+          (lambda (file)
+            (let ((previous (seq-find (lambda (entry)
+                                        (equal (alist-get 'file entry) (alist-get 'file file))) old)))
+              ;; Clearing a stale focus marker is not a content change.
+              (equal (assq-delete-all 'active (copy-sequence file))
+                     (assq-delete-all 'active (copy-sequence previous))))) new)))
     (or (seq-find (lambda (file) (alist-get 'active file)) changed)
         (seq-find (lambda (file) (equal (alist-get 'file file) current)) changed)
         (unless (and (> (length changed) 1)
