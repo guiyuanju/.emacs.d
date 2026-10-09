@@ -5,11 +5,13 @@
 ;; 前端（Ghostel 里的 CLI、agent-shell 等）设 `agents-start-function' 来启动 agent，
 ;; 在其 buffer 里设 `agents-identity'，状态经 `agents-report' 上报。
 ;; 套餐用量（5 小时、7 天）从 bin/claude-statusline 写下的 `agents-usage-file' 读出。
+;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件。
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'consult)
+(require 'diff-mode)
 (require 'project)
 (require 'seq)
 (require 'tab-bar)
@@ -82,7 +84,9 @@
   "Alist describing the agent in this buffer.
 Keys: `kind' is `agent'; `agent' its name; `root' its directory; `insert' a
 function inserting a string into its input; `context' a function returning
-its context usage percentage or nil.")
+its context usage percentage or nil; `files' a function returning the files
+it edited this turn, in the order first edited, as alists with keys `file'
+\(absolute), `added', `removed', `active' (still being written) and `line'.")
 (put 'agents-identity 'permanent-local t)
 
 (defvar agents-identity-functions nil
@@ -347,8 +351,12 @@ Each bar ends with the time left until that window resets."
   "Statuses that `agents-dashboard-next-attention' stops at."
   :type '(repeat symbol))
 
-(defcustom agents-dashboard-width 42
+(defcustom agents-dashboard-width 65
   "Width of the dashboard side window."
+  :type 'natnum)
+
+(defcustom agents-dashboard-files 5
+  "Edited files listed under an agent before the rest fold into one line."
   :type 'natnum)
 
 (defconst agents--dashboard-name " *agents*"
@@ -407,6 +415,10 @@ property `agents-action' runs that function on visit.")
                             (setq agents--dashboard-timer nil)
                             (agents--dashboard-render))))))
 
+(defun agents-dashboard-refresh ()
+  "Re-render the dashboard soon; for frontends whose agent changed."
+  (agents--dashboard-schedule))
+
 (defface agents-section
   '((t :inherit (font-lock-keyword-face bold) :overline t :extend t))
   "Face for dashboard section titles.")
@@ -437,11 +449,67 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
                                     (propertize (concat " " (file-name-nondirectory
                                                              (directory-file-name root)))
                                                 'face '(:inherit shadow :height 0.85))
-                                  ""))
+                                  "")
+                                "\n")
                         'agents-buffer buffer
                         'help-echo (buffer-name buffer)
-                        'wrap-prefix (if last "     " "  │  "))
-            "\n")))
+                        'wrap-prefix (if last "     " "  │  ")))
+    (agents--dashboard-files buffer (if last "       " "  │    "))))
+
+(defun agents--files (buffer)
+  "Files agent BUFFER edited this turn, as its `files' identity returns them."
+  (when-let* ((files (agents--identity buffer 'files)))
+    (with-current-buffer buffer (ignore-errors (funcall files)))))
+
+(defun agents--file-relative (file root)
+  "FILE relative to ROOT, or abbreviated when outside it."
+  (if (string-prefix-p (file-name-as-directory (expand-file-name root)) file)
+      (file-relative-name file root)
+    (abbreviate-file-name file)))
+
+(defun agents--file-counts (added removed)
+  "Return \" +ADDED −REMOVED\" in diff colors, leaving out a zero."
+  (cl-flet ((count (n sign face)
+              (if (> n 0)
+                  (propertize (format " %s%d" sign n)
+                              'face `(:foreground ,(face-foreground face nil t)))
+                "")))
+    (concat (count added "+" 'diff-indicator-added)
+            (count removed "−" 'diff-indicator-removed))))
+
+(defun agents--file-label (file root)
+  "FILE's name, its line counts, then its directory relative to ROOT, dimmed."
+  (let-alist file
+    (let ((dir (file-name-directory (agents--file-relative .file root))))
+      (concat (propertize (file-name-nondirectory .file) 'face (if .active 'warning 'default))
+              (agents--file-counts .added .removed)
+              (if dir (propertize (concat " " dir) 'face 'shadow) "")))))
+
+(defun agents--dashboard-files (buffer prefix)
+  "Insert the files agent BUFFER edited this turn, each line starting with PREFIX.
+Past `agents-dashboard-files' the rest fold into one line with their totals."
+  (let* ((files (agents--files buffer))
+         (root (or (agents--identity buffer 'root) default-directory))
+         (rest (nthcdr agents-dashboard-files files)))
+    (dolist (file (seq-take files agents-dashboard-files))
+      (insert (propertize (concat prefix (agents--file-label file root) "\n")
+                          'agents-buffer buffer
+                          'agents-action (lambda () (agents--visit-file buffer file))
+                          'wrap-prefix prefix)))
+    (when rest
+      (insert (propertize
+               (concat prefix
+                       (propertize (format "…+%d" (length rest)) 'face 'shadow)
+                       (agents--file-counts
+                        (apply #'+ (mapcar (lambda (file) (alist-get 'added file)) rest))
+                        (apply #'+ (mapcar (lambda (file) (alist-get 'removed file)) rest)))
+                       "\n")
+               'agents-buffer buffer
+               'agents-action (lambda () (agents--pick-file buffer files))
+               'help-echo (mapconcat (lambda (file)
+                                       (agents--file-relative (alist-get 'file file) root))
+                                     files "\n")
+               'wrap-prefix prefix)))))
 
 (defun agents--dashboard-mode-line ()
   "Return the dashboard mode line: its name and a count of agents by state."
@@ -587,15 +655,47 @@ the first one."
                     (user-error (if (agents--dashboard-tab-p (line-beginning-position))
                                     "No agent in this tab"
                                   "No agent on this line")))))
-    (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
-    (when-let* ((index (agents--tab-index buffer)))
-      (tab-bar-select-tab (1+ index)))
-    (when (window-parameter (selected-window) 'window-side)
-      (select-window (get-mru-window nil nil t)))
-    (agents--show buffer)
-    ;; 看板是当前 tab 的侧窗，跟着到新 tab 里再开一份。
-    (unless (get-buffer-window agents--dashboard-name)
-      (agents--dashboard-display))))
+    (agents--visit buffer (lambda () (agents--show buffer)))))
+
+(defun agents--visit (buffer show)
+  "Switch to agent BUFFER's tab and call SHOW in a regular window there."
+  (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
+  (when-let* ((index (agents--tab-index buffer)))
+    (tab-bar-select-tab (1+ index)))
+  (when (window-parameter (selected-window) 'window-side)
+    (select-window (get-mru-window nil nil t)))
+  (funcall show)
+  ;; 看板是当前 tab 的侧窗，跟着到新 tab 里再开一份。
+  (unless (get-buffer-window agents--dashboard-name)
+    (agents--dashboard-display)))
+
+(defun agents--visit-file (buffer file)
+  "Open FILE, edited by agent BUFFER, at its line in the agent's tab."
+  (agents--visit buffer
+                 (lambda ()
+                   (find-file (alist-get 'file file))
+                   (when-let* ((line (alist-get 'line file)))
+                     (goto-char (point-min))
+                     (forward-line (1- line))))))
+
+(defun agents--pick-file (buffer files)
+  "Pick one of FILES edited by agent BUFFER and visit it."
+  (let* ((root (or (agents--identity buffer 'root) default-directory))
+         (names (mapcar (lambda (file)
+                          (cons (agents--file-relative (alist-get 'file file) root) file))
+                        files))
+         (choice (completing-read
+                  "Edited file: "
+                  (lambda (string pred action)
+                    (if (eq action 'metadata)
+                        `(metadata (display-sort-function . identity)
+                                   (annotation-function
+                                    . ,(lambda (name)
+                                         (let-alist (cdr (assoc name names))
+                                           (agents--file-counts .added .removed)))))
+                      (complete-with-action action names string pred)))
+                  nil t)))
+    (agents--visit-file buffer (cdr (assoc choice names)))))
 
 (defun agents--dashboard-display ()
   "Show the dashboard in a right side window and return that window."
