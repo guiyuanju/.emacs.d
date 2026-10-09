@@ -435,7 +435,10 @@ Binds it in evil's normal state too."
   (agents--diff-schedule))
 
 (defface agents-section
-  '((t :inherit (font-lock-keyword-face bold)))
+  '((((background dark)) :inherit (font-lock-keyword-face bold)
+     :background "#2f3540" :extend t)
+    (t :inherit (font-lock-keyword-face bold)
+       :background "#dce1e8" :extend t))
   "Face for dashboard section titles.")
 
 (defface agents-waiting-line
@@ -448,9 +451,27 @@ Binds it in evil's normal state too."
     (t :background "#e2f5e6" :extend t))
   "Face added to the dashboard line of an agent that finished unseen.")
 
+(defface agents-tab-heading
+  '((((background dark)) :background "#242b34" :extend t)
+    (t :background "#edf0f4" :extend t))
+  "Face of a tab heading in the agents dashboard.")
+
+(defface agents-tab-heading-current
+  '((((background dark)) :background "#3b4a5c" :extend t)
+    (t :background "#ccd9e8" :extend t))
+  "Face of the current tab's heading in the agents dashboard.")
+
 (defun agents-dashboard-heading (name &optional current)
   "NAME as a dashboard heading, highlighted when CURRENT."
   (propertize name 'face (if current '(success bold) 'bold)))
+
+(defun agents--tab-heading (text current)
+  "TEXT as a tab heading with a background, stronger when CURRENT."
+  (let ((heading (agents-dashboard-heading text current)))
+    (add-face-text-property 0 (length heading)
+                            (if current 'agents-tab-heading-current 'agents-tab-heading)
+                            t heading)
+    heading))
 
 (defun agents--section-title (title)
   "Line for section TITLE, carrying TITLE's text properties to its end."
@@ -673,8 +694,8 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                             (equal id (buffer-local-value 'agents--tab buffer)))
                           agents))
      do (unless first (insert "\n"))
-     (insert (propertize (agents-dashboard-heading (alist-get 'name tab)
-                                                   (eq (car tab) 'current-tab))
+     (insert (propertize (agents--tab-heading (alist-get 'name tab)
+                                              (eq (car tab) 'current-tab))
                          'agents-tab (or id (alist-get 'name tab)))
              "\n")
      (setq agents (seq-difference agents owned))
@@ -682,7 +703,9 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
        (agents--dashboard-line buffer (alist-get 'name tab))))
     (when agents
       (when tabs (insert "\n"))
-      (insert (propertize "tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
+      (insert (propertize (agents--tab-heading "tab closed" nil)
+                          'agents-tab 'closed)
+              "\n")
       (dolist (buffer agents)
         (agents--dashboard-line buffer)))))
 
