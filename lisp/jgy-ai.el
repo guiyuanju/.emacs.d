@@ -27,6 +27,7 @@
 (use-package agent-shell
   :defer t
   :custom
+  (agent-shell-header-style 'text)
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))

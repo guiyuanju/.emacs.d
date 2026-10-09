@@ -109,9 +109,11 @@ FIRST omits the blank line before the heading; BARE omits the heading."
                         'agents-action (jgy-worklog--visit (plist-get card :file) 1))
             "\n"))
   (pcase-dolist (`(,text . ,line) todos)
-    (insert (propertize (concat "   " (jgy-worklog--display text))
+    ;; ☐ 在等宽字体里占两列，折行接在它后面。
+    (insert (propertize (concat "   " (propertize "☐" 'face 'shadow) " "
+                                (jgy-worklog--display text))
                         'agents-action (jgy-worklog--visit (plist-get card :file) line)
-                        'wrap-prefix "   ")
+                        'wrap-prefix "      ")
             "\n")))
 
 (defun jgy-worklog-dashboard-insert (frame)

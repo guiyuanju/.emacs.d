@@ -4,7 +4,8 @@
 ;; 按项目复用 agent，按启动时的 tab 归属；`agents-mode' 跟踪状态，并让 bufferlo 只列出本 tab 的 agent。
 ;; 前端（Ghostel 里的 CLI、agent-shell 等）设 `agents-start-function' 来启动 agent，
 ;; 在其 buffer 里设 `agents-identity'，状态经 `agents-report' 上报。
-;; 套餐用量（5 小时、7 天）从 bin/claude-statusline 写下的 `agents-usage-file' 读出。
+;; 套餐用量（5 小时、7 天）由 `agents-usage-functions' 读出：Claude 的取自 bin/claude-statusline
+;; 写下的 `agents-usage-file'，Codex 的取自它最新的会话日志。
 ;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件；
 ;; 给出 `brief'，看板就在 agent 那行末尾写它正在做什么。
 ;; 看板上按 d 看文件或整个项目还没提交的改动；agent 那行写着本轮跑了多久。
@@ -79,8 +80,22 @@ END is nil while the turn runs.")
   "Plan usage percentage from which the dashboard highlights it."
   :type 'natnum)
 
+(defcustom agents-codex-sessions-directory "~/.codex/sessions"
+  "Directory where Codex writes its session logs, which carry its plan usage."
+  :type 'directory)
+
+(defcustom agents-usage-functions '(agents-usage-claude agents-usage-codex)
+  "Functions returning an agent's plan usage, shown on the dashboard.
+Each returns (NAME . WINDOWS), or nil when it knows none.  WINDOWS lists
+\(LABEL PERCENT RESETS-AT), like (\"5h\" 42 1790963218); RESETS-AT is
+seconds since the epoch, or nil."
+  :type '(repeat function))
+
 (defvar agents--usage nil
-  "Plan usage windows as read from `agents-usage-file'.")
+  "Plan usage as `agents-usage-functions' last returned it.")
+
+(defvar agents--codex-usage nil
+  "Codex usage windows, as ((FILE MTIME) . RATE-LIMITS) for the log they came from.")
 
 (defvar agents--usage-minute nil
   "Minute the reset countdowns were last drawn in.")
@@ -312,16 +327,71 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
         (when (and used (not (equal used agents-context)))
           (setq agents-context used)
           (agents--dashboard-schedule)))))
-  (let ((usage (ignore-errors
-                 (with-temp-buffer
-                   (insert-file-contents agents-usage-file)
-                   (json-parse-buffer :object-type 'alist :null-object nil)))))
+  (let ((usage (delq nil (mapcar (lambda (function) (ignore-errors (funcall function)))
+                                 agents-usage-functions))))
     (unless (and (equal usage agents--usage)
                  (or (null usage) (equal agents--usage-minute
                                          (floor (float-time) 60))))
       (setq agents--usage usage
             agents--usage-minute (floor (float-time) 60))
       (agents--dashboard-schedule))))
+
+(defun agents-usage-claude ()
+  "Claude's plan usage, as bin/claude-statusline saved it in `agents-usage-file'."
+  (when-let* ((usage (ignore-errors
+                       (with-temp-buffer
+                         (insert-file-contents agents-usage-file)
+                         (json-parse-buffer :object-type 'alist :null-object nil)))))
+    (cons "claude"
+          (cl-loop for (key . label) in '((five_hour . "5h") (seven_day . "7d"))
+                   for window = (alist-get key usage)
+                   when (alist-get 'used_percentage window)
+                   collect (list label it (let ((resets (alist-get 'resets_at window)))
+                                            (and (numberp resets) resets)))))))
+
+(defun agents--codex-log ()
+  "Codex's newest session log, or nil."
+  ;; 日志在 年/月/日/rollout-时间-….jsonl，按名字排序就是按时间。
+  (let ((dir (expand-file-name agents-codex-sessions-directory)))
+    (dotimes (_ 3)
+      (setq dir (and dir (file-directory-p dir)
+                     (car (last (directory-files dir t "\\`[0-9]+\\'"))))))
+    (and dir (car (last (directory-files dir t "\\`rollout-.*\\.jsonl\\'"))))))
+
+(defun agents--codex-rate-limits (file)
+  "Rate limits of the last token count in Codex session log FILE, or nil."
+  (with-temp-buffer
+    ;; 日志可能有几十 MB，只读结尾。
+    (let ((size (file-attribute-size (file-attributes file))))
+      (insert-file-contents file nil (max 0 (- size 262144)) size))
+    (goto-char (point-max))
+    (when (search-backward "\"rate_limits\":{" nil t)
+      (alist-get 'rate_limits
+                 (alist-get 'payload
+                            (json-parse-string (buffer-substring (line-beginning-position)
+                                                                 (line-end-position))
+                                               :object-type 'alist :null-object nil))))))
+
+(defun agents-usage-codex ()
+  "Codex's plan usage, from its newest session log.
+A log without any keeps the usage read from the one before."
+  (when-let* ((file (agents--codex-log)))
+    (let ((stamp (list file (file-attribute-modification-time (file-attributes file)))))
+      (unless (equal stamp (car agents--codex-usage))
+        (setq agents--codex-usage
+              (cons stamp (or (ignore-errors (agents--codex-rate-limits file))
+                              (cdr agents--codex-usage))))))
+    (when-let* ((limits (cdr agents--codex-usage)))
+      (cons "codex"
+            (cl-loop for key in '(primary secondary)
+                     for window = (alist-get key limits)
+                     for minutes = (alist-get 'window_minutes window)
+                     when (and minutes (alist-get 'used_percent window))
+                     collect (list (if (>= minutes 1440)
+                                       (format "%dd" (/ minutes 1440))
+                                     (format "%dh" (/ minutes 60)))
+                                   it
+                                   (alist-get 'resets_at window)))))))
 
 (defun agents--duration (seconds)
   "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
@@ -337,7 +407,7 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
   "Indent of the files under an agent, lining up with its name.")
 
 (defface agents-bar
-  '((t :inherit font-lock-keyword-face :weight normal))
+  '((t :inherit font-lock-keyword-face))
   "Face of the used part of a plan usage bar.")
 
 (defface agents-bar-track
@@ -345,34 +415,46 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
     (t :foreground "#d4d4d4"))
   "Face of the unused part of a plan usage bar.")
 
-(defun agents--usage-bar (percentage warn)
-  "A bar filled to PERCENTAGE, in `warning' when WARN.
-It is up to 20 columns, shorter in a narrow dashboard."
-  (let* ((window (get-buffer-window (current-buffer) t))
-         (columns (if window (window-body-width window) agents-dashboard-width))
-         ;; 一行除了条之外还要约 22 列：缩进、5h、百分比和重置时间。
-         (width (max 6 (min 20 (- columns 22))))
-         (filled (min width (round (* percentage width) 100))))
-    (concat (propertize (make-string filled ?━) 'face (if warn 'warning 'agents-bar))
+(defun agents--usage-bar (percentage width)
+  "A bar WIDTH columns long filled to PERCENTAGE.
+It turns `warning' from `agents-usage-warning'."
+  (let ((filled (min width (round (* percentage width) 100))))
+    (concat (propertize (make-string filled ?━)
+                        'face (if (>= percentage agents-usage-warning) 'warning 'agents-bar))
             (propertize (make-string (- width filled) ?━) 'face 'agents-bar-track))))
 
 (defun agents--usage-insert ()
-  "Insert a bar per Claude plan usage window that has not reset yet.
-Each bar ends with the time left until that window resets."
-  (pcase-dolist (`(,key . ,name) '((five_hour . "5h") (seven_day . "7d")))
-    (let-alist (alist-get key agents--usage)
-      (when (and .used_percentage
-                 (or (not (numberp .resets_at)) (> .resets_at (float-time))))
-        (let ((warn (>= .used_percentage agents-usage-warning)))
-          (insert agents--indent name "  "
-                  (agents--usage-bar .used_percentage warn)
-                  (propertize (format " %3d%%" (floor .used_percentage))
-                              'face (if warn 'warning 'shadow))
-                  (if (numberp .resets_at)
-                      (propertize (concat "  " (agents--duration (- .resets_at (float-time))))
-                                  'face 'shadow)
-                    "")
-                  "\n"))))))
+  "Insert a row per agent in `agents--usage', with a bar per usage window.
+A window past its reset counts as empty; an agent whose windows all
+reset is left out, as it has not run since."
+  (let* ((now (float-time))
+         (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
+         (rows (seq-filter (lambda (row) (seq-remove past (cdr row))) agents--usage))
+         (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
+         (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
+         (window (get-buffer-window (current-buffer) t))
+         (columns (if window (window-body-width window) agents-dashboard-width))
+         ;; 每个窗口除了条还要 14 列：5h、百分比和重置倒计时；窗口之间空 3 列，行尾留 1 列。
+         (bar (max 4 (min 20 (/ (- columns (length agents--indent) name-width 2 1
+                                   (* count 14) (* (1- count) 3))
+                                count)))))
+    (pcase-dolist (`(,name . ,windows) rows)
+      (insert agents--indent name (make-string (- (+ name-width 2) (string-width name)) ?\s)
+              (mapconcat
+               (lambda (window)
+                 (pcase-let* ((`(,label ,percentage ,resets)
+                               (if (funcall past window) (list (car window) 0 nil) window)))
+                   (concat (propertize label 'face 'shadow) " "
+                           (agents--usage-bar percentage bar)
+                           (propertize (format " %3d%%" (floor percentage))
+                                       'face (if (>= percentage agents-usage-warning)
+                                                 'warning
+                                               'default))
+                           (propertize (format " %-5s"
+                                               (if resets (agents--duration (- resets now)) ""))
+                                       'face 'shadow))))
+               windows "   ")
+              "\n"))))
 
 (defun agents--filter-tab-buffers (fn &rest args)
   "Around advice for `bufferlo-buffer-list' dropping agents owned by other tabs."
@@ -447,11 +529,10 @@ Binds it in evil's normal state too."
               truncate-partial-width-windows nil
               word-wrap t
               word-wrap-by-category t
-              line-spacing 0.25
               left-margin-width 1
               right-margin-width 1
-              ;; agent 数目写在 agents 标题右边。
-              mode-line-format nil)
+              ;; mode line 和别的窗口一样，写看板名和 agent 数目。
+              mode-line-format '(:eval (agents--dashboard-mode-line)))
   ;; brief 按窗口宽度截断，宽度一变就得重画。
   (add-hook 'window-size-change-functions #'agents--dashboard-resized nil t)
   (display-line-numbers-mode -1)
@@ -482,11 +563,6 @@ Binds it in evil's normal state too."
   '((t :inherit (font-lock-keyword-face bold)))
   "Face for dashboard section titles.")
 
-(defface agents-rule
-  '((((background dark)) :foreground "#3a3a3a")
-    (t :foreground "#c8c8c8"))
-  "Face of the rule dashboard section titles sit in.")
-
 (defface agents-waiting-line
   '((((background dark)) :background "#3d1c20" :extend t)
     (t :background "#fbe4e4" :extend t))
@@ -498,55 +574,31 @@ Binds it in evil's normal state too."
   "Face added to the dashboard line of an agent that finished unseen.")
 
 (defun agents-dashboard-heading (name &optional current)
-  "NAME as a dashboard heading, its bar lit when CURRENT."
-  (concat (propertize "▍" 'face (if current 'success 'shadow))
-          (propertize name 'face 'bold)))
+  "NAME as a dashboard heading, highlighted when CURRENT."
+  (propertize name 'face (if current '(success bold) 'bold)))
 
-(cl-defun agents--section-title (title aside)
-  "Line for section TITLE in a rule, like ── agents ─── 2 total.
-The rule runs to ASIDE at the right edge when it is non-nil and fits,
-else to the edge.  TITLE is lowercased and its text properties spread
-over the line."
-  (let* ((window (get-buffer-window (current-buffer) t))
-         (char (frame-char-width (if window (window-frame window) (selected-frame))))
-         (head (concat (propertize "── " 'face 'agents-rule)
-                       (propertize (downcase title) 'face 'agents-section)
-                       " "))
-         (tail (if aside (concat " " aside) ""))
-         (room nil)
-         (line nil))
-    (add-face-text-property 0 (length tail) 'shadow t tail)
-    ;; 按像素算横线长度：· 之类的字符在中文等宽字体里可能占两列；末尾留一列给折行标记。
-    (setq room (- (if window (window-body-width window t) (* agents-dashboard-width char))
-                  (string-pixel-width (concat head tail) (current-buffer))
-                  char))
-    ;; 窄到放不下 ASIDE 就不要它，免得折行。
-    (when (and aside (< room (* 3 char)))
-      (cl-return-from agents--section-title (agents--section-title title nil)))
-    ;; 横线按整字符截断，余下的空隙放在 ASIDE 前，让它贴齐右边。
-    (setq line (concat head (propertize (make-string (max 1 (/ room char)) ?─) 'face 'agents-rule)
-                       (if aside
-                           (concat (propertize " " 'display
-                                               `(space :align-to
-                                                       (- right (,(+ (string-pixel-width aside (current-buffer))
-                                                                     char)))))
-                                   (substring tail 1))
-                         "")
-                       "\n"))
-    ;; `downcase' 丢掉了 TITLE 的文字属性，比如 Hints 标题上的 `agents-action'；
-    ;; 铺满整行，在横线上按 RET 也算。
+(defun agents--section-title (title)
+  "Line for section TITLE, carrying TITLE's text properties to its end."
+  (let ((line (concat title "\n")))
+    (add-face-text-property 0 (length title) 'agents-section t line)
+    ;; 在标题行哪里按 RET 都算，比如 Hints 标题上的 `agents-action'。
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
              do (put-text-property 0 (length line) prop value line))
     line))
 
-(defun agents-dashboard-insert-section (title body &optional aside)
+(defun agents--dashboard-mode-line ()
+  "Mode line of the dashboard: its name, then a count of agents by state."
+  (concat " " (propertize "Agents" 'face 'mode-line-buffer-id)
+          "   " (string-replace "%" "%%" (agents--dashboard-counts))))
+
+(defun agents-dashboard-insert-section (title body)
   "Insert section TITLE followed by what BODY inserts.
 BODY is a function of no arguments; the title is dropped when it
-inserts nothing.  ASIDE is a string for the title's right edge."
+inserts nothing."
   (let ((start (point)))
     (unless (bobp) (insert "\n"))
-    (insert (agents--section-title title aside))
+    (insert (agents--section-title title))
     (let ((after-title (point)))
       (funcall body)
       (when (= (point) after-title)
@@ -615,11 +667,11 @@ the duration ends a column before it, so both line up across agents."
                   (t 0))))))
 
 (defun agents--project-label (buffer tab-name)
-  "Name of agent BUFFER's project in small type, unless it is TAB-NAME."
+  "Name of agent BUFFER's project, dimmed, unless it is TAB-NAME."
   (let* ((root (agents--identity buffer 'root))
          (project (and root (file-name-nondirectory (directory-file-name root)))))
     (if (and project (not (equal project tab-name)))
-        (propertize (concat " " project) 'face '(:inherit shadow :height 0.85))
+        (propertize (concat " " project) 'face 'shadow)
       "")))
 
 (defun agents--brief (buffer)
@@ -631,18 +683,19 @@ the duration ends a column before it, so both line up across agents."
     text))
 
 (defun agents--brief-label (buffer brief head meta)
-  "BRIEF in small type, cut to the dashboard width between HEAD and META.
+  "BRIEF cut to the dashboard width between HEAD and META.
 META is how many columns the right-aligned text after it takes.  Measured
 in pixels, as fonts draw glyphs like ◐ and … wider than `string-width'
-says.  Highlighted while agent BUFFER waits, dimmed unless it works."
+says.  Highlighted while agent BUFFER waits, set apart from its name
+while it works, dimmed otherwise."
   (let* ((window (get-buffer-window (current-buffer) t))
          (char (frame-char-width (if window (window-frame window) (selected-frame))))
          (gap "  ")
-         (face `(:inherit ,(pcase (buffer-local-value 'agents-status buffer)
-                               ('waiting 'warning)
-                               ('working 'default)
-                               (_ 'shadow))
-                 :height 0.85))
+         (face (pcase (buffer-local-value 'agents-status buffer)
+                 ('waiting 'warning)
+                 ;; 和 agent 名字区分开，像补全候选后面的注解。
+                 ('working 'font-lock-doc-face)
+                 (_ 'shadow)))
          (width (lambda (text)
                   (string-pixel-width (propertize text 'face face) (current-buffer))))
          ;; 右边的对齐文字前空一列，没有时也留一列给折行标记；
@@ -750,7 +803,7 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
        (agents--dashboard-line buffer (alist-get 'name tab))))
     (when agents
       (when tabs (insert "\n"))
-      (insert (propertize "▍tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
+      (insert (propertize "tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
       (dolist (buffer agents)
         (agents--dashboard-line buffer)))))
 
@@ -773,9 +826,8 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
              (column (current-column))
              (inhibit-read-only t))
         (erase-buffer)
-        (agents-dashboard-insert-section "Agents" (lambda () (agents--dashboard-agents tabs))
-                                         (agents--dashboard-counts))
-        (agents-dashboard-insert-section "Usage · claude" #'agents--usage-insert)
+        (agents-dashboard-insert-section "Usage" #'agents--usage-insert)
+        (agents-dashboard-insert-section "Agents" (lambda () (agents--dashboard-agents tabs)))
         (run-hook-with-args 'agents-dashboard-functions frame)
         (goto-char (point-min))
         (if-let* ((pos (and anchor (agents--dashboard-find anchor))))
@@ -872,13 +924,23 @@ the first one."
   (when-let* ((action (get-text-property (line-beginning-position) 'agents-action)))
     (funcall action)
     (cl-return-from agents-dashboard-visit))
-  (let ((buffer (or (get-text-property (point) 'agents-buffer)
-                    (and (agents--dashboard-tab-p (line-beginning-position))
-                         (agents--dashboard-tab-target))
-                    (user-error (if (agents--dashboard-tab-p (line-beginning-position))
-                                    "No agent in this tab"
-                                  "No agent on this line")))))
-    (agents--visit buffer (lambda () (agents--show buffer)))))
+  (let* ((tab (agents--dashboard-tab-p (line-beginning-position)))
+         (buffer (or (get-text-property (point) 'agents-buffer)
+                     (and tab (agents--dashboard-tab-target)))))
+    (cond (buffer (agents--visit buffer (lambda () (agents--show buffer))))
+          ((stringp tab) (agents--dashboard-select-tab tab))
+          (t (user-error "No agent on this line")))))
+
+(defun agents--dashboard-select-tab (key)
+  "Switch to the tab whose id, or name when it has none, is KEY.
+Point stays in the dashboard, shown in that tab too."
+  (let ((index (cl-position-if (lambda (tab)
+                                 (equal key (or (alist-get 'agents-id (cdr tab))
+                                                (alist-get 'name (cdr tab)))))
+                               (funcall tab-bar-tabs-function))))
+    (unless index (user-error "Tab is gone"))
+    (tab-bar-select-tab (1+ index))
+    (select-window (agents--dashboard-display))))
 
 (defun agents--visit (buffer show)
   "Switch to agent BUFFER's tab and call SHOW in a regular window there."
@@ -889,8 +951,8 @@ the first one."
     (select-window (get-mru-window nil nil t)))
   (funcall show)
   ;; 看板是当前 tab 的侧窗，跟着到新 tab 里再开一份。
-  (unless (get-buffer-window agents--dashboard-name)
-    (agents--dashboard-display)))
+  (setq agents--dashboard-shown t)
+  (agents--dashboard-follow))
 
 (defun agents-dashboard-diff ()
   "Show the uncommitted changes to the file on this line in the agent's tab.
@@ -939,6 +1001,17 @@ On any other line of an agent, show those of its whole project."
                   nil t)))
     (agents--visit-file buffer (cdr (assoc choice names)))))
 
+(defvar agents--dashboard-shown nil
+  "Non-nil while the dashboard is toggled on; every tab then shows it.")
+
+(defun agents--dashboard-follow (&rest _)
+  "Show the dashboard in the current tab when it is toggled on.
+For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
+  (when (and agents--dashboard-shown
+             (get-buffer agents--dashboard-name)
+             (not (get-buffer-window agents--dashboard-name)))
+    (agents--dashboard-display)))
+
 (defun agents--dashboard-display ()
   "Show the dashboard in a right side window and return that window."
   (display-buffer-in-side-window
@@ -950,6 +1023,7 @@ On any other line of an agent, show those of its whole project."
 (defun agents-dashboard ()
   "Toggle a side window listing every agent under the tab it belongs to."
   (interactive)
+  (setq agents--dashboard-shown (not (get-buffer-window agents--dashboard-name)))
   (if-let* ((window (get-buffer-window agents--dashboard-name)))
       (delete-window window)
     (with-current-buffer (get-buffer-create agents--dashboard-name)
@@ -970,6 +1044,8 @@ On any other line of an agent, show those of its whole project."
         (advice-add 'bufferlo-buffer-list :around #'agents--filter-tab-buffers)
         (add-hook 'window-selection-change-functions #'agents--acknowledge)
         (add-hook 'window-buffer-change-functions #'agents--acknowledge)
+        (add-hook 'tab-bar-tab-post-select-functions #'agents--dashboard-follow)
+        (add-hook 'tab-bar-tab-post-open-functions #'agents--dashboard-follow)
         (unless agents--context-timer
           (setq agents--context-timer
                 (run-with-timer 0 agents-context-interval
@@ -981,6 +1057,8 @@ On any other line of an agent, show those of its whole project."
     (advice-remove 'bufferlo-buffer-list #'agents--filter-tab-buffers)
     (remove-hook 'window-selection-change-functions #'agents--acknowledge)
     (remove-hook 'window-buffer-change-functions #'agents--acknowledge)
+    (remove-hook 'tab-bar-tab-post-select-functions #'agents--dashboard-follow)
+    (remove-hook 'tab-bar-tab-post-open-functions #'agents--dashboard-follow)
     (when agents--context-timer
       (cancel-timer agents--context-timer)
       (setq agents--context-timer nil))

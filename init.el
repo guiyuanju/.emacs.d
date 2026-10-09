@@ -121,10 +121,15 @@
 (savehist-mode 1)
 
 ;; Tabs are lightweight workspaces; desktop.el restores files and window state.
+;; The agents dashboard lists them, so the tab bar stays hidden.
 ;; Use the Custom setter so reloading init.el also refreshes every frame.
-(customize-set-variable 'tab-bar-show t)
-(setq tab-bar-close-button-show nil
-      tab-bar-format '(tab-bar-format-history tab-bar-format-tabs tab-bar-separator)
+(customize-set-variable 'tab-bar-show nil)
+
+(defun jgy/tab-name ()
+  "Name the current tab after its main window's buffer, not the dashboard's."
+  (buffer-name (window-buffer (get-mru-window nil nil t))))
+
+(setq tab-bar-tab-name-function #'jgy/tab-name
       ;; A new workspace starts empty rather than inheriting the current buffer.
       tab-bar-new-tab-choice "*scratch*"
       desktop-dirname jgy/state-directory
@@ -132,7 +137,6 @@
       desktop-base-file-name "desktop.el"
       desktop-save t
       desktop-restore-eager 5)
-(tab-bar-mode 1)
 (tab-bar-history-mode 1)
 (desktop-save-mode 1)
 
