@@ -13,6 +13,8 @@
 (require 'jgy-project)
 
 (declare-function agents--dashboard-schedule "agents")
+(declare-function agents-dashboard-define-key "agents")
+(declare-function agents-dashboard-heading "agents")
 (declare-function agents-dashboard-insert-section "agents")
 (defvar agents-dashboard-functions)
 
@@ -97,14 +99,15 @@ or anywhere when tagged #waiting."
     (goto-char (point-min))
     (forward-line (1- line))))
 
-(defun jgy-worklog--insert-card (card todos first)
+(defun jgy-worklog--insert-card (card todos first &optional bare)
   "Insert a heading for CARD followed by TODOS.
-FIRST omits the blank line before the heading."
-  (unless first (insert "\n"))
-  (insert (propertize (format "[%s]" (plist-get card :id)) 'face 'bold
-                      'agents-tab t
-                      'agents-action (jgy-worklog--visit (plist-get card :file) 1))
-          "\n")
+FIRST omits the blank line before the heading; BARE omits the heading."
+  (unless (or first bare) (insert "\n"))
+  (unless bare
+    (insert (propertize (agents-dashboard-heading (plist-get card :id))
+                        'agents-tab t
+                        'agents-action (jgy-worklog--visit (plist-get card :file) 1))
+            "\n"))
   (cl-loop for ((text . line) . rest) on todos
            do (insert (propertize (concat "  " (if rest "├─ " "└─ ") (jgy-worklog--display text))
                                   'agents-action
@@ -123,15 +126,21 @@ Outside a project folder, list every #now or #waiting todo instead."
                                         cards))))
     (setq jgy-worklog--last-root root)
     (agents-dashboard-insert-section
-     (concat "Todo · " (if matched (plist-get (car matched) :id) "#now"))
+     ;; 只有当前项目一张卡时，标题就是它的标题：RET 打开它，下面不再重复。
+     (if (and matched (null (cdr matched)))
+         (propertize (concat "Todo · " (plist-get (car matched) :id))
+                     'agents-tab t
+                     'agents-action (jgy-worklog--visit (plist-get (car matched) :file) 1))
+       (concat "Todo · " (if matched (plist-get (car matched) :id) "#now")))
      (lambda ()
-       (let ((first t))
+       (let ((first t)
+             (bare (and matched (null (cdr matched)))))
          (dolist (card (or matched cards))
            (when-let* ((todos (if matched
                                   (plist-get card :todos)
                                 (seq-filter (lambda (todo) (string-match-p "#\\(?:now\\|waiting\\)\\>" (car todo)))
                                             (plist-get card :todos)))))
-             (jgy-worklog--insert-card card todos first)
+             (jgy-worklog--insert-card card todos first bare)
              (setq first nil))))))))
 
 (defcustom jgy-worklog-hints
@@ -149,14 +158,31 @@ Outside a project folder, list every #now or #waiting todo instead."
 Nil hides the Hints section."
   :type '(repeat (cons string (alist :key-type string :value-type string))))
 
+(defvar jgy-worklog--hints-shown nil
+  "Non-nil when the Hints section is expanded.")
+
+(defun jgy-worklog-toggle-hints ()
+  "Expand or collapse the Hints section of the dashboard."
+  (interactive)
+  (setq jgy-worklog--hints-shown (not jgy-worklog--hints-shown))
+  (agents--dashboard-schedule))
+
+(with-eval-after-load 'agents
+  (agents-dashboard-define-key "?" #'jgy-worklog-toggle-hints))
+
 (defun jgy-worklog-dashboard-insert-hints (_frame)
-  "Insert the Hints section from `jgy-worklog-hints'."
+  "Insert the Hints section from `jgy-worklog-hints'.
+It stays one line until `jgy-worklog-toggle-hints' expands it."
   (agents-dashboard-insert-section
-   "Hints"
+   (propertize "Hints" 'agents-action #'jgy-worklog-toggle-hints)
    (lambda ()
      (let ((width (apply #'max 0 (mapcar (lambda (pair) (string-width (car pair)))
                                          (apply #'append (mapcar #'cdr jgy-worklog-hints))))))
-       (dolist (group jgy-worklog-hints)
+       (unless (or jgy-worklog--hints-shown (null jgy-worklog-hints))
+         (insert (propertize (concat "  " (propertize "?" 'face 'help-key-binding)
+                                     (propertize " 展开" 'face 'shadow) "\n")
+                             'agents-action #'jgy-worklog-toggle-hints)))
+       (dolist (group (and jgy-worklog--hints-shown jgy-worklog-hints))
          (insert (propertize (car group) 'face 'shadow) "\n")
          (pcase-dolist (`(,key . ,text) (cdr group))
            (insert "  " (propertize key 'face 'help-key-binding)

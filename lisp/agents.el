@@ -409,8 +409,15 @@ property `agents-action' runs that function on visit.")
 (defvar-keymap agents-dashboard-mode-map
   :parent special-mode-map)
 
+(defun agents-dashboard-define-key (key command)
+  "Bind KEY, in `keymap-set' syntax, to COMMAND on the dashboard.
+Binds it in evil's normal state too."
+  (keymap-set agents-dashboard-mode-map key command)
+  (with-eval-after-load 'evil
+    (evil-define-key* 'normal agents-dashboard-mode-map (key-parse key) command)))
+
 (pcase-dolist (`(,key . ,command) agents--dashboard-keys)
-  (keymap-set agents-dashboard-mode-map key command))
+  (agents-dashboard-define-key key command))
 
 (define-derived-mode agents-dashboard-mode special-mode "Agents"
   "Agents grouped under the tab they were started in."
@@ -426,8 +433,7 @@ property `agents-action' runs that function on visit.")
 
 (with-eval-after-load 'evil
   ;; normal state 下另加 gr 刷新。
-  (pcase-dolist (`(,key . ,command) (cons '("g r" . revert-buffer) agents--dashboard-keys))
-    (evil-define-key* 'normal agents-dashboard-mode-map (key-parse key) command)))
+  (evil-define-key* 'normal agents-dashboard-mode-map (kbd "gr") #'revert-buffer))
 
 (defun agents--dashboard-schedule ()
   "Re-render the dashboard soon, coalescing bursts of changes."
@@ -450,9 +456,25 @@ property `agents-action' runs that function on visit.")
   '((t :inherit (font-lock-keyword-face bold) :overline t :extend t))
   "Face for dashboard section titles.")
 
+(defface agents-waiting-line
+  '((((background dark)) :background "#3d1c20" :extend t)
+    (t :background "#fbe4e4" :extend t))
+  "Face added to the dashboard line of an agent waiting for you.")
+
+(defface agents-done-line
+  '((((background dark)) :background "#1b3324" :extend t)
+    (t :background "#e2f5e6" :extend t))
+  "Face added to the dashboard line of an agent that finished unseen.")
+
+(defun agents-dashboard-heading (name &optional current)
+  "NAME as a dashboard heading, its bar lit when CURRENT."
+  (concat (propertize "▍" 'face (if current 'success 'shadow))
+          (propertize name 'face 'bold)))
+
 (defun agents-dashboard-insert-section (title body)
   "Insert section TITLE followed by what BODY inserts.
-BODY is a function of no arguments; the title is dropped when it inserts nothing."
+BODY is a function of no arguments; the title is dropped
+ when it inserts nothing."
   (let ((start (point)))
     (unless (bobp) (insert "\n"))
     (insert (propertize (concat title "\n") 'face 'agents-section))
@@ -463,16 +485,24 @@ BODY is a function of no arguments; the title is dropped when it inserts nothing
 
 (defun agents--dashboard-line (buffer last &optional tab-name)
   "Insert the tree line for agent BUFFER; LAST picks the closing branch.
-The agent's project is named only when it differs from TAB-NAME."
-  (let ((head (concat (agents--tree-prefix last 'branch) (agents--glyph buffer) " "
-                      (or (agents--identity buffer 'agent) "agent")
-                      (agents--context-label buffer)
-                      (agents--turn-label buffer)
-                      (agents--project-label buffer tab-name)))
-        (brief (agents--brief buffer)))
-    (insert (propertize (concat head
-                                (if brief (agents--brief-label buffer brief head) "")
-                                "\n")
+The agent's project is named only when it differs from TAB-NAME.  Its turn
+duration and context usage sit in columns at the right edge."
+  (let* ((branch (agents--tree-prefix last 'branch))
+         (head (concat branch (agents--glyph buffer) " "
+                       (or (agents--identity buffer 'agent) "agent")
+                       (agents--project-label buffer tab-name)))
+         (meta (agents--meta buffer))
+         (brief (agents--brief buffer))
+         (line (concat head
+                       (if brief (agents--brief-label buffer brief head (cdr meta)) "")
+                       (car meta)
+                       "\n"))
+         (highlight (pcase (buffer-local-value 'agents-status buffer)
+                      ('waiting 'agents-waiting-line)
+                      ('done 'agents-done-line))))
+    (when highlight
+      (add-face-text-property (length branch) (length line) highlight t line))
+    (insert (propertize line
                         'agents-buffer buffer
                         'help-echo (if brief
                                        (concat (buffer-name buffer) "\n" brief)
@@ -491,21 +521,33 @@ lines and `file' for the files listed under it."
           (if (eq part 'file) "  " "")))
 
 (defun agents--context-label (buffer)
-  "Context usage of agent BUFFER, highlighted from `agents-context-warning'."
-  (if-let* ((used (buffer-local-value 'agents-context buffer)))
-      (propertize (format " %d%%" used)
-                  'face (if (>= used agents-context-warning) 'warning 'shadow))
-    ""))
+  "Context usage of agent BUFFER, or nil.
+Highlighted from `agents-context-warning'."
+  (when-let* ((used (buffer-local-value 'agents-context buffer)))
+    (propertize (format "%3d%%" used)
+                'face (if (>= used agents-context-warning) 'warning 'shadow))))
 
 (defun agents--turn-label (buffer)
-  "How long agent BUFFER's latest turn has run, or ran, once past a minute."
+  "How long agent BUFFER's latest turn has run, or ran, once past a minute; or nil."
   (pcase (buffer-local-value 'agents--turn buffer)
     (`(,start . ,end)
      (let ((seconds (- (or end (float-time)) start)))
-       (if (>= seconds 60)
-           (propertize (concat " " (agents--duration seconds)) 'face 'shadow)
-         "")))
-    (_ "")))
+       (when (>= seconds 60)
+         (propertize (agents--duration seconds) 'face 'shadow))))))
+
+(defun agents--meta (buffer)
+  "Turn duration and context usage of agent BUFFER, aligned to the right edge.
+Returns (TEXT . COLUMNS), COLUMNS being how far from the edge TEXT starts.
+Context takes the last four columns but one, left free for the wrap mark;
+the duration ends a column before it, so both line up across agents."
+  (let ((turn (agents--turn-label buffer))
+        (context (agents--context-label buffer)))
+    (cl-flet ((align (columns) (propertize " " 'display `(space :align-to (- right ,columns)))))
+      (cons (concat (if turn (concat (align (+ 6 (string-width turn))) turn) "")
+                    (if context (concat (align 5) context) ""))
+            (cond (turn (+ 6 (string-width turn)))
+                  (context 5)
+                  (t 0))))))
 
 (defun agents--project-label (buffer tab-name)
   "Name of agent BUFFER's project in small type, unless it is TAB-NAME."
@@ -523,23 +565,26 @@ lines and `file' for the files listed under it."
               ((not (string-empty-p text))))
     text))
 
-(defun agents--brief-label (buffer brief head)
-  "BRIEF in small type, cut to the dashboard width left after HEAD.
-Measured in pixels, as fonts draw glyphs like ◐ and … wider than
-`string-width' says.  Dimmed unless agent BUFFER is working or waiting."
+(defun agents--brief-label (buffer brief head meta)
+  "BRIEF in small type, cut to the dashboard width between HEAD and META.
+META is how many columns the right-aligned text after it takes.  Measured
+in pixels, as fonts draw glyphs like ◐ and … wider than `string-width'
+says.  Highlighted while agent BUFFER waits, dimmed unless it works."
   (let* ((window (get-buffer-window (current-buffer) t))
          (char (frame-char-width (if window (window-frame window) (selected-frame))))
          (gap "  ")
-         (face `(:inherit ,(if (memq (buffer-local-value 'agents-status buffer) '(working waiting))
-                               'default
-                             'shadow)
+         (face `(:inherit ,(pcase (buffer-local-value 'agents-status buffer)
+                               ('waiting 'warning)
+                               ('working 'default)
+                               (_ 'shadow))
                  :height 0.85))
          (width (lambda (text)
                   (string-pixel-width (propertize text 'face face) (current-buffer))))
-         ;; 留一列给折行标记；`window-max-chars-per-line' 会选中窗口，把看板的 point 拽到窗口 point。
+         ;; 右边的对齐文字前空一列，没有时也留一列给折行标记；
+         ;; `window-max-chars-per-line' 会选中窗口，把看板的 point 拽到窗口 point。
          (room (- (if window (window-body-width window t) (* agents-dashboard-width char))
                   (string-pixel-width (concat head gap) (current-buffer))
-                  char))
+                  (* (1+ meta) char)))
          (text (truncate-string-to-width brief (/ room (max 1 (funcall width "x")))
                                          nil nil "…")))
     (while (and (> (string-width text) 1) (> (funcall width text) room))
@@ -652,8 +697,8 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                                    (equal id (buffer-local-value 'agents--tab buffer)))
                                  agents))
             do (unless first (insert "\n"))
-            (insert (propertize (format "[%s]" (alist-get 'name tab))
-                                'face (if (eq (car tab) 'current-tab) '(bold success) 'bold)
+            (insert (propertize (agents-dashboard-heading (alist-get 'name tab)
+                                                          (eq (car tab) 'current-tab))
                                 'agents-tab (or id (alist-get 'name tab)))
                     "\n")
             (setq agents (seq-difference agents owned))
@@ -661,7 +706,7 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                      do (agents--dashboard-line buffer (null rest) (alist-get 'name tab))))
            (when agents
              (when tabs (insert "\n"))
-             (insert (propertize "(tab closed)" 'face 'shadow 'agents-tab 'closed) "\n")
+             (insert (propertize "▍tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
              (cl-loop for (buffer . rest) on agents
                       do (agents--dashboard-line buffer (null rest))))))
         (run-hook-with-args 'agents-dashboard-functions frame)

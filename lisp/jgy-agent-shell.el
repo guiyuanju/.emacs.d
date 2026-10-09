@@ -167,9 +167,11 @@ Failed calls count only toward files another call already wrote."
          (or (map-elt entry 'content) (map-elt entry 'step)))))))
 
 (defun jgy/agent-shell--tool-title (data)
-  "Title of the tool call in event DATA, or nil when it has none."
-  (let ((title (map-nested-elt data '(:tool-call :title))))
-    (and (stringp title) (not (string-empty-p title)) title)))
+  "What the tool call in event DATA does, or nil when it does not say.
+Prefers its description, as the title of a shell command is the command."
+  (seq-find (lambda (text) (and (stringp text) (not (string-empty-p text))))
+            (list (map-nested-elt data '(:tool-call :description))
+                  (map-nested-elt data '(:tool-call :title)))))
 
 (defun jgy/agent-shell--on-event (event)
   "Report agent-shell EVENT to `agents-report'; track this turn's edits and brief."
