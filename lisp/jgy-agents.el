@@ -245,8 +245,7 @@ Prompts for an agent to start when none is running."
                                             :sort nil
                                             :annotate (jgy-agents--annotator names)
                                             :state (consult--buffer-preview)))))
-    (when-let* ((index (jgy-agents-tab-index buffer)))
-      (tab-bar-select-tab (1+ index)))
+    (jgy-agents-select-tab buffer)
     (jgy-agents-show buffer)))
 
 ;;;###autoload

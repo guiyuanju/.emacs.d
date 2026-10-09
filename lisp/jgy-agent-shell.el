@@ -15,8 +15,8 @@
 (require 'agent-shell)
 (require 'jgy-agents)
 (require 'map)
-(require 'jgy-agent-diff)
-(add-hook 'jgy-agent-diff-update-hook #'jgy-agents-refresh)
+(require 'jgy-agents-turn)
+(add-hook 'jgy-agents-turn-update-hook #'jgy-agents-refresh)
 
 (declare-function jgy-agents-usage-save-claude "jgy-agents-usage")
 (declare-function jgy-agents-dashboard-buffer-at-point "jgy-agents-dashboard")
@@ -54,7 +54,7 @@ candidates: →, ·, //."
 
 (defun jgy-agent-shell--files ()
   "Return cached file changes relative to the start of this turn."
-  jgy-agent-diff--files)
+  jgy-agents-turn--files)
 
 (defvar-local jgy-agent-shell--asking nil
   "Title of the tool call waiting for permission, or nil.")
@@ -104,15 +104,15 @@ Also track this turn's edits and brief."
      (setq jgy-agent-shell--asking nil
            jgy-agent-shell--plan-step nil
            jgy-agent-shell--last-tool nil)
-     (jgy-agent-diff-begin (alist-get 'root jgy-agents-identity))
+     (jgy-agents-turn-begin (alist-get 'root jgy-agents-identity))
      (jgy-agents-refresh))
     ('tool-call-update
-     (jgy-agent-diff-tool (map-nested-elt event '(:data :tool-call-id))
+     (jgy-agents-turn-tool (map-nested-elt event '(:data :tool-call-id))
                           (map-nested-elt event '(:data :tool-call)))
      (when-let* ((title (jgy-agent-shell--tool-title (map-elt event :data))))
        (jgy-agent-shell--set-brief 'jgy-agent-shell--last-tool title)))
-    ((or 'turn-complete 'error) (jgy-agent-diff-request nil nil t))
-    ('clean-up (jgy-agent-diff-cancel))
+    ((or 'turn-complete 'error) (jgy-agents-turn-request nil nil t))
+    ('clean-up (jgy-agents-turn-cancel))
     ('permission-request
      (jgy-agent-shell--set-brief 'jgy-agent-shell--asking
                                  (or (jgy-agent-shell--tool-title (map-elt event :data))

@@ -1,4 +1,4 @@
-;;; jgy-agent-diff.el --- Git-backed per-turn file changes -*- lexical-binding: t; -*-
+;;; jgy-agents-turn.el --- Git-backed per-turn file changes -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; Clean files use the starting commit.  Only dirty/untracked text is copied.
@@ -10,24 +10,24 @@
 (require 'generator)
 (require 'map)
 
-(defvar-local jgy-agent-diff--repos nil)
-(defvar-local jgy-agent-diff--files nil)
-(defvar-local jgy-agent-diff--generation 0)
-(defvar-local jgy-agent-diff--timer nil)
-(defvar-local jgy-agent-diff--process nil)
-(defvar-local jgy-agent-diff--iterator nil)
-(defvar-local jgy-agent-diff--pending nil)
-(defvar-local jgy-agent-diff--hints nil)
-(defvar-local jgy-agent-diff--focus nil)
-(defvar-local jgy-agent-diff--seen nil)
-(defvar-local jgy-agent-diff--finished nil)
-(defvar-local jgy-agent-diff--temporary nil)
-(defvar jgy-agent-diff-update-hook nil
+(defvar-local jgy-agents-turn--repos nil)
+(defvar-local jgy-agents-turn--files nil)
+(defvar-local jgy-agents-turn--generation 0)
+(defvar-local jgy-agents-turn--timer nil)
+(defvar-local jgy-agents-turn--process nil)
+(defvar-local jgy-agents-turn--iterator nil)
+(defvar-local jgy-agents-turn--pending nil)
+(defvar-local jgy-agents-turn--hints nil)
+(defvar-local jgy-agents-turn--focus nil)
+(defvar-local jgy-agents-turn--seen nil)
+(defvar-local jgy-agents-turn--finished nil)
+(defvar-local jgy-agents-turn--temporary nil)
+(defvar jgy-agents-turn-update-hook nil
   "Hook run in the agent buffer when a scan changes file entries.")
-(defconst jgy-agent-diff--limit (* 1024 1024)
+(defconst jgy-agents-turn--limit (* 1024 1024)
   "Largest file whose contents are kept for turn diffs.")
 
-(defun jgy-agent-diff--git (dir &rest args)
+(defun jgy-agents-turn--git (dir &rest args)
   "Run Git ARGS in DIR, returning stdout or signaling on failure."
   (let ((default-directory (file-name-as-directory dir)))
     (with-temp-buffer
@@ -35,38 +35,38 @@
         (error "Cannot read Git turn baseline in %s" dir))
       (buffer-string))))
 
-(defun jgy-agent-diff--changed-args (head)
+(defun jgy-agents-turn--changed-args (head)
   "Git arguments listing paths differing from HEAD, or tracked paths when nil."
   (if head
       (list "diff" "--name-only" "--no-renames" "--relative" "-z" head "--" ".")
     (list "ls-files" "-z" "--cached" "--" ".")))
 
-(defun jgy-agent-diff--untracked-args ()
+(defun jgy-agents-turn--untracked-args ()
   "Git arguments listing untracked paths."
   '("ls-files" "-z" "--others" "--exclude-standard" "--" "."))
 
-(defun jgy-agent-diff--paths (repo)
+(defun jgy-agents-turn--paths (repo)
   "Paths differing from REPO's original commit, plus untracked paths."
   (let ((dir (plist-get repo :dir)) (head (plist-get repo :head)))
     (delete-dups
      (apply #'append
             (mapcar (lambda (args)
-                      (split-string (apply #'jgy-agent-diff--git dir args) "\0" t))
-                    (list (jgy-agent-diff--changed-args head)
-                          (jgy-agent-diff--untracked-args)))))))
+                      (split-string (apply #'jgy-agents-turn--git dir args) "\0" t))
+                    (list (jgy-agents-turn--changed-args head)
+                          (jgy-agents-turn--untracked-args)))))))
 
-(defun jgy-agent-diff--read (path)
+(defun jgy-agents-turn--read (path)
   "Read PATH as text, nil if absent, or `skip' for unsupported files."
   (cond
    ((file-symlink-p path) 'skip)
    ((not (file-exists-p path)) nil)
    ((or (not (file-regular-p path))
-        (> (file-attribute-size (file-attributes path)) jgy-agent-diff--limit)) 'skip)
+        (> (file-attribute-size (file-attributes path)) jgy-agents-turn--limit)) 'skip)
    (t (with-temp-buffer
         (insert-file-contents path)
         (if (search-forward "\0" nil t) 'skip (buffer-string))))))
 
-(defun jgy-agent-diff--stamp (path)
+(defun jgy-agents-turn--stamp (path)
   "Cheap change hint for PATH; final verification never trusts this alone."
   (let ((attributes (file-attributes path)))
     (list (file-attribute-type attributes)
@@ -75,37 +75,37 @@
           (file-attribute-status-change-time attributes)
           (file-attribute-inode-number attributes))))
 
-(defun jgy-agent-diff-begin (root)
+(defun jgy-agents-turn-begin (root)
   "Start a turn in ROOT, saving only existing dirty/untracked contents."
-  (jgy-agent-diff-cancel)
-  (setq jgy-agent-diff--repos nil jgy-agent-diff--files nil
-        jgy-agent-diff--finished nil
-        jgy-agent-diff--seen (make-hash-table :test #'equal))
-  (add-hook 'kill-buffer-hook #'jgy-agent-diff-cancel nil t)
+  (jgy-agents-turn-cancel)
+  (setq jgy-agents-turn--repos nil jgy-agents-turn--files nil
+        jgy-agents-turn--finished nil
+        jgy-agents-turn--seen (make-hash-table :test #'equal))
+  (add-hook 'kill-buffer-hook #'jgy-agents-turn-cancel nil t)
   (dolist (dir (cons root
                     (cl-remove-if-not
                      (lambda (path) (file-exists-p (expand-file-name ".git" path)))
                      (directory-files root t "\\`[^.]" t))))
     (condition-case err
-        (let* ((prefix (string-trim-right (jgy-agent-diff--git dir "rev-parse" "--show-prefix")))
+        (let* ((prefix (string-trim-right (jgy-agents-turn--git dir "rev-parse" "--show-prefix")))
                (repo (list :dir (file-name-as-directory dir) :prefix prefix
                            :head (ignore-errors
-                                   (string-trim (jgy-agent-diff--git dir "rev-parse" "--verify" "HEAD")))
+                                   (string-trim (jgy-agents-turn--git dir "rev-parse" "--verify" "HEAD")))
                            :base (make-hash-table :test #'equal)
                            :last (make-hash-table :test #'equal)
                            :stamps (make-hash-table :test #'equal))))
-          (dolist (name (jgy-agent-diff--paths repo))
+          (dolist (name (jgy-agents-turn--paths repo))
             (let* ((path (expand-file-name name dir))
-                   (stamp (jgy-agent-diff--stamp path))
-                   (text (jgy-agent-diff--read path)))
+                   (stamp (jgy-agents-turn--stamp path))
+                   (text (jgy-agents-turn--read path)))
               (puthash name stamp (plist-get repo :stamps))
               (puthash name text (plist-get repo :base))
               (puthash name text (plist-get repo :last))))
-          (push repo jgy-agent-diff--repos))
+          (push repo jgy-agents-turn--repos))
       (error (message "Turn diff unavailable: %s" (error-message-string err)))))
-  (setq jgy-agent-diff--repos (nreverse jgy-agent-diff--repos)))
+  (setq jgy-agents-turn--repos (nreverse jgy-agents-turn--repos)))
 
-(defun jgy-agent-diff--entry (path patch directory)
+(defun jgy-agents-turn--entry (path patch directory)
   "Make an agent file entry for PATH and PATCH relative to DIRECTORY."
   (let ((added 0) (removed 0) line)
     (with-temp-buffer
@@ -123,7 +123,7 @@
 
 ;; The iterator yields subprocess commands.  Only bounded file reads and result
 ;; publication run in Emacs; Git and diff never block the event handler.
-(defmacro jgy-agent-diff--await (directory command)
+(defmacro jgy-agents-turn--await (directory command)
   "Yield COMMAND, a full argv list, in DIRECTORY; return stdout, or signal."
   `(let* ((command ,command)
           (result (iter-yield (cons ,directory command))))
@@ -131,53 +131,53 @@
        (error "Turn diff command failed: %s" (cadr command)))
      (cdr result)))
 
-(defun jgy-agent-diff-cancel ()
+(defun jgy-agents-turn-cancel ()
   "Invalidate this turn's callbacks and release its pending work."
-  (cl-incf jgy-agent-diff--generation)
-  (when (timerp jgy-agent-diff--timer) (cancel-timer jgy-agent-diff--timer))
-  (when (processp jgy-agent-diff--process)
-    (set-process-sentinel jgy-agent-diff--process #'ignore)
-    (delete-process jgy-agent-diff--process)
-    (when (buffer-live-p (process-buffer jgy-agent-diff--process))
-      (kill-buffer (process-buffer jgy-agent-diff--process))))
-  (when jgy-agent-diff--iterator (iter-close jgy-agent-diff--iterator))
-  (dolist (path jgy-agent-diff--temporary) (ignore-errors (delete-file path)))
-  (setq jgy-agent-diff--timer nil jgy-agent-diff--process nil
-        jgy-agent-diff--iterator nil jgy-agent-diff--pending nil
-        jgy-agent-diff--hints nil jgy-agent-diff--focus nil
-        jgy-agent-diff--temporary nil))
+  (cl-incf jgy-agents-turn--generation)
+  (when (timerp jgy-agents-turn--timer) (cancel-timer jgy-agents-turn--timer))
+  (when (processp jgy-agents-turn--process)
+    (set-process-sentinel jgy-agents-turn--process #'ignore)
+    (delete-process jgy-agents-turn--process)
+    (when (buffer-live-p (process-buffer jgy-agents-turn--process))
+      (kill-buffer (process-buffer jgy-agents-turn--process))))
+  (when jgy-agents-turn--iterator (iter-close jgy-agents-turn--iterator))
+  (dolist (path jgy-agents-turn--temporary) (ignore-errors (delete-file path)))
+  (setq jgy-agents-turn--timer nil jgy-agents-turn--process nil
+        jgy-agents-turn--iterator nil jgy-agents-turn--pending nil
+        jgy-agents-turn--hints nil jgy-agents-turn--focus nil
+        jgy-agents-turn--temporary nil))
 
-(defun jgy-agent-diff-request (&optional paths hints final)
+(defun jgy-agents-turn-request (&optional paths hints final)
   "Queue PATHS, or a full scan if nil; HINTS are (PATH . LINE).
 FINAL requests a last full verification and stops accepting tool events."
-  (unless jgy-agent-diff--finished
-    (when final (setq jgy-agent-diff--finished t paths nil))
-    (setq jgy-agent-diff--pending
-          (if (or (null paths) (eq jgy-agent-diff--pending t)) t
-            (delete-dups (append jgy-agent-diff--pending paths))))
+  (unless jgy-agents-turn--finished
+    (when final (setq jgy-agents-turn--finished t paths nil))
+    (setq jgy-agents-turn--pending
+          (if (or (null paths) (eq jgy-agents-turn--pending t)) t
+            (delete-dups (append jgy-agents-turn--pending paths))))
     (when hints
       (let ((paths (delete-dups (mapcar #'car hints))))
-        (setq jgy-agent-diff--focus (and (= (length paths) 1) (car paths)))))
+        (setq jgy-agents-turn--focus (and (= (length paths) 1) (car paths)))))
     (dolist (hint hints)
-      (setq jgy-agent-diff--hints
-            (append (cl-remove (car hint) jgy-agent-diff--hints :key #'car :test #'equal)
+      (setq jgy-agents-turn--hints
+            (append (cl-remove (car hint) jgy-agents-turn--hints :key #'car :test #'equal)
                     (list hint))))
-    (unless (or jgy-agent-diff--iterator (timerp jgy-agent-diff--timer))
-      (let ((buffer (current-buffer)) (generation jgy-agent-diff--generation))
-        (setq jgy-agent-diff--timer
+    (unless (or jgy-agents-turn--iterator (timerp jgy-agents-turn--timer))
+      (let ((buffer (current-buffer)) (generation jgy-agents-turn--generation))
+        (setq jgy-agents-turn--timer
               (run-with-timer
                (if final 0 0.15) nil
                (lambda ()
                  (when (buffer-live-p buffer)
                    (with-current-buffer buffer
-                     (when (= generation jgy-agent-diff--generation)
-                       (setq jgy-agent-diff--timer nil)
-                       (jgy-agent-diff--start)))))))))))
+                     (when (= generation jgy-agents-turn--generation)
+                       (setq jgy-agents-turn--timer nil)
+                       (jgy-agents-turn--start)))))))))))
 
-(defun jgy-agent-diff-tool (id tool)
+(defun jgy-agents-turn-tool (id tool)
   "Consume a completed TOOL with ID, using explicit edits when available."
-  (when (and jgy-agent-diff--repos jgy-agent-diff--seen
-             (not jgy-agent-diff--finished)
+  (when (and jgy-agents-turn--repos jgy-agents-turn--seen
+             (not jgy-agents-turn--finished)
              (member (map-elt tool :status) '("completed" "failed")))
     ;; Updates can enrich the same completed call later, so dedupe the payload,
     ;; not just the ID.  Read locations alone are never evidence of an edit.
@@ -188,10 +188,10 @@ FINAL requests a last full verification and stops accepting tool events."
            (fingerprint (secure-hash 'sha256
                                      (prin1-to-string
                                       (list kind (map-elt tool :status) diffs locations))))
-           (root (plist-get (car jgy-agent-diff--repos) :dir))
+           (root (plist-get (car jgy-agents-turn--repos) :dir))
            hints)
-      (unless (and id (equal fingerprint (gethash id jgy-agent-diff--seen)))
-        (when id (puthash id (copy-tree fingerprint) jgy-agent-diff--seen))
+      (unless (and id (equal fingerprint (gethash id jgy-agents-turn--seen)))
+        (when id (puthash id (copy-tree fingerprint) jgy-agents-turn--seen))
         (when root
           (dolist (item (append diffs nil))
             (when-let* ((path (map-elt item :file)))
@@ -200,14 +200,14 @@ FINAL requests a last full verification and stops accepting tool events."
             (when-let* ((path (map-elt item 'path)))
               (push (cons (expand-file-name path root) (map-elt item 'line)) hints)))
           (cond
-           (hints (jgy-agent-diff-request (mapcar #'car hints) hints))
+           (hints (jgy-agents-turn-request (mapcar #'car hints) hints))
            ((not (member kind '("read" "search" "think" "fetch" "switch_mode")))
-            (jgy-agent-diff-request))))))))
+            (jgy-agents-turn-request))))))))
 
-(iter-defun jgy-agent-diff--work (requested hints focus verify)
+(iter-defun jgy-agents-turn--work (requested hints focus verify)
   "Scan REQUESTED paths or all paths (t), yielding external commands."
   (let (changed changed-paths)
-    (dolist (repo jgy-agent-diff--repos)
+    (dolist (repo jgy-agents-turn--repos)
       (condition-case err
           (let* ((dir (plist-get repo :dir))
                  (head (plist-get repo :head))
@@ -221,11 +221,11 @@ FINAL requests a last full verification and stops accepting tool events."
                       (delete-dups
                        (append
                         (split-string
-                         (jgy-agent-diff--await
-                          dir (cons "git" (jgy-agent-diff--changed-args head))) "\0" t)
+                         (jgy-agents-turn--await
+                          dir (cons "git" (jgy-agents-turn--changed-args head))) "\0" t)
                         (split-string
-                         (jgy-agent-diff--await
-                          dir (cons "git" (jgy-agent-diff--untracked-args))) "\0" t)
+                         (jgy-agents-turn--await
+                          dir (cons "git" (jgy-agents-turn--untracked-args))) "\0" t)
                         (hash-table-keys last)))
                     (mapcar (lambda (path) (file-relative-name path dir))
                             (cl-remove-if-not
@@ -235,7 +235,7 @@ FINAL requests a last full verification and stops accepting tool events."
                                               (cl-remove-if-not
                                                (lambda (candidate)
                                                  (string-prefix-p (plist-get candidate :dir) path))
-                                               (copy-sequence jgy-agent-diff--repos))
+                                               (copy-sequence jgy-agents-turn--repos))
                                               (lambda (a b) (> (length (plist-get a :dir))
                                                                (length (plist-get b :dir))))))))
                              requested)))))
@@ -243,7 +243,7 @@ FINAL requests a last full verification and stops accepting tool events."
               (let* ((path (expand-file-name name dir))
                      (before (gethash name base 'unknown))
                      (hint (assoc path hints))
-                     (stamp (jgy-agent-diff--stamp path))
+                     (stamp (jgy-agents-turn--stamp path))
                      ;; Honor the same ignored-file boundary on the fast path.
                      (ignored (and (not (eq requested t))
                                    (eq 0 (car (iter-yield
@@ -256,17 +256,17 @@ FINAL requests a last full verification and stops accepting tool events."
                            (result (and object (iter-yield (list dir "git" "cat-file" "-s" object)))))
                       (setq before
                             (cond ((or (null result) (not (eq (car result) 0))) nil)
-                                  ((> (string-to-number (cdr result)) jgy-agent-diff--limit) 'skip)
-                                  (t (jgy-agent-diff--await dir (list "git" "show" object)))))
+                                  ((> (string-to-number (cdr result)) jgy-agents-turn--limit) 'skip)
+                                  (t (jgy-agents-turn--await dir (list "git" "show" object)))))
                       (when (and (stringp before) (string-match-p "\0" before))
                         (setq before 'skip))
                       (puthash name before base)))
-                  (let ((after (jgy-agent-diff--read path)))
+                  (let ((after (jgy-agents-turn--read path)))
                     (unless (equal after (gethash name last before))
                       (unless (or (eq before 'skip) (eq after 'skip))
                         (let ((old (make-temp-file "agent-before-"))
                               (new (make-temp-file "agent-after-")))
-                          (setq jgy-agent-diff--temporary (list old new))
+                          (setq jgy-agents-turn--temporary (list old new))
                           (unwind-protect
                               (let ((coding-system-for-write 'utf-8-unix))
                                 (with-temp-file old (insert (or before "")))
@@ -282,51 +282,51 @@ FINAL requests a last full verification and stops accepting tool events."
                                     (setq patch (format "--- %s\n+++ %s\n"
                                                         (if before (concat "a/" name) "/dev/null")
                                                         (if after (concat "b/" name) "/dev/null"))))
-                                  (let ((entry (jgy-agent-diff--entry path patch dir)))
+                                  (let ((entry (jgy-agents-turn--entry path patch dir)))
                                     (when (and hint (integerp (cdr hint)))
                                       (setf (alist-get 'line entry) (cdr hint)))
-                                    (setq jgy-agent-diff--files
-                                          (append (cl-remove path jgy-agent-diff--files
+                                    (setq jgy-agents-turn--files
+                                          (append (cl-remove path jgy-agents-turn--files
                                                              :key (lambda (row) (alist-get 'file row)) :test #'equal)
                                                   (list entry))
                                           changed t)
                                     (push path changed-paths))))
                             (delete-file old) (delete-file new)
-                            (setq jgy-agent-diff--temporary nil))))
+                            (setq jgy-agents-turn--temporary nil))))
                       (puthash name after last))
                     (puthash name stamp stamps))))))
         (error (message "Turn diff refresh failed: %s" (error-message-string err)))))
     ;; Only the most recent unambiguous edit chooses the focus.  Discovery
     ;; order from Git does not imply edit order.
     (when changed
-      (setq jgy-agent-diff--files
+      (setq jgy-agents-turn--files
             (mapcar (lambda (entry)
                       (let ((copy (copy-tree entry)))
                         (setf (alist-get 'active copy)
                               (and (member focus changed-paths)
                                    (equal (alist-get 'file copy) focus)))
-                        copy)) jgy-agent-diff--files))
-      (run-hooks 'jgy-agent-diff-update-hook))))
+                        copy)) jgy-agents-turn--files))
+      (run-hooks 'jgy-agents-turn-update-hook))))
 
-(defun jgy-agent-diff--start ()
+(defun jgy-agents-turn--start ()
   "Start queued work, with at most one iterator per agent."
-  (when (and jgy-agent-diff--pending (not jgy-agent-diff--iterator))
-    (setq jgy-agent-diff--iterator
-          (jgy-agent-diff--work jgy-agent-diff--pending jgy-agent-diff--hints
-                                jgy-agent-diff--focus jgy-agent-diff--finished)
-          jgy-agent-diff--pending nil jgy-agent-diff--hints nil
-          jgy-agent-diff--focus nil)
-    (jgy-agent-diff--step nil)))
+  (when (and jgy-agents-turn--pending (not jgy-agents-turn--iterator))
+    (setq jgy-agents-turn--iterator
+          (jgy-agents-turn--work jgy-agents-turn--pending jgy-agents-turn--hints
+                                jgy-agents-turn--focus jgy-agents-turn--finished)
+          jgy-agents-turn--pending nil jgy-agents-turn--hints nil
+          jgy-agents-turn--focus nil)
+    (jgy-agents-turn--step nil)))
 
-(defun jgy-agent-diff--step (result)
+(defun jgy-agents-turn--step (result)
   "Resume the current scan with subprocess RESULT."
   (condition-case err
-      (let* ((command (iter-next jgy-agent-diff--iterator result))
+      (let* ((command (iter-next jgy-agents-turn--iterator result))
              (default-directory (car command))
              (owner (current-buffer))
-             (generation jgy-agent-diff--generation)
+             (generation jgy-agents-turn--generation)
              (output (generate-new-buffer " *turn-diff-output*")))
-        (setq jgy-agent-diff--process
+        (setq jgy-agents-turn--process
               (make-process
                :name "turn-diff" :buffer output :command (cdr command)
                :connection-type 'pipe :coding 'utf-8-unix :noquery t
@@ -339,15 +339,15 @@ FINAL requests a last full verification and stops accepting tool events."
                      (when (buffer-live-p output) (kill-buffer output))
                      (when (buffer-live-p owner)
                        (with-current-buffer owner
-                         (when (= generation jgy-agent-diff--generation)
-                           (setq jgy-agent-diff--process nil)
-                           (jgy-agent-diff--step value))))))))))
+                         (when (= generation jgy-agents-turn--generation)
+                           (setq jgy-agents-turn--process nil)
+                           (jgy-agents-turn--step value))))))))))
     (iter-end-of-sequence
-     (setq jgy-agent-diff--iterator nil)
-     (jgy-agent-diff--start))
+     (setq jgy-agents-turn--iterator nil)
+     (jgy-agents-turn--start))
     (error
      (message "Turn diff worker failed: %s" (error-message-string err))
-     (jgy-agent-diff-cancel))))
+     (jgy-agents-turn-cancel))))
 
-(provide 'jgy-agent-diff)
-;;; jgy-agent-diff.el ends here
+(provide 'jgy-agents-turn)
+;;; jgy-agents-turn.el ends here
