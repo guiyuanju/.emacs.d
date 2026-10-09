@@ -21,6 +21,23 @@
 (defvar agents-usage-file)
 (defvar no-littering-var-directory)
 
+(defcustom jgy-agent-shell-header-separator "›"
+  "Glyph separating fields in the agent-shell header line.
+agent-shell hardcodes a heavy arrowhead (➤); this replaces it.  Other
+candidates: →, ·, //."
+  :type 'string
+  :group 'agents)
+
+(defun jgy/agent-shell--swap-header-separator (header)
+  "Return HEADER with agent-shell's separator swapped for ours."
+  (if (stringp header)
+      (replace-regexp-in-string "➤" jgy-agent-shell-header-separator header t t)
+    header))
+
+(advice-add 'agent-shell--render-header-model-uncached :filter-return
+            #'jgy/agent-shell--swap-header-separator
+            '((name . jgy-agent-shell-header-separator)))
+
 (defconst jgy/agent-shell-configs
   '(("claude" . agent-shell-anthropic-make-claude-code-config)
     ("codex" . agent-shell-openai-make-codex-config)
