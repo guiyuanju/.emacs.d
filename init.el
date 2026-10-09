@@ -29,8 +29,8 @@
 (keymap-global-set "s-j" (lambda () (interactive) (other-window 1)))
 (keymap-global-set "s-k" (lambda () (interactive) (other-window -1)))
 (fringe-mode 0)
-(add-hook 'prog-mode-hook #'display-line-numbers-mode)
-(add-hook 'text-mode-hook #'display-line-numbers-mode)
+;; Line numbers are off by default; use `jgy/toggle-line-numbers' (SPC t l) per buffer.
+(setq display-line-numbers nil)
 
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy/font-family "Sarasa Mono SC")
@@ -421,12 +421,16 @@ With FORCE, do not ask for confirmation."
 (defun jgy/toggle-line-numbers ()
   "Cycle absolute, relative, and hidden line numbers."
   (interactive)
-  (setq display-line-numbers
-        (pcase display-line-numbers
-          ('t 'relative)
-          ('relative nil)
-          (_ t)))
-  (message "Line numbers: %s" (or display-line-numbers "off")))
+  (let ((next (pcase display-line-numbers
+                ('t 'relative)
+                ('relative nil)
+                (_ t))))
+    (if next
+        (progn
+          (display-line-numbers-mode 1)
+          (setq display-line-numbers next))
+      (display-line-numbers-mode -1))
+    (message "Line numbers: %s" (or next "off"))))
 
 (defun jgy/reveal-in-finder ()
   "Reveal the current path in Finder."
