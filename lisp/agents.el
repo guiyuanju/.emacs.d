@@ -348,6 +348,15 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
 (defvar agents--claude-usage nil
   "Claude's usage windows from the last file that carried any.")
 
+(defcustom agents-claude-usage-url "https://claude.ai/settings/usage"
+  "Page the dashboard's Claude usage row opens on RET."
+  :type 'string)
+
+(defun agents-claude-open-usage ()
+  "Open Claude's plan usage page in a browser."
+  (interactive)
+  (browse-url agents-claude-usage-url))
+
 (defun agents-usage-claude ()
   "Claude's plan usage, as bin/claude-statusline saved it in `agents-usage-file'.
 A file without any windows, or none at all, keeps the last reading, so the
@@ -365,7 +374,19 @@ row stays visible while Claude Code reconnects instead of dropping out."
                                                      (and (numberp resets) resets)))))))
       (setq agents--claude-usage windows))
     (when agents--claude-usage
-      (cons "claude" agents--claude-usage))))
+      (cons (propertize "claude"
+                        'agents-action #'agents-claude-open-usage
+                        'help-echo "RET opens Claude's usage page")
+            agents--claude-usage))))
+
+(defcustom agents-codex-usage-url "https://chatgpt.com/codex/settings/usage"
+  "Page the dashboard's Codex usage row opens on RET."
+  :type 'string)
+
+(defun agents-codex-open-usage ()
+  "Open Codex's plan usage page in a browser."
+  (interactive)
+  (browse-url agents-codex-usage-url))
 
 (defun agents--codex-logs ()
   "Codex session logs, newest first.
@@ -426,7 +447,10 @@ stays, so the row and its reset countdown remain visible."
               (cons stamp (or (agents--codex-usage-windows logs)
                               (cdr agents--codex-usage))))))
     (when-let* ((windows (cdr agents--codex-usage)))
-      (cons "codex" windows))))
+      (cons (propertize "codex"
+                        'agents-action #'agents-codex-open-usage
+                        'help-echo "RET opens Codex's usage page")
+            windows))))
 
 (defun agents--duration (seconds)
   "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
