@@ -9,6 +9,7 @@
 ;; 前端可在 identity 里给出 `files'，看板就在 agent 下面列出它本轮改过的文件；
 ;; 给出 `brief'，看板就在 agent 那行末尾写它正在做什么。
 ;; 看板上按 d 看文件或整个项目还没提交的改动；agent 那行写着本轮跑了多久。
+;; 按 D 让 agent 所在 tab 开一个 diff 窗口，跟着它最近写的文件刷新。
 
 ;;; Code:
 
@@ -56,6 +57,11 @@
   "Times the agent's latest turn started and finished, as (START . END).
 END is nil while the turn runs.")
 (put 'agents--turn 'permanent-local t)
+
+(defvar-local agents--diff-follow nil
+  "Non-nil while this agent's diff window follows its edits.
+It is a plist: :files the `files' identity last seen, :file the file shown,
+:pending non-nil when that file changed while the agent's tab was not current.")
 
 (defcustom agents-context-warning 70
   "Context usage percentage from which the dashboard highlights an agent."
@@ -500,6 +506,7 @@ property `agents-action' runs that function on visit.")
   '(("RET" . agents-dashboard-visit)
     ("o" . agents-dashboard-visit)
     ("d" . agents-dashboard-diff)
+    ("D" . agents-dashboard-follow-diff)
     ("C-j" . agents-dashboard-next-tab)
     ("C-k" . agents-dashboard-previous-tab)
     ("C-S-j" . agents-dashboard-next-attention)
@@ -557,7 +564,8 @@ Binds it in evil's normal state too."
 
 (defun agents-dashboard-refresh ()
   "Re-render the dashboard soon; for frontends whose agent changed."
-  (agents--dashboard-schedule))
+  (agents--dashboard-schedule)
+  (agents--diff-schedule))
 
 (defface agents-section
   '((t :inherit (font-lock-keyword-face bold)))
@@ -610,6 +618,10 @@ The agent's project is named only when it differs from TAB-NAME.  Its turn
 duration and context usage sit in columns at the right edge."
   (let* ((head (concat agents--indent (agents--glyph-cell buffer)
                        (or (agents--identity buffer 'agent) "agent")
+                       (if (buffer-local-value 'agents--diff-follow buffer)
+                           (propertize " ±" 'face `(:foreground ,(face-foreground 'diff-indicator-added nil t))
+                                       'help-echo "Its diff window follows its edits")
+                         "")
                        (agents--project-label buffer tab-name)))
          (meta (agents--meta buffer))
          (brief (agents--brief buffer))
@@ -973,6 +985,130 @@ On any other line of an agent, show those of its whole project."
                                 (message "%s is not under version control"
                                          (file-name-nondirectory file)))))))))
 
+;;; Following diffs
+
+(defvar agents--diff-timer nil)
+
+(defun agents--diff-buffer-name (buffer)
+  (format "*agent diff: %s*" (buffer-name buffer)))
+
+(defun agents--diff-schedule ()
+  "Update the diff windows soon, coalescing bursts of edits."
+  (unless (timerp agents--diff-timer)
+    (setq agents--diff-timer
+          (run-with-timer 0.3 nil
+                          (lambda ()
+                            (setq agents--diff-timer nil)
+                            (agents--diff-update))))))
+
+(defun agents--diff-latest (old new)
+  "The entry of NEW, a `files' identity, changed since OLD, or nil.
+Of several, the one still being written, else the last."
+  (let ((changed (seq-remove (lambda (file) (member file old)) new)))
+    (or (seq-find (lambda (file) (alist-get 'active file)) changed)
+        (car (last changed)))))
+
+(defun agents--diff-insert (file)
+  "Insert FILE's uncommitted changes, or the whole file when git does not track it."
+  ;; git 在文件所在目录里跑；文件可能在项目里嵌套的另一个仓库。
+  (let ((default-directory (file-name-directory file))
+        (name (file-name-nondirectory file)))
+    (erase-buffer)
+    (if (eq 0 (process-file "git" nil nil nil "ls-files" "--error-unmatch" "--" name))
+        (process-file "git" nil t nil "diff" "--no-color" "HEAD" "--" name)
+      (process-file "git" nil t nil "diff" "--no-color" "--no-index" "--" "/dev/null" name))))
+
+(defun agents--diff-hunk (line)
+  "Start of the hunk whose new side holds LINE, else of the first hunk."
+  (goto-char (point-min))
+  (let (first found)
+    (while (and (not found)
+                (re-search-forward "^@@ -[0-9,]+ \\+\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? @@" nil t))
+      (let ((start (string-to-number (match-string 1)))
+            (count (if (match-string 2) (string-to-number (match-string 2)) 1)))
+        (setq first (or first (match-beginning 0)))
+        (when (and line (<= start line) (< line (+ start (max count 1))))
+          (setq found (match-beginning 0)))))
+    (or found first (point-min))))
+
+(defun agents--diff-show (buffer file)
+  "Show FILE's changes for agent BUFFER in a window of the current tab.
+FILE is an entry of its `files' identity; point goes to the hunk at its line."
+  (let ((diff (get-buffer-create (agents--diff-buffer-name buffer)))
+        (path (alist-get 'file file)))
+    (with-current-buffer diff
+      (let ((inhibit-read-only t))
+        (agents--diff-insert path)
+        (unless (derived-mode-p 'diff-mode) (diff-mode))
+        (setq buffer-read-only t
+              default-directory (file-name-directory path))))
+    (let* ((anchor (or (get-buffer-window buffer)
+                       (get-mru-window nil nil t)))
+           (window (display-buffer
+                    diff `((display-buffer-reuse-window display-buffer-in-direction)
+                           (direction . right) (window . ,anchor)
+                           (inhibit-same-window . t)))))
+      (when window
+        (with-current-buffer diff
+          (let ((pos (agents--diff-hunk (alist-get 'line file))))
+            ;; 从头显示，留着文件名；改动不在第一屏时 redisplay 自己滚过去。
+            (set-window-start window (point-min))
+            (set-window-point window pos)))))))
+
+(defun agents--diff-current-tab-p (buffer)
+  "Non-nil when agent BUFFER's tab is the current one, or is gone."
+  (let ((index (agents--tab-index buffer)))
+    (or (null index) (= index (tab-bar--current-tab-index)))))
+
+(defun agents--diff-update (&rest _)
+  "Show the latest edit of each agent following its diffs.
+Agents in other tabs catch up when their tab is selected."
+  (dolist (buffer (agents--buffers))
+    (when-let* ((state (buffer-local-value 'agents--diff-follow buffer)))
+      (let* ((files (agents--files buffer))
+             (latest (agents--diff-latest (plist-get state :files) files))
+             (file (or latest
+                       (and (plist-get state :pending)
+                            (seq-find (lambda (file)
+                                        (equal (alist-get 'file file) (plist-get state :file)))
+                                      files)))))
+        (with-current-buffer buffer
+          (setq agents--diff-follow (list :files files
+                                          :file (if file (alist-get 'file file) (plist-get state :file))
+                                          :pending (and file t))))
+        (when (and file (agents--diff-current-tab-p buffer))
+          (agents--diff-show buffer file)
+          (with-current-buffer buffer
+            (setq agents--diff-follow (plist-put agents--diff-follow :pending nil))))))))
+
+(defun agents-dashboard-follow-diff ()
+  "Toggle a window in the agent's tab showing the diff of the file it last wrote.
+It follows each file the agent writes from then on."
+  (interactive)
+  (let ((buffer (or (get-text-property (line-beginning-position) 'agents-buffer)
+                    (user-error "No agent on this line"))))
+    (if (buffer-local-value 'agents--diff-follow buffer)
+        (progn
+          (with-current-buffer buffer (setq agents--diff-follow nil))
+          (when-let* ((diff (get-buffer (agents--diff-buffer-name buffer))))
+            (dolist (window (get-buffer-window-list diff nil t))
+              (ignore-errors (delete-window window)))
+            (kill-buffer diff))
+          (agents--dashboard-schedule)
+          (message "Stopped following %s's diffs" (buffer-name buffer)))
+      (let* ((files (agents--files buffer))
+             (file (or (seq-find (lambda (file) (alist-get 'active file)) files)
+                       (car (last files)))))
+        (with-current-buffer buffer
+          (setq agents--diff-follow (list :files files)))
+        (agents--dashboard-schedule)
+        (if (not file)
+            (message "Following %s's diffs from its next edit" (buffer-name buffer))
+          (agents--visit buffer (lambda ()))
+          (with-current-buffer buffer
+            (setq agents--diff-follow (plist-put agents--diff-follow :file (alist-get 'file file))))
+          (agents--diff-show buffer file))))))
+
 (defun agents--visit-file (buffer file)
   "Open FILE, edited by agent BUFFER, at its line in the agent's tab."
   (agents--visit buffer
@@ -1045,6 +1181,7 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
         (add-hook 'window-selection-change-functions #'agents--acknowledge)
         (add-hook 'window-buffer-change-functions #'agents--acknowledge)
         (add-hook 'tab-bar-tab-post-select-functions #'agents--dashboard-follow)
+        (add-hook 'tab-bar-tab-post-select-functions #'agents--diff-update)
         (add-hook 'tab-bar-tab-post-open-functions #'agents--dashboard-follow)
         (unless agents--context-timer
           (setq agents--context-timer
@@ -1058,6 +1195,7 @@ For `tab-bar-tab-post-select-functions' and `tab-bar-tab-post-open-functions'."
     (remove-hook 'window-selection-change-functions #'agents--acknowledge)
     (remove-hook 'window-buffer-change-functions #'agents--acknowledge)
     (remove-hook 'tab-bar-tab-post-select-functions #'agents--dashboard-follow)
+    (remove-hook 'tab-bar-tab-post-select-functions #'agents--diff-update)
     (remove-hook 'tab-bar-tab-post-open-functions #'agents--dashboard-follow)
     (when agents--context-timer
       (cancel-timer agents--context-timer)
