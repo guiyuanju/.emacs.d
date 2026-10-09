@@ -35,18 +35,25 @@
         (error "Cannot read Git turn baseline in %s" dir))
       (buffer-string))))
 
+(defun jgy-agent-diff--changed-args (head)
+  "Git arguments listing paths differing from HEAD, or tracked paths when nil."
+  (if head
+      (list "diff" "--name-only" "--no-renames" "--relative" "-z" head "--" ".")
+    (list "ls-files" "-z" "--cached" "--" ".")))
+
+(defun jgy-agent-diff--untracked-args ()
+  "Git arguments listing untracked paths."
+  '("ls-files" "-z" "--others" "--exclude-standard" "--" "."))
+
 (defun jgy-agent-diff--paths (repo)
   "Paths differing from REPO's original commit, plus untracked paths."
   (let ((dir (plist-get repo :dir)) (head (plist-get repo :head)))
     (delete-dups
-     (append
-      (split-string
-       (if head
-           (jgy-agent-diff--git dir "diff" "--name-only" "--no-renames" "--relative"
-                                "-z" head "--" ".")
-         (jgy-agent-diff--git dir "ls-files" "-z" "--cached" "--" ".")) "\0" t)
-      (split-string (jgy-agent-diff--git dir "ls-files" "-z" "--others"
-                                       "--exclude-standard" "--" ".") "\0" t)))))
+     (apply #'append
+            (mapcar (lambda (args)
+                      (split-string (apply #'jgy-agent-diff--git dir args) "\0" t))
+                    (list (jgy-agent-diff--changed-args head)
+                          (jgy-agent-diff--untracked-args)))))))
 
 (defun jgy-agent-diff--read (path)
   "Read PATH as text, nil if absent, or `skip' for unsupported files."
@@ -116,11 +123,12 @@
 
 ;; The iterator yields subprocess commands.  Only bounded file reads and result
 ;; publication run in Emacs; Git and diff never block the event handler.
-(defmacro jgy-agent-diff--await (directory &rest command)
-  "Yield COMMAND in DIRECTORY and return stdout, or signal on failure."
-  `(let ((result (iter-yield (cons ,directory (list ,@command)))))
+(defmacro jgy-agent-diff--await (directory command)
+  "Yield COMMAND, a full argv list, in DIRECTORY; return stdout, or signal."
+  `(let* ((command ,command)
+          (result (iter-yield (cons ,directory command))))
      (unless (eq (car result) 0)
-       (error "Turn diff command failed: %s" ,(car command)))
+       (error "Turn diff command failed: %s" (cadr command)))
      (cdr result)))
 
 (defun jgy-agent-diff-cancel ()
@@ -213,13 +221,11 @@ FINAL requests a last full verification and stops accepting tool events."
                       (delete-dups
                        (append
                         (split-string
-                         (if head
-                             (jgy-agent-diff--await dir "git" "diff" "--name-only"
-                                                   "--no-renames" "--relative" "-z" head "--" ".")
-                           (jgy-agent-diff--await dir "git" "ls-files" "-z" "--cached" "--" ".")) "\0" t)
+                         (jgy-agent-diff--await
+                          dir (cons "git" (jgy-agent-diff--changed-args head))) "\0" t)
                         (split-string
-                         (jgy-agent-diff--await dir "git" "ls-files" "-z" "--others"
-                                               "--exclude-standard" "--" ".") "\0" t)
+                         (jgy-agent-diff--await
+                          dir (cons "git" (jgy-agent-diff--untracked-args))) "\0" t)
                         (hash-table-keys last)))
                     (mapcar (lambda (path) (file-relative-name path dir))
                             (cl-remove-if-not
@@ -251,7 +257,7 @@ FINAL requests a last full verification and stops accepting tool events."
                       (setq before
                             (cond ((or (null result) (not (eq (car result) 0))) nil)
                                   ((> (string-to-number (cdr result)) jgy-agent-diff--limit) 'skip)
-                                  (t (jgy-agent-diff--await dir "git" "show" object))))
+                                  (t (jgy-agent-diff--await dir (list "git" "show" object)))))
                       (when (and (stringp before) (string-match-p "\0" before))
                         (setq before 'skip))
                       (puthash name before base)))
