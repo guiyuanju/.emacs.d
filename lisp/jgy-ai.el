@@ -28,6 +28,7 @@
   :defer t
   :custom
   (agent-shell-session-strategy 'prompt)
+  (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
   (agent-shell-dot-subdir-function #'jgy/agent-shell-dot-subdir))
 
