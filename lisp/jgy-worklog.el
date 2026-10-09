@@ -108,12 +108,11 @@ FIRST omits the blank line before the heading; BARE omits the heading."
                         'agents-tab t
                         'agents-action (jgy-worklog--visit (plist-get card :file) 1))
             "\n"))
-  (cl-loop for ((text . line) . rest) on todos
-           do (insert (propertize (concat "  " (if rest "├─ " "└─ ") (jgy-worklog--display text))
-                                  'agents-action
-                                  (jgy-worklog--visit (plist-get card :file) line)
-                                  'wrap-prefix (if rest "  │  " "     "))
-                      "\n")))
+  (pcase-dolist (`(,text . ,line) todos)
+    (insert (propertize (concat "   " (jgy-worklog--display text))
+                        'agents-action (jgy-worklog--visit (plist-get card :file) line)
+                        'wrap-prefix "   ")
+            "\n")))
 
 (defun jgy-worklog-dashboard-insert (frame)
   "Insert a Todo section for the project folder shown in FRAME's current tab.
@@ -179,14 +178,15 @@ It stays one line until `jgy-worklog-toggle-hints' expands it."
      (let ((width (apply #'max 0 (mapcar (lambda (pair) (string-width (car pair)))
                                          (apply #'append (mapcar #'cdr jgy-worklog-hints))))))
        (unless (or jgy-worklog--hints-shown (null jgy-worklog-hints))
-         (insert (propertize (concat "  " (propertize "?" 'face 'help-key-binding)
+         (insert (propertize (concat "   " (propertize "?" 'face 'help-key-binding)
                                      (propertize " 展开" 'face 'shadow) "\n")
                              'agents-action #'jgy-worklog-toggle-hints)))
        (dolist (group (and jgy-worklog--hints-shown jgy-worklog-hints))
          (insert (propertize (car group) 'face 'shadow) "\n")
          (pcase-dolist (`(,key . ,text) (cdr group))
-           (insert "  " (propertize key 'face 'help-key-binding)
-                   (make-string (- width (string-width key)) ?\s) "  " text "\n")))))))
+           (insert "   " (propertize key 'face 'help-key-binding)
+                   (make-string (- width (string-width key)) ?\s) "  "
+                   text "\n")))))))
 
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."

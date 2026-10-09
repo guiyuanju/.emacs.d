@@ -330,28 +330,49 @@ Also redraws the dashboard when plan usage or a turn's duration changed."
           ((< m 1440) (format "%dh%dm" (/ m 60) (% m 60)))
           (t (format "%dd%dh" (/ m 1440) (% (/ m 60) 24))))))
 
+(defconst agents--indent "   "
+  "Indent of agent lines and section contents.")
+
+(defconst agents--file-indent "      "
+  "Indent of the files under an agent, lining up with its name.")
+
+(defface agents-bar
+  '((t :inherit font-lock-keyword-face :weight normal))
+  "Face of the used part of a plan usage bar.")
+
+(defface agents-bar-track
+  '((((background dark)) :foreground "#333333")
+    (t :foreground "#d4d4d4"))
+  "Face of the unused part of a plan usage bar.")
+
+(defun agents--usage-bar (percentage warn)
+  "A bar filled to PERCENTAGE, in `warning' when WARN.
+It is up to 20 columns, shorter in a narrow dashboard."
+  (let* ((window (get-buffer-window (current-buffer) t))
+         (columns (if window (window-body-width window) agents-dashboard-width))
+         ;; 一行除了条之外还要约 22 列：缩进、5h、百分比和重置时间。
+         (width (max 6 (min 20 (- columns 22))))
+         (filled (min width (round (* percentage width) 100))))
+    (concat (propertize (make-string filled ?━) 'face (if warn 'warning 'agents-bar))
+            (propertize (make-string (- width filled) ?━) 'face 'agents-bar-track))))
+
 (defun agents--usage-insert ()
-  "Insert a labelled bar per Claude plan usage window that has not reset yet.
+  "Insert a bar per Claude plan usage window that has not reset yet.
 Each bar ends with the time left until that window resets."
-  (let ((label "claude"))
-    (pcase-dolist (`(,key . ,name) '((five_hour . "5h") (seven_day . "7d")))
-      (let-alist (alist-get key agents--usage)
-        (when (and .used_percentage
-                   (or (not (numberp .resets_at)) (> .resets_at (float-time))))
-          (let ((filled (min 10 (round .used_percentage 10)))
-                (face (if (>= .used_percentage agents-usage-warning) 'warning 'shadow)))
-            (insert (propertize (format "%-8s" label) 'face 'bold)
-                    name " "
-                    (propertize (make-string filled ?█) 'face face)
-                    (propertize (make-string (- 10 filled) ?░) 'face 'shadow)
-                    (propertize (format " %3d%%" (floor .used_percentage)) 'face face)
-                    (if (numberp .resets_at)
-                        (propertize (concat " " (agents--duration
-                                                 (- .resets_at (float-time))))
-                                    'face 'shadow)
-                      "")
-                    "\n")
-            (setq label "")))))))
+  (pcase-dolist (`(,key . ,name) '((five_hour . "5h") (seven_day . "7d")))
+    (let-alist (alist-get key agents--usage)
+      (when (and .used_percentage
+                 (or (not (numberp .resets_at)) (> .resets_at (float-time))))
+        (let ((warn (>= .used_percentage agents-usage-warning)))
+          (insert agents--indent name "  "
+                  (agents--usage-bar .used_percentage warn)
+                  (propertize (format " %3d%%" (floor .used_percentage))
+                              'face (if warn 'warning 'shadow))
+                  (if (numberp .resets_at)
+                      (propertize (concat "  " (agents--duration (- .resets_at (float-time))))
+                                  'face 'shadow)
+                    "")
+                  "\n"))))))
 
 (defun agents--filter-tab-buffers (fn &rest args)
   "Around advice for `bufferlo-buffer-list' dropping agents owned by other tabs."
@@ -425,7 +446,12 @@ Binds it in evil's normal state too."
               truncate-lines nil
               truncate-partial-width-windows nil
               word-wrap t
-              word-wrap-by-category t)
+              word-wrap-by-category t
+              line-spacing 0.25
+              left-margin-width 1
+              right-margin-width 1
+              ;; agent 数目写在 agents 标题右边。
+              mode-line-format nil)
   ;; brief 按窗口宽度截断，宽度一变就得重画。
   (add-hook 'window-size-change-functions #'agents--dashboard-resized nil t)
   (display-line-numbers-mode -1)
@@ -453,8 +479,13 @@ Binds it in evil's normal state too."
   (agents--dashboard-schedule))
 
 (defface agents-section
-  '((t :inherit (font-lock-keyword-face bold) :overline t :extend t))
+  '((t :inherit (font-lock-keyword-face bold)))
   "Face for dashboard section titles.")
+
+(defface agents-rule
+  '((((background dark)) :foreground "#3a3a3a")
+    (t :foreground "#c8c8c8"))
+  "Face of the rule dashboard section titles sit in.")
 
 (defface agents-waiting-line
   '((((background dark)) :background "#3d1c20" :extend t)
@@ -471,24 +502,61 @@ Binds it in evil's normal state too."
   (concat (propertize "▍" 'face (if current 'success 'shadow))
           (propertize name 'face 'bold)))
 
-(defun agents-dashboard-insert-section (title body)
+(cl-defun agents--section-title (title aside)
+  "Line for section TITLE in a rule, like ── agents ─── 2 total.
+The rule runs to ASIDE at the right edge when it is non-nil and fits,
+else to the edge.  TITLE is lowercased and its text properties spread
+over the line."
+  (let* ((window (get-buffer-window (current-buffer) t))
+         (char (frame-char-width (if window (window-frame window) (selected-frame))))
+         (head (concat (propertize "── " 'face 'agents-rule)
+                       (propertize (downcase title) 'face 'agents-section)
+                       " "))
+         (tail (if aside (concat " " aside) ""))
+         (room nil)
+         (line nil))
+    (add-face-text-property 0 (length tail) 'shadow t tail)
+    ;; 按像素算横线长度：· 之类的字符在中文等宽字体里可能占两列；末尾留一列给折行标记。
+    (setq room (- (if window (window-body-width window t) (* agents-dashboard-width char))
+                  (string-pixel-width (concat head tail) (current-buffer))
+                  char))
+    ;; 窄到放不下 ASIDE 就不要它，免得折行。
+    (when (and aside (< room (* 3 char)))
+      (cl-return-from agents--section-title (agents--section-title title nil)))
+    ;; 横线按整字符截断，余下的空隙放在 ASIDE 前，让它贴齐右边。
+    (setq line (concat head (propertize (make-string (max 1 (/ room char)) ?─) 'face 'agents-rule)
+                       (if aside
+                           (concat (propertize " " 'display
+                                               `(space :align-to
+                                                       (- right (,(+ (string-pixel-width aside (current-buffer))
+                                                                     char)))))
+                                   (substring tail 1))
+                         "")
+                       "\n"))
+    ;; `downcase' 丢掉了 TITLE 的文字属性，比如 Hints 标题上的 `agents-action'；
+    ;; 铺满整行，在横线上按 RET 也算。
+    (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
+             unless (eq prop 'face)
+             do (put-text-property 0 (length line) prop value line))
+    line))
+
+(defun agents-dashboard-insert-section (title body &optional aside)
   "Insert section TITLE followed by what BODY inserts.
-BODY is a function of no arguments; the title is dropped
- when it inserts nothing."
+BODY is a function of no arguments; the title is dropped when it
+inserts nothing.  ASIDE is a string for the title's right edge."
   (let ((start (point)))
     (unless (bobp) (insert "\n"))
-    (insert (propertize (concat title "\n") 'face 'agents-section))
+    (insert (agents--section-title title aside))
     (let ((after-title (point)))
       (funcall body)
       (when (= (point) after-title)
         (delete-region start (point))))))
 
-(defun agents--dashboard-line (buffer last &optional tab-name)
-  "Insert the tree line for agent BUFFER; LAST picks the closing branch.
+(defun agents--dashboard-line (buffer &optional tab-name)
+  "Insert the line for agent BUFFER, then the files it edited this turn.
 The agent's project is named only when it differs from TAB-NAME.  Its turn
 duration and context usage sit in columns at the right edge."
-  (let* ((branch (agents--tree-prefix last 'branch))
-         (head (concat branch (agents--glyph buffer) " "
+  (let* ((head (concat agents--indent (agents--glyph-cell buffer)
                        (or (agents--identity buffer 'agent) "agent")
                        (agents--project-label buffer tab-name)))
          (meta (agents--meta buffer))
@@ -501,24 +569,21 @@ duration and context usage sit in columns at the right edge."
                       ('waiting 'agents-waiting-line)
                       ('done 'agents-done-line))))
     (when highlight
-      (add-face-text-property (length branch) (length line) highlight t line))
+      (add-face-text-property (length agents--indent) (length line) highlight t line))
     (insert (propertize line
                         'agents-buffer buffer
                         'help-echo (if brief
                                        (concat (buffer-name buffer) "\n" brief)
                                      (buffer-name buffer))
-                        'wrap-prefix (agents--tree-prefix last 'wrap)))
-    (agents--dashboard-files buffer (agents--tree-prefix last 'file))))
+                        'wrap-prefix agents--file-indent))
+    (agents--dashboard-files buffer)))
 
-(defun agents--tree-prefix (last part)
-  "Tree drawing starting a line of an agent node; LAST picks the closing branch.
-PART is `branch' for the agent's own line, `wrap' for its continuation
-lines and `file' for the files listed under it."
-  (concat "  "
-          (cond ((eq part 'branch) (if last "└─ " "├─ "))
-                (last "   ")
-                (t "│  "))
-          (if (eq part 'file) "  " "")))
+(defun agents--glyph-cell (buffer)
+  "Status glyph of agent BUFFER padded to three columns, so names line up.
+Fonts draw ◐ ○ ● two columns wide but ⚠ one."
+  (let* ((glyph (agents--glyph buffer))
+         (pad (- (* 3 (frame-char-width)) (string-pixel-width glyph (current-buffer)))))
+    (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
 
 (defun agents--context-label (buffer)
   "Context usage of agent BUFFER, or nil.
@@ -622,10 +687,11 @@ says.  Highlighted while agent BUFFER waits, dimmed unless it works."
               (agents--file-counts .added .removed)
               (if dir (propertize (concat " " dir) 'face 'shadow) "")))))
 
-(defun agents--dashboard-files (buffer prefix)
-  "Insert the files agent BUFFER edited this turn, each line starting with PREFIX.
+(defun agents--dashboard-files (buffer)
+  "Insert the files agent BUFFER edited this turn, under its name.
 Past `agents-dashboard-files' the rest fold into one line with their totals."
-  (let* ((files (agents--files buffer))
+  (let* ((prefix agents--file-indent)
+         (files (agents--files buffer))
          (root (or (agents--identity buffer 'root) default-directory))
          (rest (nthcdr agents-dashboard-files files)))
     (dolist (file (seq-take files agents-dashboard-files))
@@ -649,20 +715,44 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
                                      files "\n")
                'wrap-prefix prefix)))))
 
-(defun agents--dashboard-mode-line ()
-  "Return the dashboard mode line: its name and a count of agents by state."
+(defun agents--dashboard-counts ()
+  "A count of agents by state, like \"3 total · 1 working\"."
   (let* ((statuses (mapcar (lambda (buffer) (buffer-local-value 'agents-status buffer))
                            (agents--buffers)))
          (working (seq-count (lambda (status) (eq status 'working)) statuses))
          (attention (seq-count (lambda (status) (memq status agents-attention-statuses))
                                statuses)))
-    (list " " (propertize "Agents" 'face 'mode-line-buffer-id) "  "
-          (string-join
-           (delq nil (list (format "%d total" (length statuses))
-                           (and (> working 0) (format "%d working" working))
-                           (and (> attention 0)
-                                (propertize (format "%d need you" attention) 'face 'error))))
-           " · "))))
+    (string-join
+     (delq nil (list (format "%d total" (length statuses))
+                     (and (> working 0) (format "%d working" working))
+                     (and (> attention 0)
+                          (propertize (format "%d need you" attention) 'face 'error))))
+     " · ")))
+
+(defun agents--dashboard-agents (tabs)
+  "Insert the agents under the TABS they belong to, then those of closed tabs."
+  (let ((agents (agents--buffers)))
+    (cl-loop
+     for tab in tabs
+     for first = t then nil
+     for id = (alist-get 'agents-id (cdr tab))
+     for owned = (and id (seq-filter
+                          (lambda (buffer)
+                            (equal id (buffer-local-value 'agents--tab buffer)))
+                          agents))
+     do (unless first (insert "\n"))
+     (insert (propertize (agents-dashboard-heading (alist-get 'name tab)
+                                                   (eq (car tab) 'current-tab))
+                         'agents-tab (or id (alist-get 'name tab)))
+             "\n")
+     (setq agents (seq-difference agents owned))
+     (dolist (buffer owned)
+       (agents--dashboard-line buffer (alist-get 'name tab))))
+    (when agents
+      (when tabs (insert "\n"))
+      (insert (propertize "▍tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
+      (dolist (buffer agents)
+        (agents--dashboard-line buffer)))))
 
 (defun agents--dashboard-render ()
   "Redraw the dashboard, keeping point on the same agent."
@@ -671,7 +761,6 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
       (let* ((window (get-buffer-window dashboard t))
              (frame (if window (window-frame window) (selected-frame)))
              (tabs (funcall tab-bar-tabs-function frame))
-             (agents (agents--buffers))
              ;; 光标所在的 agent 或 tab，及在它下面第几行、第几列；重画后回到原处。
              (anchor (seq-some (lambda (prop)
                                  (when-let* ((value (get-text-property (line-beginning-position)
@@ -684,33 +773,10 @@ Past `agents-dashboard-files' the rest fold into one line with their totals."
              (column (current-column))
              (inhibit-read-only t))
         (erase-buffer)
-        (agents-dashboard-insert-section "Usage" #'agents--usage-insert)
-        (agents-dashboard-insert-section
-         "Agents"
-         (lambda ()
-           (cl-loop
-            for tab in tabs
-            for first = t then nil
-            for id = (alist-get 'agents-id (cdr tab))
-            for owned = (and id (seq-filter
-                                 (lambda (buffer)
-                                   (equal id (buffer-local-value 'agents--tab buffer)))
-                                 agents))
-            do (unless first (insert "\n"))
-            (insert (propertize (agents-dashboard-heading (alist-get 'name tab)
-                                                          (eq (car tab) 'current-tab))
-                                'agents-tab (or id (alist-get 'name tab)))
-                    "\n")
-            (setq agents (seq-difference agents owned))
-            (cl-loop for (buffer . rest) on owned
-                     do (agents--dashboard-line buffer (null rest) (alist-get 'name tab))))
-           (when agents
-             (when tabs (insert "\n"))
-             (insert (propertize "▍tab closed" 'face 'shadow 'agents-tab 'closed) "\n")
-             (cl-loop for (buffer . rest) on agents
-                      do (agents--dashboard-line buffer (null rest))))))
+        (agents-dashboard-insert-section "Agents" (lambda () (agents--dashboard-agents tabs))
+                                         (agents--dashboard-counts))
+        (agents-dashboard-insert-section "Usage · claude" #'agents--usage-insert)
         (run-hook-with-args 'agents-dashboard-functions frame)
-        (setq mode-line-format (agents--dashboard-mode-line))
         (goto-char (point-min))
         (if-let* ((pos (and anchor (agents--dashboard-find anchor))))
             (progn
