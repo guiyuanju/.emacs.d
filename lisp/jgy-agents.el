@@ -456,7 +456,7 @@ Binds it in evil's normal state too."
   "Line for section TITLE, carrying TITLE's text properties to its end."
   (let ((line (concat title "\n")))
     (add-face-text-property 0 (length title) 'agents-section t line)
-    ;; 在标题行哪里按 RET 都算，比如 Hints 标题上的 `agents-action'。
+    ;; 在标题行哪里按 RET 都算，比如 Todo 标题上的 `agents-action'。
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
              do (put-text-property 0 (length line) prop value line))

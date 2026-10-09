@@ -143,52 +143,6 @@ Outside a project folder, list every #now or #waiting todo instead."
              (jgy-worklog--insert-card card todos first bare)
              (setq first nil))))))))
 
-(defcustom jgy-worklog-hints
-  '(("项目"
-     ("SPC TAB o" . "打开 / 新建项目")
-     ("SPC TAB c" . "clone 代码仓库到项目")
-     ("SPC TAB p" . "打开 project.md")
-     ("SPC a c" . "在项目根启动 agent"))
-    ("对 agent 说"
-     ("开工" . "列出 #now #waiting")
-     ("记一下：…" . "追加到项目日志")
-     ("周回顾 月回顾" . "在 workspace 根说")
-     ("结项 <id>" . "成果进 career.md")))
-  "Hint groups shown at the bottom of the dashboard, as (TITLE (KEY . TEXT)...).
-Nil hides the Hints section."
-  :type '(repeat (cons string (alist :key-type string :value-type string))))
-
-(defvar jgy-worklog--hints-shown nil
-  "Non-nil when the Hints section is expanded.")
-
-(defun jgy-worklog-toggle-hints ()
-  "Expand or collapse the Hints section of the dashboard."
-  (interactive)
-  (setq jgy-worklog--hints-shown (not jgy-worklog--hints-shown))
-  (agents--dashboard-schedule))
-
-(with-eval-after-load 'jgy-agents
-  (agents-dashboard-define-key "?" #'jgy-worklog-toggle-hints))
-
-(defun jgy-worklog-dashboard-insert-hints (_frame)
-  "Insert the Hints section from `jgy-worklog-hints'.
-It stays one line until `jgy-worklog-toggle-hints' expands it."
-  (agents-dashboard-insert-section
-   (propertize "Hints" 'agents-action #'jgy-worklog-toggle-hints)
-   (lambda ()
-     (let ((width (apply #'max 0 (mapcar (lambda (pair) (string-width (car pair)))
-                                         (apply #'append (mapcar #'cdr jgy-worklog-hints))))))
-       (unless (or jgy-worklog--hints-shown (null jgy-worklog-hints))
-         (insert (propertize (concat "   " (propertize "?" 'face 'help-key-binding)
-                                     (propertize " 展开" 'face 'shadow) "\n")
-                             'agents-action #'jgy-worklog-toggle-hints)))
-       (dolist (group (and jgy-worklog--hints-shown jgy-worklog-hints))
-         (insert (propertize (car group) 'face 'shadow) "\n")
-         (pcase-dolist (`(,key . ,text) (cdr group))
-           (insert "   " (propertize key 'face 'help-key-binding)
-                   (make-string (- width (string-width key)) ?\s) "  "
-                   text "\n")))))))
-
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
   (when (and (fboundp 'agents--dashboard-schedule)
@@ -209,11 +163,9 @@ It stays one line until `jgy-worklog-toggle-hints' expands it."
   (if jgy-worklog-dashboard-mode
       (progn
         (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
-        (add-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints 90)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
     (remove-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert)
-    (remove-hook 'agents-dashboard-functions #'jgy-worklog-dashboard-insert-hints)
     (remove-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
     (remove-hook 'after-save-hook #'jgy-worklog--after-save)))
 
