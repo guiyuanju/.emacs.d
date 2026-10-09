@@ -93,8 +93,16 @@
 (defun ghostel-agents--identity (buffer key)
   (alist-get key (buffer-local-value 'ghostel-identity buffer)))
 
-(defun ghostel-agents--root ()
+(defun ghostel-agents-project-root ()
+  "Return the current project's root, or `default-directory' outside a project."
   (if-let* ((project (project-current))) (project-root project) default-directory))
+
+(defcustom ghostel-agents-root-function #'ghostel-agents-project-root
+  "Function returning the directory agents of the current buffer run in."
+  :type 'function)
+
+(defun ghostel-agents--root ()
+  (funcall ghostel-agents-root-function))
 
 (defun ghostel-agents--buffers (&optional pred)
   "Live agent buffers, restricted to those satisfying PRED when given."

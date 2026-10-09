@@ -51,6 +51,12 @@
     (tab-bar-switch-to-tab id)
     (find-file file)))
 
+(defun jgy/project-visit-file ()
+  "Open the project.md of the current project folder."
+  (interactive)
+  (find-file (expand-file-name "project.md" (or (jgy/project-root)
+                                                (user-error "Not inside a project folder")))))
+
 (defun jgy/project-clone (repo)
   "Clone REPO from `jgy/code-directory''s origin into the current project."
   (interactive

@@ -513,12 +513,16 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "'"   '(vertico-repeat :which-key "resume completion")
     "`"   '(mode-line-other-buffer :which-key "last buffer")
     "\\"  '(jgy/ghostel-toggle :which-key "terminal")
+    ";"   '(dired-jump :which-key "dired here")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
     "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
 
-    "TAB"     '(:ignore t :which-key "workspace")
+    "TAB"     '(:ignore t :which-key "project")
     "TAB TAB" '(tab-bar-switch-to-tab :which-key "switch")
+    "TAB o"   '(jgy/project-open :which-key "open project")
+    "TAB c"   '(jgy/project-clone :which-key "clone repo")
+    "TAB p"   '(jgy/project-visit-file :which-key "project.md")
     "TAB ["   '(tab-bar-switch-to-prev-tab :which-key "previous")
     "TAB ]"   '(tab-bar-switch-to-next-tab :which-key "next")
     "TAB d"   '(tab-bar-close-tab :which-key "close")
@@ -534,17 +538,8 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "ax" '(jgy/agent-start-codex :which-key "Codex")
     "ai" '(jgy/agent-start-pi :which-key "Pi agent")
     "al" '(ghostel-agents-switch :which-key "list agents")
-    "aw" '(jgy/project-agent :which-key "agent in project")
     "ad" '(ghostel-agents-dashboard :which-key "dashboard")
     "ae" '(ghostel-agents-send :which-key "send to agent")
-    "a+" '(gptel-add :which-key "add context")
-    "af" '(gptel-add-file :which-key "add file")
-    "ag" '(jgy/gptel-toggle :which-key "gptel toggle")
-    "aG" '(gptel :which-key "gptel session")
-    "ak" '(gptel-abort :which-key "abort")
-    "am" '(gptel-menu :which-key "menu")
-    "ar" '(gptel-rewrite :which-key "rewrite")
-    "as" '(gptel-send :which-key "send")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -598,8 +593,6 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "fy" '(jgy/yank-buffer-path :which-key "copy path")
     "fY" '((lambda () (interactive) (jgy/yank-buffer-path t))
             :which-key "copy project path")
-    "fd" '(dired-jump :which-key "dired here")
-    "fo" '(jgy/reveal-in-finder :which-key "reveal in Finder")
 
     "g"  '(:ignore t :which-key "Git")
     "g/" '(magit-dispatch :which-key "dispatch")
@@ -613,7 +606,6 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
-    "gw" '(jgy/project-clone :which-key "clone into project")
     "gy" '(git-link :which-key "copy link")
 
     "i"  '(:ignore t :which-key "insert")
@@ -628,15 +620,21 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "nn" '(jgy/notes-find :which-key "find")
     "ns" '(jgy/notes-search :which-key "search")
 
+    "o"  '(:ignore t :which-key "open")
+    "od" '(ghostel-agents-dashboard :which-key "agent dashboard")
+    "oe" '(jgy/eshell-toggle :which-key "Eshell")
+    "of" '(jgy/reveal-in-finder :which-key "reveal in Finder")
+    "op" '(popper-toggle :which-key "popup")
+    "oP" '(popper-cycle :which-key "next popup")
+    "ot" '(jgy/ghostel-toggle :which-key "terminal")
+
     "p"  '(:ignore t :which-key "project")
     "p!" '(project-shell-command :which-key "command")
     "p&" '(project-async-shell-command :which-key "async command")
     "pb" '(project-switch-to-buffer :which-key "buffer")
-    "pc" '(project-compile :which-key "compile")
     "pd" '(project-dired :which-key "root")
     "pf" '(project-find-file :which-key "file")
     "pk" '(project-kill-buffers :which-key "kill buffers")
-    "po" '(jgy/project-open :which-key "open project folder")
     "pp" '(project-switch-project :which-key "switch")
     "pr" '(project-query-replace-regexp :which-key "replace")
 
@@ -656,13 +654,9 @@ Called from inside a non-agent Ghostel it hides that buffer, whatever its
     "t"  '(:ignore t :which-key "toggle")
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
     "td" '(toggle-debug-on-error :which-key "debug on error")
-    "te" '(jgy/eshell-toggle :which-key "Eshell")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
     "tl" '(jgy/toggle-line-numbers :which-key "line numbers")
-    "tn" '(popper-cycle :which-key "next popup")
-    "tp" '(popper-toggle :which-key "popup")
     "tr" '(read-only-mode :which-key "read only")
-    "tt" '(jgy/ghostel-toggle :which-key "terminal")
     "tT" '(consult-theme :which-key "theme")
     "tw" '(visual-line-mode :which-key "wrap")
     "tW" '(toggle-truncate-lines :which-key "truncate lines"))
@@ -747,7 +741,8 @@ column and miscounts after wide prompt glyphs such as ➜."
   :init
   ;; 项目文件夹自成一个 project，里面 clone 的仓库仍按各自的仓库根算。
   (setopt project-vc-extra-root-markers '("project.md"))
-  :commands (jgy/project-open jgy/project-clone jgy/project-root jgy/browse-mr))
+  :commands (jgy/project-open jgy/project-clone jgy/project-visit-file jgy/project-root
+             jgy/browse-mr))
 
 ;;; Files and Git
 
