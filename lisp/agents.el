@@ -1118,19 +1118,13 @@ It follows each file the agent writes from then on."
                     (user-error "No agent on this line"))))
     (if (buffer-local-value 'agents--diff-follow buffer)
         (progn
-          (with-current-buffer buffer
-            (setq agents--diff-follow nil)
-            (when-let* ((toggle (alist-get 'follow-diff agents-identity)))
-              (funcall toggle nil)))
+          (with-current-buffer buffer (setq agents--diff-follow nil))
           (when-let* ((diff (get-buffer (agents--diff-buffer-name buffer))))
             (dolist (window (get-buffer-window-list diff nil t))
               (ignore-errors (delete-window window)))
             (kill-buffer diff))
           (agents--dashboard-schedule)
           (message "Stopped following %s's diffs" (buffer-name buffer)))
-      (with-current-buffer buffer
-        (when-let* ((toggle (alist-get 'follow-diff agents-identity)))
-          (funcall toggle t)))
       (let* ((files (agents--files buffer))
              (file (or (seq-find (lambda (file) (alist-get 'active file)) files)
                        (car (last files)))))
