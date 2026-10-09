@@ -403,8 +403,9 @@ Binds it in evil's normal state too."
               truncate-partial-width-windows nil
               word-wrap t
               word-wrap-by-category t
-              left-margin-width 1
-              right-margin-width 1
+              ;; 没有左右边距，整行底色才能顶到窗口两边。
+              left-margin-width 0
+              right-margin-width 0
               ;; mode line 和别的窗口一样，写看板名和 agent 数目。
               mode-line-format '(:eval (agents--dashboard-mode-line)))
   ;; brief 按窗口宽度截断，宽度一变就得重画。
@@ -464,21 +465,32 @@ Binds it in evil's normal state too."
   "NAME as a dashboard heading, highlighted when CURRENT."
   (propertize name 'face (if current '(success bold) 'bold)))
 
-(defconst agents--tab-prefix "▸ "
+(defconst agents--tab-prefix "│ "
   "Prefix of a tab heading in the agents dashboard.")
 
+(defun agents--dashboard-columns ()
+  "Columns a full-width dashboard line may fill, leaving the wrap column free."
+  (let ((window (get-buffer-window (current-buffer) t)))
+    (1- (if window (window-body-width window) agents-dashboard-width))))
+
+(defun agents--pad-line (text)
+  "TEXT filled with spaces to `agents--dashboard-columns'.
+Lets a background cover the whole row, since `:extend' only paints the
+space after the last character."
+  (concat text (make-string (max 0 (- (agents--dashboard-columns) (string-width text))) ?\s)))
+
 (defun agents--tab-heading (text current)
-  "TEXT prefixed as a tab heading, banded when CURRENT."
-  (let ((heading (concat agents--tab-prefix text)))
+  "TEXT prefixed as a tab heading, filled and banded when CURRENT."
+  (let ((heading (agents--pad-line (concat agents--tab-prefix text))))
     (add-face-text-property 0 (length heading)
                             (if current 'agents-tab-heading-current 'agents-tab-heading)
                             t heading)
     heading))
 
 (defun agents--section-title (title)
-  "Line for section TITLE, carrying TITLE's text properties to its end."
-  (let ((line (concat title "\n")))
-    (add-face-text-property 0 (length title) 'agents-section t line)
+  "Line for section TITLE, filled to the window, keeping TITLE's properties."
+  (let ((line (concat (agents--pad-line title) "\n")))
+    (add-face-text-property 0 (1- (length line)) 'agents-section t line)
     ;; 在标题行哪里按 RET 都算，比如 Todo 标题上的 `agents-action'。
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
