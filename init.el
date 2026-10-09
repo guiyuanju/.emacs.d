@@ -32,6 +32,24 @@
 ;; Line numbers are off by default; use `jgy/toggle-line-numbers' (SPC t l) per buffer.
 (setq display-line-numbers nil)
 
+;; A minimal mode line: modified flag, buffer, line, branch, and major mode.
+;; No mule/remote/frame info, minor-mode lighters, or misc info.  Evil inserts
+;; its state tag after `mode-line-position'.
+(setq mode-line-percent-position nil)
+(setq-default mode-line-format
+              '("%e"
+                mode-line-front-space
+                mode-line-modified
+                " "
+                mode-line-buffer-identification
+                "  "
+                mode-line-position
+                "  "
+                (vc-mode vc-mode)
+                " "
+                mode-name
+                mode-line-end-spaces))
+
 (defvar my-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy/font-family "Sarasa Mono SC")
 (defvar jgy/variable-pitch-font-family "Sarasa UI SC")
@@ -140,7 +158,41 @@
 (tab-bar-history-mode 1)
 (desktop-save-mode 1)
 
+;; A flat, minimalist mode line: a dark strip instead of the default gray bar.
+;; The focused window gets a slightly lighter strip and brighter text, so no
+;; window's mode line disappears into the buffer background.  Before `load-theme'.
+(setq modus-themes-common-palette-overrides
+      '((bg-mode-line-active bg-inactive)
+        (fg-mode-line-active fg-main)
+        (border-mode-line-active bg-inactive)
+        (bg-mode-line-inactive bg-dim)
+        (fg-mode-line-inactive bg-active)
+        (border-mode-line-inactive bg-dim)))
 (load-theme 'modus-vivendi t)
+
+;; Modus draws window dividers gray and gives header lines their own strip, and
+;; agent-shell tints its header with font-lock colors.  Reuse the flat mode
+;; line's colors for all of them so the frame looks like one piece.
+(defun jgy/modus-flat-faces ()
+  "Match dividers, header lines, and the agent-shell header to the flat mode line."
+  (modus-themes-with-colors
+    (set-face-attribute 'vertical-border nil :foreground bg-inactive)
+    (set-face-attribute 'window-divider nil :foreground bg-inactive)
+    (set-face-attribute 'window-divider-first-pixel nil :foreground bg-inactive)
+    (set-face-attribute 'window-divider-last-pixel nil :foreground bg-inactive)
+    (set-face-attribute 'header-line nil :background bg-inactive)
+    (set-face-attribute 'header-line-inactive nil
+                        :background bg-dim :foreground bg-active)
+    (when (facep 'agent-shell-model)
+      (set-face-attribute 'agent-shell-buffer-name nil
+                          :inherit 'bold :foreground fg-main)
+      (dolist (face '(agent-shell-model agent-shell-thought-level
+                      agent-shell-session-mode agent-shell-session-directory
+                      agent-shell-container-indicator))
+        (set-face-attribute face nil :inherit nil :foreground fg-dim)))))
+(jgy/modus-flat-faces)
+(add-hook 'modus-themes-after-load-theme-hook #'jgy/modus-flat-faces)
+(with-eval-after-load 'agent-shell (jgy/modus-flat-faces))
 
 ;;; Package manager
 
