@@ -28,10 +28,10 @@
   :defer t
   :custom
   (agent-shell-header-style 'text)
-  ;; A small bouncing braille dot instead of agent-shell's default
-  ;; bouncing "░░░" bar.  Alternatives: dots-block (8-frame ring),
-  ;; wave, arc, arrow.
-  (agent-shell-busy-indicator-frames '("⠁" "⠂" "⠄" "⠂"))
+  ;; A bouncing bar instead of agent-shell's default "░░░" bar.
+  ;; Alternatives: dots-block (8-frame ring), wave, arc, arrow.
+  (agent-shell-busy-indicator-frames
+   '("[    ]" "[=   ]" "[==  ]" "[=== ]" "[====]" "[ ===]" "[  ==]" "[   =]"))
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
