@@ -28,10 +28,10 @@
   :defer t
   :custom
   (agent-shell-header-style 'text)
-  ;; Breathe a dot instead of agent-shell's default bouncing "░░░" bar.
-  ;; Other built-ins: wave, dots-block, dots-round, circle.
+  ;; Spin a half-filled circle clockwise instead of agent-shell's default
+  ;; bouncing "░░░" bar.  Other built-ins: wave, dots-block, dots-round.
   (agent-shell-busy-indicator-frames
-   '("○" "◔" "◑" "◕" "●" "◕" "◑" "◔"))
+   '("◐" "◓" "◑" "◒"))
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
