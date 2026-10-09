@@ -139,19 +139,21 @@ Cache by modification time, size, and day.  Ignore incomplete JSONL lines."
     (cons "deepseek"
           (concat
            (if agents-deepseek--balance
-               (concat "balance "
-                       (mapconcat (lambda (row) (concat (car row) " " (cdr row)))
+               (concat (mapconcat (lambda (row) (concat (car row) " " (cdr row)))
                                   agents-deepseek--balance " / ")
-                       (propertize
-                        (concat " · " (format-time-string "%H:%M" agents-deepseek--updated)
-                                (if agents-deepseek--error " stale" ""))
-                        'face (if agents-deepseek--error 'warning 'shadow)))
+                       (when agents-deepseek--error
+                         (propertize " stale" 'face 'warning)))
              (propertize (if agents-deepseek--error "balance unavailable" "balance loading")
                          'face (if agents-deepseek--error 'warning 'shadow)))
-           "\nPi today (local): "
+           " · Pi today "
            (if agents-deepseek--tokens
-               (format "%s tokens" agents-deepseek--tokens)
-             "usage unavailable")))))
+               (concat (cond ((>= agents-deepseek--tokens 1000000)
+                              (format "%.1fM" (/ agents-deepseek--tokens 1000000.0)))
+                             ((>= agents-deepseek--tokens 1000)
+                              (format "%.1fk" (/ agents-deepseek--tokens 1000.0)))
+                             (t (number-to-string agents-deepseek--tokens)))
+                       " tok")
+             "?")))))
 
 (add-to-list 'agents-usage-functions #'agents-usage-deepseek t)
 

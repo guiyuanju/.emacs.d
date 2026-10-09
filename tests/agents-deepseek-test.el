@@ -51,7 +51,7 @@
       (let ((text (cdr (agents-usage-deepseek))))
         (should (string-match-p "CNY 4.34" text))
         (should (string-match-p "stale" text))
-        (should (string-match-p "Pi today (local): 123 tokens" text)))
+        (should (string-match-p "Pi today 123 tok" text)))
       (setq agents-deepseek--balance nil)
       (should (string-match-p "balance unavailable" (cdr (agents-usage-deepseek))))
       (setq agents-deepseek--error nil)
@@ -59,12 +59,12 @@
 
 (ert-deftest agents-deepseek-render-alongside-plan-bars ()
   (let ((agents--usage '(("claude" ("5h" 50 nil))
-                         ("deepseek" . "balance CNY 4.34\nPi today (local): 123 tokens")))
+                         ("deepseek" . "CNY 4.34 · Pi today 123 tok")))
         (agents-dashboard-width 45))
     (with-temp-buffer
       (agents--usage-insert)
       (should (string-match-p "50%" (buffer-string)))
-      (should (string-match-p "deepseek  balance CNY 4.34" (buffer-string)))
+      (should (string-match-p "deepseek  CNY 4.34" (buffer-string)))
       (goto-char (point-min))
       (while (not (eobp))
         (should (<= (string-width (buffer-substring (point) (line-end-position))) 45))
