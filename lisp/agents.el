@@ -434,11 +434,11 @@ It turns `warning' from `agents-usage-warning'."
 
 (defun agents--usage-insert ()
   "Insert a row per agent in `agents--usage', with a bar per usage window.
-A window past its reset counts as empty; an agent whose windows all
-reset is left out, as it has not run since."
+A window past its reset counts as empty, but the agent stays listed
+so a reset is visible instead of the row silently disappearing."
   (let* ((now (float-time))
          (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
-         (rows (seq-filter (lambda (row) (or (stringp (cdr row)) (seq-remove past (cdr row)))) agents--usage))
+         (rows agents--usage)
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
          (count (apply #'max 1 (mapcar (lambda (row) (if (stringp (cdr row)) 0 (length (cdr row)))) rows)))
          (window (get-buffer-window (current-buffer) t))
