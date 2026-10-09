@@ -28,10 +28,9 @@
   :defer t
   :custom
   (agent-shell-header-style 'text)
-  ;; A bouncing bar instead of agent-shell's default "░░░" bar.
-  ;; Alternatives: dots-block (8-frame ring), wave, arc, arrow.
-  (agent-shell-busy-indicator-frames
-   '("[    ]" "[=   ]" "[==  ]" "[=== ]" "[====]" "[ ===]" "[  ==]" "[   =]"))
+  ;; An 8-frame braille ring instead of agent-shell's default "░░░" bar.
+  ;; Alternatives: wave, arc, bouncingBar, arrow.
+  (agent-shell-busy-indicator-frames 'dots-block)
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
