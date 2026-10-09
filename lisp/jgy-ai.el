@@ -51,6 +51,7 @@
   (agents-root-function #'jgy/agent-root)
   (agents-start-function #'jgy/agent-shell-start)
   :config
+  (require 'agents-usage)
   (require 'agents-deepseek)
   (agents-mode 1))
 

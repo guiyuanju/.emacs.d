@@ -6,7 +6,7 @@
 
 ;;; Code:
 
-(require 'agents)
+(require 'agents-usage)
 (require 'json)
 (require 'subr-x)
 
@@ -23,7 +23,8 @@
 
 (defcustom agents-deepseek-usage-url "https://platform.deepseek.com/usage"
   "Page the dashboard's DeepSeek usage row opens on RET."
-  :type 'string)
+  :type 'string
+  :group 'agents)
 
 (defun agents-deepseek-open-usage ()
   "Open DeepSeek's usage page in a browser."
