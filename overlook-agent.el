@@ -135,7 +135,7 @@ END is nil while the turn runs.")
   (overlook-refresh))
 
 (defun overlook-agent-p (buffer)
-  "Non-nil when BUFFER runs an agent."
+  "Return non-nil when BUFFER is an agent's buffer."
   (and (buffer-live-p buffer)
        (buffer-local-value 'overlook-agent-identity buffer)
        t))
@@ -152,7 +152,7 @@ END is nil while the turn runs.")
               (buffer-list)))
 
 (defun overlook-agent-files (buffer)
-  "Files agent BUFFER edited this turn, as its `files' identity returns them."
+  "Return the files agent BUFFER edited this turn, from its `files' identity."
   (when-let* ((files (overlook-agent-get buffer 'files)))
     (with-current-buffer buffer (ignore-errors (funcall files)))))
 
@@ -378,7 +378,7 @@ the duration ends a column before it, so both line up across agents."
       "")))
 
 (defun overlook-agent--brief (buffer)
-  "What agent BUFFER says it is doing, on one line, or nil."
+  "Return what agent BUFFER is doing, on one line, or nil."
   (when-let* ((brief (overlook-agent-get buffer 'brief))
               (text (with-current-buffer buffer (ignore-errors (funcall brief))))
               (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))

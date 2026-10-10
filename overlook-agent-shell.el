@@ -116,7 +116,7 @@ Rejected or failed edits are left out."
   "Title of this turn's latest tool call, or nil.")
 
 (defun overlook-agent-shell--set-brief (var value)
-  "Set brief source VAR to VALUE, redrawing the dashboard when it changes."
+  "Set brief source VAR to VALUE, and redraw the dashboard on a new value."
   (unless (equal (symbol-value var) value)
     (set var value)
     (overlook-agent-changed)))

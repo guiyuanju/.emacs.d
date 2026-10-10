@@ -178,7 +178,7 @@ anything.  The rows go under an \"other\" heading after every perspective.")
   (and (get-buffer overlook-buffer-name) t))
 
 (defun overlook-refresh ()
-  "Redraw the dashboard soon, coalescing bursts of changes."
+  "Redraw the dashboard soon, coalescing bursts of updates."
   (when (and (overlook-live-p) (not (timerp overlook--timer)))
     (setq overlook--timer
           (run-with-timer 0.1 nil (lambda ()
@@ -257,7 +257,7 @@ The binding is recorded in `overlook-keys'."
   "Face of the current perspective's heading.")
 
 (defun overlook-insert-section (title body)
-  "Insert section TITLE followed by what BODY, a function, inserts.
+  "Insert section TITLE, then call BODY, a function, to fill it.
 The title is dropped when BODY inserts nothing.  TITLE's text properties,
 like `overlook-action', cover its whole line."
   (let ((start (point)))
