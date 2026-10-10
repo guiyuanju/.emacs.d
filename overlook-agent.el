@@ -316,13 +316,6 @@ Prompts for an agent to start when none is running."
 
 ;;; Rows
 
-(defun overlook-agent--glyph-cell (buffer)
-  "Status glyph of agent BUFFER padded to three columns, so names line up.
-Fonts draw ◐ ○ ● two columns wide but ⚠ one."
-  (let* ((glyph (overlook-agent-glyph buffer))
-         (pad (- (* 3 (frame-char-width)) (string-pixel-width glyph (current-buffer)))))
-    (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
-
 (defun overlook-agent--context-label (buffer)
   "Context usage of agent BUFFER, or nil."
   (when-let* ((used (buffer-local-value 'overlook-agent-context buffer)))
@@ -463,7 +456,7 @@ Past `overlook-agent-files' the rest fold into one line with their totals."
 
 (defun overlook-agent--row (buffer perspective)
   "Insert the row of agent BUFFER under PERSPECTIVE, then its edited files."
-  (let* ((head (concat overlook-indent (overlook-agent--glyph-cell buffer)
+  (let* ((head (concat overlook-indent (overlook-glyph-cell (overlook-agent-glyph buffer))
                        (or (overlook-agent-get buffer 'agent) "agent")
                        (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
                                                       overlook-agent-row-marks)))

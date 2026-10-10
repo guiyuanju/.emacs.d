@@ -275,6 +275,12 @@ Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
     (when (>= pixels (* 4 (frame-char-width)))
       (propertize cut 'face face))))
 
+(defun overlook-glyph-cell (glyph)
+  "GLYPH padded to three columns, so the names after it line up.
+Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
+  (let ((pad (- (* 3 (frame-char-width)) (string-pixel-width glyph (current-buffer)))))
+    (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
+
 (defun overlook-format-duration (seconds)
   "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
   (let ((m (/ (max 0 (floor seconds)) 60)))

@@ -172,4 +172,37 @@ Agents are listed; usage and repos are not."
                          '("./" "api/" "web/"))))
       (delete-directory root t))))
 
+;; Repos sit dimmed under their perspective, names aligned, before agents.
+(ert-deftest overlook-project-rows-line-up-before-agents ()
+  (let ((root (make-temp-file "overlook-project" t))
+        (alpha (overlook-test--agent "alpha"))
+        (overlook-project--status (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (dolist (dir '("api/.git" "frontend/.git"))
+            (make-directory (expand-file-name dir root) t))
+          (dolist (repo '(("api/" "main" . 2) ("frontend/" "dev" . 0)))
+            (puthash (file-name-as-directory (expand-file-name (car repo) root))
+                     (cons (float-time) (cdr repo)) overlook-project--status))
+          (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+            (let ((overlook-perspective-root-function (lambda (_) root))
+                  (overlook-perspective-functions
+                   (list #'overlook-project--insert #'overlook-agent--insert)))
+              (overlook--render)
+              (let ((api (progn (goto-char (point-min)) (search-forward "api")
+                                (buffer-substring-no-properties (line-beginning-position)
+                                                                (line-end-position))))
+                    (frontend (progn (goto-char (point-min)) (search-forward "frontend")
+                                     (buffer-substring-no-properties (line-beginning-position)
+                                                                     (line-end-position)))))
+                (should (string-match-p "⎇ +api +main  ●2" api))
+                (should (string-match-p "⎇ +frontend  dev" frontend))
+                (should (= (string-search "main" api) (string-search "dev" frontend))))
+              (goto-char (point-min))
+              (search-forward "api")
+              (should (eq (get-text-property (point) 'face) 'overlook-project-repo))
+              (should (< (overlook-test--line-of "frontend") (overlook-test--line-of "alpha"))))))
+      (kill-buffer alpha)
+      (delete-directory root t))))
+
 ;;; overlook-test.el ends here

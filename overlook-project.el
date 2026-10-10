@@ -20,9 +20,9 @@
   :type 'number
   :group 'overlook)
 
-(defface overlook-project-branch
+(defface overlook-project-repo
   '((t :inherit shadow))
-  "Face of a repo's branch."
+  "Face of a repo's row, dimmed so agents stand out."
   :group 'overlook)
 
 (defface overlook-project-dirty
@@ -99,13 +99,17 @@
       (magit-status-setup-buffer dir)
     (vc-dir dir)))
 
-(defun overlook-project--row (dir perspective)
+(defun overlook-project--row (dir perspective width)
+  "Insert the row of repo DIR in PERSPECTIVE, its name padded to WIDTH."
   (push dir overlook-project--shown)
-  (pcase-let ((`(,branch . ,changed) (overlook-project--status dir)))
+  (pcase-let ((`(,branch . ,changed) (overlook-project--status dir))
+              (name (file-name-nondirectory (directory-file-name dir))))
     (insert (propertize
              (concat overlook-indent
-                     (file-name-nondirectory (directory-file-name dir))
-                     (if branch (concat "  " (propertize branch 'face 'overlook-project-branch)) "")
+                     (propertize (concat (overlook-glyph-cell "⎇")
+                                         (if branch (string-pad name width) name)
+                                         (if branch (concat "  " branch) ""))
+                                 'face 'overlook-project-repo)
                      (if (and changed (> changed 0))
                          (propertize (format "  ●%d" changed) 'face 'overlook-project-dirty)
                        "")
@@ -119,8 +123,13 @@
 (defun overlook-project--insert (perspective)
   "Insert the repos of PERSPECTIVE's project."
   (when-let* ((root (overlook-perspective-root perspective)))
-    (dolist (dir (overlook-project-repos root))
-      (overlook-project--row dir perspective))))
+    (let* ((dirs (overlook-project-repos root))
+           (width (apply #'max 0 (mapcar (lambda (dir)
+                                           (string-width (file-name-nondirectory
+                                                          (directory-file-name dir))))
+                                         dirs))))
+      (dolist (dir dirs)
+        (overlook-project--row dir perspective width)))))
 
 (defun overlook-project--forget ()
   "Start collecting the repos drawn by this render."
