@@ -1,7 +1,7 @@
-;;; jgy-worklog.el --- Worklog todos in the agents dashboard -*- lexical-binding: t; -*-
+;;; jgy-worklog.el --- Worklog todos on the overlook dashboard -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 在 agents 看板底部列出当前项目文件夹的 project.md 待办。
+;; 在 overlook 看板底部列出当前项目文件夹的 project.md 待办。
 ;; 待办取 Todo 段的未完成项，加上任意段落里带 #waiting 的未完成项；
 ;; 不在项目文件夹里时列出所有带 #now 或 #waiting 的待办。
 
@@ -12,10 +12,10 @@
 (require 'subr-x)
 (require 'jgy-project)
 
-(declare-function jgy-agents-refresh "jgy-agents")
-(declare-function jgy-agents-dashboard-heading "jgy-agents-dashboard")
-(declare-function jgy-agents-dashboard-insert-section "jgy-agents-dashboard")
-(defvar jgy-agents-dashboard-functions)
+(declare-function overlook-refresh "overlook")
+(declare-function overlook-insert-section "overlook")
+(defvar overlook-sections)
+(defvar overlook-buffer-name)
 
 (defvar jgy-worklog--cache nil
   "Parsed cards, as (STAMP . CARDS); STAMP lists each card's file and mtime.")
@@ -55,7 +55,7 @@ or anywhere when tagged #waiting."
                 (cdr jgy-worklog--cache))))
 
 (defun jgy-worklog--current-root (frame)
-  "Return the project folder of the main window in FRAME's current tab."
+  "Return the project folder of FRAME's main window."
   (let* ((selected (frame-selected-window frame))
          (window (if (window-parameter selected 'window-side)
                      (get-mru-window frame nil t)
@@ -90,34 +90,36 @@ or anywhere when tagged #waiting."
 FIRST omits the blank line before the heading; BARE omits the heading."
   (unless (or first bare) (insert "\n"))
   (unless bare
-    (insert (propertize (jgy-agents-dashboard-heading (plist-get card :id))
-                        'jgy-agents-tab t
-                        'jgy-agents-action (jgy-worklog--visit (plist-get card :file) 1))
+    (insert (propertize (plist-get card :id)
+                        'face 'bold
+                        'overlook-heading t
+                        'overlook-action (jgy-worklog--visit (plist-get card :file) 1))
             "\n"))
   (pcase-dolist (`(,text . ,line) todos)
     ;; ☐ 在等宽字体里占两列，折行接在它后面。
     (insert (propertize (concat "   " (propertize "☐" 'face 'shadow) " "
                                 (jgy-worklog--display text))
-                        'jgy-agents-action (jgy-worklog--visit (plist-get card :file) line)
+                        'overlook-action (jgy-worklog--visit (plist-get card :file) line)
                         'wrap-prefix "      ")
             "\n")))
 
-(defun jgy-worklog-dashboard-insert (frame)
-  "Insert a Todo section for the project folder shown in FRAME's current tab.
+(defun jgy-worklog-dashboard-insert ()
+  "Insert a Todo section for the project folder shown beside the dashboard.
 Outside a project folder, list every #now or #waiting todo instead."
-  (let* ((root (jgy-worklog--current-root frame))
+  (let* ((window (get-buffer-window overlook-buffer-name t))
+         (root (jgy-worklog--current-root (if window (window-frame window) (selected-frame))))
          (cards (jgy-worklog--cards))
          (matched (and root (seq-filter (lambda (card)
                                           (file-equal-p (file-name-directory (plist-get card :file))
                                                         root))
                                         cards))))
     (setq jgy-worklog--last-root root)
-    (jgy-agents-dashboard-insert-section
+    (overlook-insert-section
      ;; 只有当前项目一张卡时，标题就是它的标题：RET 打开它，下面不再重复。
      (if (and matched (null (cdr matched)))
          (propertize (concat "Todo · " (plist-get (car matched) :id))
-                     'jgy-agents-tab t
-                     'jgy-agents-action (jgy-worklog--visit (plist-get (car matched) :file) 1))
+                     'overlook-heading t
+                     'overlook-action (jgy-worklog--visit (plist-get (car matched) :file) 1))
        (concat "Todo · " (if matched (plist-get (car matched) :id) "#now")))
      (lambda ()
        (let ((first t)
@@ -132,28 +134,28 @@ Outside a project folder, list every #now or #waiting todo instead."
 
 (defun jgy-worklog--refresh (frame)
   "Re-render the dashboard when FRAME's current project changed."
-  (when (and (fboundp 'jgy-agents-refresh)
+  (when (and (fboundp 'overlook-refresh)
              (not (equal (jgy-worklog--current-root frame) jgy-worklog--last-root)))
-    (jgy-agents-refresh)))
+    (overlook-refresh)))
 
 (defun jgy-worklog--after-save ()
   "Re-render the dashboard after saving a worklog file."
   (when (and buffer-file-name
-             (fboundp 'jgy-agents-refresh)
+             (fboundp 'overlook-refresh)
              (file-in-directory-p buffer-file-name jgy-workspace-directory))
-    (jgy-agents-refresh)))
+    (overlook-refresh)))
 
 ;;;###autoload
 (define-minor-mode jgy-worklog-dashboard-mode
   "Show worklog todos for the current project in the agents dashboard."
   :global t
-  :group 'jgy-agents
+  :group 'overlook
   (if jgy-worklog-dashboard-mode
       (progn
-        (add-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert 50)
+        (add-hook 'overlook-sections #'jgy-worklog-dashboard-insert 50)
         (add-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
         (add-hook 'after-save-hook #'jgy-worklog--after-save))
-    (remove-hook 'jgy-agents-dashboard-functions #'jgy-worklog-dashboard-insert)
+    (remove-hook 'overlook-sections #'jgy-worklog-dashboard-insert)
     (remove-hook 'window-buffer-change-functions #'jgy-worklog--refresh)
     (remove-hook 'after-save-hook #'jgy-worklog--after-save)))
 

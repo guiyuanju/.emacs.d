@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; agent 由 acp.el + agent-shell 驱动，跑的是 npm 全局装的 ACP adapter 和 agent 本体。
-;; 任何一层落后，ACP 握手、以及 `jgy-agent-shell--save-usage' 读的 _meta 字段都可能对不上。
+;; 任何一层落后，ACP 握手、以及 overlook 读取 Claude 用量的 _meta 字段都可能对不上。
 ;; 启动后空闲时查一遍：npm 包问 registry，Emacs 包 fetch 后比对 upstream；
 ;; 旧的和根本没装的一起提示，确认后 npm 装 @latest、elpaca 拉新版。
 ;; codex 本体是 codex-acp 的依赖，随它一起更新，所以不单独列。
