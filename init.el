@@ -1098,7 +1098,12 @@ column and miscounts after wide prompt glyphs such as ➜."
   (overlook-agent-mode 1)
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
-  (require 'jgy-deepseek))
+  (require 'jgy-deepseek)
+  ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
+  (with-eval-after-load 'evil
+    (pcase-dolist (`(,key . ,command) overlook-keys)
+      (evil-define-key* 'normal overlook-mode-map (key-parse key) command))
+    (evil-define-key* 'normal overlook-mode-map (kbd "gr") #'revert-buffer)))
 
 (dolist (name '("claude" "codex" "pi"))
   (defalias (intern (concat "jgy-agent-start-" name))
