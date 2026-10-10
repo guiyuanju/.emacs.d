@@ -284,10 +284,20 @@ like `overlook-action', cover its whole line."
       (window-body-width window t)
     (* overlook-width (frame-char-width))))
 
+(defun overlook-pixel-width (string)
+  "Width of STRING in pixels, as drawn in the current buffer.
+Emacs 31 measures it with the buffer's face remappings; earlier versions
+measure it in a temporary buffer."
+  (let ((measure #'string-pixel-width))
+    ;; Called through a variable: the BUFFER argument is new in Emacs 31.
+    (if (>= (or (cdr-safe (func-arity measure)) 0) 2)
+        (funcall measure string (current-buffer))
+      (funcall measure string))))
+
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
 Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
-  (let* ((width (lambda (s) (string-pixel-width (propertize s 'face face) (current-buffer))))
+  (let* ((width (lambda (s) (overlook-pixel-width (propertize s 'face face))))
          (cut (truncate-string-to-width text (/ pixels (max 1 (funcall width "x"))) nil nil "…")))
     (while (and (> (string-width cut) 1) (> (funcall width cut) pixels))
       (setq cut (truncate-string-to-width text (1- (string-width cut)) nil nil "…")))
@@ -297,7 +307,7 @@ Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
 (defun overlook-glyph-cell (glyph)
   "GLYPH padded to three columns, so the names after it line up.
 Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
-  (let ((pad (- (* 3 (frame-char-width)) (string-pixel-width glyph (current-buffer)))))
+  (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
     (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
 
 (defun overlook-format-duration (seconds)

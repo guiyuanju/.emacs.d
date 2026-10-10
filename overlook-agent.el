@@ -395,7 +395,7 @@ works, dimmed otherwise."
                  ('working 'font-lock-doc-face)
                  (_ 'shadow)))
          (room (- (overlook-window-pixels)
-                  (string-pixel-width (concat head gap) (current-buffer))
+                  (overlook-pixel-width (concat head gap))
                   (* (1+ meta) (frame-char-width))))
          (text (overlook-fit brief room face)))
     (if text (concat gap text) "")))
