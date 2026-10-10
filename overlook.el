@@ -288,11 +288,10 @@ like `overlook-action', cover its whole line."
   "Width of STRING in pixels, as drawn in the current buffer.
 Emacs 31 measures it with the buffer's face remappings; earlier versions
 measure it in a temporary buffer."
-  (let ((measure #'string-pixel-width))
-    ;; Called through a variable: the BUFFER argument is new in Emacs 31.
-    (if (>= (or (cdr-safe (func-arity measure)) 0) 2)
-        (funcall measure string (current-buffer))
-      (funcall measure string))))
+  (if (>= (or (cdr-safe (func-arity #'string-pixel-width)) 0) 2)
+      ;; The BUFFER argument is new in Emacs 31; earlier ones never get here.
+      (with-no-warnings (string-pixel-width string (current-buffer)))
+    (string-pixel-width string)))
 
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
