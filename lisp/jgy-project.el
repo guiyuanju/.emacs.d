@@ -1,7 +1,7 @@
-;;; jgy-project.el --- Project folders opened as tab workspaces -*- lexical-binding: t; -*-
+;;; jgy-project.el --- Project folders opened as perspective workspaces -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 一个项目一个文件夹（含 project.md 和 clone 进来的代码仓库），一个同名 tab。
+;; 一个项目一个文件夹（含 project.md 和 clone 进来的代码仓库），一个同名 perspective。
 ;; 项目放在各 workspace 的 projects/ 下，如 ~/workspace/okj/projects/<id>/。
 
 ;;; Code:
@@ -10,9 +10,10 @@
 (require 'project)
 (require 'seq)
 (require 'subr-x)
-(require 'tab-bar)
 
 (declare-function magit-clone-regular "magit-clone")
+(declare-function persp-names "perspective")
+(declare-function persp-switch "perspective")
 
 (defvar jgy-code-directory "~/Code/"
   "Directory whose <group>/<repo> Git checkouts are clone sources.")
@@ -20,9 +21,10 @@
   "Directory containing workspaces, each with a projects/ folder.")
 
 (defun jgy-project-root (&optional directory)
-  "Return the project folder containing DIRECTORY, or nil."
-  (when-let* ((root (locate-dominating-file (or directory default-directory)
-                                            "project.md")))
+  "Return the project folder containing DIRECTORY, or nil.
+Symlinks are resolved first, so ~/.emacs.d finds the project it links into."
+  (when-let* ((root (locate-dominating-file
+                     (file-truename (or directory default-directory)) "project.md")))
     (and (file-in-directory-p root jgy-workspace-directory)
          (file-name-as-directory (expand-file-name root)))))
 
@@ -56,7 +58,8 @@
             "## 目标\n\n## Todo\n\n## 资源\n\n## 成果\n\n## 日志\n")))
 
 (defun jgy-project-open (id)
-  "Switch to the tab of project ID, creating the project when it is new."
+  "Switch to the workspace of project ID, creating the project when it is new.
+A new workspace opens project.md; an existing one keeps its windows."
   (interactive (list (string-trim
                       (completing-read "Project: "
                                        (mapcar (lambda (file) (file-name-nondirectory
@@ -69,8 +72,9 @@
                   (expand-file-name (concat id "/project.md") (jgy-project--read-workspace)))))
     (unless (file-exists-p file)
       (jgy-project--create file id (read-string "Title: ")))
-    (tab-bar-switch-to-tab id)
-    (find-file file)))
+    (let ((new (not (member id (persp-names)))))
+      (persp-switch id)
+      (when new (find-file file)))))
 
 (defun jgy-project-visit-file ()
   "Open the project.md of the current project folder."

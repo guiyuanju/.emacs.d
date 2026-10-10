@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; A compact, project-oriented configuration built around Evil, Vertico,
-;; tab-bar workspaces, Eglot, Magit, and agents in agent-shell.
+;; perspective workspaces, Eglot, Magit, and agents in agent-shell.
 
 ;;; Code:
 
@@ -134,26 +134,6 @@
 (recentf-mode 1)
 (save-place-mode 1)
 (savehist-mode 1)
-
-;; Tabs are lightweight workspaces; desktop.el restores files and window state.
-;; The agents dashboard lists them, so the tab bar stays hidden.
-;; Use the Custom setter so reloading init.el also refreshes every frame.
-(customize-set-variable 'tab-bar-show nil)
-
-(defun jgy-tab-name ()
-  "Name the current tab after its main window's buffer, not the dashboard's."
-  (buffer-name (window-buffer (get-mru-window nil nil t))))
-
-(setq tab-bar-tab-name-function #'jgy-tab-name
-      ;; A new workspace starts empty rather than inheriting the current buffer.
-      tab-bar-new-tab-choice "*scratch*"
-      desktop-dirname jgy-state-directory
-      desktop-path (list jgy-state-directory)
-      desktop-base-file-name "desktop.el"
-      desktop-save t
-      desktop-restore-eager 5)
-(tab-bar-history-mode 1)
-(desktop-save-mode 1)
 
 ;; A flat, minimalist mode line: a dark strip instead of the default gray bar.
 ;; The focused window gets a slightly lighter strip and brighter text, so no
@@ -325,19 +305,25 @@
 
 ;;; Workspaces
 
-;; Each tab keeps its own buffer list.
+;; 一个 workspace 是一个 perspective：一个项目文件夹，加上它的 buffer 和窗口布局。
+;; 不属于任何项目的东西留在 main。退出时保存全部 workspace，启动后恢复。
 
-(use-package bufferlo
+(use-package perspective
   :demand t
-  :init
-  ;; Read when the mode turns on, so it must be set first.
-  (setq bufferlo-prefer-local-buffers 'tabs)
+  :custom
+  (persp-suppress-no-prefix-key-warning t)
+  (persp-state-default-file (expand-file-name "perspective.el" jgy-state-directory))
   :config
-  (bufferlo-mode 1)
-  ;; Every consult buffer source reads the tab-local list; this also switches
-  ;; on `consult-source-other-buffer' (narrow "o") for the remaining buffers.
+  (persp-mode 1)
+  (add-hook 'kill-emacs-hook #'persp-state-save)
+  (add-hook 'elpaca-after-init-hook
+            (lambda ()
+              (when (file-exists-p persp-state-default-file)
+                (persp-state-load persp-state-default-file))))
+  ;; consult-buffer 只列当前 perspective 的 buffer；按 b 缩小到全部 buffer。
   (with-eval-after-load 'consult
-    (setq consult-buffer-list-function #'bufferlo-local-buffers)))
+    (consult-customize consult-source-buffer :hidden t :default nil)
+    (add-to-list 'consult-buffer-sources persp-consult-source)))
 
 ;;; Modal editing
 
@@ -573,18 +559,18 @@ history has done to `default-directory'."
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
     "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
 
-    "TAB"     '(:ignore t :which-key "project")
-    "TAB TAB" '(tab-bar-switch-to-tab :which-key "switch")
+    "TAB"     '(:ignore t :which-key "workspace")
+    "TAB TAB" '(persp-switch :which-key "switch")
     "TAB o"   '(jgy-project-open :which-key "open project")
     "TAB c"   '(jgy-project-clone :which-key "clone repo")
     "TAB p"   '(jgy-project-visit-file :which-key "project.md")
-    "TAB ["   '(tab-bar-switch-to-prev-tab :which-key "previous")
-    "TAB ]"   '(tab-bar-switch-to-next-tab :which-key "next")
-    "TAB d"   '(tab-bar-close-tab :which-key "close")
-    "TAB n"   '(tab-bar-new-tab :which-key "new")
-    "TAB r"   '(tab-bar-rename-tab :which-key "rename")
-    "TAB u"   '(tab-bar-history-back :which-key "history back")
-    "TAB U"   '(tab-bar-history-forward :which-key "history forward")
+    "TAB ["   '(persp-prev :which-key "previous")
+    "TAB ]"   '(persp-next :which-key "next")
+    "TAB `"   '(persp-switch-last :which-key "last")
+    "TAB d"   '(persp-kill :which-key "close")
+    "TAB r"   '(persp-rename :which-key "rename")
+    "TAB a"   '(persp-add-buffer :which-key "add buffer")
+    "TAB k"   '(persp-remove-buffer :which-key "remove buffer")
 
     "a"  '(:ignore t :which-key "AI")
     "aa" '(jgy-agents-toggle :which-key "agent toggle")
@@ -839,7 +825,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   :demand t
   :hook (dired-mode . diff-hl-dired-mode)
   :config
-  ;; desktop.el 可能恢复已被删除目录的 dired buffer。
+  ;; 恢复 workspace 时可能带回已被删除目录的 dired buffer。
   (advice-add 'diff-hl-dired-update :before-while
               (lambda () (file-directory-p default-directory)))
   (diff-hl-margin-mode 1)
@@ -1091,7 +1077,10 @@ column and miscounts after wide prompt glyphs such as ➜."
 
 (use-package jgy-agents-dashboard
   :ensure nil
-  :commands jgy-agents-dashboard)
+  :commands jgy-agents-dashboard
+  :config
+  ;; perspective 切换时重置窗口，侧窗不会带过去；看板开着就在新 workspace 里再开一份。
+  (add-hook 'persp-switch-hook #'jgy-agents-dashboard--follow))
 
 (dolist (name '("claude" "codex" "pi"))
   (defalias (intern (concat "jgy-agent-start-" name))
