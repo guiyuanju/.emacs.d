@@ -178,7 +178,7 @@ anything.  The rows go under an \"other\" heading after every perspective.")
   (and (get-buffer overlook-buffer-name) t))
 
 (defun overlook-refresh ()
-  "Redraw the dashboard soon, coalescing bursts of updates."
+  "Redraw the dashboard soon, at most once per burst."
   (when (and (overlook-live-p) (not (timerp overlook--timer)))
     (setq overlook--timer
           (run-with-timer 0.1 nil (lambda ()
