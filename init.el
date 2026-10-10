@@ -1071,18 +1071,9 @@ column and miscounts after wide prompt glyphs such as ➜."
   :init
   (run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
-(defconst jgy-overlook-directory
-  (expand-file-name "~/workspace/me/projects/overlook/overlook/")
-  "Local checkout of overlook, developed in its project folder.")
-
-;; 有本地仓库就直接用它构建，且不字节编译，改了源码重新加载即生效；
-;; 没有就从 GitHub 克隆到 elpaca/sources/overlook。
-(eval `(elpaca ,(if (file-directory-p jgy-overlook-directory)
-                    `(overlook :repo ,jgy-overlook-directory :build (:not elpaca-build-compile))
-                  '(overlook :host github :repo "guiyuanju/overlook"))))
-
+;; 从本地仓库构建，不字节编译，改了源码重新加载即生效。
 (use-package overlook
-  :ensure nil
+  :ensure (:repo "~/workspace/me/projects/overlook/overlook/" :build (:not elpaca-build-compile))
   :commands (overlook overlook-agent-start overlook-agent-toggle overlook-agent-switch
              overlook-agent-send overlook-agent-shell-handoff overlook-agent-project-root
              overlook-perspective-guess-root)
