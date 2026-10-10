@@ -1,10 +1,29 @@
 ;;; overlook.el --- A dashboard over your perspectives, repos and agents -*- lexical-binding: t; -*-
 
-;; Author: guiyuanju
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; Maintainer: guiyuanju <guiyuanjune@outlook.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1"))
+;; Package-Requires: ((emacs "29.1") (perspective "2.22") (agent-shell "0.87.3"))
 ;; Keywords: tools, convenience
 ;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -35,8 +54,6 @@
 (require 'seq)
 (require 'subr-x)
 (require 'text-property-search)
-
-(declare-function evil-define-key* "evil-core")
 
 (defgroup overlook nil
   "A dashboard over perspectives, repos and agents."
@@ -169,6 +186,7 @@ anything.  The rows go under an \"other\" heading after every perspective.")
                                     (overlook--render))))))
 
 (defun overlook--tick ()
+  "Run `overlook-tick-hook', or stop ticking once the dashboard is gone."
   (if (overlook-live-p)
       (run-hooks 'overlook-tick-hook)
     (cancel-timer overlook--tick-timer)
@@ -179,12 +197,15 @@ anything.  The rows go under an \"other\" heading after every perspective.")
 (defvar-keymap overlook-mode-map
   :parent special-mode-map)
 
+(defvar overlook-keys nil
+  "Dashboard bindings made by `overlook-define-key', as (KEY . COMMAND).
+For modal editing setups to bind them in their own states too.")
+
 (defun overlook-define-key (key command)
   "Bind KEY, in `keymap-set' syntax, to COMMAND on the dashboard.
-Binds it in evil's normal state too."
+The binding is recorded in `overlook-keys'."
   (keymap-set overlook-mode-map key command)
-  (with-eval-after-load 'evil
-    (evil-define-key* 'normal overlook-mode-map (key-parse key) command)))
+  (setf (alist-get key overlook-keys nil nil #'equal) command))
 
 (pcase-dolist (`(,key . ,command)
                '(("RET" . overlook-visit)
@@ -197,9 +218,6 @@ Binds it in evil's normal state too."
                  ("[ a" . overlook-previous-attention)
                  ("q" . overlook)))
   (overlook-define-key key command))
-
-(with-eval-after-load 'evil
-  (evil-define-key* 'normal overlook-mode-map (kbd "gr") #'revert-buffer))
 
 (define-derived-mode overlook-mode special-mode "Overlook"
   "Dashboard over perspectives and what lives in them."
@@ -217,6 +235,7 @@ Binds it in evil's normal state too."
   (hl-line-mode 1))
 
 (defun overlook--mode-line ()
+  "The dashboard's mode line: its name, then `overlook-mode-line-functions'."
   (string-replace
    "%" "%%"
    (string-join (cons (concat " " (propertize "Overlook" 'face 'mode-line-buffer-id))
@@ -296,6 +315,7 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 ;;; Perspectives section
 
 (defun overlook--heading (name &optional current)
+  "Heading line of perspective NAME, highlighted when CURRENT."
   (propertize (concat name "\n")
               'face (if current 'overlook-heading-current 'overlook-heading)
               'overlook-item (cons 'perspective name)
@@ -303,6 +323,7 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
               'overlook-action (lambda () (overlook-switch-perspective name))))
 
 (defun overlook--perspectives ()
+  "Insert each perspective's heading and rows, then those of no perspective."
   (let ((current (overlook-current-perspective))
         (first t))
     (dolist (name (overlook-perspectives))
@@ -318,6 +339,7 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
         (delete-region start (point))))))
 
 (defun overlook--perspectives-section ()
+  "Insert the Perspectives section."
   (overlook-insert-section "Perspectives" #'overlook--perspectives))
 
 (add-hook 'overlook-sections #'overlook--perspectives-section)

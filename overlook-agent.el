@@ -1,5 +1,26 @@
 ;;; overlook-agent.el --- AI agents on the overlook dashboard -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 ;;; Commentary:
 
 ;; Tracks AI agents run by a frontend (overlook-agent-shell.el drives
@@ -145,6 +166,7 @@ END is nil while the turn runs.")
   (if-let* ((project (project-current))) (project-root project) default-directory))
 
 (defun overlook-agent--root ()
+  "Directory agents of the current buffer run in."
   (expand-file-name (funcall overlook-agent-root-function)))
 
 (defun overlook-agent--project-buffers (&optional name)
@@ -180,11 +202,13 @@ END is nil while the turn runs.")
     (propertize (car glyph) 'face (cadr glyph))))
 
 (defun overlook-agent--set-status (status)
+  "Set this agent's STATUS, telling the views when it changed."
   (unless (eq status overlook-agent-status)
     (setq overlook-agent-status status)
     (overlook-agent-changed)))
 
 (defun overlook-agent--seen-p ()
+  "Non-nil when this agent is shown in the selected window."
   (eq (window-buffer (selected-window)) (current-buffer)))
 
 (defun overlook-agent-report (event)
@@ -296,7 +320,8 @@ Prompts for an agent to start when none is running."
 
 ;;;###autoload
 (defun overlook-agent-send (&optional beg end)
-  "Paste the region, or an @ reference to the file, into this project's agent."
+  "Paste the region, or an @ reference to the file, into this project's agent.
+Interactively BEG and END are the region, when active."
   (interactive (when (use-region-p) (list (region-beginning) (region-end))))
   (let* ((file (buffer-file-name (buffer-base-buffer)))
          (path (if file (file-relative-name file (overlook-agent--root)) (buffer-name)))

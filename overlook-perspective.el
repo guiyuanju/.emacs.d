@@ -1,5 +1,26 @@
 ;;; overlook-perspective.el --- Perspective.el backend for overlook -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 ;;; Commentary:
 
 ;; Makes each perspective.el perspective an overlook perspective.  Its
@@ -30,9 +51,11 @@
             (overlook-perspective-buffers name)))
 
 (defun overlook-perspective--current ()
+  "Name of the current perspective, or nil without `persp-mode'."
   (and (bound-and-true-p persp-mode) (persp-current-name)))
 
 (defun overlook-perspective--names ()
+  "Names of all perspectives, or nil without `persp-mode'."
   (and (bound-and-true-p persp-mode) (persp-names)))
 
 ;;;###autoload
