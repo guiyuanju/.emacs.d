@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; 让 agent 所在 tab 开一个 diff 窗口，跟着它最近写的文件刷新，光标落在改动处。
-;; 文件和缓存的本轮 diff 取自 agent 的 `files' identity；别的 tab 里的 agent 等切过去再补上。
+;; 文件取自 agent 的 `files' identity，diff 由它的 `diff' identity 渲染；别的 tab 里的 agent 等切过去再补上。
 
 ;;; Code:
 
@@ -47,58 +47,28 @@ Of several, prefer the active file or CURRENT; keep an unchanged CURRENT."
                      (seq-find (lambda (file) (equal (alist-get 'file file) current)) new))
           (car (last changed))))))
 
-(defun jgy-agents-follow--insert (file)
-  "Insert FILE's uncommitted changes, or the whole file when git does not track it."
-  ;; git 在文件所在目录里跑；文件可能在项目里嵌套的另一个仓库。
-  (let ((default-directory (file-name-directory file))
-        (name (file-name-nondirectory file)))
-    (erase-buffer)
-    (if (eq 0 (process-file "git" nil nil nil "ls-files" "--error-unmatch" "--" name))
-        (process-file "git" nil t nil "diff" "--no-color" "HEAD" "--" name)
-      (process-file "git" nil t nil "diff" "--no-color" "--no-index" "--" "/dev/null" name))))
-
-(defun jgy-agents-follow--hunk (line)
-  "Start of the hunk whose new side holds LINE, else of the first hunk."
-  (goto-char (point-min))
-  (let (first found)
-    (while (and (not found)
-                (re-search-forward "^@@ -[0-9,]+ \\+\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? @@" nil t))
-      (let ((start (string-to-number (match-string 1)))
-            (count (if (match-string 2) (string-to-number (match-string 2)) 1)))
-        (setq first (or first (match-beginning 0)))
-        (when (and line (<= start line) (< line (+ start (max count 1))))
-          (setq found (match-beginning 0)))))
-    (or found first (point-min))))
-
 (defun jgy-agents-follow--show (buffer file)
-  "Show FILE's changes for agent BUFFER in a window of the current tab.
-FILE is an entry of its `files' identity; point goes to the hunk at its line."
-  (let ((diff (get-buffer-create (jgy-agents-follow--buffer-name buffer)))
-        (path (alist-get 'file file)))
-    (with-current-buffer diff
-      (let ((inhibit-read-only t))
-        (if (assq 'diff file)
-            (progn
-              (erase-buffer)
-              (insert (or (alist-get 'diff file) ""))
-              (when (zerop (buffer-size)) (insert "No net changes this turn.\n")))
-          (jgy-agents-follow--insert path))
-        (unless (derived-mode-p 'diff-mode) (diff-mode))
-        (setq buffer-read-only t
-              header-line-format (and (assq 'diff file) "This turn · file changes")
-              default-directory (or (alist-get 'directory file) (file-name-directory path)))))
-    (let* ((anchor (or (get-buffer-window buffer)
-                       (get-mru-window nil nil t)))
-           (window (display-buffer
-                    diff `((display-buffer-reuse-window display-buffer-in-direction)
-                           (direction . right) (window . ,anchor)
-                           (inhibit-same-window . t)))))
-      (when window
-        (with-current-buffer diff
-          (let ((pos (jgy-agents-follow--hunk (alist-get 'line file))))
-            ;; 从头显示，留着文件名；改动不在第一屏时 redisplay 自己滚过去。
-            (set-window-start window (point-min))
-            (set-window-point window pos)))))))
+  "Show FILE's diffs for agent BUFFER in a window of the current tab.
+FILE is an entry of its `files' identity, rendered by its `diff' identity;
+point goes to the latest hunk."
+  (let* ((name (jgy-agents-follow--buffer-name buffer))
+         (old (get-buffer name))
+         (window (and old (get-buffer-window old)))
+         (diff (jgy-agents-diff buffer (list file))))
+    (when window (set-window-buffer window diff))
+    (when old (kill-buffer old))
+    (with-current-buffer diff (rename-buffer name))
+    (when-let* ((window (or window
+                            (display-buffer
+                             diff `((display-buffer-reuse-window display-buffer-in-direction)
+                                    (direction . right)
+                                    (window . ,(or (get-buffer-window buffer)
+                                                   (get-mru-window nil nil t)))
+                                    (inhibit-same-window . t))))))
+      (with-current-buffer diff
+        (goto-char (point-max))
+        (ignore-errors (diff-hunk-prev))
+        (set-window-point window (point))))))
 
 (defun jgy-agents-follow--current-tab-p (buffer)
   "Non-nil when agent BUFFER's tab is the current one, or is gone."

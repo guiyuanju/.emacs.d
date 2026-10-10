@@ -98,8 +98,8 @@ function inserting a string into its input; `context' a function returning
 its context usage percentage or nil; `files' a function returning the files
 it edited this turn, in provider edit order, as alists with keys `file'
 \(absolute), `added', `removed', `active' (still being written) and `line';
-`diff' may hold a cached turn patch (an empty string means no net change);
-`directory' is the base directory for paths in that patch.
+`diff' a function returning a buffer, not yet shown, of the diffs of such
+file alists;
 `brief' a function returning a line on what it is doing, or nil.")
 
 (put 'jgy-agents-identity 'permanent-local t)
@@ -157,6 +157,12 @@ it edited this turn, in provider edit order, as alists with keys `file'
   (when-let* ((files (jgy-agents-get buffer 'files)))
     (with-current-buffer buffer (ignore-errors (funcall files)))))
 
+(defun jgy-agents-diff (buffer files)
+  "A buffer, not yet shown, of agent BUFFER's diffs of FILES, or nil.
+FILES are entries of its `files' identity."
+  (when-let* ((diff (and files (jgy-agents-get buffer 'diff))))
+    (with-current-buffer buffer (funcall diff files))))
+
 ;;; Tabs
 
 (defun jgy-agents--tab-id ()
@@ -176,7 +182,8 @@ it edited this turn, in provider edit order, as alists with keys `file'
 
 (defun jgy-agents-select-tab (buffer)
   "Switch to the tab agent BUFFER belongs to, when it still exists."
-  (jgy-agents-select-tab buffer))
+  (when-let* ((index (jgy-agents-tab-index buffer)))
+    (tab-bar-select-tab (1+ index))))
 
 (defun jgy-agents--filter-tab-buffers (fn &rest args)
   "Around advice for `bufferlo-buffer-list' dropping agents owned by other tabs."

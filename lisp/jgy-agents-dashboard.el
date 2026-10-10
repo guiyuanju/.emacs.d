@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; 看板：每个 tab 一个标题，下面是它的 agent、本轮改过的文件和 brief；agent 那行写着本轮跑了多久。
-;; 看板上按 d 看文件或整个项目还没提交的改动；按 D 让 agent 所在 tab 开一个 diff 窗口跟着它。
+;; 看板上按 d 看文件或 agent 本轮的 diff；按 D 让 agent 所在 tab 开一个 diff 窗口跟着它。
 ;; 分区由 `jgy-agents-dashboard-functions' 插入，按钩子深度排序：用量在上，agent 居中，待办在下。
 
 ;;; Code:
@@ -519,23 +519,19 @@ Point stays in the dashboard, shown in that tab too."
   (jgy-agents-dashboard--follow))
 
 (defun jgy-agents-dashboard-diff ()
-  "Show the uncommitted changes to the file on this line in the agent's tab.
-On any other line of an agent, show those of its whole project."
+  "Show this turn's diffs of the file on this line in the agent's tab.
+On any other line of an agent, show those of every file it edited."
   (interactive)
   (let* ((pos (line-beginning-position))
          (buffer (or (get-text-property pos 'jgy-agents-buffer)
                      (user-error "No agent on this line")))
          (file (get-text-property pos 'jgy-agents-file))
-         (root (or (jgy-agents-get buffer 'root) (user-error "Agent has no project"))))
-    (jgy-agents-dashboard--visit buffer
-                   (lambda ()
-                     ;; git 在 default-directory 里跑；文件可能在项目里嵌套的另一个仓库。
-                     (let ((default-directory (if file (file-name-directory file) root)))
-                       (cond ((null file) (vc-root-diff nil t))
-                             ((vc-backend file) (vc-diff nil t (list (vc-backend file) (list file))))
-                             (t (find-file file)
-                                (message "%s is not under version control"
-                                         (file-name-nondirectory file)))))))))
+         (files (seq-filter (lambda (entry)
+                              (or (null file) (equal (alist-get 'file entry) file)))
+                            (jgy-agents-files buffer)))
+         (diff (or (jgy-agents-diff buffer files)
+                   (user-error "No edits this turn"))))
+    (jgy-agents-dashboard--visit buffer (lambda () (pop-to-buffer diff)))))
 
 (defun jgy-agents-dashboard-buffer-at-point ()
   "The agent on the dashboard line at point, or nil."

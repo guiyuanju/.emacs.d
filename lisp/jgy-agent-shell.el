@@ -4,9 +4,8 @@
 ;; jgy-agents 的前端：经 agent-shell（ACP）运行 agent；tab 归属、看板和快捷键由 jgy-agents 负责。
 ;; 套餐用量取自 claude-agent-acp 在 usage_update 的 _meta 里转发的 rate limit，
 ;; 经 `jgy-agents-usage-save-claude' 交给看板。
-;; 本轮文件变化以开始时的 Git commit 与已有未提交内容为基准，缓存 diff 交给看板。
+;; 本轮改过的文件直接取自 agent-shell 工具调用的 diff，看板和跟随窗口都用 agent-shell 的 diff 视图显示。
 ;; identity 的 `brief' 依次取等待批准的工具调用、plan 里进行中的一项、最近一次工具调用。
-;; 工具调用结束后按内容检测变化，提交不会清空本轮 diff。
 
 ;;; Code:
 
@@ -14,30 +13,55 @@
 (require 'cl-lib)
 (require 'agent-shell)
 (require 'jgy-agents)
+(require 'agent-shell-diff)
 (require 'map)
-(require 'jgy-agents-turn)
-(add-hook 'jgy-agents-turn-update-hook #'jgy-agents-refresh)
 
 (declare-function jgy-agents-usage-save-claude "jgy-agents-usage")
 (declare-function jgy-agents-dashboard-buffer-at-point "jgy-agents-dashboard")
 (declare-function jgy-agents-dashboard-define-key "jgy-agents-dashboard")
 
-(defcustom jgy-agent-shell-header-separator "›"
+(defcustom jgy-agent-shell-header-separator "·"
   "Glyph separating fields in the agent-shell header line.
 agent-shell hardcodes a heavy arrowhead (➤); this replaces it.  Other
-candidates: →, ·, //."
+candidates: ›, /, │."
   :type 'string
   :group 'jgy-agents)
 
-(defun jgy-agent-shell--swap-header-separator (header)
-  "Return HEADER with agent-shell's separator swapped for ours."
-  (if (stringp header)
-      (replace-regexp-in-string "➤" jgy-agent-shell-header-separator header t t)
-    header))
+(defface jgy-agent-shell-header-separator '((t :inherit shadow))
+  "Face of the separator between agent-shell header fields."
+  :group 'jgy-agents)
+
+(defun jgy-agent-shell--minimal-header (header)
+  "Return HEADER with a quiet separator and its field faces made visible.
+agent-shell tints fields with `font-lock-face', which header lines ignore,
+so copy it to `face' for the agent name to stand out over dimmed fields."
+  (if (not (stringp header))
+      header
+    (let ((header (copy-sequence header))
+          (pos 0))
+      (while pos
+        (let ((next (next-single-property-change pos 'font-lock-face header)))
+          (when-let* ((face (get-text-property pos 'font-lock-face header)))
+            (put-text-property pos (or next (length header)) 'face face header))
+          (setq pos next)))
+      (replace-regexp-in-string
+       " ➤ " (concat " " (propertize jgy-agent-shell-header-separator
+                                     'face 'jgy-agent-shell-header-separator)
+                     " ")
+       header t t))))
 
 (advice-add 'agent-shell--render-header-model-uncached :filter-return
-            #'jgy-agent-shell--swap-header-separator
-            '((name . jgy-agent-shell-header-separator)))
+            #'jgy-agent-shell--minimal-header
+            '((name . jgy-agent-shell-minimal-header)))
+
+(defun jgy-agent-shell--quiet-header-line ()
+  "Draw this buffer's header line on the buffer background, with breathing room."
+  (let* ((bg (face-background 'default nil t))
+         (spec `(:background ,bg :box (:line-width (1 . 4) :color ,bg))))
+    (face-remap-add-relative 'header-line spec)
+    (face-remap-add-relative 'header-line-inactive spec)))
+
+(add-hook 'agent-shell-mode-hook #'jgy-agent-shell--quiet-header-line)
 
 (defconst jgy-agent-shell-configs
   '(("claude" . agent-shell-anthropic-make-claude-code-config)
@@ -52,9 +76,46 @@ candidates: →, ·, //."
    (expand-file-name (file-name-nondirectory (directory-file-name (agent-shell-cwd)))
                      (locate-user-emacs-file "agent-shell/"))))
 
+(defvar-local jgy-agent-shell--edits nil
+  "This turn's tool calls carrying diffs, as (ID . TOOL-CALL), oldest first.")
+
+(defun jgy-agent-shell--track-edit (id tool-call)
+  "Keep TOOL-CALL with ID when agent-shell has diffs for it."
+  (when (and id (map-elt tool-call :diffs))
+    (setq jgy-agent-shell--edits
+          (append (assoc-delete-all id (copy-sequence jgy-agent-shell--edits))
+                  (list (cons id tool-call))))
+    (jgy-agents-refresh)))
+
 (defun jgy-agent-shell--files ()
-  "Return cached file changes relative to the start of this turn."
-  jgy-agents-turn--files)
+  "This turn's edited files, from agent-shell's tool call diffs.
+Rejected or failed edits are left out."
+  (let (files)
+    (pcase-dolist (`(_ . ,tool-call) jgy-agent-shell--edits)
+      (unless (equal (map-elt tool-call :status) "failed")
+        (dolist (diff (map-elt tool-call :diffs))
+          (let* ((path (expand-file-name (map-elt diff :file)
+                                         (alist-get 'root jgy-agents-identity)))
+                 (entry (or (assoc path files)
+                            (car (push (list path nil nil) files)))))
+            (setf (nth 1 entry) (append (nth 1 entry) (list diff)))
+            (when (member (map-elt tool-call :status) '("pending" "in_progress"))
+              (setf (nth 2 entry) t))))))
+    (mapcar (pcase-lambda (`(,path ,diffs ,active))
+              (let ((stats (agent-shell--diffs-line-stats diffs)))
+                `((file . ,path) (added . ,(map-elt stats :added))
+                  (removed . ,(map-elt stats :removed)) (active . ,active)
+                  (line . ,(seq-some (lambda (diff) (map-elt diff :line)) (reverse diffs)))
+                  (diffs . ,diffs))))
+            (nreverse files))))
+
+(defun jgy-agent-shell--diff (files)
+  "Return an agent-shell diff buffer of FILES' diffs, without showing it."
+  (save-window-excursion
+    (agent-shell-diff :diffs (mapcan (lambda (file) (copy-sequence (alist-get 'diffs file)))
+                                     files)
+                      :title (unless (cdr files)
+                               (file-name-nondirectory (alist-get 'file (car files)))))))
 
 (defvar-local jgy-agent-shell--asking nil
   "Title of the tool call waiting for permission, or nil.")
@@ -103,16 +164,14 @@ Also track this turn's edits and brief."
     ('input-submitted
      (setq jgy-agent-shell--asking nil
            jgy-agent-shell--plan-step nil
-           jgy-agent-shell--last-tool nil)
-     (jgy-agents-turn-begin (alist-get 'root jgy-agents-identity))
+           jgy-agent-shell--last-tool nil
+           jgy-agent-shell--edits nil)
      (jgy-agents-refresh))
     ('tool-call-update
-     (jgy-agents-turn-tool (map-nested-elt event '(:data :tool-call-id))
-                          (map-nested-elt event '(:data :tool-call)))
+     (jgy-agent-shell--track-edit (map-nested-elt event '(:data :tool-call-id))
+                                  (map-nested-elt event '(:data :tool-call)))
      (when-let* ((title (jgy-agent-shell--tool-title (map-elt event :data))))
        (jgy-agent-shell--set-brief 'jgy-agent-shell--last-tool title)))
-    ((or 'turn-complete 'error) (jgy-agents-turn-request nil nil t))
-    ('clean-up (jgy-agents-turn-cancel))
     ('permission-request
      (jgy-agent-shell--set-brief 'jgy-agent-shell--asking
                                  (or (jgy-agent-shell--tool-title (map-elt event :data))
@@ -162,6 +221,7 @@ FRESH bypasses history selection and starts a new conversation."
                               (insert . jgy-agent-shell--insert)
                               (context . jgy-agent-shell--context)
                               (files . jgy-agent-shell--files)
+                              (diff . jgy-agent-shell--diff)
                               (brief . jgy-agent-shell--brief)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'jgy-agent-shell--on-event)
       (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
