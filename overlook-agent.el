@@ -1,0 +1,561 @@
+;;; overlook-agent.el --- AI agents on the overlook dashboard -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; Tracks AI agents run by a frontend (overlook-agent-shell.el drives
+;; agent-shell) and lists each under the perspective holding its buffer:
+;; its status, how long its turn has run, its context usage, what it is
+;; doing and the files it edited this turn.
+;;
+;; One agent of each name is reused per project root.  A frontend sets
+;; `overlook-agent-start-function', describes each agent buffer in
+;; `overlook-agent-identity', and reports through `overlook-agent-report'.
+
+;;; Code:
+
+(require 'overlook)
+(require 'project)
+
+(defcustom overlook-agent-names nil
+  "Agent names offered by `overlook-agent-start'; nil offers the frontend's."
+  :type '(repeat string)
+  :group 'overlook)
+
+(defvar overlook-agent-names-function #'ignore
+  "Function returning the agent names the frontend can start.")
+
+(defcustom overlook-agent-root-function #'overlook-agent-project-root
+  "Function returning the directory agents of the current buffer run in."
+  :type 'function
+  :group 'overlook)
+
+(defcustom overlook-agent-start-function nil
+  "Function of NAME and ROOT starting agent NAME in ROOT and returning its buffer."
+  :type 'function
+  :group 'overlook)
+
+(defcustom overlook-agent-status-glyphs
+  '((working "◐" warning)
+    (waiting "⚠" error)
+    (done "●" success)
+    (idle "○" shadow))
+  "Glyph and face for each `overlook-agent-status'."
+  :type '(alist :key-type symbol :value-type (list string face))
+  :group 'overlook)
+
+(defcustom overlook-agent-context-warning 70
+  "Context usage percentage from which an agent's is highlighted."
+  :type 'natnum
+  :group 'overlook)
+
+(defcustom overlook-agent-files 5
+  "Edited files listed under an agent before the rest fold into one line."
+  :type 'natnum
+  :group 'overlook)
+
+(defface overlook-agent-waiting
+  '((((background dark)) :background "#3d1c20" :extend t)
+    (t :background "#fbe4e4" :extend t))
+  "Face added to the row of an agent waiting for you."
+  :group 'overlook)
+
+(defface overlook-agent-done
+  '((((background dark)) :background "#1b3324" :extend t)
+    (t :background "#e2f5e6" :extend t))
+  "Face added to the row of an agent that finished unseen."
+  :group 'overlook)
+
+(defconst overlook-agent--file-indent "      "
+  "Indent of the files under an agent, lining up with its name.")
+
+;;; State
+
+(defvar-local overlook-agent-identity nil
+  "Alist describing the agent in this buffer, set by its frontend.
+Keys: `agent' its name; `root' its directory; `insert' a function
+inserting a string into its input; `context' a function returning its
+context usage percentage or nil; `files' a function returning the files
+it edited this turn, oldest first, as alists with keys `file' (absolute),
+`added', `removed', `active' (still being written) and `line'; `diff' a
+function of such file alists returning a buffer, not yet shown, of their
+diffs; `brief' a function returning a line on what it is doing, or nil.")
+(put 'overlook-agent-identity 'permanent-local t)
+
+(defvar-local overlook-agent-status 'idle
+  "One of `working', `waiting', `done' or `idle'.
+`waiting' means the agent asked for attention; `done' that it finished
+unseen.")
+(put 'overlook-agent-status 'permanent-local t)
+
+(defvar-local overlook-agent-turn nil
+  "Times the agent's latest turn started and finished, as (START . END).
+END is nil while the turn runs.")
+(put 'overlook-agent-turn 'permanent-local t)
+
+(defvar-local overlook-agent-context nil
+  "Percentage of the agent's context window in use, or nil when unknown.")
+(put 'overlook-agent-context 'permanent-local t)
+
+(defvar overlook-agent-row-marks nil
+  "Functions of an agent buffer returning a mark after its name, or nil.")
+
+(defvar overlook-agent--last nil
+  "Name of the agent most recently started or shown.")
+
+(defvar overlook-agent-changed-hook nil
+  "Hook run by `overlook-agent-changed' when some agent's state changed.")
+
+(defvar overlook-agent-turn-start-hook nil
+  "Hook run in an agent's buffer when it starts a turn.")
+
+(defun overlook-agent-changed ()
+  "Tell the views that some agent's state changed."
+  (run-hooks 'overlook-agent-changed-hook)
+  (overlook-refresh))
+
+(defun overlook-agent-p (buffer)
+  "Non-nil when BUFFER runs an agent."
+  (and (buffer-live-p buffer)
+       (buffer-local-value 'overlook-agent-identity buffer)
+       t))
+
+(defun overlook-agent-get (buffer key)
+  "Value of KEY in agent BUFFER's `overlook-agent-identity'."
+  (alist-get key (buffer-local-value 'overlook-agent-identity buffer)))
+
+(defun overlook-agent-buffers (&optional pred)
+  "Live agent buffers, restricted to those satisfying PRED when given."
+  (seq-filter (lambda (buffer)
+                (and (overlook-agent-p buffer)
+                     (or (null pred) (funcall pred buffer))))
+              (buffer-list)))
+
+(defun overlook-agent-files (buffer)
+  "Files agent BUFFER edited this turn, as its `files' identity returns them."
+  (when-let* ((files (overlook-agent-get buffer 'files)))
+    (with-current-buffer buffer (ignore-errors (funcall files)))))
+
+(defun overlook-agent-diff (buffer files)
+  "A buffer, not yet shown, of agent BUFFER's diffs of FILES, or nil."
+  (when-let* ((diff (and files (overlook-agent-get buffer 'diff))))
+    (with-current-buffer buffer (funcall diff files))))
+
+(defun overlook-agent-project-root ()
+  "The current project's root, or `default-directory' outside a project."
+  (if-let* ((project (project-current))) (project-root project) default-directory))
+
+(defun overlook-agent--root ()
+  (expand-file-name (funcall overlook-agent-root-function)))
+
+(defun overlook-agent--project-buffers (&optional name)
+  "Agents of the current project, restricted to agent NAME when given."
+  (let ((root (overlook-agent--root)))
+    (overlook-agent-buffers
+     (lambda (buffer)
+       (and (equal (overlook-agent-get buffer 'root) root)
+            (or (null name) (equal (overlook-agent-get buffer 'agent) name)))))))
+
+(defun overlook-agent--current ()
+  "This project's agent, preferring the last used one."
+  (or (car (overlook-agent--project-buffers overlook-agent--last))
+      (car (overlook-agent--project-buffers))))
+
+(defun overlook-agent-show (buffer)
+  "Select agent BUFFER in its window, or in the selected window."
+  (setq overlook-agent--last (overlook-agent-get buffer 'agent))
+  (pop-to-buffer buffer '((display-buffer-reuse-window display-buffer-same-window))))
+
+(defun overlook-agent-visit (buffer)
+  "Switch to agent BUFFER's perspective and show it there."
+  (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
+  (overlook-show-elsewhere (overlook-buffer-perspective buffer)
+                           (lambda () (overlook-agent-show buffer))))
+
+;;; Status
+
+(defun overlook-agent-glyph (buffer)
+  "Status glyph of agent BUFFER, in its face from `overlook-agent-status-glyphs'."
+  (let ((glyph (alist-get (buffer-local-value 'overlook-agent-status buffer)
+                          overlook-agent-status-glyphs)))
+    (propertize (car glyph) 'face (cadr glyph))))
+
+(defun overlook-agent--set-status (status)
+  (unless (eq status overlook-agent-status)
+    (setq overlook-agent-status status)
+    (overlook-agent-changed)))
+
+(defun overlook-agent--seen-p ()
+  (eq (window-buffer (selected-window)) (current-buffer)))
+
+(defun overlook-agent-report (event)
+  "Update the current agent buffer's status for EVENT.
+EVENT is `working', `finished' or `attention'; what it becomes depends on
+whether the agent is shown in the selected window.  `working' after
+`finished' starts a turn, which `overlook-agent-turn' times and
+`overlook-agent-turn-start-hook' announces."
+  ;; Turns follow events, not statuses: glancing at an agent waiting for
+  ;; approval resets it to idle, yet approving does not start a new turn.
+  (pcase event
+    ('working (when (or (null overlook-agent-turn) (cdr overlook-agent-turn))
+                (setq overlook-agent-turn (list (float-time)))
+                (run-hooks 'overlook-agent-turn-start-hook)))
+    ('finished (when (and overlook-agent-turn (null (cdr overlook-agent-turn)))
+                 (setcdr overlook-agent-turn (float-time)))))
+  (pcase event
+    ('finished (overlook-agent--set-status (if (overlook-agent--seen-p) 'idle 'done)))
+    ('working (unless (eq overlook-agent-status 'waiting)
+                (overlook-agent--set-status 'working)))
+    ('attention (unless (overlook-agent--seen-p)
+                  (overlook-agent--set-status 'waiting)))))
+
+(defun overlook-agent--acknowledge (&rest _)
+  "Reset `done' and `waiting' once the agent is shown in the selected window."
+  (let ((buffer (window-buffer (selected-window))))
+    (when (and (overlook-agent-p buffer)
+               (memq (buffer-local-value 'overlook-agent-status buffer) '(done waiting)))
+      (with-current-buffer buffer (overlook-agent--set-status 'idle)))))
+
+(defvar overlook-agent--turn-labels nil
+  "Turn durations as last drawn, to redraw when one ticks over.")
+
+(defun overlook-agent--tick ()
+  "Update each agent's context usage, and redraw when it or a duration changed.
+An unknown context value keeps the last one."
+  (let ((changed nil))
+    (dolist (buffer (overlook-agent-buffers))
+      (with-current-buffer buffer
+        (let ((used (when-let* ((context (overlook-agent-get buffer 'context)))
+                      (ignore-errors (funcall context)))))
+          (when (and used (not (equal used overlook-agent-context)))
+            (setq overlook-agent-context used changed t)))))
+    (let ((labels (mapcar #'overlook-agent--turn-label (overlook-agent-buffers))))
+      (unless (equal labels overlook-agent--turn-labels)
+        (setq overlook-agent--turn-labels labels changed t)))
+    (when changed (overlook-agent-changed))))
+
+;;; Commands
+
+(defun overlook-agent-register (buffer name)
+  "Track BUFFER as agent NAME.  Its frontend has set its identity already."
+  (with-current-buffer buffer
+    (add-hook 'kill-buffer-hook (lambda () (run-at-time 0 nil #'overlook-agent-changed)) nil t))
+  (setq overlook-agent--last name)
+  (overlook-agent-changed))
+
+;;;###autoload
+(defun overlook-agent-start (name &optional fresh)
+  "Show agent NAME for the current project, starting it when needed.
+With prefix arg FRESH, always start another instance."
+  (interactive
+   (list (completing-read "Agent: " (or overlook-agent-names (funcall overlook-agent-names-function))
+                          nil t nil nil overlook-agent--last)
+         current-prefix-arg))
+  (let* ((root (overlook-agent--root))
+         (buffer (and (not fresh) (car (overlook-agent--project-buffers name)))))
+    (unless buffer
+      (unless overlook-agent-start-function
+        (user-error "Set `overlook-agent-start-function' first"))
+      (setq buffer (let ((default-directory root))
+                     (funcall overlook-agent-start-function name root)))
+      (overlook-agent-register buffer name))
+    (overlook-agent-show buffer)))
+
+;;;###autoload
+(defun overlook-agent-toggle ()
+  "Hide the agent in the selected window, or show this project's agent.
+Prompts for an agent to start when none is running."
+  (interactive)
+  (cond ((overlook-agent-p (current-buffer)) (quit-window))
+        ((overlook-agent--current) (overlook-agent-show (overlook-agent--current)))
+        (t (call-interactively #'overlook-agent-start))))
+
+(defun overlook-agent--annotate (name)
+  "Status and perspective of the agent buffer NAME, for completion."
+  (let ((buffer (get-buffer name)))
+    (concat "  " (overlook-agent-glyph buffer) " "
+            (symbol-name (buffer-local-value 'overlook-agent-status buffer))
+            (if-let* ((perspective (overlook-buffer-perspective buffer)))
+                (propertize (concat "  " perspective) 'face 'shadow)
+              ""))))
+
+;;;###autoload
+(defun overlook-agent-switch ()
+  "Pick any running agent and show it in its perspective."
+  (interactive)
+  (let* ((names (or (mapcar #'buffer-name (overlook-agent-buffers))
+                    (user-error "No agent running")))
+         (name (completing-read
+                "Agent: "
+                (lambda (string pred action)
+                  (if (eq action 'metadata)
+                      '(metadata (category . buffer)
+                                 (annotation-function . overlook-agent--annotate))
+                    (complete-with-action action names string pred)))
+                nil t)))
+    (overlook-agent-visit (get-buffer name))))
+
+;;;###autoload
+(defun overlook-agent-send (&optional beg end)
+  "Paste the region, or an @ reference to the file, into this project's agent."
+  (interactive (when (use-region-p) (list (region-beginning) (region-end))))
+  (let* ((file (buffer-file-name (buffer-base-buffer)))
+         (path (if file (file-relative-name file (overlook-agent--root)) (buffer-name)))
+         (text (if beg
+                   (format "%s:%d-%d\n```\n%s\n```\n" path
+                           (line-number-at-pos beg) (line-number-at-pos (max beg (1- end)))
+                           (buffer-substring-no-properties beg end))
+                 (if file (format "@%s " path) (user-error "Buffer has no file"))))
+         (buffer (or (overlook-agent--current)
+                     (user-error "No agent running in this project"))))
+    (deactivate-mark)
+    (with-current-buffer buffer
+      (funcall (or (overlook-agent-get buffer 'insert)
+                   (user-error "%s cannot receive text" (buffer-name)))
+               text))
+    (overlook-agent-show buffer)))
+
+;;; Rows
+
+(defun overlook-agent--glyph-cell (buffer)
+  "Status glyph of agent BUFFER padded to three columns, so names line up.
+Fonts draw ◐ ○ ● two columns wide but ⚠ one."
+  (let* ((glyph (overlook-agent-glyph buffer))
+         (pad (- (* 3 (frame-char-width)) (string-pixel-width glyph (current-buffer)))))
+    (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
+
+(defun overlook-agent--context-label (buffer)
+  "Context usage of agent BUFFER, or nil."
+  (when-let* ((used (buffer-local-value 'overlook-agent-context buffer)))
+    (propertize (format "%3d%%" used)
+                'face (if (>= used overlook-agent-context-warning) 'warning 'shadow))))
+
+(defun overlook-agent--turn-label (buffer)
+  "How long agent BUFFER's latest turn has run, or ran, once past a minute; or nil."
+  (pcase (buffer-local-value 'overlook-agent-turn buffer)
+    (`(,start . ,end)
+     (let ((seconds (- (or end (float-time)) start)))
+       (when (>= seconds 60)
+         (propertize (overlook-format-duration seconds) 'face 'shadow))))))
+
+(defun overlook-agent--meta (buffer)
+  "Turn duration and context usage of agent BUFFER, aligned to the right edge.
+Returns (TEXT . COLUMNS), COLUMNS being how far from the edge TEXT starts.
+Context takes the last four columns but one, left free for the wrap mark;
+the duration ends a column before it, so both line up across agents."
+  (let ((turn (overlook-agent--turn-label buffer))
+        (context (overlook-agent--context-label buffer)))
+    (cons (concat (if turn (overlook-align-right turn 6) "")
+                  (if context (overlook-align-right context 1) ""))
+          (cond (turn (+ 6 (string-width turn)))
+                (context 5)
+                (t 0)))))
+
+(defun overlook-agent--project-label (buffer perspective)
+  "Name of agent BUFFER's project, dimmed, unless it is PERSPECTIVE's."
+  (let ((root (overlook-agent-get buffer 'root)))
+    (if (and root (not (equal (and perspective (overlook-perspective-root perspective))
+                              root)))
+        (propertize (concat " " (file-name-nondirectory (directory-file-name root)))
+                    'face 'shadow)
+      "")))
+
+(defun overlook-agent--brief (buffer)
+  "What agent BUFFER says it is doing, on one line, or nil."
+  (when-let* ((brief (overlook-agent-get buffer 'brief))
+              (text (with-current-buffer buffer (ignore-errors (funcall brief))))
+              (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
+              ((not (string-empty-p text))))
+    text))
+
+(defun overlook-agent--brief-label (buffer brief head meta)
+  "BRIEF fit to the dashboard between HEAD and META columns at the right.
+Highlighted while agent BUFFER waits, set apart from its name while it
+works, dimmed otherwise."
+  (let* ((gap "  ")
+         (face (pcase (buffer-local-value 'overlook-agent-status buffer)
+                 ('waiting 'warning)
+                 ('working 'font-lock-doc-face)
+                 (_ 'shadow)))
+         (room (- (overlook-window-pixels)
+                  (string-pixel-width (concat head gap) (current-buffer))
+                  (* (1+ meta) (frame-char-width))))
+         (text (overlook-fit brief room face)))
+    (if text (concat gap text) "")))
+
+(defun overlook-agent--file-relative (file root)
+  "FILE relative to ROOT, or abbreviated when outside it."
+  (if (string-prefix-p (file-name-as-directory (expand-file-name root)) file)
+      (file-relative-name file root)
+    (abbreviate-file-name file)))
+
+(defun overlook-agent--counts (added removed)
+  "\" +ADDED −REMOVED\" in diff colors, leaving out a zero."
+  (cl-flet ((count (n sign face)
+              (if (and n (> n 0))
+                  (propertize (format " %s%d" sign n)
+                              'face `(:foreground ,(face-foreground face nil t)))
+                "")))
+    (concat (count added "+" 'diff-indicator-added)
+            (count removed "−" 'diff-indicator-removed))))
+
+(defun overlook-agent--file-label (file root)
+  "FILE's name, its line counts, then its directory relative to ROOT, dimmed."
+  (let-alist file
+    (let ((dir (file-name-directory (overlook-agent--file-relative .file root))))
+      (concat (propertize (file-name-nondirectory .file) 'face (if .active 'warning 'default))
+              (overlook-agent--counts .added .removed)
+              (if dir (propertize (concat " " dir) 'face 'shadow) "")))))
+
+(defun overlook-agent-visit-file (buffer file)
+  "Open FILE, edited by agent BUFFER, at its line in the agent's perspective."
+  (overlook-show-elsewhere (overlook-buffer-perspective buffer)
+                           (lambda ()
+                             (find-file (alist-get 'file file))
+                             (when-let* ((line (alist-get 'line file)))
+                               (goto-char (point-min))
+                               (forward-line (1- line))))))
+
+(defun overlook-agent--pick-file (buffer files)
+  "Pick one of FILES edited by agent BUFFER and visit it."
+  (let* ((root (or (overlook-agent-get buffer 'root) default-directory))
+         (names (mapcar (lambda (file)
+                          (cons (overlook-agent--file-relative (alist-get 'file file) root) file))
+                        files))
+         (choice (completing-read
+                  "Edited file: "
+                  (lambda (string pred action)
+                    (if (eq action 'metadata)
+                        `(metadata (display-sort-function . identity)
+                                   (annotation-function
+                                    . ,(lambda (name)
+                                         (let-alist (cdr (assoc name names))
+                                           (overlook-agent--counts .added .removed)))))
+                      (complete-with-action action names string pred)))
+                  nil t)))
+    (overlook-agent-visit-file buffer (cdr (assoc choice names)))))
+
+(defun overlook-agent--insert-files (buffer)
+  "Insert the files agent BUFFER edited this turn, under its name.
+Past `overlook-agent-files' the rest fold into one line with their totals."
+  (let* ((prefix overlook-agent--file-indent)
+         (files (overlook-agent-files buffer))
+         (root (or (overlook-agent-get buffer 'root) default-directory))
+         (rest (nthcdr overlook-agent-files files)))
+    (dolist (file (seq-take files overlook-agent-files))
+      (insert (propertize (concat prefix (overlook-agent--file-label file root) "\n")
+                          'overlook-item (list 'agent-file buffer (alist-get 'file file))
+                          'overlook-action (lambda () (overlook-agent-visit-file buffer file))
+                          'wrap-prefix prefix)))
+    (when rest
+      (insert (propertize
+               (concat prefix
+                       (propertize (format "…+%d" (length rest)) 'face 'shadow)
+                       (overlook-agent--counts
+                        (apply #'+ (mapcar (lambda (file) (or (alist-get 'added file) 0)) rest))
+                        (apply #'+ (mapcar (lambda (file) (or (alist-get 'removed file) 0)) rest)))
+                       "\n")
+               'overlook-item (list 'agent-files buffer)
+               'overlook-action (lambda () (overlook-agent--pick-file buffer files))
+               'help-echo (mapconcat (lambda (file)
+                                       (overlook-agent--file-relative (alist-get 'file file) root))
+                                     files "\n")
+               'wrap-prefix prefix)))))
+
+(defun overlook-agent--row (buffer perspective)
+  "Insert the row of agent BUFFER under PERSPECTIVE, then its edited files."
+  (let* ((head (concat overlook-indent (overlook-agent--glyph-cell buffer)
+                       (or (overlook-agent-get buffer 'agent) "agent")
+                       (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
+                                                      overlook-agent-row-marks)))
+                       (overlook-agent--project-label buffer perspective)))
+         (meta (overlook-agent--meta buffer))
+         (brief (overlook-agent--brief buffer))
+         (status (buffer-local-value 'overlook-agent-status buffer))
+         (line (concat head
+                       (if brief (overlook-agent--brief-label buffer brief head (cdr meta)) "")
+                       (car meta)
+                       "\n"))
+         (highlight (pcase status
+                      ('waiting 'overlook-agent-waiting)
+                      ('done 'overlook-agent-done))))
+    (when highlight
+      (add-face-text-property (length overlook-indent) (length line) highlight t line))
+    (insert (propertize line
+                        'overlook-item (cons 'agent buffer)
+                        'overlook-action (lambda () (overlook-agent-visit buffer))
+                        'overlook-attention (memq status '(waiting done))
+                        'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
+                                     (buffer-name buffer))
+                        'wrap-prefix overlook-agent--file-indent))
+    (overlook-agent--insert-files buffer)))
+
+(defun overlook-agent--insert (perspective)
+  "Insert the agents whose buffers are in PERSPECTIVE."
+  (let ((buffers (overlook-perspective-buffers perspective)))
+    (dolist (buffer (overlook-agent-buffers (lambda (buffer) (memq buffer buffers))))
+      (overlook-agent--row buffer perspective))))
+
+(defun overlook-agent--insert-orphans ()
+  "Insert the agents in no perspective; non-nil when there were any."
+  (let ((orphans (overlook-agent-buffers
+                  (lambda (buffer) (null (overlook-buffer-perspective buffer))))))
+    (dolist (buffer orphans)
+      (overlook-agent--row buffer nil))
+    orphans))
+
+(defun overlook-agent--mode-line ()
+  "A count of agents by state, like \"3 agents · 1 working\"."
+  (let* ((statuses (mapcar (lambda (buffer) (buffer-local-value 'overlook-agent-status buffer))
+                           (overlook-agent-buffers)))
+         (working (seq-count (lambda (status) (eq status 'working)) statuses))
+         (attention (seq-count (lambda (status) (memq status '(waiting done))) statuses)))
+    (when statuses
+      (string-join
+       (delq nil (list (format "%d agent%s" (length statuses) (if (cdr statuses) "s" ""))
+                       (and (> working 0) (format "%d working" working))
+                       (and (> attention 0)
+                            (propertize (format "%d need you" attention) 'face 'error))))
+       " · "))))
+
+;;; Dashboard commands
+
+(defun overlook-agent-at-point ()
+  "The agent of the dashboard row at point, or nil."
+  (pcase (overlook-item-at-point)
+    (`(agent . ,buffer) buffer)
+    (`(,(or 'agent-file 'agent-files) ,buffer . ,_) buffer)))
+
+(defun overlook-agent-show-diff ()
+  "Show this turn's diffs of the file at point, or of every file of the agent."
+  (interactive)
+  (let* ((buffer (or (overlook-agent-at-point) (user-error "No agent on this line")))
+         (file (pcase (overlook-item-at-point) (`(agent-file ,_ ,file) file)))
+         (files (seq-filter (lambda (entry)
+                              (or (null file) (equal (alist-get 'file entry) file)))
+                            (overlook-agent-files buffer)))
+         (diff (or (overlook-agent-diff buffer files)
+                   (user-error "No edits this turn"))))
+    (overlook-show-elsewhere (overlook-buffer-perspective buffer)
+                             (lambda () (pop-to-buffer diff)))))
+
+;;;###autoload
+(define-minor-mode overlook-agent-mode
+  "Track agents and list them on the dashboard."
+  :global t
+  :group 'overlook
+  (let ((hooks '((overlook-perspective-functions . overlook-agent--insert)
+                 (overlook-orphan-functions . overlook-agent--insert-orphans)
+                 (overlook-mode-line-functions . overlook-agent--mode-line)
+                 (overlook-tick-hook . overlook-agent--tick)
+                 (window-selection-change-functions . overlook-agent--acknowledge)
+                 (window-buffer-change-functions . overlook-agent--acknowledge))))
+    (pcase-dolist (`(,hook . ,function) hooks)
+      (if overlook-agent-mode
+          (add-hook hook function)
+        (remove-hook hook function))))
+  (overlook-refresh))
+
+(overlook-define-key "d" #'overlook-agent-show-diff)
+
+(provide 'overlook-agent)
+;;; overlook-agent.el ends here
