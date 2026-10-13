@@ -98,6 +98,17 @@ Agents are listed; usage and repos are not."
                       'overlook-heading-current)))
       (mapc #'kill-buffer (list alpha beta stray)))))
 
+(ert-deftest overlook-perspective-annotation-after-heading ()
+  (let ((overlook-perspective-annotation (lambda (name) (and (equal name "one") "me")))
+        (overlook-perspective-order 'backend))
+    (overlook-test-with-dashboard '(("one") ("two")) "two"
+      (goto-char (point-min))
+      (search-forward "one me")
+      (should (eq (get-text-property (1- (point)) 'face) 'shadow))
+      (should (equal (get-text-property (point) 'overlook-item) '(perspective . "one")))
+      (search-forward "two")
+      (should (eolp)))))
+
 (ert-deftest overlook-other-heading-only-with-orphans ()
   (let ((alpha (overlook-test--agent "alpha")))
     (unwind-protect

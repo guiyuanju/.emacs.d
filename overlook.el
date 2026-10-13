@@ -75,6 +75,10 @@ An integer is a number of columns; a float is a fraction of the frame width."
 recently they were switched to; `backend' keeps the backend's order."
   :type '(choice (const frecency) (const backend)))
 
+(defcustom overlook-perspective-annotation nil
+  "Function of a perspective NAME returning a tag shown after its heading, or nil."
+  :type '(choice (const :tag "None" nil) function))
+
 (defcustom overlook-tick-interval 5
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
@@ -375,8 +379,12 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 (defun overlook--heading (name &optional current)
   "Heading line of perspective NAME, highlighted when CURRENT."
-  (propertize (concat name "\n")
-              'face (if current 'overlook-heading-current 'overlook-heading)
+  (propertize (concat (propertize name 'face (if current 'overlook-heading-current
+                                                'overlook-heading))
+                      (when-let* ((tag (and overlook-perspective-annotation
+                                            (funcall overlook-perspective-annotation name))))
+                        (propertize (concat " " tag) 'face 'shadow))
+                      "\n")
               'overlook-item (cons 'perspective name)
               'overlook-heading t
               'overlook-action (lambda () (overlook-switch-perspective name))))

@@ -144,6 +144,9 @@ Evil users can bind the same keys in normal state:
   `(add-to-list 'savehist-additional-variables 'overlook-perspective-visits)`.
 - `overlook-perspective-root`: how a perspective's project root is found.
   The default guesses from the projects of its buffers.
+- `overlook-perspective-annotation`: a function of a perspective name
+  returning a tag shown dimmed after its heading, such as which
+  workspace it belongs to.
 - `overlook-agent-root-function`: the directory agents start in.
 - `overlook-agent-shell-configs`: the agents you can start, and the
   agent-shell configs they run with.
