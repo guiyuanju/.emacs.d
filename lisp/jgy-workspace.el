@@ -301,24 +301,71 @@ A todo moves with its subitems, ranked by the most urgent of them."
            (setq first nil)
            (jgy-workspace--todo-insert-card card (equal (plist-get card :id) current))))))))
 
+;;; Dashboard inbox
+
+(defun jgy-workspace--inbox-workspace (file)
+  "Name of the workspace holding inbox FILE."
+  (file-name-nondirectory (directory-file-name (file-name-directory file))))
+
+(defun jgy-workspace--inbox-items (file)
+  "Open items of inbox FILE, as (TEXT LINE DEPTH) like todos."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (let (items)
+      (while (re-search-forward "^\\( *\\)- \\(?:\\[ \\] \\)?\\(.+\\)" nil t)
+        (unless (string-prefix-p "[x] " (match-string 2))
+          (push (list (match-string 2) (line-number-at-pos) (length (match-string 1))) items)))
+      (nreverse items))))
+
+(defun jgy-workspace--inbox-section ()
+  "Insert an Inbox section with each workspace's open inbox items.
+The workspace of the current perspective comes first."
+  (let* ((current (jgy-workspace-perspective-workspace (or (overlook-current-perspective) "")))
+         (files (file-expand-wildcards (expand-file-name "*/inbox.md" jgy-workspace-directory)))
+         (mine (lambda (file) (equal (jgy-workspace--inbox-workspace file) current)))
+         (files (append (seq-filter mine files) (seq-remove mine files))))
+    (overlook-insert-section
+     "Inbox"
+     (lambda ()
+       (let ((first t))
+         (dolist (file files)
+           (when-let* ((items (jgy-workspace--inbox-items file)))
+             (unless first (insert "\n"))
+             (setq first nil)
+             (insert (propertize (jgy-workspace--inbox-workspace file)
+                                 'face 'overlook-heading
+                                 'overlook-heading t
+                                 'overlook-action (jgy-workspace--todo-visit file 1))
+                     "\n")
+             (pcase-dolist (`(,text ,line ,depth) items)
+               (let ((indent (make-string (+ 3 depth) ?\s)))
+                 (insert (propertize (concat indent (propertize "☐" 'face 'shadow) " "
+                                             (jgy-workspace--todo-display text))
+                                     'overlook-action (jgy-workspace--todo-visit file line)
+                                     'wrap-prefix (concat indent "   "))
+                         "\n"))))))))))
+
 (defun jgy-workspace--refresh-after-save ()
-  "Re-render the dashboard after saving a project.md."
+  "Re-render the dashboard after saving a project.md or inbox.md."
   (when (and buffer-file-name
              (fboundp 'overlook-refresh)
-             (string= (file-name-nondirectory buffer-file-name) "project.md")
-             (jgy-workspace-project-root))
+             (pcase (file-name-nondirectory buffer-file-name)
+               ("project.md" (jgy-workspace-project-root))
+               ("inbox.md" (file-in-directory-p buffer-file-name jgy-workspace-directory))))
     (overlook-refresh)))
 
 ;;;###autoload
 (define-minor-mode jgy-workspace-dashboard-mode
-  "Show ongoing projects' todos in the agents dashboard."
+  "Show ongoing projects' todos and the inboxes in the agents dashboard."
   :global t
   :group 'overlook
   (if jgy-workspace-dashboard-mode
       (progn
         (add-hook 'overlook-sections #'jgy-workspace--todo-section 50)
+        (add-hook 'overlook-sections #'jgy-workspace--inbox-section 60)
         (add-hook 'after-save-hook #'jgy-workspace--refresh-after-save))
     (remove-hook 'overlook-sections #'jgy-workspace--todo-section)
+    (remove-hook 'overlook-sections #'jgy-workspace--inbox-section)
     (remove-hook 'after-save-hook #'jgy-workspace--refresh-after-save)))
 
 (provide 'jgy-workspace)
