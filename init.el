@@ -763,7 +763,7 @@
 ;;; AI
 
 ;; agent 由 overlook 管理（按 perspective 分组的看板），经 agent-shell 用 ACP 运行；
-;; 在项目文件夹内时以项目根为工作目录。overlook 在 projects/overlook/overlook 开发。
+;; 在项目文件夹内时以项目根为工作目录。overlook 以 git subtree 放在 site-lisp/overlook，直接在那里开发。
 
 (use-package agent-shell
   :defer t
@@ -789,9 +789,10 @@
   :init
   (run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
-;; 从本地仓库构建，不字节编译，改了源码重新加载即生效。
+;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
-  :ensure (:repo "~/workspace/me/projects/overlook/overlook/" :build (:not elpaca-build-compile))
+  :ensure nil
+  :load-path "site-lisp/overlook"
   :commands (overlook overlook-agent-start overlook-agent-toggle overlook-agent-switch
              overlook-agent-send overlook-agent-shell-handoff overlook-agent-project-root
              overlook-perspective-guess-root)
