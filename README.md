@@ -128,13 +128,13 @@ Evil users can bind the same keys in normal state:
 
 ## What the rows show
 
-- A repo: its branch, and after `●` how many files it has uncommitted.
 - An agent: `◐` working, `⚠` waiting for you, `●` finished while you were
   not looking, `○` idle; what it is doing; how long its turn has run; how
   much of its context window is used.
 - Under an agent, the files it edited this turn with their line counts.
   These come from agent-shell's tool call diffs, exactly as agent-shell
   shows them, so files changed only through shell commands are not listed.
+- A repo: its branch, and after `●` how many files it has uncommitted.
 
 ## Customization
 

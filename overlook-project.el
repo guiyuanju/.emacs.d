@@ -167,7 +167,7 @@
   :group 'overlook
   (if overlook-project-mode
       (progn
-        (add-hook 'overlook-perspective-functions #'overlook-project--insert -50)
+        (add-hook 'overlook-perspective-functions #'overlook-project--insert 50)
         (add-hook 'overlook-before-render-hook #'overlook-project--forget)
         (add-hook 'overlook-tick-hook #'overlook-project--tick))
     (remove-hook 'overlook-perspective-functions #'overlook-project--insert)
