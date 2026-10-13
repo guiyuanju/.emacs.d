@@ -575,10 +575,17 @@
   :ensure nil
   :demand t
   :config
-  (add-hook 'project-find-functions #'jgy-workspace-project-try)
   (add-hook 'window-buffer-change-functions #'jgy-persp-record)
   (add-hook 'window-selection-change-functions #'jgy-persp-record)
   (jgy-workspace-dashboard-mode 1))
+
+;; 有 .overlook 的项目文件夹连同其中所有 clone 算一个 project；启动时就要生效，不等看板加载。
+(use-package overlook-markers
+  :ensure nil
+  :load-path "site-lisp/overlook"
+  :demand t
+  :config
+  (overlook-markers-mode 1))
 
 (use-package jgy-gitlab
   :ensure nil

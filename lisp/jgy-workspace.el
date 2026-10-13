@@ -67,6 +67,8 @@ Symlinks are resolved first, so ~/.emacs.d finds the project it links into."
 (defun jgy-workspace--create-project (file id title)
   "Create project.md FILE for ID with TITLE."
   (make-directory (file-name-directory file) t)
+  ;; overlook-markers 据此把项目文件夹连同其中所有 clone 当作一个 project。
+  (write-region "" nil (expand-file-name ".overlook" (file-name-directory file)))
   (with-temp-file file
     (insert (format "---\nid: %s\ntitle: %s\nstatus: active\nstart: %s\nend:\n---\n\n"
                     id title (format-time-string "%F"))
@@ -114,22 +116,6 @@ REPO is a <group>/<repo> checkout under `jgy-workspace-code-directory'."
     (when (file-exists-p target) (user-error "%s already exists" target))
     (require 'magit-clone)
     (magit-clone-regular url target nil)))
-
-;; 项目文件夹整个算一个 project，含所有 clone；文件由 fd 列出，遵守各 clone 的 .gitignore。
-(defun jgy-workspace-project-try (directory)
-  "Return the project folder containing DIRECTORY as a project."
-  (when-let* ((root (jgy-workspace-project-root directory)))
-    (cons 'jgy-workspace root)))
-
-(cl-defmethod project-root ((project (head jgy-workspace)))
-  (cdr project))
-
-(cl-defmethod project-files ((project (head jgy-workspace)) &optional dirs)
-  (mapcan (lambda (dir)
-            (let ((default-directory (file-name-as-directory (expand-file-name dir))))
-              (mapcar #'expand-file-name
-                      (process-lines "fd" "--type" "f" "--hidden" "--exclude" ".git"))))
-          (or dirs (list (project-root project)))))
 
 ;;; Perspective buffer history
 
