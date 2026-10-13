@@ -1078,6 +1078,8 @@ column and miscounts after wide prompt glyphs such as ➜."
              overlook-agent-send overlook-agent-shell-handoff overlook-agent-project-root
              overlook-perspective-guess-root)
   :custom
+  (overlook-side 'left)
+  (overlook-width 0.26)
   (overlook-agent-root-function #'jgy-agent-root)
   (overlook-perspective-root #'jgy-perspective-root)
   (overlook-usage-file (expand-file-name "claude-usage.json" jgy-state-directory))
