@@ -37,6 +37,8 @@
 (require 'overlook)
 (require 'project)
 
+(declare-function notifications-notify "notifications" (&rest params))
+
 (defcustom overlook-agent-names nil
   "Agent names offered by `overlook-agent-start'; nil offers the frontend's."
   :type '(repeat string)
@@ -67,6 +69,19 @@
 (defcustom overlook-agent-context-warning 70
   "Context usage percentage from which an agent's is highlighted."
   :type 'natnum
+  :group 'overlook)
+
+(defcustom overlook-agent-notify 'unfocused
+  "When to notify that an agent waits for you or finished unseen.
+`unfocused' notifies while no Emacs frame has focus, t always, nil never."
+  :type '(choice (const :tag "While Emacs is unfocused" unfocused)
+                 (const :tag "Always" t)
+                 (const :tag "Never" nil))
+  :group 'overlook)
+
+(defcustom overlook-agent-notify-function #'overlook-agent-notify-system
+  "Function of TITLE and BODY showing a notification."
+  :type 'function
   :group 'overlook)
 
 (defface overlook-agent-waiting
@@ -187,7 +202,36 @@ END is nil while the turn runs.")
   "Set this agent's STATUS, telling the views when it changed."
   (unless (eq status overlook-agent-status)
     (setq overlook-agent-status status)
+    (when (memq status '(waiting done))
+      (overlook-agent--notify (current-buffer)))
     (overlook-agent-changed)))
+
+(defun overlook-agent-notify-system (title body)
+  "Show a desktop notification of TITLE and BODY."
+  (cond ((eq system-type 'darwin)
+         ;; Passed as arguments, so quotes in them need no escaping.
+         (call-process "osascript" nil 0 nil
+                       "-e" "on run argv"
+                       "-e" "display notification (item 2 of argv) with title (item 1 of argv)"
+                       "-e" "end run"
+                       title body))
+        ((and (featurep 'dbusbind) (require 'notifications nil t))
+         (notifications-notify :title title :body body))
+        (t (message "%s: %s" title body))))
+
+(defun overlook-agent--notify (buffer)
+  "Notify that agent BUFFER waits for you or finished, per `overlook-agent-notify'."
+  (when (pcase overlook-agent-notify
+          ('unfocused (not (seq-some (lambda (frame) (eq (frame-focus-state frame) t))
+                                     (frame-list))))
+          (option option))
+    (let ((perspective (overlook-buffer-perspective buffer))
+          (brief (overlook-agent--brief buffer)))
+      (funcall overlook-agent-notify-function
+               (format "%s %s" (or (overlook-agent-get buffer 'agent) "agent")
+                       (if (eq (buffer-local-value 'overlook-agent-status buffer) 'waiting)
+                           "needs you" "finished"))
+               (string-join (delq nil (list perspective brief)) ": ")))))
 
 (defun overlook-agent--seen-p ()
   "Non-nil when this agent is shown in the selected window."

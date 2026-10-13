@@ -164,6 +164,26 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) (cons 'agent beta))))
       (mapc #'kill-buffer (list alpha beta)))))
 
+(ert-deftest overlook-agent-notifies-when-it-needs-you ()
+  (let* ((agent (overlook-test--agent "claude"))
+         (sent nil)
+         (overlook-agent-notify t)
+         (overlook-agent-notify-function (lambda (title body) (push (cons title body) sent)))
+         (overlook-perspective-buffers-function
+          (lambda (name) (and (equal name "checkout") (list agent))))
+         (overlook-perspectives-function (lambda () (list "checkout")))
+         (overlook-current-perspective-function #'ignore))
+    (unwind-protect
+        (with-current-buffer agent
+          (overlook-agent-report 'working)
+          (should-not sent)
+          (overlook-agent-report 'attention)
+          (should (equal sent '(("claude needs you" . "checkout"))))
+          (let ((overlook-agent-notify nil))
+            (overlook-agent-report 'finished))
+          (should (= (length sent) 1)))
+      (kill-buffer agent))))
+
 (ert-deftest overlook-project-parses-git-status ()
   (should (equal (overlook-project--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"

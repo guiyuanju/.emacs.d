@@ -144,6 +144,10 @@ Evil users can bind the same keys in normal state:
 - An agent: `◐` working, `⚠` waiting for you, `●` finished while you were
   not looking, `○` idle; what it is doing; how long its turn has run; how
   much of its context window is used.
+- When an agent turns `⚠` or `●` while no Emacs frame has focus, a
+  desktop notification says so (`osascript` on macOS, D-Bus elsewhere).
+  Set `overlook-agent-notify` to `t` to be told even while Emacs has
+  focus, or `nil` never; `overlook-agent-notify-function` shows it.
 - A repo: its branch and the lines changed since its last commit, then the
   changed files with their line counts.  These come from Git, so they show
   every change in the working tree, whoever made it.
