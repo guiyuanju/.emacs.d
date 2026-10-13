@@ -6,6 +6,7 @@
 (require 'overlook-project)
 (require 'overlook-markers)
 (require 'overlook-usage)
+(require 'overlook-courier)
 
 (defvar overlook-test--perspectives nil
   "Alist of perspective name to its buffers, for the fake backend.")
@@ -254,6 +255,54 @@ Agents are listed; usage and repos are not."
           (should (equal started '("claude" "/tmp/" nil "s1")))
           (should-not overlook-agent-saved))
       (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer)))))
+
+(ert-deftest overlook-courier-spawns-and-reports-back ()
+  (let* ((courier--agents (make-hash-table :test #'equal))
+         (overlook-agent-changed-hook nil)
+         (overlook-agent-environment-functions nil)
+         (overlook-agent-turn-start-hook nil)
+         (overlook-agent-turn-end-hook nil)
+         (overlook-agent-row-marks nil)
+         (courier-changed-hook nil)
+         (courier-spawn-function nil)
+         (overlook-perspectives-function #'ignore)
+         (overlook-current-perspective-function #'ignore)
+         (prompts nil)
+         (environments nil)
+         (overlook-agent-start-function
+          (lambda (name root &rest args)
+            (push (cons overlook-agent-environment args) environments)
+            (with-current-buffer (generate-new-buffer name)
+              (setq overlook-agent-identity
+                    `((agent . ,name) (root . ,root)
+                      (submit . ,(lambda (text) (push (cons name text) prompts)))
+                      (ready . always)
+                      (reply . ,(lambda () (format "%s says done" name)))))
+              (current-buffer))))
+         (root (file-name-as-directory (expand-file-name "shop" (make-temp-file "courier" t))))
+         (parent nil))
+    (make-directory root)
+    (unwind-protect
+        (progn
+          (overlook-courier-mode 1)
+          (setq parent (overlook-agent--launch "claude" root))
+          (should (equal (buffer-local-value 'overlook-courier-id parent) "claude@shop"))
+          (should (member "COURIER_ID=claude@shop" (car (car environments))))
+          (let* ((id (courier-spawn "codex" root "review it" "claude@shop"))
+                 (child (courier-agent-buffer (courier-agent id))))
+            (should (equal id "codex@shop"))
+            (should (equal (cdr (car environments)) '(t)))
+            (should (string-search "← claude@shop" (overlook-courier--mark child)))
+            (courier-deliver)
+            (should (string-suffix-p "review it" (alist-get "codex" prompts nil nil #'equal)))
+            (with-current-buffer child
+              (overlook-agent-report 'working)
+              (overlook-agent-report 'finished))
+            (courier-deliver)
+            (should (string-search "codex says done" (alist-get "claude" prompts nil nil #'equal)))))
+      (overlook-courier-mode -1)
+      (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer))
+      (delete-directory (file-name-directory (directory-file-name root)) t))))
 
 (ert-deftest overlook-project-parses-git-status ()
   (should (equal (overlook-project--parse

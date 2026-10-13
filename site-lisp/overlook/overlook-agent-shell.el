@@ -67,6 +67,9 @@ path of its transcript."
 (defvar-local overlook-agent-shell--last-tool nil
   "Title of this turn's latest tool call, or nil.")
 
+(defvar-local overlook-agent-shell--reply ""
+  "What the agent has said since its latest tool call this turn.")
+
 (defun overlook-agent-shell--set-brief (var value)
   "Set brief source VAR to VALUE, and redraw the dashboard on a new value."
   (unless (equal (symbol-value var) value)
@@ -91,6 +94,42 @@ path of its transcript."
                                     entries)))
          (or (map-elt entry 'content) (map-elt entry 'step)))))))
 
+(defun overlook-agent-shell--track-reply (notification)
+  "Collect the agent's words in NOTIFICATION, restarting at each tool call."
+  (pcase (map-nested-elt notification '(params update sessionUpdate))
+    ("tool_call" (setq overlook-agent-shell--reply ""))
+    ("agent_message_chunk"
+     (when-let* ((text (map-nested-elt notification '(params update content text)))
+                 ((stringp text)))
+       (setq overlook-agent-shell--reply (concat overlook-agent-shell--reply text))))))
+
+(defun overlook-agent-shell--last-reply ()
+  "The agent's final words of its latest turn, for its `reply' identity."
+  overlook-agent-shell--reply)
+
+(defun overlook-agent-shell--ready ()
+  "Non-nil when the shell has a session, is idle and its prompt is empty."
+  (and (overlook-agent-shell--session)
+       (not (shell-maker-busy))
+       (string-empty-p (string-trim (or (agent-shell--prompt-input) "")))))
+
+(defun overlook-agent-shell--submit (text)
+  "Submit TEXT as this shell's next prompt."
+  (agent-shell-insert :text text :submit t :no-focus t :shell-buffer (current-buffer)))
+
+(defun overlook-agent-shell--with-environment (config environment)
+  "CONFIG whose agent process also gets ENVIRONMENT."
+  (if (null environment)
+      config
+    (let ((make-client (map-elt config :client-maker)))
+      (cons (cons :client-maker
+                  (lambda (buffer)
+                    (let ((client (funcall make-client buffer)))
+                      (setf (map-elt client :environment-variables)
+                            (append environment (map-elt client :environment-variables)))
+                      client)))
+            config))))
+
 (defun overlook-agent-shell--tool-title (data)
   "What the tool call in event DATA does, or nil when it does not say.
 Prefers its description, as the title of a shell command is the command."
@@ -106,7 +145,8 @@ Prefers its description, as the title of a shell command is the command."
     ('input-submitted
      (setq overlook-agent-shell--asking nil
            overlook-agent-shell--plan-step nil
-           overlook-agent-shell--last-tool nil)
+           overlook-agent-shell--last-tool nil
+           overlook-agent-shell--reply "")
      (overlook-agent-changed))
     ('tool-call-update
      (when-let* ((title (overlook-agent-shell--tool-title (map-elt event :data))))
@@ -161,7 +201,8 @@ SESSION resumes the session of that id."
                           (user-error "No agent-shell config for %s" name)))
          (default-directory root)
          (agent-shell-cwd-function (lambda () root))
-         (buffer (agent-shell--start :config (funcall make-config)
+         (buffer (agent-shell--start :config (overlook-agent-shell--with-environment
+                                              (funcall make-config) overlook-agent-environment)
                                      :no-focus t :new-session t
                                      :session-strategy (and fresh 'new)
                                      :session-id session)))
@@ -170,9 +211,13 @@ SESSION resumes the session of that id."
                                       (insert . overlook-agent-shell--insert)
                                       (context . overlook-agent-shell--context)
                                       (brief . overlook-agent-shell--brief)
-                                      (session . overlook-agent-shell--session)))
+                                      (session . overlook-agent-shell--session)
+                                      (submit . overlook-agent-shell--submit)
+                                      (ready . overlook-agent-shell--ready)
+                                      (reply . overlook-agent-shell--last-reply)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
-      (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan))
+      (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan
+                         overlook-agent-shell--track-reply))
         (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
                                         :buffer buffer :on-notification handler)))
     buffer))

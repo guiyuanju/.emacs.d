@@ -58,6 +58,12 @@
   "Names of all perspectives, or nil without `persp-mode'."
   (and (bound-and-true-p persp-mode) (persp-names)))
 
+(defun overlook-perspective--add-buffer (name buffer)
+  "Add BUFFER to perspective NAME."
+  (if (equal name (persp-current-name))
+      (persp-add-buffer buffer)
+    (with-perspective name (persp-add-buffer buffer))))
+
 ;;;###autoload
 (defun overlook-perspective-open-project (directory)
   "Switch to the perspective of the project in DIRECTORY, named after it.
@@ -81,6 +87,7 @@ A new perspective opens the project's root in Dired."
               overlook-current-perspective-function #'overlook-perspective--current
               overlook-switch-perspective-function #'persp-switch
               overlook-perspective-buffers-function #'persp-get-buffers
+              overlook-add-to-perspective-function #'overlook-perspective--add-buffer
               overlook-perspective-root-function
               (lambda (name) (funcall overlook-perspective-root name)))
         (add-hook 'persp-switch-hook #'overlook-perspective-switched)
@@ -90,6 +97,7 @@ A new perspective opens the project's root in Dired."
           overlook-current-perspective-function #'ignore
           overlook-switch-perspective-function #'ignore
           overlook-perspective-buffers-function #'ignore
+          overlook-add-to-perspective-function #'ignore
           overlook-perspective-root-function #'ignore)
     (remove-hook 'persp-switch-hook #'overlook-perspective-switched)
     (dolist (hook '(persp-created-hook persp-killed-hook persp-after-rename-hook))

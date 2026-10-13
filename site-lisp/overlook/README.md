@@ -85,6 +85,17 @@ Turn on the modules you want; each is a global minor mode:
   (overlook-usage-mode 1))        ; Claude and Codex plan usage
 ```
 
+To let agents message, spawn and monitor each other, install
+[courier](../courier) and turn on its bridge:
+
+```elisp
+(require 'overlook-courier)
+(overlook-courier-mode 1)
+```
+
+A spawned agent opens in its parent's perspective, and its row shows
+`← parent`, and `✉N` while messages wait for it.
+
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:
 

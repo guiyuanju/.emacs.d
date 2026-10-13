@@ -106,6 +106,9 @@ recently they were switched to; `backend' keeps the backend's order."
 (defvar overlook-perspective-root-function #'ignore
   "Function of a NAME returning that perspective's project root, or nil.")
 
+(defvar overlook-add-to-perspective-function #'ignore
+  "Function of a NAME and a BUFFER adding BUFFER to that perspective.")
+
 (defun overlook-perspectives ()
   "Names of all perspectives."
   (funcall overlook-perspectives-function))
@@ -129,6 +132,10 @@ recently they were switched to; `backend' keeps the backend's order."
 (defun overlook-perspective-root (name)
   "Project root of perspective NAME, or nil."
   (funcall overlook-perspective-root-function name))
+
+(defun overlook-add-to-perspective (name buffer)
+  "Add BUFFER to perspective NAME."
+  (funcall overlook-add-to-perspective-function name buffer))
 
 (defun overlook-buffer-perspective (buffer)
   "The perspective BUFFER belongs to, preferring the current one; or nil."

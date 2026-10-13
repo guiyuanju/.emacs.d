@@ -114,7 +114,10 @@ Keys: `agent' its name; `root' its directory; `insert' a function
 inserting a string into its input; `context' a function returning its
 context usage percentage or nil; `brief' a function returning a line on
 what it is doing, or nil; `session' a function returning its session id,
-or nil.")
+or nil; `submit' a function submitting a prompt to it; `ready' a function
+telling whether it can take a prompt now; `reply' a function returning
+its last reply, or nil.  The core adds `environment', the entries of
+`overlook-agent-environment' it started with.")
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
@@ -153,6 +156,17 @@ Each is an alist with keys `agent', `root', `session' and `perspective'.")
 
 (defvar overlook-agent-turn-start-hook nil
   "Hook run in an agent's buffer when it starts a turn.")
+
+(defvar overlook-agent-turn-end-hook nil
+  "Hook run in an agent's buffer when it finishes a turn.")
+
+(defvar overlook-agent-environment-functions nil
+  "Functions of an agent's NAME and ROOT returning entries for its environment.
+Each returns a list of \"VAR=value\" strings, gathered into
+`overlook-agent-environment' while the agent starts.")
+
+(defvar overlook-agent-environment nil
+  "Entries a frontend adds to the environment of the agent it is starting.")
 
 (defun overlook-agent-changed ()
   "Tell the views that some agent's state changed."
@@ -268,7 +282,8 @@ whether the agent is shown in the selected window.  `working' after
                 (setq overlook-agent-turn (list (float-time)))
                 (run-hooks 'overlook-agent-turn-start-hook)))
     ('finished (when (and overlook-agent-turn (null (cdr overlook-agent-turn)))
-                 (setcdr overlook-agent-turn (float-time)))))
+                 (setcdr overlook-agent-turn (float-time))
+                 (run-hooks 'overlook-agent-turn-end-hook))))
   (pcase event
     ('finished (overlook-agent--set-status (if (overlook-agent--seen-p) 'idle 'done)))
     ('working (unless (eq overlook-agent-status 'waiting)
@@ -325,13 +340,21 @@ With prefix arg FRESH, always start another instance."
                                (saved (overlook-agent--resume saved))
                                (t (overlook-agent--launch name root))))))
 
-(defun overlook-agent--launch (name root &optional session)
-  "Start agent NAME in ROOT, resuming SESSION when non-nil; return its buffer."
+(defun overlook-agent--launch (name root &optional session fresh)
+  "Start agent NAME in ROOT and return its buffer.
+SESSION resumes that session; FRESH starts a new conversation without
+asking."
   (unless overlook-agent-start-function
     (user-error "Set `overlook-agent-start-function' first"))
-  (let ((buffer (let ((default-directory root))
-                  (apply overlook-agent-start-function name root
-                         (and session (list nil session))))))
+  (let* ((environment (seq-mapcat (lambda (fn) (funcall fn name root))
+                                  overlook-agent-environment-functions))
+         (buffer (let ((default-directory root)
+                       (overlook-agent-environment environment))
+                   (apply overlook-agent-start-function name root
+                          (cond (session (list nil session))
+                                (fresh (list t)))))))
+    (with-current-buffer buffer
+      (push (cons 'environment environment) overlook-agent-identity))
     (overlook-agent-register buffer name)
     buffer))
 
