@@ -1,8 +1,8 @@
-;;; jgy-workspace.el --- Workspaces of project folders, one perspective each -*- lexical-binding: t; -*-
+;;; jgy-workspace.el --- Workspaces, projects, perspectives and repos -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 一个项目一个文件夹（含 project.md 和 clone 进来的代码仓库），一个同名 perspective。
-;; 项目放在各 workspace 的 projects/ 下，如 ~/workspace/okj/projects/<id>/。
+;; workspace（~/workspace/me、okj…）→ 项目 projects/<id>/（project.md）→ 若干 repo（各一个 git 仓库）；
+;; 每个项目对应一个同名 perspective。
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 
@@ -35,12 +35,13 @@
   "Directory containing workspaces, each with a projects/ folder.")
 
 (defun jgy-workspace-project-root (&optional directory)
-  "Return the project folder containing DIRECTORY, or nil.
+  "Return the <workspace>/projects/<id>/ folder containing DIRECTORY, or nil.
 Symlinks are resolved first, so ~/.emacs.d finds the project it links into."
-  (when-let* ((root (locate-dominating-file
-                     (file-truename (or directory default-directory)) "project.md")))
-    (and (file-in-directory-p root jgy-workspace-directory)
-         (file-name-as-directory (expand-file-name root)))))
+  (let ((dir (file-name-as-directory (file-truename (or directory default-directory))))
+        (base (file-name-as-directory (file-truename jgy-workspace-directory))))
+    (when (string-match (concat "\\`" (regexp-quote base) "[^/]+/projects/[^./][^/]*/") dir)
+      (let ((root (match-string 0 dir)))
+        (and (file-exists-p (expand-file-name "project.md" root)) root)))))
 
 (defun jgy-workspace-project-files (&optional directory)
   "Return every project card under DIRECTORY, defaulting to the workspaces."
@@ -72,8 +73,8 @@ Symlinks are resolved first, so ~/.emacs.d finds the project it links into."
             "## 目标\n\n## Todo\n\n## 资源\n\n## 成果\n\n## 日志\n")))
 
 (defun jgy-workspace-open-project (id)
-  "Switch to the workspace of project ID, creating the project when it is new.
-A new workspace opens project.md; an existing one keeps its windows."
+  "Switch to the perspective of project ID, creating the project when it is new.
+A new perspective opens project.md; an existing one keeps its windows."
   (interactive (list (string-trim
                       (completing-read "Project: "
                                        (mapcar (lambda (file) (file-name-nondirectory
@@ -295,15 +296,16 @@ A todo moves with its subitems, ranked by the most urgent of them."
            (jgy-workspace--todo-insert-card card (equal (plist-get card :id) current))))))))
 
 (defun jgy-workspace--refresh-after-save ()
-  "Re-render the dashboard after saving a worklog file."
+  "Re-render the dashboard after saving a project.md."
   (when (and buffer-file-name
              (fboundp 'overlook-refresh)
-             (file-in-directory-p buffer-file-name jgy-workspace-directory))
+             (string= (file-name-nondirectory buffer-file-name) "project.md")
+             (jgy-workspace-project-root))
     (overlook-refresh)))
 
 ;;;###autoload
 (define-minor-mode jgy-workspace-dashboard-mode
-  "Show ongoing projects' worklog todos in the agents dashboard."
+  "Show ongoing projects' todos in the agents dashboard."
   :global t
   :group 'overlook
   (if jgy-workspace-dashboard-mode

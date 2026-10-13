@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;; A compact, project-oriented configuration built around Evil, Vertico,
-;; perspective workspaces, Eglot, Magit, and agents in agent-shell.
+;; perspectives, Eglot, Magit, and agents in agent-shell.
 
 ;;; Code:
 
@@ -234,10 +234,10 @@
   (dolist (function '(cape-file cape-dabbrev cape-elisp-block))
     (add-hook 'completion-at-point-functions function t)))
 
-;;; Workspaces
+;;; Perspectives
 
-;; 一个 workspace 是一个 perspective：一个项目文件夹，加上它的 buffer 和窗口布局。
-;; 不属于任何项目的东西留在 main。退出时保存全部 workspace，启动后恢复。
+;; 一个 perspective 对应一个项目：它的 buffer 和窗口布局。
+;; 不属于任何项目的东西留在 main。退出时保存全部 perspective，启动后恢复。
 
 (use-package perspective
   :demand t
@@ -369,7 +369,7 @@
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
     "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
 
-    "TAB"     '(:ignore t :which-key "workspace")
+    "TAB"     '(:ignore t :which-key "perspective")
     "TAB TAB" '(persp-switch :which-key "switch")
     "TAB o"   '(jgy-workspace-open-project :which-key "open project")
     "TAB c"   '(jgy-workspace-clone-repo :which-key "clone repo")
@@ -629,7 +629,7 @@
   :demand t
   :hook (dired-mode . diff-hl-dired-mode)
   :config
-  ;; 恢复 workspace 时可能带回已被删除目录的 dired buffer。
+  ;; 恢复 perspective 时可能带回已被删除目录的 dired buffer。
   (advice-add 'diff-hl-dired-update :before-while
               (lambda () (file-directory-p default-directory)))
   (diff-hl-margin-mode 1)
