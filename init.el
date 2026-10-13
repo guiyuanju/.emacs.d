@@ -155,6 +155,8 @@
 
 (use-package exec-path-from-shell
   :if (eq system-type 'darwin)
+  ;; 后续 :ensure nil 的配置（如 dired 找 gls）在 init 期间就要用到 PATH。
+  :ensure (:wait t)
   :custom
   (exec-path-from-shell-variables '("PATH" "GOPATH" "JAVA_HOME"))
   :config
