@@ -4,6 +4,8 @@
 !early-init.el
 !lisp
 !lisp/**
+!site-lisp
+!site-lisp/**
 !bin
 !bin/**
 !tests
