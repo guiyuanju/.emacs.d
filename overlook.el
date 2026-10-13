@@ -61,8 +61,13 @@
   :prefix "overlook-")
 
 (defcustom overlook-width 65
-  "Width of the dashboard side window."
-  :type 'natnum)
+  "Width of the dashboard side window.
+An integer is a number of columns; a float is a fraction of the frame width."
+  :type '(choice (natnum :tag "Columns") (float :tag "Fraction of frame")))
+
+(defcustom overlook-side 'right
+  "Frame side the dashboard window is shown on."
+  :type '(choice (const left) (const right)))
 
 (defcustom overlook-tick-interval 5
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
@@ -278,11 +283,17 @@ like `overlook-action', cover its whole line."
   (concat (propertize " " 'display `(space :align-to (- right ,(+ columns (string-width text)))))
           text))
 
+(defun overlook-columns ()
+  "Width of the dashboard window in columns, per `overlook-width'."
+  (if (floatp overlook-width)
+      (round (* overlook-width (frame-width)))
+    overlook-width))
+
 (defun overlook-window-pixels ()
   "Body width in pixels of the window showing the dashboard."
   (if-let* ((window (get-buffer-window (current-buffer) t)))
       (window-body-width window t)
-    (* overlook-width (frame-char-width))))
+    (* (overlook-columns) (frame-char-width))))
 
 (defun overlook-pixel-width (string)
   "Width of STRING in pixels, as drawn in the current buffer.
@@ -435,10 +446,10 @@ FORWARD picks the direction; WHAT names those lines when there is none."
 ;;; Window
 
 (defun overlook--display ()
-  "Show the dashboard in a right side window and return that window."
+  "Show the dashboard in a side window and return that window."
   (display-buffer-in-side-window
    (get-buffer overlook-buffer-name)
-   `((side . right) (slot . -1) (window-width . ,overlook-width)
+   `((side . ,overlook-side) (slot . -1) (window-width . ,(overlook-columns))
      (window-parameters (no-delete-other-windows . t)))))
 
 (defun overlook--follow ()

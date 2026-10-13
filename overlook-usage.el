@@ -223,7 +223,7 @@ name carries `overlook-action' runs it when the line is visited."
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
          (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
          (window (get-buffer-window (current-buffer) t))
-         (columns (if window (window-body-width window) overlook-width))
+         (columns (if window (window-body-width window) (overlook-columns)))
          ;; Besides its bar each window takes 14 columns: label, percentage and reset
          ;; countdown; windows are 3 columns apart, and the row leaves 1 at its end.
          (bar (max 4 (min 20 (/ (- columns (length overlook-indent) name-width 2 1
