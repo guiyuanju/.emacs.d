@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Message other AI agents through courier in the running Emacs.
+#   courier send ID MESSAGE        message agent ID; it gets it between turns
+#   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; its reply comes back
+#   courier monitor ID             be told when agent ID next finishes a turn
+#   courier list                   list the agents
+#   courier whoami                 print your own id
+# Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.
+set -euo pipefail
+
+if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+fi
+
+if [ "$1" = "spawn" ] && [ $# -ge 3 ]; then
+  set -- "$1" "$2" "$(cd "$3" && pwd)" "${@:4}"
+fi
+
+encode() { printf '%s' "$1" | base64 | tr -d '\n'; }
+
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+form="(courier-cli \"$out\" \"$(encode "${COURIER_ID:-}")\""
+for arg in "$@"; do form="$form \"$(encode "$arg")\""; done
+form="$form)"
+
+socket=()
+[ -n "${COURIER_SOCKET:-}" ] && socket=(--socket-name "$COURIER_SOCKET")
+emacsclient ${socket[@]+"${socket[@]}"} --eval "$form" > /dev/null
+cat "$out"
+! grep -q '^error: ' "$out"
