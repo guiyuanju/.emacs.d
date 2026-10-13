@@ -325,10 +325,32 @@
     (consult-customize consult-source-buffer :hidden t :default nil)
     (add-to-list 'consult-buffer-sources persp-consult-source)))
 
+;; frame 的 buffer-list 是全局的使用顺序，跨 perspective 共享的 buffer 会被别处的使用顶到前面；
+;; 所以每个 perspective 自己记录 buffer 的使用顺序。
+(defvar jgy-persp-history (make-hash-table :test #'equal)
+  "Perspective name to its buffers, most recently selected first.")
+
+(defun jgy-persp-record (&rest _)
+  "Move the selected window's buffer to the front of this perspective's history."
+  (when (bound-and-true-p persp-mode)
+    (let ((buffer (window-buffer (selected-window)))
+          (name (persp-current-name)))
+      (unless (or (minibufferp buffer) (string-prefix-p " " (buffer-name buffer)))
+        (puthash name (cons buffer (seq-filter (lambda (b) (and (buffer-live-p b) (not (eq b buffer))))
+                                               (gethash name jgy-persp-history)))
+                 jgy-persp-history)))))
+
+(add-hook 'window-buffer-change-functions #'jgy-persp-record)
+(add-hook 'window-selection-change-functions #'jgy-persp-record)
+
 (defun jgy-last-buffer ()
   "Switch to the most recently used other buffer of this perspective."
   (interactive)
-  (switch-to-buffer (persp-other-buffer (current-buffer))))
+  (let ((buffers (persp-current-buffers)))
+    (switch-to-buffer
+     (or (seq-find (lambda (b) (and (buffer-live-p b) (not (eq b (current-buffer))) (memq b buffers)))
+                   (gethash (persp-current-name) jgy-persp-history))
+         (persp-other-buffer (current-buffer))))))
 
 ;;; Modal editing
 
@@ -1105,6 +1127,7 @@ column and miscounts after wide prompt glyphs such as ➜."
   (overlook-agent-mode 1)
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
+  (add-to-list 'savehist-additional-variables 'overlook-perspective-visits)
   (require 'jgy-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
   (with-eval-after-load 'evil
