@@ -798,6 +798,7 @@
   (overlook-width 0.26)
   (overlook-agent-root-function #'jgy-workspace-agent-root)
   (overlook-perspective-root #'jgy-workspace-perspective-root)
+  (overlook-perspective-annotation #'jgy-workspace-perspective-workspace)
   (overlook-usage-file (expand-file-name "claude-usage.json" jgy-state-directory))
   (overlook-agent-shell-configs
    '(("claude" . agent-shell-anthropic-make-claude-code-config)

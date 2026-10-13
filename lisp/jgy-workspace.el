@@ -173,6 +173,12 @@ REPO is a <group>/<repo> checkout under `jgy-workspace-code-directory'."
   "Root of perspective NAME: the project folder of that id, else a guess."
   (or (jgy-workspace-project-dir name) (overlook-perspective-guess-root name)))
 
+(defun jgy-workspace-perspective-workspace (name)
+  "Name of the workspace holding project NAME, or nil."
+  (when-let* ((dir (jgy-workspace-project-dir name)))
+    (file-name-nondirectory (directory-file-name (file-name-parent-directory
+                                                  (file-name-parent-directory dir))))))
+
 ;;; Dashboard todos
 
 (defvar jgy-workspace--todo-cache nil
