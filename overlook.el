@@ -163,7 +163,7 @@ The weights are zoxide's."
        (* count (cond ((< age 3600) 4) ((< age 86400) 2) ((< age 604800) 0.5) (t 0.25)))))
     (_ 0)))
 
-(defun overlook--ordered-perspectives ()
+(defun overlook-ordered-perspectives ()
   "Names of all perspectives, in the order of `overlook-perspective-order'."
   (let ((names (overlook-perspectives))
         (current (overlook-current-perspective)))
@@ -385,7 +385,7 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
   "Insert each perspective's heading and rows, then those of no perspective."
   (let ((current (overlook-current-perspective))
         (first t))
-    (dolist (name (overlook--ordered-perspectives))
+    (dolist (name (overlook-ordered-perspectives))
       (unless first (insert "\n"))
       (setq first nil)
       (insert (overlook--heading name (equal name current)))
