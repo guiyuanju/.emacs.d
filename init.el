@@ -796,6 +796,12 @@
   :init
   (run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
+;; agent 之间互发消息（Erlang 式信箱），agent 经 bin/courier 调用；courier 本身不依赖 overlook。
+(use-package courier
+  :ensure nil
+  :load-path "site-lisp/courier"
+  :commands courier-cli)
+
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
   :ensure nil
@@ -822,11 +828,13 @@
   (require 'overlook-project)
   (require 'overlook-agent-shell)
   (require 'overlook-usage)
+  (require 'overlook-courier)
   (overlook-perspective-mode 1)
   (overlook-project-mode 1)
   (overlook-agent-mode 1)
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
+  (overlook-courier-mode 1)
   (add-to-list 'savehist-additional-variables 'overlook-perspective-visits)
   (require 'jgy-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
