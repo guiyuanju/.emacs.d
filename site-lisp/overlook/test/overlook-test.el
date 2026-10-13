@@ -4,6 +4,7 @@
 (require 'overlook)
 (require 'overlook-agent)
 (require 'overlook-project)
+(require 'overlook-markers)
 (require 'overlook-usage)
 
 (defvar overlook-test--perspectives nil
@@ -183,6 +184,61 @@ Agents are listed; usage and repos are not."
                                  (overlook-project-repos root))
                          '("./" "api/" "web/"))))
       (delete-directory root t))))
+
+(defmacro overlook-test-with-marked-project (root &rest body)
+  "Run BODY with ROOT bound to a marked folder of repos api/ and web/."
+  (declare (indent 1))
+  `(let ((,root (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+         (project-find-functions (list #'overlook-markers-try #'project-try-vc)))
+     (unwind-protect
+         (progn
+           (dolist (file '(".overlook" "notes/n.md" "api/a.el" "api/ignored" "web/b.el"))
+             (make-directory (file-name-directory (expand-file-name file ,root)) t)
+             (write-region "" nil (expand-file-name file ,root)))
+           (write-region "ignored\n" nil (expand-file-name "api/.gitignore" ,root))
+           (dolist (repo '("api" "web"))
+             (let ((default-directory (expand-file-name repo ,root)))
+               (call-process "git" nil nil nil "init" "-q")))
+           ,@body)
+       (delete-directory ,root t))))
+
+(ert-deftest overlook-project-marked-folder-holds-its-repos ()
+  (overlook-test-with-marked-project root
+    (should (equal (project-root (project-current nil (expand-file-name "api/" root))) root))
+    (let ((default-directory (expand-file-name "web/" root)))
+      (should (equal (overlook-agent-project-root) root)))
+    (should (equal (sort (mapcar (lambda (file) (file-relative-name file root))
+                                 (project-files (project-current nil root)))
+                         #'string<)
+                   '(".overlook" "api/.gitignore" "api/a.el" "notes/n.md" "web/b.el")))))
+
+(ert-deftest overlook-project-link-into-marked-folder-belongs-to-it ()
+  (overlook-test-with-marked-project root
+    (let ((link (make-temp-name (expand-file-name "overlook-link" temporary-file-directory))))
+      (make-symbolic-link (expand-file-name "api" root) link)
+      (unwind-protect
+          (should (equal (project-root (project-current nil link)) root))
+        (delete-file link)))))
+
+(ert-deftest overlook-project-eglot-keeps-the-repo ()
+  (defvar eglot-lsp-context)
+  (overlook-test-with-marked-project root
+    (let ((eglot-lsp-context t))
+      (should (equal (project-root (project-current nil (expand-file-name "api/" root)))
+                     (expand-file-name "api/" root))))))
+
+(ert-deftest overlook-project-unmarked-repo-stays-its-own ()
+  (overlook-test-with-marked-project root
+    (delete-file (expand-file-name ".overlook" root))
+    (should (equal (project-root (project-current nil (expand-file-name "api/" root)))
+                   (expand-file-name "api/" root)))))
+
+(ert-deftest overlook-markers-mode-registers-the-backend ()
+  (let ((project-find-functions (list #'project-try-vc)))
+    (overlook-markers-mode 1)
+    (should (eq (car project-find-functions) #'overlook-markers-try))
+    (overlook-markers-mode -1)
+    (should (equal project-find-functions (list #'project-try-vc)))))
 
 ;; Repos sit dimmed under their perspective, names aligned, their changed files under them.
 (ert-deftest overlook-project-rows-line-up-before-agents ()

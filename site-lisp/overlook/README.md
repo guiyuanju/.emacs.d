@@ -28,7 +28,8 @@ main
 
 The idea: one project per perspective, one perspective per feature.  A
 feature may span several repos, so a project is a folder holding them, and
-agents run at the project's root, seeing all of them.  When agents work
+agents run at the project's root, seeing all of them.  Mark such a folder
+with an empty `.overlook` file; a project of one repo needs nothing.  When agents work
 on several features at once, overlook shows which need you, what each is
 doing, and what it changed.
 
@@ -37,7 +38,7 @@ doing, and what it changed.
 | | |
 |---|---|
 | repo | a Git repository |
-| project | a [project.el](https://www.gnu.org/software/emacs/manual/html_node/emacs/Projects.html) project, holding one or more repos |
+| project | a [project.el](https://www.gnu.org/software/emacs/manual/html_node/emacs/Projects.html) project, holding one or more repos; a folder of several is marked by a `.overlook` file |
 | perspective | a perspective.el perspective: a project with its own buffers and window layout |
 | agent | an agent-shell session running at a project's root |
 | dashboard | a side window listing every perspective |
@@ -84,8 +85,23 @@ Turn on the modules you want; each is a global minor mode:
   (overlook-usage-mode 1))        ; Claude and Codex plan usage
 ```
 
+Folders of several repos are projects through their own mode, which needs
+nothing else of overlook, so turn it on at startup:
+
+```elisp
+(require 'overlook-markers)
+(overlook-markers-mode 1)
+```
+
 Then:
 
+- For a feature spanning several repos, put them in one folder and
+  `touch .overlook` there.  A file in any of the repos now belongs to the
+  whole folder: agents start at its root, and `project-find-file` and
+  `project-find-regexp` search every repo, each by its own `.gitignore`.
+  Eglot still starts a language server per repo.  `project-vc-dir` does
+  not work on such a folder, as it is no repo; use the repo rows on the
+  dashboard instead.
 - `M-x overlook-perspective-open-project` opens a project in a
   perspective named after it.
 - `M-x overlook-agent-start` starts an agent at the current project's
@@ -142,6 +158,8 @@ Evil users can bind the same keys in normal state:
   rest by how often and how recently you switched to them (the default),
   or the backend's order.  To remember switches across sessions:
   `(add-to-list 'savehist-additional-variables 'overlook-perspective-visits)`.
+- `overlook-markers`: the files marking a folder of several repos
+  as one project.
 - `overlook-perspective-root`: how a perspective's project root is found.
   The default guesses from the projects of its buffers.
 - `overlook-perspective-annotation`: a function of a perspective name

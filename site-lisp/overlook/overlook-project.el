@@ -36,6 +36,7 @@
 
 (require 'overlook)
 (require 'diff-mode)
+(require 'overlook-markers)
 
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
@@ -76,16 +77,6 @@ commit, nil when unknown.")
 
 (defvar overlook-project--shown nil
   "Repo directories on the dashboard as last drawn.")
-
-(defun overlook-project-repos (root)
-  "ROOT when it is a Git repo, then the Git repos directly inside it."
-  (let ((root (file-name-as-directory (expand-file-name root))))
-    (append
-     (and (file-exists-p (expand-file-name ".git" root)) (list root))
-     (seq-filter (lambda (dir) (file-exists-p (expand-file-name ".git" dir)))
-                 (mapcar #'file-name-as-directory
-                         (seq-filter #'file-directory-p
-                                     (directory-files root t "\\`[^.]" t)))))))
 
 (defun overlook-project--parse (status &optional numstat)
   "Branch and changed files from STATUS and NUMSTAT outputs.
