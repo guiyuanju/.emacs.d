@@ -57,6 +57,11 @@
   "Face of a repo's row, dimmed so agents stand out."
   :group 'overlook)
 
+(defface overlook-project-file
+  '((t :inherit overlook-project-repo))
+  "Face of a changed file's name under its repo."
+  :group 'overlook)
+
 (defconst overlook-project--file-indent "        "
   "Indent of the files under a repo, two columns past its name.")
 
@@ -190,12 +195,12 @@ and a deleted one shown as a diff."
         (apply #'+ (mapcar (lambda (file) (or (nth 3 file) 0)) files))))
 
 (defun overlook-project--file-label (file)
-  "FILE's name, its line counts or state, then its directory, dimmed."
+  "FILE's name, its line counts or state, then its directory."
   (pcase-let* ((`(,path ,code ,added ,removed) file)
                (dir (file-name-directory path))
                (state (cond ((equal code "??") " new")
                             ((string-search "D" code) " deleted"))))
-    (concat (file-name-nondirectory path)
+    (concat (propertize (file-name-nondirectory path) 'face 'overlook-project-file)
             (overlook-project--counts added removed)
             (if state (propertize state 'face 'shadow) "")
             (if dir (propertize (concat " " dir) 'face 'shadow) ""))))
