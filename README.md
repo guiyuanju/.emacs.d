@@ -75,7 +75,6 @@ Turn on the modules you want; each is a global minor mode:
   (require 'overlook-perspective)
   (require 'overlook-project)
   (require 'overlook-agent-shell)
-  (require 'overlook-follow)
   (require 'overlook-usage)
   (persp-mode 1)
   (overlook-perspective-mode 1)   ; perspectives from perspective.el
@@ -109,11 +108,9 @@ On the dashboard:
 
 | Key | |
 |---|---|
-| `RET` / `o` | visit the row: switch to a perspective, open a repo in Magit, show an agent, open a file it edited |
+| `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, compare a changed file in Ediff, show an agent |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
-| `d` | show this turn's diff of the file, or of all the agent's files |
-| `D` | toggle a window following the agent's edits |
 | `H` | hand the agent's task off to another agent |
 | `g` | redraw |
 | `q` | close |
@@ -131,10 +128,9 @@ Evil users can bind the same keys in normal state:
 - An agent: `◐` working, `⚠` waiting for you, `●` finished while you were
   not looking, `○` idle; what it is doing; how long its turn has run; how
   much of its context window is used.
-- Under an agent, the files it edited this turn with their line counts.
-  These come from agent-shell's tool call diffs, exactly as agent-shell
-  shows them, so files changed only through shell commands are not listed.
-- A repo: its branch, and after `●` how many files it has uncommitted.
+- A repo: its branch and the lines changed since its last commit, then the
+  changed files with their line counts.  These come from Git, so they show
+  every change in the working tree, whoever made it.
 
 ## Customization
 

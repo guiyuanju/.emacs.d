@@ -28,10 +28,6 @@
 ;;
 ;; - An agent's brief is the tool call waiting for permission, else the
 ;;   plan entry in progress, else its latest tool call.
-;; - The files it edited this turn, their line counts and diffs come
-;;   straight from agent-shell's tool call diffs, shown in agent-shell's
-;;   own diff view.  Files changed only through shell commands carry no
-;;   diff, so they are not listed.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
 ;;   another agent in the same project.
 
@@ -39,7 +35,6 @@
 
 (require 'overlook-agent)
 (require 'agent-shell)
-(require 'agent-shell-diff)
 (require 'acp)
 (require 'map)
 
@@ -60,49 +55,6 @@ It is formatted with the project root, the previous agent's name and the
 path of its transcript."
   :type 'string
   :group 'overlook)
-
-;;; Edits
-
-(defvar-local overlook-agent-shell--edits nil
-  "This turn's tool calls carrying diffs, as (ID . TOOL-CALL), oldest first.")
-
-(defun overlook-agent-shell--track-edit (id tool-call)
-  "Keep TOOL-CALL with ID when `agent-shell' has diffs for it."
-  (when (and id (map-elt tool-call :diffs))
-    (setq overlook-agent-shell--edits
-          (append (assoc-delete-all id (copy-sequence overlook-agent-shell--edits))
-                  (list (cons id tool-call))))
-    (overlook-agent-changed)))
-
-(defun overlook-agent-shell--files ()
-  "This turn's edited files, from agent-shell's tool call diffs.
-Rejected or failed edits are left out."
-  (let (files)
-    (pcase-dolist (`(_ . ,tool-call) overlook-agent-shell--edits)
-      (unless (equal (map-elt tool-call :status) "failed")
-        (dolist (diff (map-elt tool-call :diffs))
-          (let* ((path (expand-file-name (map-elt diff :file)
-                                         (alist-get 'root overlook-agent-identity)))
-                 (entry (or (assoc path files)
-                            (car (push (list path nil nil) files)))))
-            (setf (nth 1 entry) (append (nth 1 entry) (list diff)))
-            (when (member (map-elt tool-call :status) '("pending" "in_progress"))
-              (setf (nth 2 entry) t))))))
-    (mapcar (pcase-lambda (`(,path ,diffs ,active))
-              (let ((stats (agent-shell--diffs-line-stats diffs)))
-                `((file . ,path) (added . ,(map-elt stats :added))
-                  (removed . ,(map-elt stats :removed)) (active . ,active)
-                  (line . ,(seq-some (lambda (diff) (map-elt diff :line)) (reverse diffs)))
-                  (diffs . ,diffs))))
-            (nreverse files))))
-
-(defun overlook-agent-shell--diff (files)
-  "An `agent-shell' diff buffer of FILES' diffs, not shown."
-  (save-window-excursion
-    (agent-shell-diff :diffs (mapcan (lambda (file) (copy-sequence (alist-get 'diffs file)))
-                                     files)
-                      :title (unless (cdr files)
-                               (file-name-nondirectory (alist-get 'file (car files)))))))
 
 ;;; Brief
 
@@ -154,12 +106,9 @@ Prefers its description, as the title of a shell command is the command."
     ('input-submitted
      (setq overlook-agent-shell--asking nil
            overlook-agent-shell--plan-step nil
-           overlook-agent-shell--last-tool nil
-           overlook-agent-shell--edits nil)
+           overlook-agent-shell--last-tool nil)
      (overlook-agent-changed))
     ('tool-call-update
-     (overlook-agent-shell--track-edit (map-nested-elt event '(:data :tool-call-id))
-                                       (map-nested-elt event '(:data :tool-call)))
      (when-let* ((title (overlook-agent-shell--tool-title (map-elt event :data))))
        (overlook-agent-shell--set-brief 'overlook-agent-shell--last-tool title)))
     ('permission-request
@@ -214,8 +163,6 @@ FRESH bypasses agent-shell's session choice and starts a new conversation."
       (setq overlook-agent-identity `((agent . ,name) (root . ,root)
                                       (insert . overlook-agent-shell--insert)
                                       (context . overlook-agent-shell--context)
-                                      (files . overlook-agent-shell--files)
-                                      (diff . overlook-agent-shell--diff)
                                       (brief . overlook-agent-shell--brief)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
       (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan))

@@ -25,8 +25,8 @@
 
 ;; Tracks AI agents run by a frontend (overlook-agent-shell.el drives
 ;; agent-shell) and lists each under the perspective holding its buffer:
-;; its status, how long its turn has run, its context usage, what it is
-;; doing and the files it edited this turn.
+;; its status, how long its turn has run, its context usage and what it
+;; is doing.
 ;;
 ;; One agent of each name is reused per project root.  A frontend sets
 ;; `overlook-agent-start-function', describes each agent buffer in
@@ -69,11 +69,6 @@
   :type 'natnum
   :group 'overlook)
 
-(defcustom overlook-agent-files 5
-  "Edited files listed under an agent before the rest fold into one line."
-  :type 'natnum
-  :group 'overlook)
-
 (defface overlook-agent-waiting
   '((((background dark)) :background "#3d1c20" :extend t)
     (t :background "#fbe4e4" :extend t))
@@ -86,8 +81,8 @@
   "Face added to the row of an agent that finished unseen."
   :group 'overlook)
 
-(defconst overlook-agent--file-indent "      "
-  "Indent of the files under an agent, lining up with its name.")
+(defconst overlook-agent--wrap-indent "      "
+  "Indent of an agent row's continuation lines, lining up with its name.")
 
 ;;; State
 
@@ -95,11 +90,8 @@
   "Alist describing the agent in this buffer, set by its frontend.
 Keys: `agent' its name; `root' its directory; `insert' a function
 inserting a string into its input; `context' a function returning its
-context usage percentage or nil; `files' a function returning the files
-it edited this turn, oldest first, as alists with keys `file' (absolute),
-`added', `removed', `active' (still being written) and `line'; `diff' a
-function of such file alists returning a buffer, not yet shown, of their
-diffs; `brief' a function returning a line on what it is doing, or nil.")
+context usage percentage or nil; `brief' a function returning a line on
+what it is doing, or nil.")
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
@@ -150,16 +142,6 @@ END is nil while the turn runs.")
                 (and (overlook-agent-p buffer)
                      (or (null pred) (funcall pred buffer))))
               (buffer-list)))
-
-(defun overlook-agent-files (buffer)
-  "Return the files agent BUFFER edited this turn, from its `files' identity."
-  (when-let* ((files (overlook-agent-get buffer 'files)))
-    (with-current-buffer buffer (ignore-errors (funcall files)))))
-
-(defun overlook-agent-diff (buffer files)
-  "A buffer, not yet shown, of agent BUFFER's diffs of FILES, or nil."
-  (when-let* ((diff (and files (overlook-agent-get buffer 'diff))))
-    (with-current-buffer buffer (funcall diff files))))
 
 (defun overlook-agent-project-root ()
   "The current project's root, or `default-directory' outside a project."
@@ -400,87 +382,8 @@ works, dimmed otherwise."
          (text (overlook-fit brief room face)))
     (if text (concat gap text) "")))
 
-(defun overlook-agent--file-relative (file root)
-  "FILE relative to ROOT, or abbreviated when outside it."
-  (if (string-prefix-p (file-name-as-directory (expand-file-name root)) file)
-      (file-relative-name file root)
-    (abbreviate-file-name file)))
-
-(defun overlook-agent--counts (added removed)
-  "\" +ADDED −REMOVED\" in diff colors, leaving out a zero."
-  (cl-flet ((count (n sign face)
-              (if (and n (> n 0))
-                  (propertize (format " %s%d" sign n)
-                              'face `(:foreground ,(face-foreground face nil t)))
-                "")))
-    (concat (count added "+" 'diff-indicator-added)
-            (count removed "−" 'diff-indicator-removed))))
-
-(defun overlook-agent--file-label (file root)
-  "FILE's name, its line counts, then its directory relative to ROOT, dimmed."
-  (let-alist file
-    (let ((dir (file-name-directory (overlook-agent--file-relative .file root))))
-      (concat (propertize (file-name-nondirectory .file) 'face (if .active 'warning 'default))
-              (overlook-agent--counts .added .removed)
-              (if dir (propertize (concat " " dir) 'face 'shadow) "")))))
-
-(defun overlook-agent-visit-file (buffer file)
-  "Open FILE, edited by agent BUFFER, at its line in the agent's perspective."
-  (overlook-show-elsewhere (overlook-buffer-perspective buffer)
-                           (lambda ()
-                             (find-file (alist-get 'file file))
-                             (when-let* ((line (alist-get 'line file)))
-                               (goto-char (point-min))
-                               (forward-line (1- line))))))
-
-(defun overlook-agent--pick-file (buffer files)
-  "Pick one of FILES edited by agent BUFFER and visit it."
-  (let* ((root (or (overlook-agent-get buffer 'root) default-directory))
-         (names (mapcar (lambda (file)
-                          (cons (overlook-agent--file-relative (alist-get 'file file) root) file))
-                        files))
-         (choice (completing-read
-                  "Edited file: "
-                  (lambda (string pred action)
-                    (if (eq action 'metadata)
-                        `(metadata (display-sort-function . identity)
-                                   (annotation-function
-                                    . ,(lambda (name)
-                                         (let-alist (cdr (assoc name names))
-                                           (overlook-agent--counts .added .removed)))))
-                      (complete-with-action action names string pred)))
-                  nil t)))
-    (overlook-agent-visit-file buffer (cdr (assoc choice names)))))
-
-(defun overlook-agent--insert-files (buffer)
-  "Insert the files agent BUFFER edited this turn, under its name.
-Past `overlook-agent-files' the rest fold into one line with their totals."
-  (let* ((prefix overlook-agent--file-indent)
-         (files (overlook-agent-files buffer))
-         (root (or (overlook-agent-get buffer 'root) default-directory))
-         (rest (nthcdr overlook-agent-files files)))
-    (dolist (file (seq-take files overlook-agent-files))
-      (insert (propertize (concat prefix (overlook-agent--file-label file root) "\n")
-                          'overlook-item (list 'agent-file buffer (alist-get 'file file))
-                          'overlook-action (lambda () (overlook-agent-visit-file buffer file))
-                          'wrap-prefix prefix)))
-    (when rest
-      (insert (propertize
-               (concat prefix
-                       (propertize (format "…+%d" (length rest)) 'face 'shadow)
-                       (overlook-agent--counts
-                        (apply #'+ (mapcar (lambda (file) (or (alist-get 'added file) 0)) rest))
-                        (apply #'+ (mapcar (lambda (file) (or (alist-get 'removed file) 0)) rest)))
-                       "\n")
-               'overlook-item (list 'agent-files buffer)
-               'overlook-action (lambda () (overlook-agent--pick-file buffer files))
-               'help-echo (mapconcat (lambda (file)
-                                       (overlook-agent--file-relative (alist-get 'file file) root))
-                                     files "\n")
-               'wrap-prefix prefix)))))
-
 (defun overlook-agent--row (buffer perspective)
-  "Insert the row of agent BUFFER under PERSPECTIVE, then its edited files."
+  "Insert the row of agent BUFFER under PERSPECTIVE."
   (let* ((head (concat overlook-indent (overlook-glyph-cell (overlook-agent-glyph buffer))
                        (or (overlook-agent-get buffer 'agent) "agent")
                        (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
@@ -504,8 +407,7 @@ Past `overlook-agent-files' the rest fold into one line with their totals."
                         'overlook-attention (memq status '(waiting done))
                         'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
                                      (buffer-name buffer))
-                        'wrap-prefix overlook-agent--file-indent))
-    (overlook-agent--insert-files buffer)))
+                        'wrap-prefix overlook-agent--wrap-indent))))
 
 (defun overlook-agent--insert (perspective)
   "Insert the agents whose buffers are in PERSPECTIVE."
@@ -540,21 +442,7 @@ Past `overlook-agent-files' the rest fold into one line with their totals."
 (defun overlook-agent-at-point ()
   "The agent of the dashboard row at point, or nil."
   (pcase (overlook-item-at-point)
-    (`(agent . ,buffer) buffer)
-    (`(,(or 'agent-file 'agent-files) ,buffer . ,_) buffer)))
-
-(defun overlook-agent-show-diff ()
-  "Show this turn's diffs of the file at point, or of every file of the agent."
-  (interactive)
-  (let* ((buffer (or (overlook-agent-at-point) (user-error "No agent on this line")))
-         (file (pcase (overlook-item-at-point) (`(agent-file ,_ ,file) file)))
-         (files (seq-filter (lambda (entry)
-                              (or (null file) (equal (alist-get 'file entry) file)))
-                            (overlook-agent-files buffer)))
-         (diff (or (overlook-agent-diff buffer files)
-                   (user-error "No edits this turn"))))
-    (overlook-show-elsewhere (overlook-buffer-perspective buffer)
-                             (lambda () (pop-to-buffer diff)))))
+    (`(agent . ,buffer) buffer)))
 
 ;;;###autoload
 (define-minor-mode overlook-agent-mode
@@ -572,8 +460,6 @@ Past `overlook-agent-files' the rest fold into one line with their totals."
           (add-hook hook function)
         (remove-hook hook function))))
   (overlook-refresh))
-
-(overlook-define-key "d" #'overlook-agent-show-diff)
 
 (provide 'overlook-agent)
 ;;; overlook-agent.el ends here

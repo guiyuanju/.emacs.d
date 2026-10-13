@@ -152,28 +152,15 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) (cons 'agent beta))))
       (mapc #'kill-buffer (list alpha beta)))))
 
-(ert-deftest overlook-agent-files-listed-under-agent ()
-  (let ((alpha (overlook-test--agent "alpha")))
-    (with-current-buffer alpha
-      (setf (alist-get 'files overlook-agent-identity)
-            (lambda () '(((file . "/project/src/a.el") (added . 3) (removed . 1))))))
-    (unwind-protect
-        (overlook-test-with-dashboard `(("one" ,alpha)) "one"
-          (goto-char (point-min))
-          (search-forward "a.el")
-          (should (equal (overlook-item-at-point) (list 'agent-file alpha "/project/src/a.el")))
-          (should (eq (overlook-agent-at-point) alpha))
-          (should (string-search "a.el +3 −1 src/"
-                                 (buffer-substring-no-properties (line-beginning-position)
-                                                                 (line-end-position)))))
-      (kill-buffer alpha))))
-
 (ert-deftest overlook-project-parses-git-status ()
-  (should (equal (overlook-project--parse "## main...origin/main [ahead 1]\n M a\n?? b\n")
-                 '("main" . 2)))
-  (should (equal (overlook-project--parse "## feature/x\n") '("feature/x" . 0)))
-  (should (equal (overlook-project--parse "## No commits yet on main\n?? a\n") '("main" . 1)))
-  (should (equal (overlook-project--parse "## HEAD (no branch)\n") '("detached" . 0))))
+  (should (equal (overlook-project--parse
+                  "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"
+                  "3\t1\tsrc/a.el\0")
+                 '("main" ("src/a.el" " M" 3 1) ("b" "??"))))
+  (should (equal (overlook-project--parse "## feature/x\0") '("feature/x")))
+  (should (equal (overlook-project--parse "## No commits yet on main\0?? a\0")
+                 '("main" ("a" "??"))))
+  (should (equal (overlook-project--parse "## HEAD (no branch)\0") '("detached"))))
 
 (ert-deftest overlook-project-finds-root-and-nested-repos ()
   (let ((root (make-temp-file "overlook-project" t)))
@@ -186,7 +173,7 @@ Agents are listed; usage and repos are not."
                          '("./" "api/" "web/"))))
       (delete-directory root t))))
 
-;; Repos sit dimmed under their perspective, names aligned, before agents.
+;; Repos sit dimmed under their perspective, names aligned, their changed files under them.
 (ert-deftest overlook-project-rows-line-up-before-agents ()
   (let ((root (make-temp-file "overlook-project" t))
         (alpha (overlook-test--agent "alpha"))
@@ -195,7 +182,8 @@ Agents are listed; usage and repos are not."
         (progn
           (dolist (dir '("api/.git" "frontend/.git"))
             (make-directory (expand-file-name dir root) t))
-          (dolist (repo '(("api/" "main" . 2) ("frontend/" "dev" . 0)))
+          (dolist (repo '(("api/" "main" ("src/a.el" " M" 3 1) ("b.el" "??"))
+                          ("frontend/" "dev")))
             (puthash (file-name-as-directory (expand-file-name (car repo) root))
                      (cons (float-time) (cdr repo)) overlook-project--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
@@ -209,9 +197,17 @@ Agents are listed; usage and repos are not."
                     (frontend (progn (goto-char (point-min)) (search-forward "frontend")
                                      (buffer-substring-no-properties (line-beginning-position)
                                                                      (line-end-position)))))
-                (should (string-match-p "⎇ +api +main  ●2" api))
+                (should (string-match-p "⎇ +api +main \\+3 −1\\'" api))
                 (should (string-match-p "⎇ +frontend  dev" frontend))
                 (should (= (string-search "main" api) (string-search "dev" frontend))))
+              (goto-char (point-min))
+              (search-forward "a.el")
+              (should (equal (overlook-item-at-point)
+                             (list 'repo-file (expand-file-name "api/" root) "src/a.el")))
+              (should (string-match-p "a\\.el \\+3 −1 src/\\'"
+                                      (buffer-substring-no-properties (line-beginning-position)
+                                                                      (line-end-position))))
+              (should (< (overlook-test--line-of "b.el new") (overlook-test--line-of "frontend")))
               (goto-char (point-min))
               (search-forward "api")
               (should (eq (get-text-property (point) 'face) 'overlook-project-repo))
