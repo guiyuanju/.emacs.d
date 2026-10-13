@@ -53,8 +53,15 @@
   :group 'overlook)
 
 (defcustom overlook-agent-start-function nil
-  "Function of NAME and ROOT starting agent NAME in ROOT and returning its buffer."
+  "Function starting agent NAME in ROOT and returning its buffer.
+Called with NAME and ROOT, and to resume a saved session also with nil
+and the SESSION id."
   :type 'function
+  :group 'overlook)
+
+(defcustom overlook-agent-saved-file (locate-user-emacs-file "overlook-agents.eld")
+  "File keeping the agents to offer for resuming after a restart."
+  :type 'file
   :group 'overlook)
 
 (defcustom overlook-agent-status-glyphs
@@ -106,7 +113,8 @@
 Keys: `agent' its name; `root' its directory; `insert' a function
 inserting a string into its input; `context' a function returning its
 context usage percentage or nil; `brief' a function returning a line on
-what it is doing, or nil.")
+what it is doing, or nil; `session' a function returning its session id,
+or nil.")
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
@@ -129,6 +137,16 @@ END is nil while the turn runs.")
 
 (defvar overlook-agent--last nil
   "Name of the agent most recently started or shown.")
+
+(defvar overlook-agent-saved nil
+  "Agents of an earlier Emacs not resumed yet.
+Each is an alist with keys `agent', `root', `session' and `perspective'.")
+
+(defvar overlook-agent--saved-loaded nil
+  "Non-nil once `overlook-agent-saved-file' has been read.")
+
+(defvar overlook-agent--saved-written nil
+  "The agents last written to `overlook-agent-saved-file'.")
 
 (defvar overlook-agent-changed-hook nil
   "Hook run by `overlook-agent-changed' when some agent's state changed.")
@@ -301,14 +319,99 @@ With prefix arg FRESH, always start another instance."
                           nil t nil nil overlook-agent--last)
          current-prefix-arg))
   (let* ((root (overlook-agent--root))
-         (buffer (and (not fresh) (car (overlook-agent--project-buffers name)))))
-    (unless buffer
-      (unless overlook-agent-start-function
-        (user-error "Set `overlook-agent-start-function' first"))
-      (setq buffer (let ((default-directory root))
-                     (funcall overlook-agent-start-function name root)))
-      (overlook-agent-register buffer name))
-    (overlook-agent-show buffer)))
+         (buffer (and (not fresh) (car (overlook-agent--project-buffers name))))
+         (saved (and (not fresh) (overlook-agent--saved root name))))
+    (overlook-agent-show (cond (buffer)
+                               (saved (overlook-agent--resume saved))
+                               (t (overlook-agent--launch name root))))))
+
+(defun overlook-agent--launch (name root &optional session)
+  "Start agent NAME in ROOT, resuming SESSION when non-nil; return its buffer."
+  (unless overlook-agent-start-function
+    (user-error "Set `overlook-agent-start-function' first"))
+  (let ((buffer (let ((default-directory root))
+                  (apply overlook-agent-start-function name root
+                         (and session (list nil session))))))
+    (overlook-agent-register buffer name)
+    buffer))
+
+;;; Saved agents
+
+(defun overlook-agent--session (buffer)
+  "Session id of agent BUFFER, or nil."
+  (when-let* ((session (overlook-agent-get buffer 'session)))
+    (with-current-buffer buffer (ignore-errors (funcall session)))))
+
+(defun overlook-agent--to-save ()
+  "Running agents with a session, then the saved ones not resumed."
+  (append (delq nil (mapcar (lambda (buffer)
+                              (when-let* ((session (overlook-agent--session buffer)))
+                                `((agent . ,(overlook-agent-get buffer 'agent))
+                                  (root . ,(overlook-agent-get buffer 'root))
+                                  (session . ,session)
+                                  (perspective . ,(overlook-buffer-perspective buffer)))))
+                            (overlook-agent-buffers)))
+          overlook-agent-saved))
+
+(defun overlook-agent-save ()
+  "Write the agents to resume later to `overlook-agent-saved-file', if changed."
+  (with-demoted-errors "overlook: saving agents: %S"
+    (let ((agents (overlook-agent--to-save)))
+      (unless (equal agents overlook-agent--saved-written)
+        (make-directory (file-name-directory overlook-agent-saved-file) t)
+        (let ((print-length nil)
+              (print-level nil))
+          (with-temp-file overlook-agent-saved-file
+            (prin1 agents (current-buffer))))
+        (setq overlook-agent--saved-written agents)))))
+
+(defun overlook-agent--load-saved ()
+  "Read `overlook-agent-saved-file' once, skipping sessions already running."
+  (unless overlook-agent--saved-loaded
+    (setq overlook-agent--saved-loaded t)
+    (let ((running (mapcar #'overlook-agent--session (overlook-agent-buffers)))
+          (agents (when (file-readable-p overlook-agent-saved-file)
+                    (with-temp-buffer
+                      (insert-file-contents overlook-agent-saved-file)
+                      (ignore-errors (read (current-buffer)))))))
+      (setq overlook-agent-saved
+            (seq-remove (lambda (saved) (member (alist-get 'session saved) running))
+                        (seq-filter #'consp agents))
+            overlook-agent--saved-written agents))))
+
+(defun overlook-agent--saved (root name)
+  "The saved agent NAME of ROOT, or nil."
+  (seq-find (lambda (saved)
+              (and (equal (alist-get 'root saved) root)
+                   (equal (alist-get 'agent saved) name)))
+            overlook-agent-saved))
+
+(defun overlook-agent--resume (saved)
+  "Resume SAVED agent from `overlook-agent-saved' and return its buffer."
+  (setq overlook-agent-saved (delq saved overlook-agent-saved))
+  (let ((root (alist-get 'root saved)))
+    (unless (file-directory-p root)
+      (overlook-agent-changed)
+      (user-error "%s is gone; forgot its agent" root))
+    (overlook-agent--launch (alist-get 'agent saved) root (alist-get 'session saved))))
+
+(defun overlook-agent--saved-perspective (saved)
+  "The perspective SAVED agent was in, when it still exists."
+  (car (member (alist-get 'perspective saved) (overlook-perspectives))))
+
+(defun overlook-agent-resume-visit (saved)
+  "Resume SAVED agent in its perspective and show it there."
+  (overlook-show-elsewhere (overlook-agent--saved-perspective saved)
+                           (lambda () (overlook-agent-show (overlook-agent--resume saved)))))
+
+(defun overlook-agent-forget ()
+  "Forget the saved agent of the dashboard row at point."
+  (interactive)
+  (pcase (overlook-item-at-point)
+    (`(saved . ,saved)
+     (setq overlook-agent-saved (delq saved overlook-agent-saved))
+     (overlook-agent-changed))
+    (_ (user-error "Not on a saved agent"))))
 
 ;;;###autoload
 (defun overlook-agent-toggle ()
@@ -394,14 +497,13 @@ the duration ends a column before it, so both line up across agents."
                 (context 5)
                 (t 0)))))
 
-(defun overlook-agent--project-label (buffer perspective)
-  "Name of agent BUFFER's project, dimmed, unless it is PERSPECTIVE's."
-  (let ((root (overlook-agent-get buffer 'root)))
-    (if (and root (not (equal (and perspective (overlook-perspective-root perspective))
-                              root)))
-        (propertize (concat " " (file-name-nondirectory (directory-file-name root)))
-                    'face 'shadow)
-      "")))
+(defun overlook-agent--project-label (root perspective)
+  "Name of the project at ROOT, dimmed, unless it is PERSPECTIVE's."
+  (if (and root (not (equal (and perspective (overlook-perspective-root perspective))
+                            root)))
+      (propertize (concat " " (file-name-nondirectory (directory-file-name root)))
+                  'face 'shadow)
+    ""))
 
 (defun overlook-agent--brief (buffer)
   "Return what agent BUFFER is doing, on one line, or nil."
@@ -432,7 +534,7 @@ works, dimmed otherwise."
                        (or (overlook-agent-get buffer 'agent) "agent")
                        (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
                                                       overlook-agent-row-marks)))
-                       (overlook-agent--project-label buffer perspective)))
+                       (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)))
          (meta (overlook-agent--meta buffer))
          (brief (overlook-agent--brief buffer))
          (status (buffer-local-value 'overlook-agent-status buffer))
@@ -453,19 +555,39 @@ works, dimmed otherwise."
                                      (buffer-name buffer))
                         'wrap-prefix overlook-agent--wrap-indent))))
 
+(defun overlook-agent--saved-row (saved perspective)
+  "Insert the row of SAVED agent, dimmed, under PERSPECTIVE."
+  (let ((glyph (alist-get 'idle overlook-agent-status-glyphs)))
+    (insert (propertize
+             (concat overlook-indent
+                     (overlook-glyph-cell (propertize (car glyph) 'face 'shadow))
+                     (propertize (concat (alist-get 'agent saved) " saved") 'face 'shadow)
+                     (overlook-agent--project-label (alist-get 'root saved) perspective)
+                     "\n")
+             'overlook-item (cons 'saved saved)
+             'overlook-action (lambda () (overlook-agent-resume-visit saved))
+             'help-echo (concat "Resume session " (alist-get 'session saved))
+             'wrap-prefix overlook-agent--wrap-indent))))
+
 (defun overlook-agent--insert (perspective)
-  "Insert the agents whose buffers are in PERSPECTIVE."
+  "Insert the agents whose buffers are in PERSPECTIVE, then those saved there."
   (let ((buffers (overlook-perspective-buffers perspective)))
     (dolist (buffer (overlook-agent-buffers (lambda (buffer) (memq buffer buffers))))
-      (overlook-agent--row buffer perspective))))
+      (overlook-agent--row buffer perspective)))
+  (dolist (saved overlook-agent-saved)
+    (when (equal (overlook-agent--saved-perspective saved) perspective)
+      (overlook-agent--saved-row saved perspective))))
 
 (defun overlook-agent--insert-orphans ()
   "Insert the agents in no perspective; non-nil when there were any."
   (let ((orphans (overlook-agent-buffers
-                  (lambda (buffer) (null (overlook-buffer-perspective buffer))))))
+                  (lambda (buffer) (null (overlook-buffer-perspective buffer)))))
+        (saved (seq-remove #'overlook-agent--saved-perspective overlook-agent-saved)))
     (dolist (buffer orphans)
       (overlook-agent--row buffer nil))
-    orphans))
+    (dolist (entry saved)
+      (overlook-agent--saved-row entry nil))
+    (or orphans saved)))
 
 (defun overlook-agent--mode-line ()
   "A count of agents by state, like \"3 agents · 1 working\"."
@@ -498,12 +620,17 @@ works, dimmed otherwise."
                  (overlook-mode-line-functions . overlook-agent--mode-line)
                  (overlook-tick-hook . overlook-agent--tick)
                  (window-selection-change-functions . overlook-agent--acknowledge)
-                 (window-buffer-change-functions . overlook-agent--acknowledge))))
+                 (window-buffer-change-functions . overlook-agent--acknowledge)
+                 (overlook-agent-changed-hook . overlook-agent-save)
+                 (kill-emacs-hook . overlook-agent-save))))
+    (when overlook-agent-mode (overlook-agent--load-saved))
     (pcase-dolist (`(,hook . ,function) hooks)
       (if overlook-agent-mode
           (add-hook hook function)
         (remove-hook hook function))))
   (overlook-refresh))
+
+(overlook-define-key "x" #'overlook-agent-forget)
 
 (provide 'overlook-agent)
 ;;; overlook-agent.el ends here

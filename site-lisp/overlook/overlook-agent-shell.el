@@ -149,21 +149,28 @@ claude-agent-acp forwards them in the `_meta' of usage updates."
 
 ;;; Start
 
-(defun overlook-agent-shell-start (name root &optional fresh)
+(defun overlook-agent-shell--session ()
+  "This shell's session id, or nil before it has one."
+  (map-nested-elt agent-shell--state '(:session :id)))
+
+(defun overlook-agent-shell-start (name root &optional fresh session)
   "Start agent NAME in ROOT and return its buffer.
-FRESH bypasses agent-shell's session choice and starts a new conversation."
+FRESH bypasses agent-shell's session choice and starts a new conversation;
+SESSION resumes the session of that id."
   (let* ((make-config (or (alist-get name overlook-agent-shell-configs nil nil #'equal)
                           (user-error "No agent-shell config for %s" name)))
          (default-directory root)
          (agent-shell-cwd-function (lambda () root))
          (buffer (agent-shell--start :config (funcall make-config)
                                      :no-focus t :new-session t
-                                     :session-strategy (and fresh 'new))))
+                                     :session-strategy (and fresh 'new)
+                                     :session-id session)))
     (with-current-buffer buffer
       (setq overlook-agent-identity `((agent . ,name) (root . ,root)
                                       (insert . overlook-agent-shell--insert)
                                       (context . overlook-agent-shell--context)
-                                      (brief . overlook-agent-shell--brief)))
+                                      (brief . overlook-agent-shell--brief)
+                                      (session . overlook-agent-shell--session)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
       (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan))
         (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)

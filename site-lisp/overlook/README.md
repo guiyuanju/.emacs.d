@@ -128,6 +128,7 @@ On the dashboard:
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `H` | hand the agent's task off to another agent |
+| `x` | forget a saved agent |
 | `g` | redraw |
 | `q` | close |
 
@@ -144,6 +145,10 @@ Evil users can bind the same keys in normal state:
 - An agent: `◐` working, `⚠` waiting for you, `●` finished while you were
   not looking, `○` idle; what it is doing; how long its turn has run; how
   much of its context window is used.
+- A saved agent: `○ claude saved`, dimmed, for each agent running when
+  Emacs quit.  `RET` on it, or `overlook-agent-start` of that agent in
+  its project, resumes its session where it left off, minus a turn cut
+  short; they are kept in `overlook-agent-saved-file`.
 - When an agent turns `⚠` or `●` while no Emacs frame has focus, a
   desktop notification says so (`osascript` on macOS, D-Bus elsewhere).
   Set `overlook-agent-notify` to `t` to be told even while Emacs has

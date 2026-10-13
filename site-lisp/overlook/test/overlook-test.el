@@ -184,6 +184,77 @@ Agents are listed; usage and repos are not."
           (should (= (length sent) 1)))
       (kill-buffer agent))))
 
+(ert-deftest overlook-agent-saved-survive-a-restart ()
+  (let* ((overlook-agent-saved-file (make-temp-file "overlook-agents"))
+         (agent (overlook-test--agent "claude"))
+         (pending '((agent . "codex") (root . "/other/") (session . "s2") (perspective . "two")))
+         (overlook-agent-saved (list pending))
+         (overlook-agent--saved-written nil)
+         (overlook-agent--saved-loaded nil)
+         (overlook-perspectives-function (lambda () (list "one")))
+         (overlook-current-perspective-function (lambda () "one"))
+         (overlook-perspective-buffers-function (lambda (_) (list agent))))
+    (unwind-protect
+        (progn
+          (with-current-buffer agent
+            (push '(session . (lambda () "s1")) overlook-agent-identity))
+          (overlook-agent-save)
+          (should (equal (overlook-agent--to-save) overlook-agent--saved-written))
+          (setq overlook-agent-saved nil)
+          (overlook-agent--load-saved)
+          (should (equal overlook-agent-saved (list pending)))
+          (kill-buffer agent)
+          (setq overlook-agent--saved-loaded nil)
+          (overlook-agent--load-saved)
+          (should (equal (mapcar (lambda (saved) (alist-get 'session saved)) overlook-agent-saved)
+                         '("s1" "s2")))
+          (should (equal (alist-get 'perspective (car overlook-agent-saved)) "one")))
+      (when (buffer-live-p agent) (kill-buffer agent))
+      (delete-file overlook-agent-saved-file))))
+
+(ert-deftest overlook-agent-saved-rows-resume-their-session ()
+  (let* ((kept '((agent . "claude") (root . "/tmp/") (session . "s1") (perspective . "one")))
+         (lost '((agent . "codex") (root . "/tmp/") (session . "s2") (perspective . "gone")))
+         (overlook-agent-saved (list kept lost))
+         (started nil)
+         (resumed nil)
+         (overlook-agent-start-function
+          (lambda (name root &rest args)
+            (setq started (cons name (cons root args)))
+            (setq resumed (overlook-test--agent name)))))
+    (unwind-protect
+        (overlook-test-with-dashboard '(("one")) "one"
+          (should (< (overlook-test--line-of "one")
+                     (overlook-test--line-of "claude saved")
+                     (overlook-test--line-of "other")
+                     (overlook-test--line-of "codex saved")))
+          (goto-char (point-min))
+          (search-forward "claude saved")
+          (should (equal (overlook-item-at-point) (cons 'saved kept)))
+          (overlook-agent--resume kept)
+          (should (equal started '("claude" "/tmp/" nil "s1")))
+          (should (equal overlook-agent-saved (list lost))))
+      (when resumed (kill-buffer resumed)))))
+
+(ert-deftest overlook-agent-start-resumes-the-saved-session ()
+  (let* ((overlook-agent-saved
+          (list '((agent . "claude") (root . "/tmp/") (session . "s1") (perspective . "one"))))
+         (overlook-agent-root-function (lambda () "/tmp/"))
+         (started nil)
+         (resumed nil)
+         (overlook-agent-start-function
+          (lambda (name root &rest args)
+            (setq started (cons name (cons root args)))
+            (setq resumed (overlook-test--agent name)))))
+    (unwind-protect
+        (save-window-excursion
+          (overlook-agent-start "codex")
+          (should (equal started '("codex" "/tmp/")))
+          (overlook-agent-start "claude")
+          (should (equal started '("claude" "/tmp/" nil "s1")))
+          (should-not overlook-agent-saved))
+      (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer)))))
+
 (ert-deftest overlook-project-parses-git-status ()
   (should (equal (overlook-project--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"
