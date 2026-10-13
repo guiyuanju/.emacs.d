@@ -1,0 +1,99 @@
+;;; overlook-perspective.el --- Perspective.el backend for overlook -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; Makes each perspective.el perspective an overlook perspective.  Its
+;; project root is guessed from the projects of its buffers, unless
+;; `overlook-perspective-root' says otherwise.
+;; `overlook-perspective-open-project' opens a project.el project in a
+;; perspective named after it.
+
+;;; Code:
+
+(require 'overlook)
+(require 'perspective)
+(require 'project)
+
+(defcustom overlook-perspective-root #'overlook-perspective-guess-root
+  "Function of a perspective NAME returning its project root, or nil."
+  :type 'function
+  :group 'overlook)
+
+(defun overlook-perspective-guess-root (name)
+  "Root of the project of the first file or Dired buffer in perspective NAME."
+  (seq-some (lambda (buffer)
+              (when (or (buffer-file-name buffer)
+                        (eq (buffer-local-value 'major-mode buffer) 'dired-mode))
+                (when-let* ((project (project-current
+                                      nil (buffer-local-value 'default-directory buffer))))
+                  (project-root project))))
+            (overlook-perspective-buffers name)))
+
+(defun overlook-perspective--current ()
+  "Name of the current perspective, or nil without `persp-mode'."
+  (and (bound-and-true-p persp-mode) (persp-current-name)))
+
+(defun overlook-perspective--names ()
+  "Names of all perspectives, or nil without `persp-mode'."
+  (and (bound-and-true-p persp-mode) (persp-names)))
+
+;;;###autoload
+(defun overlook-perspective-open-project (directory)
+  "Switch to the perspective of the project in DIRECTORY, named after it.
+A new perspective opens the project's root in Dired."
+  (interactive (list (project-prompt-project-dir)))
+  (let* ((project (project-current nil directory))
+         (name (if project (project-name project)
+                 (file-name-nondirectory (directory-file-name directory))))
+         (new (not (member name (persp-names)))))
+    (overlook-switch-perspective name)
+    (when new (dired (if project (project-root project) directory)))))
+
+;;;###autoload
+(define-minor-mode overlook-perspective-mode
+  "Let overlook show perspective.el's perspectives."
+  :global t
+  :group 'overlook
+  (if overlook-perspective-mode
+      (progn
+        (setq overlook-perspectives-function #'overlook-perspective--names
+              overlook-current-perspective-function #'overlook-perspective--current
+              overlook-switch-perspective-function #'persp-switch
+              overlook-perspective-buffers-function #'persp-get-buffers
+              overlook-perspective-root-function
+              (lambda (name) (funcall overlook-perspective-root name)))
+        (add-hook 'persp-switch-hook #'overlook-perspective-switched)
+        (dolist (hook '(persp-created-hook persp-killed-hook persp-after-rename-hook))
+          (add-hook hook #'overlook-refresh)))
+    (setq overlook-perspectives-function #'ignore
+          overlook-current-perspective-function #'ignore
+          overlook-switch-perspective-function #'ignore
+          overlook-perspective-buffers-function #'ignore
+          overlook-perspective-root-function #'ignore)
+    (remove-hook 'persp-switch-hook #'overlook-perspective-switched)
+    (dolist (hook '(persp-created-hook persp-killed-hook persp-after-rename-hook))
+      (remove-hook hook #'overlook-refresh))))
+
+(provide 'overlook-perspective)
+;;; overlook-perspective.el ends here
