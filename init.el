@@ -325,6 +325,11 @@
     (consult-customize consult-source-buffer :hidden t :default nil)
     (add-to-list 'consult-buffer-sources persp-consult-source)))
 
+(defun jgy-last-buffer ()
+  "Switch to the most recently used other buffer of this perspective."
+  (interactive)
+  (switch-to-buffer (persp-other-buffer (current-buffer))))
+
 ;;; Modal editing
 
 (use-package evil
@@ -552,7 +557,7 @@ history has done to `default-directory'."
     "*"   '(jgy-search-symbol-at-point :which-key "search symbol")
     ":"   '(execute-extended-command :which-key "M-x")
     ";"   '(dired-jump :which-key "dired here")
-    "`"   '(mode-line-other-buffer :which-key "last buffer")
+    "`"   '(jgy-last-buffer :which-key "last buffer")
     "\\"  '(vertico-repeat :which-key "resume completion")
     "'"   '(jgy-ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
