@@ -3,6 +3,8 @@
 ;;; Commentary:
 ;; workspace（~/workspace/me、okj…）→ 项目 projects/<id>/（project.md）→ 若干 repo（各一个 git 仓库）；
 ;; 每个项目对应一个同名 perspective。
+;; 位置固定的 repo（如 ~/.emacs.d）不搬进项目文件夹，用 `jgy-workspace-project-roots' 指过去：
+;; project.md 仍在 workspace，看板、agent 以那个目录为项目根。
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 
@@ -34,9 +36,27 @@
 (defvar jgy-workspace-directory "~/workspace/"
   "Directory containing workspaces, each with a projects/ folder.")
 
+(defcustom jgy-workspace-project-roots nil
+  "Alist of project id to its root outside the workspaces.
+The project's card stays in its workspace folder; the dashboard lists
+the repos of the root, and agents started in the card folder run there."
+  :type '(alist :key-type string :value-type directory)
+  :group 'overlook)
+
+(defun jgy-workspace--root (id)
+  "Root of project ID from `jgy-workspace-project-roots', or nil."
+  (when-let* ((dir (cdr (assoc id jgy-workspace-project-roots))))
+    (file-name-as-directory (expand-file-name dir))))
+
+(defun jgy-workspace--root-id (&optional directory)
+  "Id of the project whose root in `jgy-workspace-project-roots' holds DIRECTORY."
+  (car (seq-find (lambda (entry)
+                   (file-in-directory-p (or directory default-directory) (cdr entry)))
+                 jgy-workspace-project-roots)))
+
 (defun jgy-workspace-project-root (&optional directory)
   "Return the <workspace>/projects/<id>/ folder containing DIRECTORY, or nil.
-Symlinks are resolved first, so ~/.emacs.d finds the project it links into."
+Symlinks are resolved first, so a link into a project folder finds it."
   (let ((dir (file-name-as-directory (file-truename (or directory default-directory))))
         (base (file-name-as-directory (file-truename jgy-workspace-directory))))
     (when (string-match (concat "\\`" (regexp-quote base) "[^/]+/projects/[^./][^/]*/") dir)
@@ -94,10 +114,13 @@ A new perspective opens project.md; an existing one keeps its windows."
       (when new (find-file file)))))
 
 (defun jgy-workspace-visit-project-md ()
-  "Open the project.md of the current project folder."
+  "Open the project.md of the current project folder or root."
   (interactive)
-  (find-file (expand-file-name "project.md" (or (jgy-workspace-project-root)
-                                                (user-error "Not inside a project folder")))))
+  (find-file (expand-file-name "project.md"
+                               (or (jgy-workspace-project-root)
+                                   (when-let* ((id (jgy-workspace--root-id)))
+                                     (jgy-workspace-project-dir id))
+                                   (user-error "Not inside a project folder")))))
 
 (defun jgy-workspace-clone-repo (repo)
   "Clone the origin of REPO into the current project.
@@ -152,12 +175,17 @@ REPO is a <group>/<repo> checkout under `jgy-workspace-code-directory'."
     (file-name-directory card)))
 
 (defun jgy-workspace-agent-root ()
-  "Return the project folder when inside one, else the version-control root."
-  (or (jgy-workspace-project-root) (overlook-agent-project-root)))
+  "Return the project's root when inside its folder, else the version-control root.
+A project in `jgy-workspace-project-roots' has its root there."
+  (if-let* ((folder (jgy-workspace-project-root)))
+      (or (jgy-workspace--root (file-name-nondirectory (directory-file-name folder))) folder)
+    (overlook-agent-project-root)))
 
 (defun jgy-workspace-perspective-root (name)
-  "Root of perspective NAME: the project folder of that id, else a guess."
-  (or (jgy-workspace-project-dir name) (overlook-perspective-guess-root name)))
+  "Root of perspective NAME: the root or project folder of that id, else a guess."
+  (or (jgy-workspace--root name)
+      (jgy-workspace-project-dir name)
+      (overlook-perspective-guess-root name)))
 
 (defun jgy-workspace-perspective-workspace (name)
   "Name of the workspace holding project NAME, or nil."

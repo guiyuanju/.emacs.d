@@ -574,6 +574,9 @@
 (use-package jgy-workspace
   :ensure nil
   :demand t
+  :custom
+  ;; 位置固定的 repo 不软链进项目文件夹，在这里指给项目。
+  (jgy-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
   :config
   (add-hook 'window-buffer-change-functions #'jgy-persp-record)
   (add-hook 'window-selection-change-functions #'jgy-persp-record)
