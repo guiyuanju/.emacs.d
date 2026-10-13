@@ -830,6 +830,13 @@ column and miscounts after wide prompt glyphs such as ➜."
   :ensure t
   :demand t)
 
+(use-package ediff
+  :ensure nil
+  :custom
+  ;; 控制面板放在当前 frame 里，而不是借主 frame minibuffer 的独立小 frame。
+  (ediff-window-setup-function #'ediff-setup-windows-plain)
+  (ediff-split-window-function #'split-window-horizontally))
+
 (use-package magit
   :custom
   (magit-ediff-dwim-show-on-hunks t)
@@ -1122,7 +1129,6 @@ column and miscounts after wide prompt glyphs such as ➜."
   (require 'overlook-perspective)
   (require 'overlook-project)
   (require 'overlook-agent-shell)
-  (require 'overlook-follow)
   (require 'overlook-usage)
   (overlook-perspective-mode 1)
   (overlook-project-mode 1)
