@@ -140,6 +140,12 @@ Evil users can bind the same keys in normal state:
 
 `M-x customize-group RET overlook`.  Among others:
 
+- `overlook-side`, `overlook-width`: where the dashboard sits, and how
+  wide it is in columns or as a fraction of the frame.
+- `overlook-perspective-order`: the current perspective first, then the
+  rest by how often and how recently you switched to them (the default),
+  or the backend's order.  To remember switches across sessions:
+  `(add-to-list 'savehist-additional-variables 'overlook-perspective-visits)`.
 - `overlook-perspective-root`: how a perspective's project root is found.
   The default guesses from the projects of its buffers.
 - `overlook-agent-root-function`: the directory agents start in.

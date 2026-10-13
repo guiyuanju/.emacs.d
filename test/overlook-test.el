@@ -47,6 +47,19 @@ Agents are listed; usage and repos are not."
     (search-forward text)
     (line-number-at-pos)))
 
+(ert-deftest overlook-perspectives-current-first-then-frecency ()
+  (let ((overlook-perspective-visits
+         `(("one" 1 . ,(float-time))
+           ("two" 5 . ,(- (float-time) 7200))
+           ("three" 9 . ,(float-time)))))
+    (overlook-test-with-dashboard '(("one") ("two") ("three") ("four")) "three"
+      (should (< (overlook-test--line-of "three") (overlook-test--line-of "two")
+                 (overlook-test--line-of "one") (overlook-test--line-of "four"))))
+    (let ((overlook-perspective-order 'backend))
+      (overlook-test-with-dashboard '(("one") ("two") ("three") ("four")) "three"
+        (should (< (overlook-test--line-of "one") (overlook-test--line-of "two")
+                   (overlook-test--line-of "three") (overlook-test--line-of "four")))))))
+
 (ert-deftest overlook-sections-follow-hook-depth ()
   (let ((overlook-sections nil)
         (overlook-usage--rows '(("claude" ("5h" 10 nil))))
@@ -69,7 +82,8 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-agents-sit-under-their-perspective ()
   (let ((alpha (overlook-test--agent "alpha"))
         (beta (overlook-test--agent "beta"))
-        (stray (overlook-test--agent "stray")))
+        (stray (overlook-test--agent "stray"))
+        (overlook-perspective-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,beta)) "two"
           (should (< (overlook-test--line-of "one")
