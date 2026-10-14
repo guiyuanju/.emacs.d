@@ -58,11 +58,6 @@ A message an agent sends while handling one is a hop further along."
   :type 'natnum
   :group 'courier)
 
-(defcustom courier-reply-limit 4000
-  "Characters of an agent's reply passed on to the agents monitoring it."
-  :type 'natnum
-  :group 'courier)
-
 (defcustom courier-retry-interval 2
   "Seconds between delivery attempts while some agent is not ready."
   :type 'number
@@ -195,7 +190,8 @@ Returns the new agent's id."
   (concat (format "You are %s, an agent reachable through courier." id)
           (when from
             (format "  %s started you for the task below and is told your final \
-reply when you finish your turn, so end with what it needs to know." from))
+reply when you finish your turn, so end with what it needs to know, and \
+call no tools after that reply." from))
           "  Message another agent with `courier send ID MESSAGE`; `courier list` \
 shows them."))
 
@@ -232,14 +228,12 @@ A turn courier did not deliver comes from a human, so its hops restart."
     (courier--schedule)))
 
 (defun courier--reply (agent)
-  "AGENT's last reply, cut to `courier-reply-limit', or nil."
+  "AGENT's last reply, or nil."
   (when-let* ((reply (courier-agent-reply agent))
               (text (ignore-errors (funcall reply)))
               (text (string-trim text))
               ((not (string-empty-p text))))
-    (if (> (length text) courier-reply-limit)
-        (concat (substring text 0 courier-reply-limit) "\n[…cut]")
-      text)))
+    text))
 
 ;;; Delivery
 

@@ -84,6 +84,15 @@
     (courier-deliver)
     (should (= (length (courier-test--received "a@p")) 1))))
 
+(ert-deftest courier-monitor-passes-a-long-reply-whole ()
+  (courier-test-with-agents '("a@p" "b@p")
+    (courier-monitor "a@p" "b@p")
+    (let ((reply (concat (make-string 10000 ?x) "end")))
+      (setf (alist-get "b@p" courier-test--replies nil nil #'equal) reply)
+      (courier-turn-finished "b@p")
+      (courier-deliver)
+      (should (string-suffix-p reply (car (courier-test--received "a@p")))))))
+
 (ert-deftest courier-monitor-hears-when-the-agent-is-gone ()
   (courier-test-with-agents '("a@p")
     (let ((buffer (generate-new-buffer "b")))
