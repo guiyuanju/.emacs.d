@@ -795,6 +795,8 @@
   :config
   ;; overlook 要在第一个 shell 启动前接管，才能给 agent 进程加上环境变量。
   (require 'overlook)
+  ;; 声明 elicitation 能力后 Claude 才会拿到 AskUserQuestion 工具；实验功能，只有内部变量可开。
+  (setq agent-shell-elicitation--experimental-feature-enabled t)
   ;; Antigravity 等二进制 ACP agent 由 jgy-agent-update 装在 var/acp/ 下。
   (jgy-agent-update-acp-use))
 
