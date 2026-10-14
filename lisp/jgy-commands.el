@@ -10,7 +10,6 @@
 (declare-function ghostel "ghostel")
 (declare-function ghostel-project "ghostel")
 (declare-function ghostel-project-buffer-list "ghostel")
-(declare-function overlook-agent-start "overlook-agent")
 (defvar ghostel-buffer-name)
 
 (defun jgy-delete-this-file (&optional force)
@@ -113,13 +112,6 @@ history has done to `default-directory'."
    (t (jgy-toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
-
-(dolist (name '("claude" "codex" "pi"))
-  (defalias (intern (concat "jgy-agent-start-" name))
-    (lambda (&optional fresh)
-      (interactive "P")
-      (overlook-agent-start name fresh))
-    (format "Start or show %s for the current project." name)))
 
 (provide 'jgy-commands)
 ;;; jgy-commands.el ends here

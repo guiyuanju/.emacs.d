@@ -385,11 +385,11 @@
     "TAB k"   '(persp-remove-buffer :which-key "remove buffer")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(overlook-agent-toggle :which-key "agent toggle")
-    "aA" '(overlook-agent-start :which-key "start agent")
-    "ac" '(jgy-agent-start-claude :which-key "Claude Code")
-    "ax" '(jgy-agent-start-codex :which-key "Codex")
-    "ai" '(jgy-agent-start-pi :which-key "Pi agent")
+    "aa" '(agent-shell :which-key "agent toggle")
+    "aA" '(agent-shell-new-shell :which-key "start agent")
+    "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
+    "ax" '(agent-shell-openai-start-codex :which-key "Codex")
+    "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
     "al" '(overlook-agent-switch :which-key "list agents")
     "ad" '(overlook :which-key "dashboard")
     "ae" '(overlook-agent-send :which-key "send to agent")
@@ -772,11 +772,12 @@
 
 ;;; AI
 
-;; agent 由 overlook 管理（按 perspective 分组的看板），经 agent-shell 用 ACP 运行；
-;; 在项目文件夹内时以项目根为工作目录。overlook 以 git subtree 放在 site-lisp/overlook，直接在那里开发。
+;; agent 用 agent-shell 自己的命令启动，经 ACP 运行；overlook 接管每个 agent-shell buffer，
+;; 按 perspective 分组显示在看板上。在项目文件夹内时以项目根为工作目录。overlook 以 git subtree 放在 site-lisp/overlook，直接在那里开发。
 
 (use-package agent-shell
   :defer t
+  :commands (agent-shell-anthropic-start-claude-code agent-shell-openai-start-codex)
   :custom
   (agent-shell-header-style 'text)
   ;; An 8-frame braille ring instead of agent-shell's default "░░░" bar.
@@ -785,7 +786,11 @@
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-context-sources '(region))
-  (agent-shell-dot-subdir-function #'jgy-agent-shell-dot-subdir))
+  (agent-shell-dot-subdir-function #'jgy-agent-shell-dot-subdir)
+  (agent-shell-cwd-function #'jgy-workspace-agent-root)
+  :config
+  ;; overlook 要在第一个 shell 启动前接管，才能给 agent 进程加上环境变量。
+  (require 'overlook))
 
 (use-package jgy-agent-shell
   :ensure nil
@@ -809,9 +814,8 @@
 (use-package overlook
   :ensure nil
   :load-path "site-lisp/overlook"
-  :commands (overlook overlook-agent-start overlook-agent-toggle overlook-agent-switch
-             overlook-agent-send overlook-agent-shell-handoff overlook-agent-project-root
-             overlook-perspective-guess-root)
+  :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
+             overlook-agent-project-root overlook-perspective-guess-root)
   :custom
   (overlook-side 'left)
   (overlook-width 0.26)
