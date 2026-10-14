@@ -258,6 +258,13 @@
     (consult-customize consult-source-buffer :hidden t :default nil)
     (add-to-list 'consult-buffer-sources persp-consult-source)))
 
+;; SPC ` 切回当前 perspective 里上一个用过的 buffer。
+(use-package jgy-perspective
+  :ensure nil
+  :demand t
+  :config
+  (jgy-persp-history-mode 1))
+
 ;;; Modal editing
 
 (use-package evil
@@ -578,8 +585,6 @@
   ;; 位置固定的 repo 不软链进项目文件夹，在这里指给项目。
   (jgy-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
   :config
-  (add-hook 'window-buffer-change-functions #'jgy-persp-record)
-  (add-hook 'window-selection-change-functions #'jgy-persp-record)
   (jgy-workspace-dashboard-mode 1))
 
 ;; 有 .overlook 的项目文件夹连同其中所有 clone 算一个 project；启动时就要生效，不等看板加载。
@@ -772,8 +777,7 @@
 
 ;;; AI
 
-;; agent 用 agent-shell 自己的命令启动，经 ACP 运行；overlook 接管每个 agent-shell buffer，
-;; 按 perspective 分组显示在看板上。在项目文件夹内时以项目根为工作目录。overlook 以 git subtree 放在 site-lisp/overlook，直接在那里开发。
+;; agent 用 agent-shell 自己的命令启动，overlook 接管每个 agent-shell buffer 并按 perspective 分组显示在看板上。
 
 (use-package agent-shell
   :defer t
