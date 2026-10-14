@@ -11,6 +11,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'crm)
 (require 'project)
 (require 'seq)
 (require 'subr-x)
@@ -198,8 +199,13 @@ The repositories are read with `completing-read-multiple'; none is fine."
   (interactive (list (string-trim (read-string "New project id: "))))
   (let* ((file (jgy-workspace--new-project id))
          (root (file-name-directory file))
-         (repos (completing-read-multiple "Clone repositories (empty for none): "
-                                          (jgy-workspace--clone-sources root) nil t)))
+         (sources (jgy-workspace--clone-sources root))
+         ;; A function instead of t lets vertico select the empty prompt.
+         (repos (completing-read-multiple
+                 "Clone repositories (empty for none): " sources nil
+                 (lambda (input)
+                   (seq-every-p (lambda (repo) (member repo sources))
+                                (split-string input crm-separator t))))))
     (jgy-workspace--switch id file)
     (dolist (repo repos)
       (jgy-workspace-clone-repo repo root))))
