@@ -381,6 +381,7 @@
     "TAB"     '(:ignore t :which-key "perspective")
     "TAB TAB" '(persp-switch :which-key "switch")
     "TAB o"   '(jgy-workspace-open-project :which-key "open project")
+    "TAB n"   '(jgy-workspace-new-project :which-key "new project")
     "TAB c"   '(jgy-workspace-clone-repo :which-key "clone repo")
     "TAB p"   '(jgy-workspace-visit-project-md :which-key "project.md")
     "TAB ["   '(persp-prev :which-key "previous")

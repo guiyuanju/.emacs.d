@@ -130,7 +130,7 @@ Globbed again only when the workspace root or a projects/ folder changes."
   "Read a workspace name and return its projects folder."
   (let* ((base (jgy-workspace--base))
          (names (mapcar (lambda (dir) (file-name-nondirectory (directory-file-name
-                                                                (file-name-directory dir))))
+                                                                (file-name-parent-directory dir))))
                         (file-expand-wildcards (expand-file-name "*/projects/" base))))
          (name (if (cdr names)
                    (completing-read "Workspace: " names nil t)
@@ -167,21 +167,41 @@ Globbed again only when the workspace root or a projects/ folder changes."
     (write-region "" nil (expand-file-name ".overlook" (file-name-directory file)))
     (write-region text nil file nil nil nil 'excl)))
 
+(defun jgy-workspace--new-project (id)
+  "Create project ID in a workspace read from the user; return its project.md."
+  (jgy-workspace--check-new-id id)
+  (when (assoc id (jgy-workspace--projects)) (user-error "Project %s exists" id))
+  (jgy-workspace--template)
+  (let ((file (expand-file-name (concat id "/project.md") (jgy-workspace--read-workspace))))
+    (jgy-workspace--create-project file id (read-string "Title: "))
+    file))
+
+(defun jgy-workspace--switch (id file)
+  "Switch to the perspective of project ID; a new one opens its project.md FILE."
+  (let ((new (not (member id (persp-names)))))
+    (persp-switch id)
+    (when new (find-file file))))
+
 (defun jgy-workspace-open-project (id)
   "Switch to the perspective of project ID, creating the project when it is new.
 A new perspective opens project.md; an existing one keeps its windows."
   (interactive (list (string-trim
                       (completing-read "Project: " (mapcar #'jgy-workspace--file-id
                                                            (jgy-workspace--projects-by-mtime))))))
-  (let ((file (cdr (assoc id (jgy-workspace--projects)))))
-    (unless file
-      (jgy-workspace--check-new-id id)
-      (jgy-workspace--template)
-      (setq file (expand-file-name (concat id "/project.md") (jgy-workspace--read-workspace)))
-      (jgy-workspace--create-project file id (read-string "Title: ")))
-    (let ((new (not (member id (persp-names)))))
-      (persp-switch id)
-      (when new (find-file file)))))
+  (jgy-workspace--switch id (or (cdr (assoc id (jgy-workspace--projects)))
+                                (jgy-workspace--new-project id))))
+
+(defun jgy-workspace-new-project (id)
+  "Create project ID, clone repositories into it and open it in its perspective.
+The repositories are read with `completing-read-multiple'; none is fine."
+  (interactive (list (string-trim (read-string "New project id: "))))
+  (let* ((file (jgy-workspace--new-project id))
+         (root (file-name-directory file))
+         (repos (completing-read-multiple "Clone repositories (empty for none): "
+                                          (jgy-workspace--clone-sources root) nil t)))
+    (jgy-workspace--switch id file)
+    (dolist (repo repos)
+      (jgy-workspace-clone-repo repo root))))
 
 (defun jgy-workspace-visit-project-md ()
   "Open the project.md of the current project folder or root."
@@ -192,19 +212,22 @@ A new perspective opens project.md; an existing one keeps its windows."
                                      (jgy-workspace-project-dir id))
                                    (user-error "Not inside a project folder")))))
 
-(defun jgy-workspace--clone-sources ()
-  "Checkouts under `jgy-workspace-code-directories'."
-  (mapcan (lambda (dir)
-            (mapcar (lambda (git) (abbreviate-file-name (file-name-directory git)))
-                    (file-expand-wildcards (expand-file-name "*/.git" dir))))
-          jgy-workspace-code-directories))
+(defun jgy-workspace--clone-sources (root)
+  "Checkouts to clone into project folder ROOT.
+They are the repos/ of ROOT's workspace and `jgy-workspace-code-directories'."
+  (delete-dups
+   (mapcan (lambda (dir)
+             (mapcar (lambda (git) (abbreviate-file-name (file-name-directory git)))
+                     (file-expand-wildcards (expand-file-name "*/.git" dir))))
+           (cons (expand-file-name "../../repos/" root) jgy-workspace-code-directories))))
 
-(defun jgy-workspace-clone-repo (repo)
-  "Clone the origin of REPO into the current project.
-REPO is a checkout directory under `jgy-workspace-code-directories'."
+(defun jgy-workspace-clone-repo (repo &optional root)
+  "Clone the origin of REPO into project folder ROOT, by default the current one.
+REPO is a checkout from `jgy-workspace--clone-sources'."
   (interactive
-   (list (completing-read "Repository: " (jgy-workspace--clone-sources) nil t)))
-  (let* ((root (or (jgy-workspace-project-root) (user-error "Not inside a project folder")))
+   (let ((root (or (jgy-workspace-project-root) (user-error "Not inside a project folder"))))
+     (list (completing-read "Repository: " (jgy-workspace--clone-sources root) nil t) root)))
+  (let* ((root (or root (jgy-workspace-project-root) (user-error "Not inside a project folder")))
          (target (expand-file-name (file-name-nondirectory (directory-file-name repo)) root))
          (url (car (process-lines "git" "-C" (expand-file-name repo) "remote" "get-url" "origin"))))
     (when (file-exists-p target) (user-error "%s already exists" target))
