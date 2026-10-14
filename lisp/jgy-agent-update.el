@@ -3,8 +3,9 @@
 ;;; Commentary:
 ;; agent 由 acp.el + agent-shell 驱动，跑的是 npm 全局装的 ACP adapter 和 agent 本体。
 ;; 任何一层落后，ACP 握手、以及 overlook 读取 Claude 用量的 _meta 字段都可能对不上。
-;; 启动后空闲时查一遍：npm 包问 registry，Homebrew cask 问 brew，Emacs 包 fetch 后比对 upstream；
-;; 旧的和根本没装的一起提示，确认后 npm 装 @latest、brew 升级或安装、elpaca 拉新版。
+;; 启动后空闲时查一遍：npm 包问 registry，Homebrew cask 问 brew，Emacs 包 fetch 后比对 upstream，
+;; 以二进制发布的 ACP agent（如 Antigravity）问 ACP registry；
+;; 旧的和根本没装的一起提示，确认后 npm 装 @latest、brew 升级或安装、elpaca 拉新版、二进制下载解压。
 ;; 终端用的 claude 来自 Homebrew cask，与 adapter 自带的那份互不相干，所以两边都查。
 ;; claude 和 codex 本体是各自 ACP adapter 的依赖，随它一起更新，所以不单独列。
 
@@ -31,8 +32,23 @@ they are not listed.")
 (defconst jgy-agent-update-elpaca-packages '(acp shell-maker agent-shell)
   "Emacs packages driving the agents, updated through elpaca.")
 
+(defconst jgy-agent-update-acp-binaries
+  '(("antigravity-acp" . agent-shell-antigravity-acp-command))
+  "ACP registry agents shipped as binaries, each with its command variable.
+They are installed under `jgy-agent-update-acp-directory', and
+`jgy-agent-update-acp-use' points the variables at them.")
+
+(defvar jgy-agent-update-acp-directory (locate-user-emacs-file "var/acp/")
+  "Folder holding one folder per agent of `jgy-agent-update-acp-binaries'.
+Each folder also keeps the registry entry it was installed from, as agent.json.")
+
+(defconst jgy-agent-update-acp-registry
+  "https://raw.githubusercontent.com/agentclientprotocol/registry/main/%s/agent.json"
+  "URL of an ACP registry entry, given the agent's id.")
+
 ;; A finding is (KIND LABEL DETAIL PAYLOAD): KIND says how to install it, LABEL
-;; and DETAIL are for the prompt, PAYLOAD is the npm package or the elpaca id.
+;; and DETAIL are for the prompt, PAYLOAD is the npm package, the elpaca id or,
+;; for an ACP binary, its id and registry entry.
 (defvar jgy-agent-update--findings nil
   "What the check in progress has found so far.")
 
@@ -161,6 +177,89 @@ INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
                            id)
                      jgy-agent-update--findings)))))))))
 
+;;;; ACP registry binaries
+
+(defun jgy-agent-update--acp-platform ()
+  "This machine's platform as the ACP registry names it, like darwin-aarch64."
+  (format "%s-%s"
+          (pcase system-type ('darwin "darwin") ('windows-nt "windows") (_ "linux"))
+          (pcase (car (split-string system-configuration "-"))
+            ((or "x86_64" "amd64") "x86_64")
+            ((or "aarch64" "arm64") "aarch64")
+            (arch arch))))
+
+(defun jgy-agent-update--acp-folder (id)
+  "The folder agent ID is installed in, without a trailing slash."
+  (directory-file-name (expand-file-name id jgy-agent-update-acp-directory)))
+
+(defun jgy-agent-update--acp-installed (id)
+  "The registry entry agent ID was installed from, or nil if it is not installed."
+  (let ((file (expand-file-name "agent.json" (jgy-agent-update--acp-folder id))))
+    (when (file-readable-p file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (ignore-errors (json-parse-buffer :object-type 'alist))))))
+
+(defun jgy-agent-update--acp-binary (entry)
+  "The binary distribution of registry ENTRY for this platform."
+  (alist-get (intern (jgy-agent-update--acp-platform))
+             (alist-get 'binary (alist-get 'distribution entry))))
+
+(defun jgy-agent-update-acp-use ()
+  "Point the command variable of each installed ACP binary agent at it."
+  (pcase-dolist (`(,id . ,variable) jgy-agent-update-acp-binaries)
+    (when-let* ((binary (jgy-agent-update--acp-binary (jgy-agent-update--acp-installed id))))
+      (set variable (cons (expand-file-name (alist-get 'cmd binary)
+                                            (jgy-agent-update--acp-folder id))
+                          (append (alist-get 'args binary) nil))))))
+
+(defun jgy-agent-update--check-acp ()
+  "Ask the ACP registry which of the watched binary agents are missing or behind."
+  (pcase-dolist (`(,id . ,_variable) jgy-agent-update-acp-binaries)
+    (jgy-agent-update--probe
+     (format "acp-registry-%s" id)
+     (concat "curl -fsSL " (shell-quote-argument (format jgy-agent-update-acp-registry id)))
+     nil
+     (lambda (output _status)
+       (let* ((entry (jgy-agent-update--json output))
+              (latest (alist-get 'version entry))
+              (current (alist-get 'version (jgy-agent-update--acp-installed id))))
+         (when (and latest (jgy-agent-update--acp-binary entry)
+                    (not (equal current latest)))
+           (push (list 'acp id (if current (format "%s→%s" current latest) "not installed")
+                       (list id output))
+                 jgy-agent-update--findings)))))))
+
+(defconst jgy-agent-update--acp-install-script
+  "set -e
+tmp=$(mktemp -d)
+trap 'rm -rf \"$tmp\"' EXIT
+curl -fsSL -o \"$tmp/archive\" \"$1\"
+mkdir \"$tmp/agent\"
+case \"$1\" in
+  *.zip) unzip -q \"$tmp/archive\" -d \"$tmp/agent\" ;;
+  *) tar -xf \"$tmp/archive\" -C \"$tmp/agent\" ;;
+esac
+chmod +x \"$tmp/agent/$4\"
+printf '%s' \"$3\" > \"$tmp/agent/agent.json\"
+mkdir -p \"$(dirname \"$2\")\"
+rm -rf \"$2.old\"
+if [ -e \"$2\" ]; then mv \"$2\" \"$2.old\"; fi
+mv \"$tmp/agent\" \"$2\"
+rm -rf \"$2.old\""
+  "Install an ACP binary: $1 archive URL, $2 folder, $3 registry entry, $4 command.
+The new folder replaces the old one whole, so running agents keep their binary.")
+
+(defun jgy-agent-update--acp-install-command (payload)
+  "The command installing PAYLOAD, a list of the agent's id and its registry entry."
+  (pcase-let* ((`(,id ,json) payload)
+               (binary (jgy-agent-update--acp-binary (jgy-agent-update--json json))))
+    (list "sh" "-c" jgy-agent-update--acp-install-script "sh"
+          (alist-get 'archive binary) (jgy-agent-update--acp-folder id) json
+          (alist-get 'cmd binary))))
+
+;;;; Installing
+
 (defun jgy-agent-update--install (findings)
   "Install every update in FINDINGS, each at its latest version."
   (let ((ids (jgy-agent-update--payloads 'elpaca findings)))
@@ -175,12 +274,15 @@ INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
          (upgrade (jgy-agent-update--payloads 'brew-upgrade findings))
          (install (jgy-agent-update--payloads 'brew-install findings))
          (commands
-          (delq nil
-                (list (and npm (append '("npm" "install" "--global")
-                                       (mapcar (lambda (name) (concat name "@latest"))
-                                               npm)))
-                      (and upgrade (append '("brew" "upgrade" "--cask") upgrade))
-                      (and install (append '("brew" "install" "--cask") install))))))
+          (append
+           (delq nil
+                 (list (and npm (append '("npm" "install" "--global")
+                                        (mapcar (lambda (name) (concat name "@latest"))
+                                                npm)))
+                       (and upgrade (append '("brew" "upgrade" "--cask") upgrade))
+                       (and install (append '("brew" "install" "--cask") install))))
+           (mapcar #'jgy-agent-update--acp-install-command
+                   (jgy-agent-update--payloads 'acp findings)))))
     (when commands
       (with-current-buffer (get-buffer-create "*agent update*") (erase-buffer))
       (jgy-agent-update--run commands))))
@@ -189,7 +291,9 @@ INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
   "Run COMMANDS one after another in the *agent update* buffer.
 One at a time, since concurrent brew commands contend for brew's lock."
   (if (null commands)
-      (message "Agents updated; restart any running agent shell")
+      (progn
+        (jgy-agent-update-acp-use)
+        (message "Agents updated; restart any running agent shell"))
     (let ((buffer (get-buffer "*agent update*"))
           (command (car commands)))
       (make-process
@@ -212,10 +316,11 @@ One at a time, since concurrent brew commands contend for brew's lock."
       (jgy-agent-update--install findings))))
 
 (defun jgy-agent-update-check (&optional verbose)
-  "Offer to install the agent updates npm and elpaca report.
+  "Offer to install the updates npm, brew, elpaca and the ACP registry report.
 Covers every agent in `jgy-agent-update-npm-packages', every cask in
-`jgy-agent-update-brew-casks' and every Emacs package in
-`jgy-agent-update-elpaca-packages', and offers packages that
+`jgy-agent-update-brew-casks', every Emacs package in
+`jgy-agent-update-elpaca-packages' and every binary in
+`jgy-agent-update-acp-binaries', and offers packages that
 are not installed at all for installation too.  With VERBOSE, also
 report when there is nothing to do, as when called interactively."
   (interactive (list t))
@@ -232,6 +337,7 @@ report when there is nothing to do, as when called interactively."
     (when verbose (message "Checking for agent updates…"))
     (when (executable-find "npm") (jgy-agent-update--check-npm))
     (when (executable-find "brew") (jgy-agent-update--check-brew))
+    (when (executable-find "curl") (jgy-agent-update--check-acp))
     (jgy-agent-update--check-elpaca)
     (jgy-agent-update--settle))))
 
