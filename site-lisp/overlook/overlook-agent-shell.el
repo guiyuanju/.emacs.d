@@ -23,9 +23,14 @@
 
 ;;; Commentary:
 
-;; The agent-shell frontend of overlook-agent.el: starts agents through
-;; agent-shell (ACP), and tells the dashboard what each is doing.
+;; The agent-shell frontend of overlook-agent.el: tracks every agent-shell
+;; buffer, however it was started, and tells the dashboard what each is
+;; doing.  Start agents with agent-shell's own commands.
 ;;
+;; - Each agent's process gets the entries of
+;;   `overlook-agent-make-environment', added where agent-shell makes its
+;;   ACP client.  Shells already running when the mode is turned on are
+;;   tracked without them.
 ;; - An agent's brief is the tool call waiting for permission, else the
 ;;   plan entry in progress, else its latest tool call.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
@@ -44,7 +49,8 @@
   '(("claude" . agent-shell-anthropic-make-claude-code-config)
     ("codex" . agent-shell-openai-make-codex-config)
     ("gemini" . agent-shell-google-make-gemini-config))
-  "Agent names and the functions making their `agent-shell' configs."
+  "Agent names and the functions making their `agent-shell' configs.
+A shell running none of these is named after its config's identifier."
   :type '(alist :key-type string :value-type function)
   :group 'overlook)
 
@@ -117,19 +123,6 @@ path of its transcript."
   "Submit TEXT as this shell's next prompt."
   (agent-shell-insert :text text :submit t :no-focus t :shell-buffer (current-buffer)))
 
-(defun overlook-agent-shell--with-environment (config environment)
-  "CONFIG whose agent process also gets ENVIRONMENT."
-  (if (null environment)
-      config
-    (let ((make-client (map-elt config :client-maker)))
-      (cons (cons :client-maker
-                  (lambda (buffer)
-                    (let ((client (funcall make-client buffer)))
-                      (setf (map-elt client :environment-variables)
-                            (append environment (map-elt client :environment-variables)))
-                      client)))
-            config))))
-
 (defun overlook-agent-shell--tool-title (data)
   "What the tool call in event DATA does, or nil when it does not say.
 Prefers its description, as the title of a shell command is the command."
@@ -187,40 +180,91 @@ claude-agent-acp forwards them in the `_meta' of usage updates."
   "Insert TEXT at this shell's prompt without submitting it."
   (agent-shell-insert :text text :shell-buffer (current-buffer) :no-focus t))
 
-;;; Start
+;;; Tracking
+
+(defvar overlook-agent-shell--starting nil
+  "(NAME . ROOT) of the agent `overlook-agent-shell-start' is starting.")
+
+(defvar-local overlook-agent-shell--origin nil
+  "(NAME . ROOT) of this shell's agent, once worked out.")
+
+(defvar-local overlook-agent-shell--environment nil
+  "A list holding the entries added to this shell's agent process.
+Nil until they are gathered, so that an empty environment is gathered once.")
 
 (defun overlook-agent-shell--session ()
   "This shell's session id, or nil before it has one."
   (map-nested-elt agent-shell--state '(:session :id)))
 
+(defun overlook-agent-shell--name (config)
+  "Name of the agent CONFIG runs, from `overlook-agent-shell-configs'."
+  (let ((id (map-elt config :identifier)))
+    (or (car (seq-find (lambda (entry)
+                         (eq (map-elt (ignore-errors (funcall (cdr entry))) :identifier) id))
+                       overlook-agent-shell-configs))
+        (if id (format "%s" id) "agent"))))
+
+(defun overlook-agent-shell--origin ()
+  "(NAME . ROOT) of this shell's agent, worked out once."
+  (or overlook-agent-shell--origin
+      (setq overlook-agent-shell--origin
+            (or overlook-agent-shell--starting
+                (cons (overlook-agent-shell--name (map-elt agent-shell--state :agent-config))
+                      (overlook-agent--root))))))
+
+(defun overlook-agent-shell--add-environment (args)
+  "ARGS of `acp-make-client', plus the agent's environment for a shell's client."
+  (let ((buffer (plist-get args :context-buffer)))
+    (if (not (and (buffer-live-p buffer)
+                  (with-current-buffer buffer (derived-mode-p 'agent-shell-mode))))
+        args
+      (with-current-buffer buffer
+        ;; agent-shell makes clients more than once per shell, and each
+        ;; environment may claim a fresh id, so it is gathered once.
+        (unless overlook-agent-shell--environment
+          (let ((origin (overlook-agent-shell--origin)))
+            (setq overlook-agent-shell--environment
+                  (list (overlook-agent-make-environment (car origin) (cdr origin))))))
+        (plist-put (copy-sequence args) :environment-variables
+                   (append (car overlook-agent-shell--environment)
+                           (plist-get args :environment-variables)))))))
+
+(defun overlook-agent-shell--track ()
+  "Track this shell as an agent, unless it is already."
+  (unless overlook-agent-identity
+    (let ((origin (overlook-agent-shell--origin))
+          (buffer (current-buffer)))
+      (setq overlook-agent-identity
+            `((agent . ,(car origin)) (root . ,(cdr origin))
+              (environment . ,(car overlook-agent-shell--environment))
+              (insert . overlook-agent-shell--insert)
+              (context . overlook-agent-shell--context)
+              (brief . overlook-agent-shell--brief)
+              (session . overlook-agent-shell--session)
+              (submit . overlook-agent-shell--submit)
+              (ready . overlook-agent-shell--ready)
+              (reply . overlook-agent-shell--last-reply)))
+      (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
+      (when-let* ((client (map-elt agent-shell--state :client)))
+        (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan
+                           overlook-agent-shell--track-reply))
+          (acp-subscribe-to-notifications :client client :buffer buffer
+                                          :on-notification handler)))
+      (overlook-agent-register buffer (car origin)))))
+
 (defun overlook-agent-shell-start (name root &optional fresh session)
-  "Start agent NAME in ROOT and return its buffer.
+  "Start agent NAME in ROOT for overlook and return its buffer.
 FRESH bypasses agent-shell's session choice and starts a new conversation;
 SESSION resumes the session of that id."
-  (let* ((make-config (or (alist-get name overlook-agent-shell-configs nil nil #'equal)
-                          (user-error "No agent-shell config for %s" name)))
-         (default-directory root)
-         (agent-shell-cwd-function (lambda () root))
-         (buffer (agent-shell--start :config (overlook-agent-shell--with-environment
-                                              (funcall make-config) overlook-agent-environment)
-                                     :no-focus t :new-session t
-                                     :session-strategy (and fresh 'new)
-                                     :session-id session)))
-    (with-current-buffer buffer
-      (setq overlook-agent-identity `((agent . ,name) (root . ,root)
-                                      (insert . overlook-agent-shell--insert)
-                                      (context . overlook-agent-shell--context)
-                                      (brief . overlook-agent-shell--brief)
-                                      (session . overlook-agent-shell--session)
-                                      (submit . overlook-agent-shell--submit)
-                                      (ready . overlook-agent-shell--ready)
-                                      (reply . overlook-agent-shell--last-reply)))
-      (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
-      (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan
-                         overlook-agent-shell--track-reply))
-        (acp-subscribe-to-notifications :client (map-elt agent-shell--state :client)
-                                        :buffer buffer :on-notification handler)))
-    buffer))
+  (let ((make-config (or (alist-get name overlook-agent-shell-configs nil nil #'equal)
+                         (user-error "No agent-shell config for %s" name)))
+        (default-directory root)
+        (agent-shell-cwd-function (lambda () root))
+        (overlook-agent-shell--starting (cons name root)))
+    (agent-shell--start :config (funcall make-config)
+                        :no-focus t :new-session t
+                        :session-strategy (and fresh 'new)
+                        :session-id session)))
 
 ;;;###autoload
 (defun overlook-agent-shell-handoff ()
@@ -249,7 +293,6 @@ Works from an agent shell or its dashboard row."
            (overlook-buffer-perspective source)
            (lambda ()
              (let ((target (overlook-agent-shell-start name root t)))
-               (overlook-agent-register target name)
                (agent-shell-insert :text (format overlook-agent-shell-handoff-prompt
                                                  root from (expand-file-name transcript))
                                    :shell-buffer target :no-focus t)
@@ -258,14 +301,20 @@ Works from an agent shell or its dashboard row."
 
 ;;;###autoload
 (define-minor-mode overlook-agent-shell-mode
-  "Run overlook's agents in `agent-shell'."
+  "Track every `agent-shell' buffer as an overlook agent."
   :global t
   :group 'overlook
   (if overlook-agent-shell-mode
-      (setq overlook-agent-start-function #'overlook-agent-shell-start
-            overlook-agent-names-function (lambda () (mapcar #'car overlook-agent-shell-configs)))
-    (setq overlook-agent-start-function nil
-          overlook-agent-names-function #'ignore)))
+      (progn
+        (advice-add 'acp-make-client :filter-args #'overlook-agent-shell--add-environment)
+        (add-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
+        (setq overlook-agent-start-function #'overlook-agent-shell-start)
+        (dolist (buffer (buffer-list))
+          (with-current-buffer buffer
+            (when (derived-mode-p 'agent-shell-mode) (overlook-agent-shell--track)))))
+    (advice-remove 'acp-make-client #'overlook-agent-shell--add-environment)
+    (remove-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
+    (setq overlook-agent-start-function nil)))
 
 (overlook-define-key "H" #'overlook-agent-shell-handoff)
 

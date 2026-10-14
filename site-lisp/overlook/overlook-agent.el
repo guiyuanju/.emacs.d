@@ -28,9 +28,11 @@
 ;; its status, how long its turn has run, its context usage and what it
 ;; is doing.
 ;;
-;; One agent of each name is reused per project root.  A frontend sets
-;; `overlook-agent-start-function', describes each agent buffer in
-;; `overlook-agent-identity', and reports through `overlook-agent-report'.
+;; Agents are started with the frontend's own commands.  The frontend
+;; describes each agent buffer it sees in `overlook-agent-identity', hands
+;; it to `overlook-agent-register', and reports through
+;; `overlook-agent-report'.  `overlook-agent-start-function' starts agents
+;; for overlook itself: to resume a saved one, or for courier to spawn.
 
 ;;; Code:
 
@@ -38,14 +40,6 @@
 (require 'project)
 
 (declare-function notifications-notify "notifications" (&rest params))
-
-(defcustom overlook-agent-names nil
-  "Agent names offered by `overlook-agent-start'; nil offers the frontend's."
-  :type '(repeat string)
-  :group 'overlook)
-
-(defvar overlook-agent-names-function #'ignore
-  "Function returning the agent names the frontend can start.")
 
 (defcustom overlook-agent-root-function #'overlook-agent-project-root
   "Function returning the directory agents of the current buffer run in."
@@ -55,7 +49,8 @@
 (defcustom overlook-agent-start-function nil
   "Function starting agent NAME in ROOT and returning its buffer.
 Called with NAME and ROOT, and to resume a saved session also with nil
-and the SESSION id."
+and the SESSION id, or to start a new conversation with t.  The buffer
+it returns has been registered with `overlook-agent-register'."
   :type 'function
   :group 'overlook)
 
@@ -116,8 +111,8 @@ context usage percentage or nil; `brief' a function returning a line on
 what it is doing, or nil; `session' a function returning its session id,
 or nil; `submit' a function submitting a prompt to it; `ready' a function
 telling whether it can take a prompt now; `reply' a function returning
-its last reply, or nil.  The core adds `environment', the entries of
-`overlook-agent-environment' it started with.")
+its last reply, or nil; `environment' the entries of
+`overlook-agent-make-environment' its process started with, or nil.")
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
@@ -162,11 +157,13 @@ Each is an alist with keys `agent', `root', `session' and `perspective'.")
 
 (defvar overlook-agent-environment-functions nil
   "Functions of an agent's NAME and ROOT returning entries for its environment.
-Each returns a list of \"VAR=value\" strings, gathered into
-`overlook-agent-environment' while the agent starts.")
+Each returns a list of \"VAR=value\" strings, gathered by
+`overlook-agent-make-environment'.")
 
-(defvar overlook-agent-environment nil
-  "Entries a frontend adds to the environment of the agent it is starting.")
+(defun overlook-agent-make-environment (name root)
+  "Entries for the environment of agent NAME starting in ROOT.
+A frontend calls it once per agent, before starting its process."
+  (seq-mapcat (lambda (fn) (funcall fn name root)) overlook-agent-environment-functions))
 
 (defun overlook-agent-changed ()
   "Tell the views that some agent's state changed."
@@ -325,38 +322,16 @@ An unknown context value keeps the last one."
   (setq overlook-agent--last name)
   (overlook-agent-changed))
 
-;;;###autoload
-(defun overlook-agent-start (name &optional fresh)
-  "Show agent NAME for the current project, starting it when needed.
-With prefix arg FRESH, always start another instance."
-  (interactive
-   (list (completing-read "Agent: " (or overlook-agent-names (funcall overlook-agent-names-function))
-                          nil t nil nil overlook-agent--last)
-         current-prefix-arg))
-  (let* ((root (overlook-agent--root))
-         (buffer (and (not fresh) (car (overlook-agent--project-buffers name))))
-         (saved (and (not fresh) (overlook-agent--saved root name))))
-    (overlook-agent-show (cond (buffer)
-                               (saved (overlook-agent--resume saved))
-                               (t (overlook-agent--launch name root))))))
-
 (defun overlook-agent--launch (name root &optional session fresh)
   "Start agent NAME in ROOT and return its buffer.
 SESSION resumes that session; FRESH starts a new conversation without
 asking."
   (unless overlook-agent-start-function
     (user-error "Set `overlook-agent-start-function' first"))
-  (let* ((environment (seq-mapcat (lambda (fn) (funcall fn name root))
-                                  overlook-agent-environment-functions))
-         (buffer (let ((default-directory root)
-                       (overlook-agent-environment environment))
-                   (apply overlook-agent-start-function name root
-                          (cond (session (list nil session))
-                                (fresh (list t)))))))
-    (with-current-buffer buffer
-      (push (cons 'environment environment) overlook-agent-identity))
-    (overlook-agent-register buffer name)
-    buffer))
+  (let ((default-directory root))
+    (apply overlook-agent-start-function name root
+           (cond (session (list nil session))
+                 (fresh (list t))))))
 
 ;;; Saved agents
 
@@ -402,13 +377,6 @@ asking."
                         (seq-filter #'consp agents))
             overlook-agent--saved-written agents))))
 
-(defun overlook-agent--saved (root name)
-  "The saved agent NAME of ROOT, or nil."
-  (seq-find (lambda (saved)
-              (and (equal (alist-get 'root saved) root)
-                   (equal (alist-get 'agent saved) name)))
-            overlook-agent-saved))
-
 (defun overlook-agent--resume (saved)
   "Resume SAVED agent from `overlook-agent-saved' and return its buffer."
   (setq overlook-agent-saved (delq saved overlook-agent-saved))
@@ -435,15 +403,6 @@ asking."
      (setq overlook-agent-saved (delq saved overlook-agent-saved))
      (overlook-agent-changed))
     (_ (user-error "Not on a saved agent"))))
-
-;;;###autoload
-(defun overlook-agent-toggle ()
-  "Hide the agent in the selected window, or show this project's agent.
-Prompts for an agent to start when none is running."
-  (interactive)
-  (cond ((overlook-agent-p (current-buffer)) (quit-window))
-        ((overlook-agent--current) (overlook-agent-show (overlook-agent--current)))
-        (t (call-interactively #'overlook-agent-start))))
 
 (defun overlook-agent--annotate (name)
   "Status and perspective of the agent buffer NAME, for completion."

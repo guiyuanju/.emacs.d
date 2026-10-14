@@ -115,8 +115,9 @@ Then:
   dashboard instead.
 - `M-x overlook-perspective-open-project` opens a project in a
   perspective named after it.
-- `M-x overlook-agent-start` starts an agent at the current project's
-  root, or shows the one already running there.
+- Start agents with agent-shell's own commands, such as `M-x agent-shell`
+  or `M-x agent-shell-anthropic-start-claude-code`.  Every agent-shell
+  buffer shows up on the dashboard, however it was started.
 - `M-x overlook` toggles the dashboard.
 
 ## Commands
@@ -124,8 +125,6 @@ Then:
 | Command | |
 |---|---|
 | `overlook` | toggle the dashboard |
-| `overlook-agent-start` | show an agent of this project, starting it when needed; with a prefix argument, start another |
-| `overlook-agent-toggle` | hide the agent in the selected window, or show this project's |
 | `overlook-agent-switch` | pick any running agent and show it in its perspective |
 | `overlook-agent-send` | paste the region, or an `@` reference to the file, into this project's agent |
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
@@ -157,8 +156,7 @@ Evil users can bind the same keys in normal state:
   not looking, `○` idle; what it is doing; how long its turn has run; how
   much of its context window is used.
 - A saved agent: `○ claude saved`, dimmed, for each agent running when
-  Emacs quit.  `RET` on it, or `overlook-agent-start` of that agent in
-  its project, resumes its session where it left off, minus a turn cut
+  Emacs quit.  `RET` on it resumes its session where it left off, minus a turn cut
   short; they are kept in `overlook-agent-saved-file`.
 - When an agent turns `⚠` or `●` while no Emacs frame has focus, a
   desktop notification says so (`osascript` on macOS, D-Bus elsewhere).
@@ -185,9 +183,11 @@ Evil users can bind the same keys in normal state:
 - `overlook-perspective-annotation`: a function of a perspective name
   returning a tag shown dimmed after its heading, such as which
   workspace it belongs to.
-- `overlook-agent-root-function`: the directory agents start in.
-- `overlook-agent-shell-configs`: the agents you can start, and the
-  agent-shell configs they run with.
+- `overlook-agent-root-function`: the project an agent belongs to, worked
+  out in its shell's directory.
+- `overlook-agent-shell-configs`: the names agents are shown by, and the
+  agent-shell configs overlook starts them with when resuming, handing
+  off or spawning.
 - `overlook-agent-shell-handoff-prompt`: the handoff draft.
 
 ## Extending
@@ -212,9 +212,10 @@ changed.
 
 Another perspective implementation can drive overlook by setting the
 `overlook-perspective-*-function` variables, as overlook-perspective.el
-does; another agent frontend by setting `overlook-agent-start-function`
-and describing its buffers in `overlook-agent-identity`, as
-overlook-agent-shell.el does.
+does; another agent frontend by describing each of its buffers in
+`overlook-agent-identity`, handing it to `overlook-agent-register`, and
+setting `overlook-agent-start-function` for the agents overlook starts
+itself, as overlook-agent-shell.el does.
 
 ## Caveats
 

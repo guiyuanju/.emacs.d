@@ -237,25 +237,6 @@ Agents are listed; usage and repos are not."
           (should (equal overlook-agent-saved (list lost))))
       (when resumed (kill-buffer resumed)))))
 
-(ert-deftest overlook-agent-start-resumes-the-saved-session ()
-  (let* ((overlook-agent-saved
-          (list '((agent . "claude") (root . "/tmp/") (session . "s1") (perspective . "one"))))
-         (overlook-agent-root-function (lambda () "/tmp/"))
-         (started nil)
-         (resumed nil)
-         (overlook-agent-start-function
-          (lambda (name root &rest args)
-            (setq started (cons name (cons root args)))
-            (setq resumed (overlook-test--agent name)))))
-    (unwind-protect
-        (save-window-excursion
-          (overlook-agent-start "codex")
-          (should (equal started '("codex" "/tmp/")))
-          (overlook-agent-start "claude")
-          (should (equal started '("claude" "/tmp/" nil "s1")))
-          (should-not overlook-agent-saved))
-      (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer)))))
-
 (ert-deftest overlook-courier-spawns-and-reports-back ()
   (let* ((courier--agents (make-hash-table :test #'equal))
          (overlook-agent-changed-hook nil)
@@ -271,14 +252,16 @@ Agents are listed; usage and repos are not."
          (environments nil)
          (overlook-agent-start-function
           (lambda (name root &rest args)
-            (push (cons overlook-agent-environment args) environments)
-            (with-current-buffer (generate-new-buffer name)
-              (setq overlook-agent-identity
-                    `((agent . ,name) (root . ,root)
-                      (submit . ,(lambda (text) (push (cons name text) prompts)))
-                      (ready . always)
-                      (reply . ,(lambda () (format "%s says done" name)))))
-              (current-buffer))))
+            (let ((environment (overlook-agent-make-environment name root)))
+              (push (cons environment args) environments)
+              (with-current-buffer (generate-new-buffer name)
+                (setq overlook-agent-identity
+                      `((agent . ,name) (root . ,root) (environment . ,environment)
+                        (submit . ,(lambda (text) (push (cons name text) prompts)))
+                        (ready . always)
+                        (reply . ,(lambda () (format "%s says done" name)))))
+                (overlook-agent-register (current-buffer) name)
+                (current-buffer)))))
          (root (file-name-as-directory (expand-file-name "shop" (make-temp-file "courier" t))))
          (parent nil))
     (make-directory root)
