@@ -6,6 +6,7 @@
 ;;; Code:
 
 (require 'project)
+(require 'xref)
 
 (declare-function eglot--project "eglot")
 (declare-function eglot-find-implementation "eglot")
@@ -39,12 +40,44 @@
      (and (file-exists-p (expand-file-name "config.yaml" directory))
           (file-directory-p (expand-file-name "models" directory))))))
 
+(defun jgy-sqlmesh-signal-locations (name)
+  "Return xref items for signal NAME defined under the project's signals/."
+  (when-let* ((root (jgy-sqlmesh-project-p))
+              (dir (expand-file-name "signals" root))
+              ((file-directory-p dir)))
+    (let ((regexp (format "^def %s\\_>" (regexp-quote name)))
+          items)
+      (dolist (file (directory-files dir t "\\.py\\'") (nreverse items))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (goto-char (point-min))
+          (when (re-search-forward regexp nil t)
+            (push (xref-make (buffer-substring (line-beginning-position)
+                                               (line-end-position))
+                             (xref-make-file-location
+                              file (line-number-at-pos) 0))
+                  items)))))))
+
+;; sqlmesh_lsp 不解析 signals (...) 里的 signal 名，这里先接管，其余交给 Eglot。
+(defun jgy-sqlmesh-signal-xref-backend ()
+  "Return the signal backend when the symbol at point is a SQLMesh signal."
+  (when-let* ((name (thing-at-point 'symbol t))
+              ((jgy-sqlmesh-signal-locations name)))
+    'jgy-sqlmesh-signal))
+
+(cl-defmethod xref-backend-identifier-at-point ((_ (eql jgy-sqlmesh-signal)))
+  (thing-at-point 'symbol t))
+
+(cl-defmethod xref-backend-definitions ((_ (eql jgy-sqlmesh-signal)) name)
+  (jgy-sqlmesh-signal-locations name))
+
 (defun jgy-sqlmesh-setup ()
   "Enable SQLMesh's language server in SQLMesh projects."
   (when (and buffer-file-name (jgy-sqlmesh-project-p))
     (setq-local sql-product 'postgres
                 apheleia-inhibit t)
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
+    (add-hook 'xref-backend-functions #'jgy-sqlmesh-signal-xref-backend -10 t)
     (eglot-ensure)))
 
 (defvar jgy-sql-dialects '("mysql" "postgres" "redshift")
