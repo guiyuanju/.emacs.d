@@ -184,4 +184,23 @@ status: done
                          `((switch "svc-fix") (find ,file) (clone "svc" ,root))))
           (should-error (jgy-workspace-new-project "svc-fix") :type 'user-error))))))
 
+;; 先按 perspective 找项目，即使当前 buffer 是别的项目的文件；不是项目的 perspective 再按 buffer 所在文件夹和 project-roots。
+(ert-deftest jgy-workspace-visit-project-md ()
+  (jgy-workspace-test--with-workspace
+    (let* ((card (jgy-workspace-test--write "okj/projects/demo/project.md" ""))
+           (other (jgy-workspace-test--write "okj/projects/other/project.md" ""))
+           (emacs (jgy-workspace-test--write "me/projects/emacs/project.md" ""))
+           (jgy-workspace-project-roots `(("emacs" . ,temporary-file-directory)))
+           (default-directory temporary-file-directory)
+           (persp-mode t)
+           (name "demo"))
+      (cl-letf (((symbol-function 'persp-current-name) (lambda () name))
+                ((symbol-function 'find-file) #'identity))
+        (should (equal (jgy-workspace-visit-project-md) (file-truename card)))
+        (let ((default-directory (file-name-directory other)))
+          (should (equal (jgy-workspace-visit-project-md) (file-truename card)))
+          (setq name "main")
+          (should (equal (jgy-workspace-visit-project-md) (file-truename other))))
+        (should (equal (jgy-workspace-visit-project-md) (file-truename emacs)))))))
+
 ;;; jgy-workspace-test.el ends here

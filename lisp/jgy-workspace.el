@@ -16,6 +16,7 @@
 (require 'subr-x)
 
 (declare-function magit-clone-regular "magit-clone")
+(declare-function persp-current-name "perspective")
 (declare-function persp-names "perspective")
 (declare-function persp-switch "perspective")
 (declare-function overlook-refresh "overlook")
@@ -204,13 +205,16 @@ The repositories are read with `completing-read-multiple'; none is fine."
       (jgy-workspace-clone-repo repo root))))
 
 (defun jgy-workspace-visit-project-md ()
-  "Open the project.md of the current project folder or root."
+  "Open the project.md of the current perspective, project folder or root.
+From a side window such as the dashboard it opens in the main window."
   (interactive)
-  (find-file (expand-file-name "project.md"
-                               (or (jgy-workspace-project-root)
-                                   (when-let* ((id (jgy-workspace--root-id)))
-                                     (jgy-workspace-project-dir id))
-                                   (user-error "Not inside a project folder")))))
+  (let ((dir (or (and (bound-and-true-p persp-mode) (jgy-workspace-project-dir (persp-current-name)))
+                 (jgy-workspace-project-root)
+                 (when-let* ((id (jgy-workspace--root-id)))
+                   (jgy-workspace-project-dir id))
+                 (user-error "Not inside a project folder"))))
+    (when (fboundp 'overlook-main-window) (overlook-main-window))
+    (find-file (expand-file-name "project.md" dir))))
 
 (defun jgy-workspace--clone-sources (root)
   "Checkouts to clone into project folder ROOT.
