@@ -31,8 +31,10 @@
 
 ;;; Projects
 
-(defvar jgy-workspace-code-directory "~/Code/"
-  "Directory whose <group>/<repo> Git checkouts are clone sources.")
+(defcustom jgy-workspace-code-directories '("~/Code/*/")
+  "Directories whose Git checkouts are clone sources; wildcards allowed."
+  :type '(repeat directory)
+  :group 'overlook)
 (defvar jgy-workspace-directory "~/workspace/"
   "Directory containing workspaces, each with a projects/ folder.")
 
@@ -122,20 +124,21 @@ A new perspective opens project.md; an existing one keeps its windows."
                                      (jgy-workspace-project-dir id))
                                    (user-error "Not inside a project folder")))))
 
+(defun jgy-workspace--clone-sources ()
+  "Checkouts under `jgy-workspace-code-directories'."
+  (mapcan (lambda (dir)
+            (mapcar (lambda (git) (abbreviate-file-name (file-name-directory git)))
+                    (file-expand-wildcards (expand-file-name "*/.git" dir))))
+          jgy-workspace-code-directories))
+
 (defun jgy-workspace-clone-repo (repo)
   "Clone the origin of REPO into the current project.
-REPO is a <group>/<repo> checkout under `jgy-workspace-code-directory'."
+REPO is a checkout directory under `jgy-workspace-code-directories'."
   (interactive
-   (list (completing-read
-          "Repository: "
-          (mapcar (lambda (git) (file-relative-name (directory-file-name (file-name-directory git))
-                                                    (expand-file-name jgy-workspace-code-directory)))
-                  (file-expand-wildcards (expand-file-name "*/*/.git" jgy-workspace-code-directory)))
-          nil t)))
+   (list (completing-read "Repository: " (jgy-workspace--clone-sources) nil t)))
   (let* ((root (or (jgy-workspace-project-root) (user-error "Not inside a project folder")))
          (target (expand-file-name (file-name-nondirectory (directory-file-name repo)) root))
-         (url (car (process-lines "git" "-C" (expand-file-name repo jgy-workspace-code-directory)
-                                  "remote" "get-url" "origin"))))
+         (url (car (process-lines "git" "-C" (expand-file-name repo) "remote" "get-url" "origin"))))
     (when (file-exists-p target) (user-error "%s already exists" target))
     (require 'magit-clone)
     (magit-clone-regular url target nil)))

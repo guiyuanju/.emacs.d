@@ -11,4 +11,5 @@
 !tests
 !tests/**
 !AGENTS.md
+!CLAUDE.md
 *.elc
