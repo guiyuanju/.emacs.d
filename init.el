@@ -768,7 +768,7 @@
 (use-package blog
   :ensure nil
   :load-path "~/workspace/me/projects/blog-system-rewrite/guiyuanju.github.io/"
-  :commands (blog-build blog-publish))
+  :commands (blog-build blog-preview blog-preview-stop blog-publish))
 
 (use-package markdown-mode
   :mode "\\.md\\'"
