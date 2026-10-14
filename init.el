@@ -759,7 +759,7 @@
   :custom
   (markdown-fontify-code-blocks-natively t)
   (markdown-enable-wiki-links t)
-  ;; [[链接]] 指向 brain，不在本地；递归搜子目录会扫遍项目里的代码仓库。
+  ;; 递归搜子目录会扫遍项目里的代码仓库。
   (markdown-wiki-link-search-subdirectories nil)
   (markdown-content-type "text/html")
   ;; highlight.js colours the blocks, so pandoc must not pre-tokenise them.
