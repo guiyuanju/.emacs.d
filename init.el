@@ -673,7 +673,11 @@
   (treesit-auto-install 'prompt)
   :config
   (global-treesit-auto-mode 1)
-  (treesit-auto-add-to-auto-mode-alist))
+  (treesit-auto-add-to-auto-mode-alist)
+  ;; 博客构建用 go-ts-mode 给代码块上色，不能等打开 .go 文件时才提示安装。
+  (let ((treesit-auto-langs '(go gomod))
+        (treesit-auto-install t))
+    (treesit-auto-install-all)))
 
 
 (use-package eglot
@@ -759,6 +763,12 @@
 (use-package jgy-markdown
   :ensure nil
   :demand t)
+
+;; 博客生成器在博客仓库里，不在本仓库。
+(use-package blog
+  :ensure nil
+  :load-path "~/workspace/me/projects/blog-system-rewrite/guiyuanju.github.io/"
+  :commands (blog-build blog-publish))
 
 (use-package markdown-mode
   :mode "\\.md\\'"
