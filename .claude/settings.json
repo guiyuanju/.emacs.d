@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat ~/workspace/CLAUDE.md ~/workspace/me/CLAUDE.md 2>/dev/null || echo '缺少 workspace 规则：~/workspace 未 clone。告诉用户。'"
+          }
+        ]
+      }
+    ]
+  }
+}

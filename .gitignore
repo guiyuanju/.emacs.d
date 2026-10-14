@@ -12,4 +12,6 @@
 !tests/**
 !AGENTS.md
 !CLAUDE.md
+!.claude
+!.claude/settings.json
 *.elc
