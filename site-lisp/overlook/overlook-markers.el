@@ -73,16 +73,18 @@ belongs to it.  Eglot is left to the repo, as language servers expect."
 (cl-defmethod project-files ((project (head overlook)) &optional dirs)
   "Files of PROJECT, or under DIRS in it.
 Each repo's files are those Git lists, then come the files outside repos."
-  (mapcan (lambda (dir)
-            (let ((repos (overlook-project-repos dir)))
-              (append
-               (mapcan (lambda (repo) (project-files (project-try-vc repo))) repos)
-               (unless (member (file-name-as-directory (expand-file-name dir)) repos)
-                 (directory-files-recursively
-                  dir "" nil
-                  (lambda (sub) (not (or (member (file-name-as-directory sub) repos)
-                                         (equal (file-name-nondirectory sub) ".git")))))))))
-          (or dirs (list (project-root project)))))
+  ;; Relative names from a repo would be relative to that repo, not to PROJECT.
+  (let ((project-files-relative-names nil))
+    (mapcan (lambda (dir)
+              (let ((repos (overlook-project-repos dir)))
+                (append
+                 (mapcan (lambda (repo) (project-files (project-try-vc repo))) repos)
+                 (unless (member (file-name-as-directory (expand-file-name dir)) repos)
+                   (directory-files-recursively
+                    dir "" nil
+                    (lambda (sub) (not (or (member (file-name-as-directory sub) repos)
+                                           (equal (file-name-nondirectory sub) ".git")))))))))
+            (or dirs (list (project-root project))))))
 
 ;;;###autoload
 (define-minor-mode overlook-markers-mode
