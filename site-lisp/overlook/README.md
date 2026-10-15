@@ -234,10 +234,12 @@ in `~/.codex/sessions`.  Either may change without notice.
 ## Development
 
 ```sh
-OVERLOOK_INSTALL_DEPS=1 make test lint
+OVERLOOK_LOAD_PATH=/path/to/courier OVERLOOK_INSTALL_DEPS=1 make test lint
 ```
 
-installs the dependencies into `.elpa/` and runs the tests, package-lint
+Provide the directory containing `courier.el` (currently `site-lisp/courier`
+in [the source repository](https://github.com/guiyuanju/.emacs.d)).  This
+installs the other dependencies into `.elpa/` and runs the tests, package-lint
 and checkdoc.  Without `OVERLOOK_INSTALL_DEPS`, list the directories of
 installed dependencies in `OVERLOOK_LOAD_PATH`.
 

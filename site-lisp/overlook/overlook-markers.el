@@ -35,6 +35,9 @@
 (require 'project)
 (require 'seq)
 
+;; Added in Emacs 30; declare it special for the binding below on Emacs 29.
+(defvar project-files-relative-names)
+
 (defcustom overlook-markers '(".overlook")
   "Files marking a folder whose repos together form one project.
 The marked folder wins over the repo nearer to a file.  A project of a
