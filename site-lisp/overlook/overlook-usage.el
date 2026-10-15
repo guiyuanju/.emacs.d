@@ -273,11 +273,6 @@ name carries `overlook-action' runs it when the line is visited."
             overlook-usage--minute (floor (float-time) 60))
       (overlook-refresh))))
 
-(defun overlook-usage--tick ()
-  "Re-read plan usage while the dashboard is live."
-  (when (overlook-live-p)
-    (overlook-usage-scan)))
-
 (defun overlook-usage--section ()
   "Insert the Usage section of the dashboard."
   (overlook-insert-section "Usage" #'overlook-usage--insert))
@@ -287,12 +282,10 @@ name carries `overlook-action' runs it when the line is visited."
   "Show agents' plan usage at the top of the dashboard."
   :global t
   :group 'overlook
-  (if overlook-usage-mode
-      (progn
-        (add-hook 'overlook-sections #'overlook-usage--section -50)
-        (add-hook 'overlook-tick-hook #'overlook-usage--tick))
-    (remove-hook 'overlook-sections #'overlook-usage--section)
-    (remove-hook 'overlook-tick-hook #'overlook-usage--tick))
+  (overlook-toggle-hooks
+   overlook-usage-mode
+   '((overlook-sections overlook-usage--section -50)
+     (overlook-tick-hook overlook-usage-scan)))
   (overlook-refresh))
 
 (provide 'overlook-usage)

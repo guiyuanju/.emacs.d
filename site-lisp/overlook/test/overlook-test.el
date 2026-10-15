@@ -92,7 +92,6 @@ Agents are listed; usage and repos are not."
                      (overlook-test--line-of "alpha")
                      (overlook-test--line-of "two")
                      (overlook-test--line-of "beta")
-                     (overlook-test--line-of "other")
                      (overlook-test--line-of "stray")))
           (goto-char (point-min))
           (search-forward "two")
@@ -126,12 +125,32 @@ Agents are listed; usage and repos are not."
       (search-forward "two")
       (should (eolp)))))
 
-(ert-deftest overlook-other-heading-only-with-orphans ()
-  (let ((alpha (overlook-test--agent "alpha")))
+(ert-deftest overlook-empty-orphan-perspective-is-left-out ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (overlook-orphan-perspective "main")
+        (overlook-perspective-order 'backend))
     (unwind-protect
-        (overlook-test-with-dashboard `(("one" ,alpha)) "one"
-          (should-not (string-search "other" (buffer-string))))
+        (overlook-test-with-dashboard `(("one" ,alpha) ("main")) "one"
+          (should-not (string-search "main" (buffer-string)))
+          (should (string-suffix-p "project\n\n" (buffer-string)))
+          (setq overlook-test--current "main")
+          (overlook--render)
+          (should (string-search "main" (buffer-string))))
       (kill-buffer alpha))))
+
+(ert-deftest overlook-orphans-sit-under-the-orphan-perspective ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (beta (overlook-test--agent "beta"))
+        (overlook-orphan-perspective "main"))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("main")) "one"
+          (should (> (overlook-test--line-of "beta") (overlook-test--line-of "main")))
+          (goto-char (point-min))
+          (search-forward "beta")
+          (save-window-excursion (overlook-visit))
+          (should (equal overlook-test--current "main")))
+      (kill-buffer alpha)
+      (kill-buffer beta))))
 
 (ert-deftest overlook-redraw-keeps-point-on-its-row ()
   (let ((alpha (overlook-test--agent "alpha"))
@@ -342,7 +361,6 @@ Agents are listed; usage and repos are not."
         (overlook-test-with-dashboard '(("one")) "one"
           (should (< (overlook-test--line-of "one")
                      (overlook-test--line-of "claude saved")
-                     (overlook-test--line-of "other")
                      (overlook-test--line-of "codex saved")))
           (goto-char (point-min))
           (search-forward "claude saved")

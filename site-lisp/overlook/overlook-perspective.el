@@ -58,6 +58,10 @@
   "Names of all perspectives, or nil without `persp-mode'."
   (and (bound-and-true-p persp-mode) (persp-names)))
 
+(defun overlook-perspective--root (name)
+  "Project root of perspective NAME, per `overlook-perspective-root'."
+  (funcall overlook-perspective-root name))
+
 (defun overlook-perspective--add-buffer (name buffer)
   "Add BUFFER to perspective NAME."
   (if (equal name (persp-current-name))
@@ -81,27 +85,20 @@ A new perspective opens the project's root in Dired."
   "Let overlook show perspective.el's perspectives."
   :global t
   :group 'overlook
-  (if overlook-perspective-mode
-      (progn
-        (setq overlook-perspectives-function #'overlook-perspective--names
-              overlook-current-perspective-function #'overlook-perspective--current
-              overlook-switch-perspective-function #'persp-switch
-              overlook-perspective-buffers-function #'persp-get-buffers
-              overlook-add-to-perspective-function #'overlook-perspective--add-buffer
-              overlook-perspective-root-function
-              (lambda (name) (funcall overlook-perspective-root name)))
-        (add-hook 'persp-switch-hook #'overlook-perspective-switched)
-        (dolist (hook '(persp-created-hook persp-killed-hook persp-after-rename-hook))
-          (add-hook hook #'overlook-refresh)))
-    (setq overlook-perspectives-function #'ignore
-          overlook-current-perspective-function #'ignore
-          overlook-switch-perspective-function #'ignore
-          overlook-perspective-buffers-function #'ignore
-          overlook-add-to-perspective-function #'ignore
-          overlook-perspective-root-function #'ignore)
-    (remove-hook 'persp-switch-hook #'overlook-perspective-switched)
-    (dolist (hook '(persp-created-hook persp-killed-hook persp-after-rename-hook))
-      (remove-hook hook #'overlook-refresh))))
+  (pcase-dolist (`(,variable . ,function)
+                 '((overlook-perspectives-function . overlook-perspective--names)
+                   (overlook-current-perspective-function . overlook-perspective--current)
+                   (overlook-switch-perspective-function . persp-switch)
+                   (overlook-perspective-buffers-function . persp-get-buffers)
+                   (overlook-add-to-perspective-function . overlook-perspective--add-buffer)
+                   (overlook-perspective-root-function . overlook-perspective--root)))
+    (set variable (if overlook-perspective-mode function #'ignore)))
+  (overlook-toggle-hooks
+   overlook-perspective-mode
+   '((persp-switch-hook overlook-perspective-switched)
+     (persp-created-hook overlook-refresh)
+     (persp-killed-hook overlook-refresh)
+     (persp-after-rename-hook overlook-refresh))))
 
 (provide 'overlook-perspective)
 ;;; overlook-perspective.el ends here

@@ -269,14 +269,11 @@ Past `overlook-project-files' the rest fold into one line with their totals."
   "List the repos of each perspective's project on the dashboard."
   :global t
   :group 'overlook
-  (if overlook-project-mode
-      (progn
-        (add-hook 'overlook-perspective-functions #'overlook-project--insert 50)
-        (add-hook 'overlook-before-render-hook #'overlook-project--forget)
-        (add-hook 'overlook-tick-hook #'overlook-project--tick))
-    (remove-hook 'overlook-perspective-functions #'overlook-project--insert)
-    (remove-hook 'overlook-before-render-hook #'overlook-project--forget)
-    (remove-hook 'overlook-tick-hook #'overlook-project--tick))
+  (overlook-toggle-hooks
+   overlook-project-mode
+   '((overlook-perspective-functions overlook-project--insert 50)
+     (overlook-before-render-hook overlook-project--forget)
+     (overlook-tick-hook overlook-project--tick)))
   (overlook-refresh))
 
 (provide 'overlook-project)

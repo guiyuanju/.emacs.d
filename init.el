@@ -844,6 +844,7 @@
   (overlook-agent-root-function #'jgy-workspace-agent-root)
   (overlook-perspective-root #'jgy-workspace-perspective-root)
   (overlook-perspective-annotation #'jgy-workspace-perspective-workspace)
+  (overlook-orphan-perspective "main")
   (overlook-usage-file (expand-file-name "claude-usage.json" jgy-state-directory))
   (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" jgy-state-directory))
   (overlook-agent-shell-configs

@@ -226,7 +226,8 @@ A buffer shown in several perspectives belongs to the one of its project."
 (defun overlook-agent-visit (buffer)
   "Switch to agent BUFFER's perspective and show it there."
   (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
-  (overlook-show-elsewhere (overlook-agent-perspective buffer)
+  (overlook-show-elsewhere (or (overlook-agent-perspective buffer)
+                               (overlook-orphan-perspective))
                            (lambda () (overlook-agent-show buffer))))
 
 ;;; Status
@@ -402,7 +403,8 @@ asking."
 
 (defun overlook-agent-resume-visit (saved)
   "Resume SAVED agent in its perspective and show it there."
-  (overlook-show-elsewhere (overlook-agent--saved-perspective saved)
+  (overlook-show-elsewhere (or (overlook-agent--saved-perspective saved)
+                               (overlook-orphan-perspective))
                            (lambda () (overlook-agent-show (overlook-agent--resume saved)))))
 
 (defun overlook-agent-forget ()
@@ -562,7 +564,8 @@ works, dimmed otherwise."
                           'wrap-prefix overlook-agent--wrap-indent))))
 
 (defun overlook-agent--insert (perspective)
-  "Insert the agents listed under PERSPECTIVE, then those saved there."
+  "Insert the agents listed under PERSPECTIVE, then those saved there.
+A nil PERSPECTIVE inserts those in none."
   (dolist (buffer (overlook-agent-buffers
                    (lambda (buffer) (equal (overlook-agent-perspective buffer) perspective))))
     (overlook-agent--row buffer perspective))
@@ -571,15 +574,8 @@ works, dimmed otherwise."
       (overlook-agent--saved-row saved perspective))))
 
 (defun overlook-agent--insert-orphans ()
-  "Insert the agents in no perspective; non-nil when there were any."
-  (let ((orphans (overlook-agent-buffers
-                  (lambda (buffer) (null (overlook-agent-perspective buffer)))))
-        (saved (seq-remove #'overlook-agent--saved-perspective overlook-agent-saved)))
-    (dolist (buffer orphans)
-      (overlook-agent--row buffer nil))
-    (dolist (entry saved)
-      (overlook-agent--saved-row entry nil))
-    (or orphans saved)))
+  "Insert the agents in no perspective."
+  (overlook-agent--insert nil))
 
 (defun overlook-agent--mode-line ()
   "A count of agents by state, like \"3 agents · 1 working\"."
@@ -607,19 +603,17 @@ works, dimmed otherwise."
   "Track agents and list them on the dashboard."
   :global t
   :group 'overlook
-  (let ((hooks '((overlook-perspective-functions . overlook-agent--insert)
-                 (overlook-orphan-functions . overlook-agent--insert-orphans)
-                 (overlook-mode-line-functions . overlook-agent--mode-line)
-                 (overlook-tick-hook . overlook-agent--tick)
-                 (window-selection-change-functions . overlook-agent--acknowledge)
-                 (window-buffer-change-functions . overlook-agent--acknowledge)
-                 (overlook-agent-changed-hook . overlook-agent-save)
-                 (kill-emacs-hook . overlook-agent-save))))
-    (when overlook-agent-mode (overlook-agent--load-saved))
-    (pcase-dolist (`(,hook . ,function) hooks)
-      (if overlook-agent-mode
-          (add-hook hook function)
-        (remove-hook hook function))))
+  (when overlook-agent-mode (overlook-agent--load-saved))
+  (overlook-toggle-hooks
+   overlook-agent-mode
+   '((overlook-perspective-functions overlook-agent--insert)
+     (overlook-orphan-functions overlook-agent--insert-orphans)
+     (overlook-mode-line-functions overlook-agent--mode-line)
+     (overlook-tick-hook overlook-agent--tick)
+     (window-selection-change-functions overlook-agent--acknowledge)
+     (window-buffer-change-functions overlook-agent--acknowledge)
+     (overlook-agent-changed-hook overlook-agent-save)
+     (kill-emacs-hook overlook-agent-save)))
   (overlook-refresh))
 
 (overlook-define-key "x" #'overlook-agent-forget)

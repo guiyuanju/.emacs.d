@@ -184,6 +184,10 @@ Evil users can bind the same keys in normal state:
 - `overlook-perspective-annotation`: a function of a perspective name
   returning a tag shown dimmed after its heading, such as which
   workspace it belongs to.
+- `overlook-orphan-perspective`: a perspective, such as perspective.el's
+  `"main"`, to list agents of no perspective under; opening one there
+  moves it in, and it is left out while empty unless current.  By default
+  they sit under the current perspective.
 - `overlook-agent-root-function`: the project an agent belongs to, worked
   out in its shell's directory.
 - `overlook-agent-shell-configs`: the names agents are shown by, and the

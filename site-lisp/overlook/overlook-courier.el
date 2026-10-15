@@ -107,16 +107,14 @@ It opens in PARENT's perspective."
   "Let overlook's agents message, spawn and monitor each other through courier."
   :global t
   :group 'overlook
-  (let ((hooks '((overlook-agent-environment-functions . overlook-courier--environment)
-                 (overlook-agent-changed-hook . overlook-courier--sync)
-                 (overlook-agent-turn-start-hook . overlook-courier--turn-started)
-                 (overlook-agent-turn-end-hook . overlook-courier--turn-finished)
-                 (overlook-agent-row-marks . overlook-courier--mark)
-                 (courier-changed-hook . overlook-refresh))))
-    (pcase-dolist (`(,hook . ,function) hooks)
-      (if overlook-courier-mode
-          (add-hook hook function)
-        (remove-hook hook function))))
+  (overlook-toggle-hooks
+   overlook-courier-mode
+   '((overlook-agent-environment-functions overlook-courier--environment)
+     (overlook-agent-changed-hook overlook-courier--sync)
+     (overlook-agent-turn-start-hook overlook-courier--turn-started)
+     (overlook-agent-turn-end-hook overlook-courier--turn-finished)
+     (overlook-agent-row-marks overlook-courier--mark)
+     (courier-changed-hook overlook-refresh)))
   (setq courier-spawn-function (and overlook-courier-mode #'overlook-courier--spawn))
   (when overlook-courier-mode (overlook-courier--sync))
   (overlook-refresh))

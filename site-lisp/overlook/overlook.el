@@ -83,6 +83,13 @@ recently they were switched to; `backend' keeps the backend's order."
   "Function of a perspective NAME returning a tag shown after its heading, or nil."
   :type '(choice (const :tag "None" nil) function))
 
+(defcustom overlook-orphan-perspective nil
+  "Perspective listing the rows that belong to no perspective, or nil.
+Rows opened from there open in it, and it is left out while it has no
+rows and is not current.  Without it, they are listed under the current
+perspective."
+  :type '(choice (const :tag "The current perspective" nil) string))
+
 (defcustom overlook-tick-interval 5
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
@@ -136,6 +143,10 @@ recently they were switched to; `backend' keeps the backend's order."
 (defun overlook-perspective-root (name)
   "Project root of perspective NAME, or nil."
   (funcall overlook-perspective-root-function name))
+
+(defun overlook-orphan-perspective ()
+  "Name of `overlook-orphan-perspective' when it exists, else nil."
+  (car (member overlook-orphan-perspective (overlook-perspectives))))
 
 (defun overlook-add-to-perspective (name buffer)
   "Add BUFFER to perspective NAME."
@@ -213,8 +224,8 @@ Each is called with the perspective's NAME in the dashboard buffer.")
 
 (defvar overlook-orphan-functions nil
   "Functions inserting rows that belong to no perspective.
-Each is called with no arguments and returns non-nil when it inserted
-anything.  The rows go under an \"other\" heading after every perspective.")
+Each is called with no arguments.  The rows go under the perspective
+`overlook-orphan-perspective', or else the current one.")
 
 (defvar overlook-mode-line-functions nil
   "Functions returning strings joined into the dashboard's mode line.")
@@ -224,6 +235,12 @@ anything.  The rows go under an \"other\" heading after every perspective.")
 
 (defvar overlook-tick-hook nil
   "Hook run every `overlook-tick-interval' seconds while the dashboard is live.")
+
+(defun overlook-toggle-hooks (on hooks)
+  "Add HOOKS when ON is non-nil, else remove them; for modules' modes.
+Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
+  (pcase-dolist (`(,hook ,function ,depth) hooks)
+    (if on (add-hook hook function depth) (remove-hook hook function))))
 
 ;;; Refresh
 
@@ -357,17 +374,17 @@ calling `magit-cancel-section'; the section's end is then nil."
 (defun overlook-insert-section (title body)
   "Insert section TITLE, then call BODY, a function, to fill it.
 The title is dropped when BODY inserts nothing.  TITLE's text properties,
-like `overlook-action', cover its whole line."
-  (let ((start (point))
-        (line (concat title "\n")))
+like `overlook-action', cover its whole line.  A blank line ends the
+section, folded with it."
+  (let ((line (concat title "\n")))
     (add-face-text-property 0 (length title) 'overlook-section t line)
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
              do (put-text-property 0 (length line) prop value line))
-    (unless (bobp) (insert "\n"))
-    (unless (oref (overlook-insert-row line (lambda () (funcall body) (magit-cancel-section t)))
-                  end)
-      (delete-region start (point)))))
+    (overlook-insert-row line (lambda ()
+                                (funcall body)
+                                (magit-cancel-section t)
+                                (insert "\n")))))
 
 (defun overlook-align-right (text columns)
   "TEXT aligned to end COLUMNS before the window's right edge."
@@ -438,24 +455,25 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
               'overlook-action (lambda () (overlook-show-elsewhere name #'ignore))))
 
 (defun overlook--perspectives ()
-  "Insert each perspective's heading and rows, then those of no perspective."
-  (let ((current (overlook-current-perspective))
-        (first t))
+  "Insert each perspective's heading and rows.
+Rows of no perspective go under `overlook-orphan-perspective', which is
+left out while it has none and is not current, or else the current one."
+  (let* ((current (overlook-current-perspective))
+         (orphans (or (overlook-orphan-perspective) current))
+         (first t))
     (dolist (name (overlook-ordered-perspectives))
-      (unless first (insert "\n"))
-      (setq first nil)
-      (overlook-insert-row (overlook--heading name (equal name current))
-                           (lambda () (run-hook-with-args 'overlook-perspective-functions name))))
-    (let ((start (point)))
-      (insert (if first "" "\n"))
-      (unless (oref (overlook-insert-row
-                     (propertize "other\n" 'face 'shadow 'overlook-heading t
-                                 'overlook-item '(perspective . nil))
-                     (lambda ()
-                       (unless (run-hook-with-args-until-success 'overlook-orphan-functions)
-                         (magit-cancel-section))))
-                    end)
-        (delete-region start (point))))))
+      (let ((start (point)))
+        (unless first (insert "\n"))
+        (if (oref (overlook-insert-row
+                   (overlook--heading name (equal name current))
+                   (lambda ()
+                     (run-hook-with-args 'overlook-perspective-functions name)
+                     (when (equal name orphans)
+                       (run-hooks 'overlook-orphan-functions)
+                       (unless (equal name current) (magit-cancel-section t)))))
+                  end)
+            (setq first nil)
+          (delete-region start (point)))))))
 
 (defun overlook--perspectives-section ()
   "Insert the Perspectives section."
