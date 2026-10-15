@@ -481,13 +481,13 @@ Agents are listed; usage and repos are not."
   (defvar eglot-lsp-context)
   (overlook-test-with-marked-project root
     (let ((eglot-lsp-context t))
-      (should (equal (project-root (project-current nil (expand-file-name "api/" root)))
+      (should (file-equal-p (project-root (project-current nil (expand-file-name "api/" root)))
                      (expand-file-name "api/" root))))))
 
 (ert-deftest overlook-project-unmarked-repo-stays-its-own ()
   (overlook-test-with-marked-project root
     (delete-file (expand-file-name ".overlook" root))
-    (should (equal (project-root (project-current nil (expand-file-name "api/" root)))
+    (should (file-equal-p (project-root (project-current nil (expand-file-name "api/" root)))
                    (expand-file-name "api/" root)))))
 
 (ert-deftest overlook-markers-mode-registers-the-backend ()

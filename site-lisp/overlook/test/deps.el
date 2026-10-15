@@ -10,7 +10,7 @@
       package-archives '(("gnu" . "https://elpa.gnu.org/packages/")
                          ("melpa" . "https://melpa.org/packages/")))
 (package-initialize)
-(let ((wanted '(magit-section perspective agent-shell package-lint)))
+(let ((wanted '(magit perspective agent-shell package-lint)))
   (when (seq-remove #'package-installed-p wanted)
     (package-refresh-contents)
     (dolist (name wanted)

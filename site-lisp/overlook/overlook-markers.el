@@ -53,7 +53,7 @@ single repo needs no marker."
      (seq-filter (lambda (dir) (file-exists-p (expand-file-name ".git" dir)))
                  (mapcar #'file-name-as-directory
                          (seq-filter #'file-directory-p
-                                     (directory-files root t "\\`[^.]" t)))))))
+                                     (directory-files root t "\\`[^.]")))))))
 
 (defvar eglot-lsp-context)
 
