@@ -41,7 +41,7 @@
 (defcustom jgy-elfeed-ai-models
   '((claude "haiku" "sonnet")
     (codex nil nil)
-    (deepseek "deepseek-v4-flash" "deepseek-v4-flash"))
+    (deepseek "deepseek-flash" "deepseek-flash"))
   "Models per backend, as (BACKEND ENTRY-MODEL DIGEST-MODEL).
 nil uses the CLI's own default."
   :type '(alist :key-type symbol :value-type (list (choice string (const nil))
@@ -49,6 +49,10 @@ nil uses the CLI's own default."
 
 (defcustom jgy-elfeed-ai-max-chars 20000
   "Longest article text sent for one summary."
+  :type 'natural)
+
+(defcustom jgy-elfeed-ai-timeout 180
+  "Seconds before a DeepSeek request gives up."
   :type 'natural)
 
 (defcustom jgy-elfeed-ai-digest-limit 80
@@ -126,7 +130,11 @@ TEXT is read from OUTPUT-FILE when given, else from stdout."
   (let* ((gptel-backend
           (or jgy-elfeed-ai--deepseek
               (setq jgy-elfeed-ai--deepseek
-                    (gptel-make-deepseek "DeepSeek" :key #'jgy-elfeed-ai--deepseek-key))))
+                    (gptel-make-deepseek
+                     "DeepSeek" :key #'jgy-elfeed-ai--deepseek-key
+                     :curl-args (lambda ()
+                                  (list "--max-time"
+                                        (number-to-string jgy-elfeed-ai-timeout)))))))
          (gptel-model (intern model))
          (gptel-use-tools nil)
          (gptel-include-reasoning nil))
@@ -140,22 +148,25 @@ TEXT is read from OUTPUT-FILE when given, else from stdout."
   "Send INPUT to BACKEND, then call CALLBACK with (TEXT ERROR).
 DIGEST picks the digest model."
   (let ((model (jgy-elfeed-ai--model backend digest)))
-    (pcase backend
-      ('claude
-       (jgy-elfeed-ai--run
-        `("claude" "-p" ,@(and model (list "--model" model))
-          "--no-session-persistence" "--tools" "" "--strict-mcp-config"
-          "--setting-sources" "")
-        input callback))
-      ('codex
-       (let ((file (make-temp-file "jgy-elfeed-ai-")))
-         (jgy-elfeed-ai--run
-          `("codex" "exec" ,@(and model (list "--model" model))
-            "--skip-git-repo-check" "--ephemeral" "--sandbox" "read-only"
-            "--color" "never" "--output-last-message" ,file "-")
-          input callback file)))
-      ('deepseek (jgy-elfeed-ai--gptel model input callback))
-      (_ (user-error "Unknown backend: %s" backend)))))
+    ;; 这里常在进程回调里运行，报错会被吞掉，所以转给 CALLBACK。
+    (condition-case err
+        (pcase backend
+          ('claude
+           (jgy-elfeed-ai--run
+            `("claude" "-p" ,@(and model (list "--model" model))
+              "--no-session-persistence" "--tools" "" "--strict-mcp-config"
+              "--setting-sources" "")
+            input callback))
+          ('codex
+           (let ((file (make-temp-file "jgy-elfeed-ai-")))
+             (jgy-elfeed-ai--run
+              `("codex" "exec" ,@(and model (list "--model" model))
+                "--skip-git-repo-check" "--ephemeral" "--sandbox" "read-only"
+                "--color" "never" "--output-last-message" ,file "-")
+              input callback file)))
+          ('deepseek (jgy-elfeed-ai--gptel model input callback))
+          (_ (user-error "Unknown backend: %s" backend)))
+      (error (funcall callback nil (error-message-string err))))))
 
 (defun jgy-elfeed-ai--read-backend ()
   "Ask for a backend."
