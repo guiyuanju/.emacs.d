@@ -206,4 +206,96 @@ status: done
           (should (equal (jgy-workspace-visit-project-md) (file-truename other))))
         (should (equal (jgy-workspace-visit-project-md) (file-truename emacs)))))))
 
+(ert-deftest jgy-workspace-repos-roundtrip ()
+  (jgy-workspace-test--with-workspace
+    (let* ((file (jgy-workspace-test--write "me/projects/demo/project.md" jgy-workspace-test--card))
+           (root (file-name-directory file))
+           (repos '(((path . "app") (url . "ssh://host/a b.git")))))
+      (should-not (jgy-workspace--read-repos root))
+      (jgy-workspace--write-repos root repos)
+      (should (equal (jgy-workspace--read-repos root) repos))
+      (jgy-workspace--register-repo root "app" "ssh://host/a b.git")
+      (should (equal (jgy-workspace--read-repos root) repos))
+      (should-error (jgy-workspace--register-repo root "app" "different") :type 'user-error)
+      (with-current-buffer (find-file-noselect file)
+        (should (equal (save-excursion
+                         (let ((region (jgy-workspace--repos-region)))
+                           (concat (buffer-substring-no-properties (point-min) (car region))
+                                   (buffer-substring-no-properties (cdr region) (point-max)))))
+                       jgy-workspace-test--card))
+        (let ((text (buffer-string)))
+          (jgy-workspace--write-repos root repos)
+          (should (equal text (buffer-string))))
+        (goto-char (point-max))
+        (insert "unsaved")
+        (should-error (jgy-workspace--write-repos root nil) :type 'user-error)
+        (should (buffer-modified-p))
+        (set-buffer-modified-p nil)
+        (kill-buffer)))))
+
+(ert-deftest jgy-workspace-repos-path-validation ()
+  (jgy-workspace-test--with-workspace
+    (let ((root jgy-workspace-directory))
+      (dolist (path '("../outside" "/tmp/outside" "~/.emacs.d" "." "a/../../b" "a/.git" ""))
+        (should-error (jgy-workspace--validate-repos `(((path . ,path) (url . "x"))) root)
+                      :type 'user-error))
+      (should-error (jgy-workspace--validate-repos
+                     '(((path . "a") (url . "x")) ((path . "a/b") (url . "y"))) root)
+                    :type 'user-error)
+      (make-symbolic-link temporary-file-directory (expand-file-name "link" root))
+      (should-error (jgy-workspace--validate-repos '(((path . "link/escape") (url . "x"))) root)
+                    :type 'user-error))))
+
+(ert-deftest jgy-workspace-repos-malformed ()
+  (jgy-workspace-test--with-workspace
+    (dolist (value '("null" "{}" "[broken]" "[{\"path\":\"../bad\",\"url\":\"x\"}]"))
+      (let* ((file (jgy-workspace-test--write "me/projects/demo/project.md"
+                                               (concat "---\nrepos: " value "\n---\n")))
+             (root (file-name-directory file)))
+        (should-error (jgy-workspace--read-repos root))
+        (when-let* ((buffer (get-file-buffer file))) (kill-buffer buffer))))))
+
+(ert-deftest jgy-workspace-repos-local-clone ()
+  (require 'magit-process)
+  ;; Exercise real asynchronous Git: success registers, failure stops the queue,
+  ;; existing non-repo directories survive, and retry only clones missing paths.
+  (jgy-workspace-test--with-workspace
+    (let* ((file (jgy-workspace-test--write "me/projects/demo/project.md" jgy-workspace-test--card))
+           (root (file-name-directory file))
+           (source (expand-file-name "origin/app" jgy-workspace-directory))
+           processes)
+      (should (zerop (call-process "git" nil nil nil "init" "--bare" source)))
+      (should (zerop (call-process "git" nil nil nil "-C" source "remote" "add" "origin" source)))
+      (cl-letf (((symbol-function 'magit-run-git-async)
+                 (lambda (&rest args)
+                   (let ((proc (make-process :name "workspace-test-git" :buffer nil
+                                             :command (cons "git" args) :sentinel #'ignore)))
+                     (push proc processes)
+                     proc))))
+        (jgy-workspace-clone-repo source root)
+        (while (seq-some #'process-live-p processes) (accept-process-output nil 0.05))
+        (should (file-directory-p (expand-file-name "app/.git" root)))
+        (should (equal (jgy-workspace--read-repos root) `(((path . "app") (url . ,source)))))
+        (make-directory (expand-file-name "existing" root))
+        (jgy-workspace--write-repos
+         root `(((path . "app") (url . ,source))
+                ((path . "existing") (url . ,source))
+                ((path . "nested/new") (url . ,source))))
+        (jgy-workspace-restore-repos root)
+        (while (seq-some #'process-live-p processes) (accept-process-output nil 0.05))
+        (should (= (length processes) 2))
+        (should-not (file-exists-p (expand-file-name "existing/.git" root)))
+        (should (file-directory-p (expand-file-name "nested/new/.git" root)))
+        (jgy-workspace--clone-entries
+         root `(((path . "failure") (url . ,(concat source "-missing")))
+                ((path . "never") (url . ,source))) t)
+        (while (seq-some #'process-live-p processes) (accept-process-output nil 0.05))
+        (should-not (file-exists-p (expand-file-name "never" root)))
+        (should (= (length (jgy-workspace--read-repos root)) 3))
+        (jgy-workspace--clone-entries root `(((path . "old") (url . ,source))))
+        (while (seq-some #'process-live-p processes) (accept-process-output nil 0.05))
+        (jgy-workspace-register-repos root)
+        (should (= (length (jgy-workspace--read-repos root)) 4)))
+      (when-let* ((buffer (get-file-buffer file))) (kill-buffer buffer)))))
+
 ;;; jgy-workspace-test.el ends here

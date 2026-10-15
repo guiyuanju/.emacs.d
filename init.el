@@ -383,6 +383,7 @@
     "TAB o"   '(jgy-workspace-open-project :which-key "open project")
     "TAB n"   '(jgy-workspace-new-project :which-key "new project")
     "TAB c"   '(jgy-workspace-clone-repo :which-key "clone repo")
+    "TAB r"   '(jgy-workspace-restore-repos :which-key "restore repos")
     "TAB u"   '(jgy-workspace-pull :which-key "pull emacs & workspace")
     "TAB p"   '(jgy-workspace-visit-project-md :which-key "project.md")
     "TAB ["   '(persp-prev :which-key "previous")

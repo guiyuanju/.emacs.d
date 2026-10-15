@@ -5,6 +5,11 @@
 ;; 每个项目对应一个同名 perspective，项目 id 即文件夹名。
 ;; 位置固定的 repo（如 ~/.emacs.d）不搬进项目文件夹，用 `jgy-workspace-project-roots' 指过去：
 ;; project.md 仍在 workspace，看板、agent 以那个目录为项目根。
+;; project.md 的 front matter 可用 YAML 兼容的 JSON 数组记录仓库，例如：
+;; repos: [
+;;   {"path": "app", "url": "git@github.com:owner/app.git"}
+;;   ]
+;; clone-repo 成功后自动登记；register-repos 登记现有仓库；restore-repos 补齐缺失项。
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 
@@ -13,10 +18,10 @@
 (require 'cl-lib)
 (require 'crm)
 (require 'project)
+(require 'json)
 (require 'seq)
 (require 'subr-x)
 
-(declare-function magit-clone-regular "magit-clone")
 (declare-function magit-run-git-async "magit-process")
 (declare-function magit-process-sentinel "magit-process")
 (declare-function persp-current-name "perspective")
@@ -30,6 +35,7 @@
 (declare-function overlook-main-window "overlook")
 (declare-function overlook-show-elsewhere "overlook")
 (declare-function overlook-agent-project-root "overlook-agent")
+(declare-function overlook-end-with-blank "overlook")
 (declare-function overlook-perspective-guess-root "overlook-perspective")
 (defvar overlook-sections)
 
@@ -223,11 +229,7 @@ The repositories are read with `completing-read-multiple'; none is fine."
   "Open the project.md of the current perspective, project folder or root.
 From a side window such as the dashboard it opens in the main window."
   (interactive)
-  (let ((dir (or (and (bound-and-true-p persp-mode) (jgy-workspace-project-dir (persp-current-name)))
-                 (jgy-workspace-project-root)
-                 (when-let* ((id (jgy-workspace--root-id)))
-                   (jgy-workspace-project-dir id))
-                 (user-error "Not inside a project folder"))))
+  (let ((dir (jgy-workspace--current-card-root)))
     (when (fboundp 'overlook-main-window) (overlook-main-window))
     (find-file (expand-file-name "project.md" dir))))
 
@@ -240,18 +242,194 @@ They are the repos/ of ROOT's workspace and `jgy-workspace-code-directories'."
                      (file-expand-wildcards (expand-file-name "*/.git" dir))))
            (cons (expand-file-name "../../repos/" root) jgy-workspace-code-directories))))
 
+(defun jgy-workspace--current-card-root ()
+  "Return the current project's card directory, including mapped projects."
+  (or (and (bound-and-true-p persp-mode)
+           (jgy-workspace-project-dir (persp-current-name)))
+      (jgy-workspace-project-root)
+      (when-let* ((id (jgy-workspace--root-id)))
+        (jgy-workspace-project-dir id))
+      (user-error "Not inside a project folder")))
+
+(defun jgy-workspace--repos-region ()
+  "Return bounds of the repos field in the current card's front matter.
+Leave point at the closing delimiter if the field is absent."
+  (goto-char (point-min))
+  (unless (looking-at "---[ \t]*\n")
+    (user-error "project.md needs YAML front matter"))
+  (forward-line 1)
+  (let ((start (point))
+        (end (save-excursion
+               (unless (re-search-forward "^---[ \t]*$" nil t)
+                 (user-error "Unclosed project.md front matter"))
+               (line-beginning-position))))
+    (if (re-search-forward "^repos:[ \t]*" end t)
+        (let ((beg (line-beginning-position)))
+          (forward-line 1)
+          (while (and (< (point) end) (looking-at "[ \t]+.*$"))
+            (forward-line 1))
+          (cons beg (point)))
+      (goto-char (max start end))
+      nil)))
+
+(defun jgy-workspace--validate-repos (repos root)
+  "Validate REPOS and their paths under ROOT, returning REPOS.
+Each entry has symbol keys path and url.  Paths are relative directories."
+  (unless (listp repos) (user-error "repos must be a JSON array"))
+  (let (seen)
+    (dolist (repo repos)
+      (let ((path (alist-get 'path repo)) (url (alist-get 'url repo)))
+        (unless (and (stringp path) (not (string-empty-p path))
+                     (not (file-name-absolute-p path))
+                     (not (string-prefix-p "~" path))
+                     (not (member ".." (split-string path "/")))
+                     (not (member ".git" (split-string path "/")))
+                     (not (equal (directory-file-name path) "."))
+                     (stringp url) (not (string-empty-p url)))
+          (user-error "Each repo needs a relative path and nonempty url"))
+        (let ((target (directory-file-name (expand-file-name path root))))
+          (unless (string-prefix-p (file-name-as-directory (file-truename root))
+                                   (file-truename target))
+            (user-error "Repo path escapes project: %s" path))
+          (when (seq-some (lambda (other)
+                           (or (equal target other)
+                               (string-prefix-p (file-name-as-directory other) target)
+                               (string-prefix-p (file-name-as-directory target) other))) seen)
+            (user-error "Overlapping repo path: %s" path))
+          (push target seen)))))
+  repos)
+
+(defun jgy-workspace--read-repos (root)
+  "Read ROOT's repos array using Emacs's built-in JSON parser.
+The JSON array is also valid YAML.  Other front matter is left untouched."
+  (with-current-buffer (find-file-noselect (expand-file-name "project.md" root))
+    (unless (verify-visited-file-modtime (current-buffer))
+      (user-error "Revert project.md before reading repositories"))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let ((region (jgy-workspace--repos-region)))
+          (when region
+            (let* ((text (buffer-substring-no-properties (+ (car region) 6) (cdr region)))
+                   (repos (condition-case nil
+                              (json-parse-string text :array-type 'list :object-type 'alist
+                                                 :null-object :null :false-object :false)
+                            (error (user-error "repos must be a JSON array of path/url objects")))))
+              (unless (string-prefix-p "[" (string-trim-left text))
+                (user-error "repos must be a JSON array"))
+              (jgy-workspace--validate-repos repos root))))))))
+
+(defun jgy-workspace--write-repos (root repos)
+  "Save REPOS in ROOT's card, preserving other fields and body.
+Refuse to save over unsaved user edits or external file changes."
+  (jgy-workspace--validate-repos repos root)
+  (with-current-buffer (find-file-noselect (expand-file-name "project.md" root))
+    (when (or (buffer-modified-p) (not (verify-visited-file-modtime (current-buffer))))
+      (user-error "Save or revert project.md before registering repositories"))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let ((region (jgy-workspace--repos-region))
+              (json-encoding-pretty-print nil))
+          (when region
+            (delete-region (car region) (cdr region))
+            (goto-char (car region)))
+          (insert "repos: [")
+          (cl-loop for repo in repos for first = t then nil do
+                   (insert (if first "\n" ",\n") "  " (json-encode repo)))
+          (insert (if repos "\n  ]\n" "]\n"))
+          (save-buffer))))))
+
+(defun jgy-workspace--register-repo (root path url)
+  "Register PATH and URL in ROOT after a successful clone."
+  (let* ((repos (jgy-workspace--read-repos root))
+         (entry (seq-find (lambda (repo) (equal (alist-get 'path repo) path)) repos)))
+    (if entry
+        (unless (equal (alist-get 'url entry) url)
+          (user-error "Repo %s already registered with another URL" path))
+      (jgy-workspace--write-repos
+       root (append repos (list `((path . ,path) (url . ,url))))))))
+
+(defun jgy-workspace--clone-entries (root repos &optional register)
+  "Clone REPOS into ROOT sequentially, optionally REGISTER on success.
+Existing paths are skipped.  Stop on failure and preserve Magit's log."
+  (if (null repos)
+      (message "Project repositories ready")
+    (let* ((entry (car repos))
+           (path (alist-get 'path entry))
+           (url (alist-get 'url entry))
+           (target (expand-file-name path root)))
+      (if (or (file-exists-p target) (file-symlink-p target))
+          (progn
+            (message "Skipping existing path: %s" target)
+            (jgy-workspace--clone-entries root (cdr repos) register))
+        (require 'magit-process)
+        (make-directory (file-name-directory target) t)
+        (let* ((default-directory root)
+               (process (magit-run-git-async "clone" "--" url target))
+               (sentinel (process-sentinel process)))
+          (set-process-sentinel
+           process
+           (lambda (proc event)
+             (unwind-protect
+                 (funcall sentinel proc event)
+               (when (and (memq (process-status proc) '(exit signal))
+                          (not (process-get proc 'jgy-workspace-handled)))
+                 (process-put proc 'jgy-workspace-handled t)
+                 (if (not (zerop (process-exit-status proc)))
+                     (message "Clone failed for %s; see Magit process buffer" path)
+                   (condition-case err
+                       (progn
+                         (when register (jgy-workspace--register-repo root path url))
+                         (jgy-workspace--clone-entries root (cdr repos) register))
+                     (error (message "Repository cloned; registration/restore stopped: %s"
+                                     (error-message-string err))))))))))))))
+
 (defun jgy-workspace-clone-repo (repo &optional root)
-  "Clone the origin of REPO into project folder ROOT, by default the current one.
+  "Clone REPO's origin into ROOT and register it after success.
 REPO is a checkout from `jgy-workspace--clone-sources'."
   (interactive
-   (let ((root (or (jgy-workspace-project-root) (user-error "Not inside a project folder"))))
+   (let ((root (jgy-workspace--current-card-root)))
      (list (completing-read "Repository: " (jgy-workspace--clone-sources root) nil t) root)))
-  (let* ((root (or root (jgy-workspace-project-root) (user-error "Not inside a project folder")))
-         (target (expand-file-name (file-name-nondirectory (directory-file-name repo)) root))
-         (url (car (process-lines "git" "-C" (expand-file-name repo) "remote" "get-url" "origin"))))
-    (when (file-exists-p target) (user-error "%s already exists" target))
-    (require 'magit-clone)
-    (magit-clone-regular url target nil)))
+  (let* ((root (or root (jgy-workspace--current-card-root)))
+         (path (file-name-nondirectory (directory-file-name repo)))
+         (url (car (process-lines "git" "-C" (expand-file-name repo) "remote" "get-url" "origin")))
+         (repos (jgy-workspace--read-repos root)))
+    (when (file-exists-p (expand-file-name path root))
+      (user-error "%s already exists" path))
+    (jgy-workspace--validate-repos
+     (append (seq-remove (lambda (r) (equal (alist-get 'path r) path)) repos)
+             (list `((path . ,path) (url . ,url)))) root)
+    (when-let* ((entry (seq-find (lambda (r) (equal (alist-get 'path r) path)) repos)))
+      (unless (equal (alist-get 'url entry) url)
+        (user-error "Repo %s already registered with another URL" path)))
+    (jgy-workspace--clone-entries root (list `((path . ,path) (url . ,url))) t)))
+
+(defun jgy-workspace-restore-repos (&optional root)
+  "Clone missing repositories listed in the current project's project.md.
+Existing paths, branches and working trees are left alone."
+  (interactive)
+  (let ((root (or root (jgy-workspace--current-card-root))))
+    (jgy-workspace--clone-entries root (jgy-workspace--read-repos root))))
+
+(defun jgy-workspace-register-repos (&optional root)
+  "Add existing immediate child Git repositories to project.md.
+Use this once for projects created before repo manifests were available.
+Mapped external roots such as ~/.emacs.d remain configured separately."
+  (interactive)
+  (let* ((root (or root (jgy-workspace--current-card-root)))
+         (repos (jgy-workspace--read-repos root)))
+    (dolist (dir (directory-files root t directory-files-no-dot-files-regexp))
+      (when (and (file-directory-p dir) (file-exists-p (expand-file-name ".git" dir)))
+        (let* ((path (file-name-nondirectory dir))
+               (url (car (process-lines "git" "-C" dir "remote" "get-url" "origin")))
+               (entry (seq-find (lambda (r) (equal (alist-get 'path r) path)) repos)))
+          (if entry
+              (unless (equal (alist-get 'url entry) url)
+                (user-error "Origin differs from manifest for %s" path))
+            (setq repos (append repos (list `((path . ,path) (url . ,url)))))))))
+    (jgy-workspace--write-repos root repos)
+    (message "Registered %d repositories" (length repos))))
 
 (defun jgy-workspace--pull (dirs)
   "Pull DIRS one after another, stopping at the first failure."
