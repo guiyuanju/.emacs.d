@@ -169,43 +169,45 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-tab-folds-a-heading-and-keeps-it-folded ()
   (let ((alpha (overlook-test--agent "alpha"))
         (beta (overlook-test--agent "beta"))
-        (overlook--folds nil)
         (overlook-perspective-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,beta)) "one"
           (goto-char (point-min))
-          (search-forward "alpha")
-          (overlook-toggle-fold)
-          (should (equal (overlook-item-at-point) '(perspective . "one")))
+          (search-forward "one")
+          (call-interactively #'magit-section-toggle)
           (should (overlook-test--hidden-p "alpha"))
           (should-not (overlook-test--hidden-p "two"))
           (should-not (overlook-test--hidden-p "beta"))
           (overlook--render)
           (should (overlook-test--hidden-p "alpha"))
-          (overlook-toggle-fold)
+          (call-interactively #'magit-section-toggle)
           (should-not (overlook-test--hidden-p "alpha")))
       (mapc #'kill-buffer (list alpha beta)))))
 
 (ert-deftest overlook-ret-folds-a-section-title ()
-  (let ((overlook--folds nil))
-    (overlook-test-with-dashboard '(("one") ("two")) "one"
-      (goto-char (point-min))
-      (overlook-visit)
-      (should (overlook-test--hidden-p "one"))
-      (should (overlook-test--hidden-p "two")))))
+  (overlook-test-with-dashboard '(("one") ("two")) "one"
+    (goto-char (point-min))
+    (overlook-visit)
+    (should (overlook-test--hidden-p "one"))
+    (should (overlook-test--hidden-p "two"))))
 
-(ert-deftest overlook-folded-rows-start-folded-and-nest ()
-  (let ((overlook--folds nil)
-        (overlook-sections
+(ert-deftest overlook-hidden-rows-start-folded-and-nest ()
+  (let ((overlook-sections
          (list (lambda ()
                  (overlook-insert-section
                   "Todo"
                   (lambda ()
-                    (insert (propertize "proj\n" 'overlook-heading t)
-                            "   now\n"
-                            (propertize "   2 more\n" 'overlook-folded t)
-                            (propertize "   later\n" 'overlook-nest 1)
-                            (propertize "     sub\n" 'overlook-nest 1)))))))
+                    (overlook-insert-row
+                     "proj\n"
+                     (lambda ()
+                       (overlook-insert-row "   now\n")
+                       (overlook-insert-row
+                        "   2 more\n"
+                        (lambda ()
+                          (overlook-insert-row "   later\n"
+                                               (lambda () (overlook-insert-row "     sub\n")))
+                          (overlook-insert-row "   last\n"))
+                        t))))))))
         (dashboard (get-buffer-create overlook-buffer-name)))
     (unwind-protect
         (with-current-buffer dashboard
@@ -215,11 +217,47 @@ Agents are listed; usage and repos are not."
           (should-not (overlook-test--hidden-p "2 more"))
           (should (overlook-test--hidden-p "later"))
           (should (overlook-test--hidden-p "sub"))
+          (should (overlook-test--hidden-p "last"))
           (goto-char (point-min))
           (search-forward "2 more")
-          (overlook-toggle-fold)
+          (call-interactively #'magit-section-toggle)
+          (should-not (overlook-test--hidden-p "later"))
+          (should-not (overlook-test--hidden-p "last"))
+          (search-forward "later")
+          (call-interactively #'magit-section-toggle)
+          (should (overlook-test--hidden-p "sub"))
+          (should-not (overlook-test--hidden-p "last"))
+          (overlook--render)
+          (should (overlook-test--hidden-p "sub"))
           (should-not (overlook-test--hidden-p "later")))
       (kill-buffer dashboard))))
+
+(ert-deftest overlook-highlights-the-section-at-point ()
+  (overlook-test-with-dashboard '(("one") ("two")) "one"
+    (goto-char (point-min))
+    (search-forward "two")
+    (magit-section-update-highlight t)
+    (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
+
+(ert-deftest overlook-blank-line-highlights-nothing ()
+  (overlook-test-with-dashboard '(("one") ("two")) "one"
+    (goto-char (point-min))
+    (search-forward "two")
+    (forward-line -1)
+    (magit-section-update-highlight t)
+    (should-not magit-section-highlight-overlays)))
+
+(ert-deftest overlook-highlight-covers-wrap-prefixes ()
+  (let ((alpha (overlook-test--agent "alpha")))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+          (goto-char (point-min))
+          (search-forward "one")
+          (magit-section-update-highlight t)
+          (search-forward "alpha")
+          (should (eq (get-text-property 0 'face (get-char-property (point) 'wrap-prefix))
+                      'magit-section-highlight)))
+      (kill-buffer alpha))))
 
 (ert-deftest overlook-heading-navigation-wraps ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"

@@ -230,31 +230,35 @@ name carries `overlook-action' runs it when the line is visited."
                                    (* count 14) (* (1- count) 3))
                                 count)))))
     (pcase-dolist (`(,name . ,windows) rows)
-      (insert (if-let* ((action (get-text-property 0 'overlook-action name)))
-                  (propertize overlook-indent 'overlook-action action)
-                overlook-indent)
-              name (make-string (- (+ name-width 2) (string-width name)) ?\s)
-              (mapconcat
-               (lambda (window)
-                 (pcase-let* ((`(,label ,percentage ,resets)
-                               (if (funcall past window) (list (car window) 0 nil) window)))
-                   (if (stringp percentage)
-                       (concat (propertize label 'face 'shadow)
-                               (make-string (max 1 (- (+ bar 14)
-                                                      (string-width label)
-                                                      (string-width percentage))) ?\s)
-                               percentage)
-                     (concat (propertize label 'face 'shadow) " "
-                             (overlook-usage--bar percentage bar)
-                             (propertize (format " %3d%%" (floor percentage))
-                                         'face (if (>= percentage overlook-usage-warning)
-                                                   'warning
-                                                 'default))
-                             (propertize (format " %-5s"
-                                                 (if resets (overlook-format-duration (- resets now)) ""))
-                                         'face 'shadow)))))
-               windows "   ")
-              "\n"))))
+      (overlook-insert-row
+       (propertize
+        (concat
+         (if-let* ((action (get-text-property 0 'overlook-action name)))
+             (propertize overlook-indent 'overlook-action action)
+           overlook-indent)
+         name (make-string (- (+ name-width 2) (string-width name)) ?\s)
+         (mapconcat
+          (lambda (window)
+            (pcase-let* ((`(,label ,percentage ,resets)
+                          (if (funcall past window) (list (car window) 0 nil) window)))
+              (if (stringp percentage)
+                  (concat (propertize label 'face 'shadow)
+                          (make-string (max 1 (- (+ bar 14)
+                                                 (string-width label)
+                                                 (string-width percentage))) ?\s)
+                          percentage)
+                (concat (propertize label 'face 'shadow) " "
+                        (overlook-usage--bar percentage bar)
+                        (propertize (format " %3d%%" (floor percentage))
+                                    'face (if (>= percentage overlook-usage-warning)
+                                              'warning
+                                            'default))
+                        (propertize (format " %-5s"
+                                            (if resets (overlook-format-duration (- resets now)) ""))
+                                    'face 'shadow)))))
+          windows "   ")
+         "\n")
+        'overlook-item (cons 'usage (substring-no-properties name)))))))
 
 ;;; Scan
 

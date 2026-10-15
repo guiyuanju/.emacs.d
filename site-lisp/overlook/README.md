@@ -64,7 +64,7 @@ With [elpaca](https://github.com/progfolio/elpaca):
   :bind ("C-c o" . overlook))
 ```
 
-It pulls in perspective and agent-shell.  agent-shell needs the ACP
+It pulls in magit-section, perspective and agent-shell.  agent-shell needs the ACP
 adapters of the agents you use; see its README.
 
 ## Setup
@@ -135,7 +135,7 @@ On the dashboard:
 | Key | |
 |---|---|
 | `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, compare a changed file in Ediff, show an agent |
-| `TAB` | fold or unfold the rows under a row, or under its parent |
+| `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `H` | hand the agent's task off to another agent |
@@ -200,7 +200,8 @@ add to it:
   perspectives section is at 0, usage at -50.  Insert through
   `overlook-insert-section`.
 - `overlook-perspective-functions`: rows under each perspective, called
-  with its name.
+  with its name.  Insert each row with `overlook-insert-row`, which can
+  nest rows under it.
 - `overlook-usage-functions`: rows in the usage section.
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.
 - `overlook-tick-hook`: run every few seconds while the dashboard is live.
@@ -208,11 +209,10 @@ add to it:
 Text properties on a row tell the dashboard about it: `overlook-action`
 is called by `RET`, `overlook-item` keeps point on the row across
 redraws, `overlook-heading` and `overlook-attention` mark the lines the
-motion commands stop at.  `TAB` folds the rows under a row: section titles
-sit at level 0, headings at 1 and other rows deeper by their indent;
-`overlook-nest` adds to a row's level and `overlook-folded` folds a row
-until it is toggled.  Call `overlook-refresh` when something you show
-changed.
+motion commands stop at.  The dashboard is a
+[magit-section](https://github.com/magit/magit) buffer and every row a
+section, so Magit's section commands (`C-<tab>`, `1`–`4`, `^`, `n`/`p`)
+work too.  Call `overlook-refresh` when something you show changed.
 
 Another perspective implementation can drive overlook by setting the
 `overlook-perspective-*-function` variables, as overlook-perspective.el

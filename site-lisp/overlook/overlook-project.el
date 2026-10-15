@@ -202,27 +202,27 @@ Past `overlook-project-files' the rest fold into one line with their totals."
   (let ((prefix overlook-project--file-indent)
         (rest (nthcdr overlook-project-files files)))
     (dolist (file (seq-take files overlook-project-files))
-      (insert (propertize (concat prefix (overlook-project--file-label file) "\n")
-                          'overlook-item (list 'repo-file dir (car file))
-                          'overlook-action (lambda ()
-                                             (overlook-show-elsewhere
-                                              perspective
-                                              (lambda () (overlook-project-open-file dir file))))
-                          'help-echo (car file)
-                          'wrap-prefix prefix)))
+      (overlook-insert-row (propertize (concat prefix (overlook-project--file-label file) "\n")
+                                       'overlook-item (list 'repo-file dir (car file))
+                                       'overlook-action (lambda ()
+                                                          (overlook-show-elsewhere
+                                                           perspective
+                                                           (lambda () (overlook-project-open-file dir file))))
+                                       'help-echo (car file)
+                                       'wrap-prefix prefix)))
     (when rest
       (let ((total (overlook-project--total rest)))
-        (insert (propertize
-                 (concat prefix
-                         (propertize (format "…+%d" (length rest)) 'face 'shadow)
-                         (overlook-project--counts (car total) (cdr total))
-                         "\n")
-                 'overlook-item (list 'repo-files dir)
-                 'overlook-action (lambda ()
-                                    (overlook-show-elsewhere
-                                     perspective (lambda () (overlook-project-open dir))))
-                 'help-echo (mapconcat #'car rest "\n")
-                 'wrap-prefix prefix))))))
+        (overlook-insert-row (propertize
+                              (concat prefix
+                                      (propertize (format "…+%d" (length rest)) 'face 'shadow)
+                                      (overlook-project--counts (car total) (cdr total))
+                                      "\n")
+                              'overlook-item (list 'repo-files dir)
+                              'overlook-action (lambda ()
+                                                 (overlook-show-elsewhere
+                                                  perspective (lambda () (overlook-project-open dir))))
+                              'help-echo (mapconcat #'car rest "\n")
+                              'wrap-prefix prefix))))))
 
 (defun overlook-project--row (dir perspective width)
   "Insert the row of repo DIR in PERSPECTIVE, its name padded to WIDTH."
@@ -230,20 +230,20 @@ Past `overlook-project-files' the rest fold into one line with their totals."
   (pcase-let* ((`(,branch . ,files) (overlook-project--status dir))
                (total (overlook-project--total files))
                (name (file-name-nondirectory (directory-file-name dir))))
-    (insert (propertize
-             (concat overlook-indent
-                     (propertize (concat (overlook-glyph-cell "⎇")
-                                         (if branch (string-pad name width) name)
-                                         (if branch (concat "  " branch) ""))
-                                 'face 'overlook-project-repo)
-                     (overlook-project--counts (car total) (cdr total))
-                     "\n")
-             'overlook-item (cons 'repo dir)
-             'help-echo dir
-             'overlook-action (lambda ()
-                                (overlook-show-elsewhere
-                                 perspective (lambda () (overlook-project-open dir))))))
-    (overlook-project--insert-files dir files perspective)))
+    (overlook-insert-row (propertize
+                          (concat overlook-indent
+                                  (propertize (concat (overlook-glyph-cell "⎇")
+                                                      (if branch (string-pad name width) name)
+                                                      (if branch (concat "  " branch) ""))
+                                              'face 'overlook-project-repo)
+                                  (overlook-project--counts (car total) (cdr total))
+                                  "\n")
+                          'overlook-item (cons 'repo dir)
+                          'help-echo dir
+                          'overlook-action (lambda ()
+                                             (overlook-show-elsewhere
+                                              perspective (lambda () (overlook-project-open dir)))))
+                         (lambda () (overlook-project--insert-files dir files perspective)))))
 
 (defun overlook-project--insert (perspective)
   "Insert the repos of PERSPECTIVE's project."

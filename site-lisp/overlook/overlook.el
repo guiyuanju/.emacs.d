@@ -5,7 +5,7 @@
 ;; Author: guiyuanju <guiyuanjune@outlook.com>
 ;; Maintainer: guiyuanju <guiyuanjune@outlook.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (perspective "2.22") (agent-shell "0.87.3"))
+;; Package-Requires: ((emacs "29.1") (magit-section "4.0") (perspective "2.22") (agent-shell "0.87.3"))
 ;; Keywords: tools, convenience
 ;; URL: https://github.com/guiyuanju/overlook
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -48,17 +48,16 @@
 ;; \\[overlook-next-heading] stops at, and `overlook-attention' those that
 ;; \\[overlook-next-attention] stops at.
 ;;
-;; \\[overlook-toggle-fold] folds the lines under a row.  A section title sits at
-;; level 0, a heading at 1 and any other row deeper by its indent;
-;; `overlook-nest' adds to a row's level, and `overlook-folded' folds a
-;; row until it is toggled.
+;; The dashboard is a `magit-section-mode' buffer: each section and row is
+;; a section, so \\[magit-section-toggle] folds the rows under one and
+;; Magit's section commands work.  Insert rows with `overlook-insert-row'.
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'magit-section)
 (require 'seq)
 (require 'subr-x)
-(require 'text-property-search)
 
 (defgroup overlook nil
   "A dashboard over perspectives, repos and agents."
@@ -254,8 +253,7 @@ anything.  The rows go under an \"other\" heading after every perspective.")
 
 ;;; Mode
 
-(defvar-keymap overlook-mode-map
-  :parent special-mode-map)
+(defvar-keymap overlook-mode-map)
 
 (defvar overlook-keys nil
   "Dashboard bindings made by `overlook-define-key', as (KEY . COMMAND).
@@ -270,7 +268,7 @@ The binding is recorded in `overlook-keys'."
 (pcase-dolist (`(,key . ,command)
                '(("RET" . overlook-visit)
                  ("o" . overlook-visit)
-                 ("TAB" . overlook-toggle-fold)
+                 ("TAB" . magit-section-toggle)
                  ("C-j" . overlook-next-heading)
                  ("C-k" . overlook-previous-heading)
                  ("C-S-j" . overlook-next-attention)
@@ -280,7 +278,7 @@ The binding is recorded in `overlook-keys'."
                  ("q" . overlook)))
   (overlook-define-key key command))
 
-(define-derived-mode overlook-mode special-mode "Overlook"
+(define-derived-mode overlook-mode magit-section-mode "Overlook"
   "Dashboard over perspectives and what lives in them."
   (setq-local revert-buffer-function (lambda (&rest _) (overlook--render))
               truncate-lines nil
@@ -289,12 +287,14 @@ The binding is recorded in `overlook-keys'."
               word-wrap-by-category t
               left-margin-width 1
               right-margin-width 1
-              mode-line-format '(:eval (overlook--mode-line))
-              buffer-invisibility-spec '((overlook-fold . t)))
+              mode-line-format '(:eval (overlook--mode-line)))
+  ;; Magit highlights sections with `font-lock-face', which only shows with
+  ;; font-lock on; font-lock would strip the rows' faces, so alias it instead.
+  (setq-local char-property-alias-alist
+              (cons '(face font-lock-face) char-property-alias-alist))
   ;; Rows fit themselves to the window, so redraw when it resizes.
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
-  (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1))
-  (hl-line-mode 1))
+  (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
 
 (defun overlook--mode-line ()
   "The dashboard's mode line: its name, then `overlook-mode-line-functions'."
@@ -318,23 +318,56 @@ The binding is recorded in `overlook-keys'."
   '((t :inherit (success bold)))
   "Face of the current perspective's heading.")
 
+(defclass overlook-section (magit-section) ()
+  "A section or row of the dashboard.")
+
+(cl-defmethod magit-section-highlight ((section overlook-section))
+  "Highlight SECTION, including the wrap prefixes of its rows.
+Emacs draws a wrap prefix in the default face, which would leave a gap.
+Nothing is highlighted while point is on a blank line between rows."
+  (unless (save-excursion (beginning-of-line) (looking-at-p "[ \t]*$"))
+    (cl-call-next-method)
+    (save-excursion
+      (goto-char (oref section start))
+      (while (< (point) (oref section end))
+        (when-let* ((prefix (get-text-property (point) 'wrap-prefix)))
+          (overlay-put (magit-section-highlight-range (point) (line-end-position))
+                       'wrap-prefix (propertize prefix 'face 'magit-section-highlight)))
+        (forward-line 1)))))
+
+(defun overlook--row-id (line)
+  "What identifies row LINE across redraws: its `overlook-item', else its text."
+  (or (get-text-property 0 'overlook-item line)
+      (string-trim (substring-no-properties line))))
+
+(defun overlook-insert-row (line &optional children hide)
+  "Insert LINE, a row ending in a newline, and return its section.
+CHILDREN, a function, inserts the rows under it; they start folded when
+HIDE is non-nil, until the row is toggled.  CHILDREN can drop the row by
+calling `magit-cancel-section'; the section's end is then nil."
+  (magit-insert-section (overlook-section (overlook--row-id line) hide)
+    (insert line)
+    (when children
+      (let ((heading-end (point)))
+        (magit-insert-heading)
+        (funcall children)
+        (when (= (point) heading-end)
+          (oset magit-insert-section--current content nil))))))
+
 (defun overlook-insert-section (title body)
   "Insert section TITLE, then call BODY, a function, to fill it.
 The title is dropped when BODY inserts nothing.  TITLE's text properties,
 like `overlook-action', cover its whole line."
-  (let ((start (point)))
+  (let ((start (point))
+        (line (concat title "\n")))
+    (add-face-text-property 0 (length title) 'overlook-section t line)
+    (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
+             unless (eq prop 'face)
+             do (put-text-property 0 (length line) prop value line))
     (unless (bobp) (insert "\n"))
-    (let ((line (concat title "\n")))
-      (add-face-text-property 0 (length title) 'overlook-section t line)
-      (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
-               unless (eq prop 'face)
-               do (put-text-property 0 (length line) prop value line))
-      (put-text-property 0 (length line) 'overlook-section t line)
-      (insert line))
-    (let ((after-title (point)))
-      (funcall body)
-      (when (= (point) after-title)
-        (delete-region start (point))))))
+    (unless (oref (overlook-insert-row line (lambda () (funcall body) (magit-cancel-section t)))
+                  end)
+      (delete-region start (point)))))
 
 (defun overlook-align-right (text columns)
   "TEXT aligned to end COLUMNS before the window's right edge."
@@ -411,13 +444,17 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
     (dolist (name (overlook-ordered-perspectives))
       (unless first (insert "\n"))
       (setq first nil)
-      (insert (overlook--heading name (equal name current)))
-      (run-hook-with-args 'overlook-perspective-functions name))
+      (overlook-insert-row (overlook--heading name (equal name current))
+                           (lambda () (run-hook-with-args 'overlook-perspective-functions name))))
     (let ((start (point)))
-      (insert (if first "" "\n")
-              (propertize "other\n" 'face 'shadow 'overlook-heading t
-                          'overlook-item '(perspective . nil)))
-      (unless (run-hook-with-args-until-success 'overlook-orphan-functions)
+      (insert (if first "" "\n"))
+      (unless (oref (overlook-insert-row
+                     (propertize "other\n" 'face 'shadow 'overlook-heading t
+                                 'overlook-item '(perspective . nil))
+                     (lambda ()
+                       (unless (run-hook-with-args-until-success 'overlook-orphan-functions)
+                         (magit-cancel-section))))
+                    end)
         (delete-region start (point))))))
 
 (defun overlook--perspectives-section ()
@@ -428,34 +465,30 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 ;;; Render
 
-(defun overlook--find (item)
-  "Start of the first row whose `overlook-item' is ITEM."
-  (save-excursion
-    (goto-char (point-min))
-    (when-let* ((match (text-property-search-forward 'overlook-item item t)))
-      (prop-match-beginning match))))
-
 (defun overlook--render ()
   "Redraw the dashboard, keeping point on the same row."
   (when-let* ((dashboard (get-buffer overlook-buffer-name)))
     (with-current-buffer dashboard
       (let* ((window (get-buffer-window dashboard t))
-             (item (get-text-property (line-beginning-position) 'overlook-item))
+             (section (magit-current-section))
+             (position (and section (magit-section-get-relative-position section)))
              (line (line-number-at-pos))
              (column (current-column))
              (overlook--buffers-cache (make-hash-table :test #'equal))
              (inhibit-read-only t))
         (erase-buffer)
         (run-hooks 'overlook-before-render-hook)
-        (run-hooks 'overlook-sections)
-        (overlook--apply-folds)
+        (magit-insert-section (overlook-section 'root)
+          (run-hooks 'overlook-sections))
+        (magit-section-show magit-root-section)
         (goto-char (point-min))
-        (if-let* ((pos (and item (overlook--find item))))
-            (goto-char pos)
+        (unless (and section (oref section parent)
+                     (apply #'magit-section-goto-successor section position))
           (forward-line (1- line)))
         (while (and (invisible-p (point)) (not (bobp)))
           (forward-line -1))
         (move-to-column column)
+        (magit-section-update-highlight t)
         (when window (set-window-point window (point)))))))
 
 ;;; Navigation
@@ -503,79 +536,14 @@ FORWARD picks the direction; WHAT names those lines when there is none."
   (get-text-property (line-beginning-position) 'overlook-item))
 
 (defun overlook-visit ()
-  "Run the action of the row at point, or fold the lines under it."
+  "Run the action of the row at point, or fold the rows under it."
   (interactive)
-  (cond ((get-text-property (line-beginning-position) 'overlook-action)
-         (funcall (get-text-property (line-beginning-position) 'overlook-action)))
-        ((assoc (line-beginning-position) (overlook--outline)) (overlook-toggle-fold))
-        (t (user-error "Nothing to visit on this line"))))
-
-;;; Folding
-
-(defvar overlook--folds nil
-  "Alist of a row's key to whether it is folded, for rows toggled by hand.
-A key is the row's identity followed by its parent's key.")
-
-(defun overlook--level ()
-  "Outline level of the line at point, or nil when it is blank."
-  (let ((bol (line-beginning-position)))
-    (cond ((save-excursion (beginning-of-line) (looking-at-p "[ \t]*$")) nil)
-          ((get-text-property bol 'overlook-section) 0)
-          ((get-text-property bol 'overlook-heading) 1)
-          (t (+ 2 (- (save-excursion (back-to-indentation) (point)) bol)
-                (or (get-text-property bol 'overlook-nest) 0))))))
-
-(defun overlook--outline ()
-  "Rows with lines under them, as (START KEY END) for each.
-START is the row's start and END the end of its last line under it."
-  (save-excursion
-    (goto-char (point-min))
-    (let (path folds)
-      (cl-flet ((close (level)
-                  (while (and path (or (null level) (>= (car (car path)) level)))
-                    (pcase-let ((`(,_ ,start ,key ,end) (pop path)))
-                      (when end (push (list start key end) folds))))))
-        (while (not (eobp))
-          (when-let* ((level (overlook--level)))
-            (close level)
-            (dolist (parent path) (setf (nth 3 parent) (line-end-position)))
-            (let ((id (or (get-text-property (point) 'overlook-item)
-                          (string-trim (buffer-substring-no-properties
-                                        (point) (line-end-position))))))
-              (push (list level (point) (cons id (nth 2 (car path))) nil) path)))
-          (forward-line 1))
-        (close nil))
-      folds)))
-
-(defun overlook--folded-p (key start)
-  "Whether the row at START with KEY is folded."
-  (if-let* ((entry (assoc key overlook--folds)))
-      (cdr entry)
-    (get-text-property start 'overlook-folded)))
-
-(defun overlook--apply-folds ()
-  "Hide the lines under every folded row."
-  (pcase-dolist (`(,start ,key ,end) (overlook--outline))
-    (when (overlook--folded-p key start)
-      (put-text-property (save-excursion (goto-char start) (line-end-position)) end
-                         'invisible 'overlook-fold))))
-
-(defun overlook-toggle-fold ()
-  "Fold or unfold the lines under the row at point, or under its parent."
-  (interactive)
-  (let* ((bol (line-beginning-position))
-         (fold (seq-reduce (lambda (best fold)
-                             (if (and (<= (car fold) bol (nth 2 fold))
-                                      (or (null best) (> (car fold) (car best))))
-                                 fold
-                               best))
-                           (overlook--outline) nil)))
-    (unless fold (user-error "Nothing to fold here"))
-    (pcase-let ((`(,start ,key ,_) fold))
-      (setf (alist-get key overlook--folds nil nil #'equal)
-            (not (overlook--folded-p key start)))
-      (goto-char start)
-      (overlook--render))))
+  (if-let* ((action (get-text-property (line-beginning-position) 'overlook-action)))
+      (funcall action)
+    (let ((section (magit-current-section)))
+      (if (and section (oref section content))
+          (magit-section-toggle section)
+        (user-error "Nothing to visit on this line")))))
 
 ;;; Window
 

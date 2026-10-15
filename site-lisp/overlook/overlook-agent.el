@@ -539,27 +539,27 @@ works, dimmed otherwise."
                       ('done 'overlook-agent-done))))
     (when highlight
       (add-face-text-property (length overlook-indent) (length line) highlight t line))
-    (insert (propertize line
-                        'overlook-item (cons 'agent buffer)
-                        'overlook-action (lambda () (overlook-agent-visit buffer))
-                        'overlook-attention (memq status '(waiting done))
-                        'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
-                                     (buffer-name buffer))
-                        'wrap-prefix overlook-agent--wrap-indent))))
+    (overlook-insert-row (propertize line
+                                     'overlook-item (cons 'agent buffer)
+                                     'overlook-action (lambda () (overlook-agent-visit buffer))
+                                     'overlook-attention (memq status '(waiting done))
+                                     'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
+                                                  (buffer-name buffer))
+                                     'wrap-prefix overlook-agent--wrap-indent))))
 
 (defun overlook-agent--saved-row (saved perspective)
   "Insert the row of SAVED agent, dimmed, under PERSPECTIVE."
   (let ((glyph (alist-get 'idle overlook-agent-status-glyphs)))
-    (insert (propertize
-             (concat overlook-indent
-                     (overlook-glyph-cell (propertize (car glyph) 'face 'shadow))
-                     (propertize (concat (alist-get 'agent saved) " saved") 'face 'shadow)
-                     (overlook-agent--project-label (alist-get 'root saved) perspective)
-                     "\n")
-             'overlook-item (cons 'saved saved)
-             'overlook-action (lambda () (overlook-agent-resume-visit saved))
-             'help-echo (concat "Resume session " (alist-get 'session saved))
-             'wrap-prefix overlook-agent--wrap-indent))))
+    (overlook-insert-row (propertize
+                          (concat overlook-indent
+                                  (overlook-glyph-cell (propertize (car glyph) 'face 'shadow))
+                                  (propertize (concat (alist-get 'agent saved) " saved") 'face 'shadow)
+                                  (overlook-agent--project-label (alist-get 'root saved) perspective)
+                                  "\n")
+                          'overlook-item (cons 'saved saved)
+                          'overlook-action (lambda () (overlook-agent-resume-visit saved))
+                          'help-echo (concat "Resume session " (alist-get 'session saved))
+                          'wrap-prefix overlook-agent--wrap-indent))))
 
 (defun overlook-agent--insert (perspective)
   "Insert the agents listed under PERSPECTIVE, then those saved there."

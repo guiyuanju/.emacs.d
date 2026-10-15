@@ -24,6 +24,7 @@
 (declare-function persp-switch "perspective")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-insert-section "overlook")
+(declare-function overlook-insert-row "overlook")
 (declare-function overlook-ordered-perspectives "overlook")
 (declare-function overlook-current-perspective "overlook")
 (declare-function overlook-main-window "overlook")
@@ -402,37 +403,45 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 (defun jgy-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE FOLDED): a heading NAME
-that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH).
-Visiting switches to PERSPECTIVE first when it is non-nil.  FOLDED items
-go under a line counting their top-level ones, folded until toggled."
+that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH),
+deeper ones under the item before them.  Visiting switches to PERSPECTIVE
+first when it is non-nil.  FOLDED items go under a line counting their
+top-level ones, folded until toggled."
   (let ((first t))
     (pcase-dolist (`(,name ,file ,current ,items ,perspective ,folded) groups)
       (unless first (insert "\n"))
       (setq first nil)
-      (insert (propertize name
-                          'face (if current 'overlook-heading-current 'overlook-heading)
-                          'overlook-heading t
-                          'overlook-action (jgy-workspace--todo-visit perspective file 1))
-              "\n")
-      (cl-flet ((insert-items (items &optional nest)
-                  (pcase-dolist (`(,text ,line ,depth) items)
-                    (let ((indent (make-string (+ 3 depth) ?\s)))
-                      ;; →、◷、☐ 在等宽字体里都占两列，折行接在它们后面。
-                      (insert (propertize (concat indent (propertize (funcall mark text) 'face 'shadow) " "
-                                                  (jgy-workspace--todo-display text))
-                                          'overlook-action (jgy-workspace--todo-visit perspective file line)
-                                          'wrap-prefix (concat indent "   ")
-                                          'overlook-nest nest)
-                              "\n")))))
-        (insert-items items)
-        (when folded
-          (let ((top (nth 2 (car folded))))
-            (insert (propertize (format "   %d more\n"
-                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
-                                'face 'shadow
-                                'overlook-item (cons 'todo-fold name)
-                                'overlook-folded t))
-            (insert-items folded 1)))))))
+      (cl-labels ((insert-items (items)
+                    (while items
+                      (pcase-let* ((`(,text ,line ,depth) (pop items))
+                                   (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
+                                                             items))
+                                   (indent (make-string (+ 3 depth) ?\s)))
+                        (setq items (nthcdr (length children) items))
+                        ;; →、◷、☐ 在等宽字体里都占两列，折行接在它们后面。
+                        (overlook-insert-row
+                         (propertize (concat indent (propertize (funcall mark text) 'face 'shadow) " "
+                                             (jgy-workspace--todo-display text) "\n")
+                                     'overlook-action (jgy-workspace--todo-visit perspective file line)
+                                     'wrap-prefix (concat indent "   "))
+                         (and children (lambda () (insert-items children))))))))
+        (overlook-insert-row
+         (concat (propertize name
+                             'face (if current 'overlook-heading-current 'overlook-heading)
+                             'overlook-heading t
+                             'overlook-action (jgy-workspace--todo-visit perspective file 1))
+                 "\n")
+         (lambda ()
+           (insert-items items)
+           (when folded
+             (let ((top (nth 2 (car folded))))
+               (overlook-insert-row
+                (propertize (format "   %d more\n"
+                                    (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
+                            'face 'shadow
+                            'overlook-item (cons 'todo-fold name))
+                (lambda () (insert-items folded))
+                t)))))))))
 
 (defun jgy-workspace--todo-ordered (cards)
   "CARDS with todos, those with a perspective first in the dashboard's order."
