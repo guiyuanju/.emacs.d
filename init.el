@@ -803,7 +803,7 @@
   (agent-shell-busy-indicator-frames 'dots-block)
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
-  (agent-shell-openai-default-config-options '(("reasoning_effort" . "medium")))
+  (agent-shell-openai-default-config-options '(("reasoning_effort" . "low")))
   (agent-shell-context-sources '(region))
   (agent-shell-dot-subdir-function #'jgy-agent-shell-dot-subdir)
   (agent-shell-cwd-function #'jgy-workspace-agent-root)
