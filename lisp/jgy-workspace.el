@@ -17,6 +17,8 @@
 (require 'subr-x)
 
 (declare-function magit-clone-regular "magit-clone")
+(declare-function magit-run-git-async "magit-process")
+(declare-function magit-process-sentinel "magit-process")
 (declare-function persp-current-name "perspective")
 (declare-function persp-names "perspective")
 (declare-function persp-switch "perspective")
@@ -48,6 +50,11 @@
 The project's card stays in its workspace folder; the dashboard lists
 the repos of the root, and agents started in the card folder run there."
   :type '(alist :key-type string :value-type directory)
+  :group 'jgy-workspace)
+
+(defcustom jgy-workspace-pull-repos '("~/.emacs.d/" "~/workspace/")
+  "Repos pulled by `jgy-workspace-pull'."
+  :type '(repeat directory)
   :group 'jgy-workspace)
 
 ;;; Cache
@@ -243,6 +250,27 @@ REPO is a checkout from `jgy-workspace--clone-sources'."
     (when (file-exists-p target) (user-error "%s already exists" target))
     (require 'magit-clone)
     (magit-clone-regular url target nil)))
+
+(defun jgy-workspace--pull (dirs)
+  "Pull DIRS one after another, stopping at the first failure."
+  (if (null dirs)
+      (message "Pulled %s" (mapconcat #'abbreviate-file-name jgy-workspace-pull-repos ", "))
+    (let* ((default-directory (file-name-as-directory (expand-file-name (car dirs))))
+           (process (magit-run-git-async "pull" "--rebase" "--autostash")))
+      (set-process-sentinel
+       process
+       (lambda (proc event)
+         (magit-process-sentinel proc event)
+         (when (memq (process-status proc) '(exit signal))
+           (if (zerop (process-exit-status proc))
+               (jgy-workspace--pull (cdr dirs))
+             (message "Pull failed in %s, see magit process buffer" (car dirs)))))))))
+
+(defun jgy-workspace-pull ()
+  "Pull every repo in `jgy-workspace-pull-repos' through magit."
+  (interactive)
+  (require 'magit-process)
+  (jgy-workspace--pull jgy-workspace-pull-repos))
 
 ;;; Overlook
 
