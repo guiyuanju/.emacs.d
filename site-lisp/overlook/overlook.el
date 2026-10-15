@@ -376,6 +376,8 @@ the row is first unfolded."
   "Insert a blank line at point, the end of SECTION, as part of SECTION.
 Like Magit's, it highlights and folds with SECTION."
   (let ((start (point)))
+    (unless (oref section content)
+      (oset section content (copy-marker start)))
     (insert "\n")
     (put-text-property start (point) 'magit-section section)
     (oset section end (point-marker))

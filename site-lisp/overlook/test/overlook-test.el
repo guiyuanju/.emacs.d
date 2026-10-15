@@ -267,6 +267,24 @@ Agents are listed; usage and repos are not."
     (magit-section-update-highlight t)
     (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
 
+(ert-deftest overlook-empty-perspective-folds-its-blank-line ()
+  (overlook-test-with-dashboard '(("one") ("two")) "one"
+    (goto-char (point-min))
+    (search-forward "one")
+    (let ((section (magit-current-section)))
+      (should (oref section content))
+      (should-not (invisible-p (oref section content)))
+      (magit-section-toggle section)
+      (should (invisible-p (oref section content)))
+      (should-not (overlook-test--hidden-p "two"))
+      (overlook--render)
+      (goto-char (point-min))
+      (search-forward "one")
+      (setq section (magit-current-section))
+      (should (invisible-p (oref section content)))
+      (magit-section-toggle section)
+      (should-not (invisible-p (oref section content))))))
+
 (ert-deftest overlook-highlight-covers-wrap-prefixes ()
   (let ((alpha (overlook-test--agent "alpha")))
     (unwind-protect
