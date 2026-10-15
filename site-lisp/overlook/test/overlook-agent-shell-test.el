@@ -71,4 +71,47 @@ each environment gathered says how many were gathered so far."
     (should (equal (overlook-agent-get buffer 'root) "/tmp/other/"))
     (should (equal (overlook-agent-get buffer 'environment) '("ID=codex@/tmp/other/#1")))))
 
+(ert-deftest overlook-agent-shell-failure-survives-viewing-and-completion ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let* ((overlook-agent-notify t)
+           (sent nil)
+          (ended 0)
+          (overlook-agent-turn-end-hook (list (lambda () (cl-incf ended))))
+          (overlook-perspectives-function #'ignore))
+      (let ((overlook-agent-notify-function
+             (lambda (title body) (push (cons title body) sent))))
+        (overlook-agent-shell--on-event '((:event . input-submitted)))
+        (overlook-agent-shell--on-event
+         '((:event . error) (:data (:code . -1) (:message . "Connection lost"))))
+        (should (eq overlook-agent-status 'failed))
+        (should (cdr overlook-agent-turn))
+        (should (= ended 1))
+        (should (equal (overlook-agent--brief buffer) "Connection lost"))
+        (should (equal sent '(("claude failed" . "Connection lost"))))
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (overlook-agent--acknowledge)
+          (should (eq overlook-agent-status 'failed)))
+        ;; Some frontends finish output after reporting an error.
+        (overlook-agent-shell--on-event '((:event . turn-complete)))
+        (should (eq overlook-agent-status 'failed))
+        (should (= ended 1))
+        (should (= (length sent) 1))
+        (overlook-agent-shell--on-event '((:event . input-submitted)))
+        (should (eq overlook-agent-status 'working))
+        (should-not overlook-agent-error)
+        (should-not (cdr overlook-agent-turn))
+        (overlook-agent-shell--on-event '((:event . turn-complete)))
+        (should (eq overlook-agent-status 'done))
+        (should (= ended 2))))))
+
+(ert-deftest overlook-agent-shell-startup-failure-has-a-fallback-message ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (let ((overlook-agent-notify nil))
+      (overlook-agent-shell--on-event '((:event . error)))
+      (should (eq overlook-agent-status 'failed))
+      (should (equal overlook-agent-error "Agent request failed"))
+      (should-not overlook-agent-turn))))
+
 ;;; overlook-agent-shell-test.el ends here

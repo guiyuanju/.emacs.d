@@ -154,7 +154,11 @@ Prefers its description, as the title of a shell command is the command."
     ((or 'input-submitted 'permission-response 'tool-call-update 'agent-message-chunk)
      (overlook-agent-report 'working))
     ('permission-request (overlook-agent-report 'attention))
-    ((or 'turn-complete 'error) (overlook-agent-report 'finished))))
+    ('turn-complete (overlook-agent-report 'finished))
+    ('error
+     (setq overlook-agent-error
+           (or (map-nested-elt event '(:data :message)) "Agent request failed"))
+     (overlook-agent-report 'failed))))
 
 (defun overlook-agent-shell--context ()
   "The context window percentage in use, from the shell's usage state."

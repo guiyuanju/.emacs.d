@@ -318,6 +318,23 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) (cons 'agent beta))))
       (mapc #'kill-buffer (list alpha beta)))))
 
+(ert-deftest overlook-failed-agents-need-attention ()
+  (let ((agent (overlook-test--agent "codex")))
+    (unwind-protect
+        (progn
+          (with-current-buffer agent
+            (setq overlook-agent-status 'failed
+                  overlook-agent-error "Request failed"))
+          (overlook-test-with-dashboard `(("one" ,agent)) "one"
+            (goto-char (point-min))
+            (overlook-next-attention)
+            (should (equal (overlook-item-at-point) (cons 'agent agent)))
+            (should (get-text-property (point) 'overlook-attention))
+            (should (string-match-p "✖" (buffer-string)))
+            (should (string-match-p "Request failed" (buffer-string)))
+            (should (string-match-p "1 need you" (overlook-agent--mode-line)))))
+      (kill-buffer agent))))
+
 (ert-deftest overlook-agent-notifies-when-it-needs-you ()
   (let* ((agent (overlook-test--agent "claude"))
          (sent nil)

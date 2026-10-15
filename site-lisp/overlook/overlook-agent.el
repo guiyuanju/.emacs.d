@@ -62,6 +62,7 @@ it returns has been registered with `overlook-agent-register'."
 (defcustom overlook-agent-status-glyphs
   '((working "◐" warning)
     (waiting "⚠" error)
+    (failed "✖" error)
     (done "●" success)
     (idle "○" shadow))
   "Glyph and face for each `overlook-agent-status'."
@@ -74,7 +75,7 @@ it returns has been registered with `overlook-agent-register'."
   :group 'overlook)
 
 (defcustom overlook-agent-notify 'unfocused
-  "When to notify that an agent waits for you or finished unseen.
+  "When to notify that an agent waits, fails or finishes unseen.
 `unfocused' notifies while no Emacs frame has focus, t always, nil never."
   :type '(choice (const :tag "While Emacs is unfocused" unfocused)
                  (const :tag "Always" t)
@@ -116,10 +117,14 @@ its last reply, or nil; `environment' the entries of
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
-  "One of `working', `waiting', `done' or `idle'.
+  "One of `working', `waiting', `failed', `done' or `idle'.
 `waiting' means the agent asked for attention; `done' that it finished
-unseen.")
+unseen.  `failed' persists until the next turn starts.")
 (put 'overlook-agent-status 'permanent-local t)
+
+(defvar-local overlook-agent-error nil
+  "Error message from the agent's latest failed request, or nil.")
+(put 'overlook-agent-error 'permanent-local t)
 
 (defvar-local overlook-agent-turn nil
   "Times the agent's latest turn started and finished, as (START . END).
@@ -242,7 +247,7 @@ A buffer shown in several perspectives belongs to the one of its project."
   "Set this agent's STATUS, telling the views when it changed."
   (unless (eq status overlook-agent-status)
     (setq overlook-agent-status status)
-    (when (memq status '(waiting done))
+    (when (memq status '(waiting failed done))
       (overlook-agent--notify (current-buffer)))
     (overlook-agent-changed)))
 
@@ -260,7 +265,7 @@ A buffer shown in several perspectives belongs to the one of its project."
         (t (message "%s: %s" title body))))
 
 (defun overlook-agent--notify (buffer)
-  "Notify that agent BUFFER waits for you or finished, per `overlook-agent-notify'."
+  "Notify about agent BUFFER, per `overlook-agent-notify'."
   (when (pcase overlook-agent-notify
           ('unfocused (not (seq-some (lambda (frame) (eq (frame-focus-state frame) t))
                                      (frame-list))))
@@ -269,8 +274,10 @@ A buffer shown in several perspectives belongs to the one of its project."
           (brief (overlook-agent--brief buffer)))
       (funcall overlook-agent-notify-function
                (format "%s %s" (or (overlook-agent-get buffer 'agent) "agent")
-                       (if (eq (buffer-local-value 'overlook-agent-status buffer) 'waiting)
-                           "needs you" "finished"))
+                       (pcase (buffer-local-value 'overlook-agent-status buffer)
+                         ('waiting "needs you")
+                         ('failed "failed")
+                         (_ "finished")))
                (string-join (delq nil (list perspective brief)) ": ")))))
 
 (defun overlook-agent--seen-p ()
@@ -279,9 +286,10 @@ A buffer shown in several perspectives belongs to the one of its project."
 
 (defun overlook-agent-report (event)
   "Update the current agent buffer's status for EVENT.
-EVENT is `working', `finished' or `attention'; what it becomes depends on
-whether the agent is shown in the selected window.  `working' after
-`finished' starts a turn, which `overlook-agent-turn' times and
+EVENT is `working', `finished', `failed' or `attention'.  Completion and
+attention depend on whether the agent is shown in the selected window;
+failure stays visible until work starts again.  `working' after a turn
+ends starts another, which `overlook-agent-turn' times and
 `overlook-agent-turn-start-hook' announces."
   ;; Turns follow events, not statuses: glancing at an agent waiting for
   ;; approval resets it to idle, yet approving does not start a new turn.
@@ -289,13 +297,18 @@ whether the agent is shown in the selected window.  `working' after
     ('working (when (or (null overlook-agent-turn) (cdr overlook-agent-turn))
                 (setq overlook-agent-turn (list (float-time)))
                 (run-hooks 'overlook-agent-turn-start-hook)))
-    ('finished (when (and overlook-agent-turn (null (cdr overlook-agent-turn)))
-                 (setcdr overlook-agent-turn (float-time))
-                 (run-hooks 'overlook-agent-turn-end-hook))))
+    ((or 'finished 'failed)
+     (when (and overlook-agent-turn (null (cdr overlook-agent-turn)))
+       (setcdr overlook-agent-turn (float-time))
+       (run-hooks 'overlook-agent-turn-end-hook))))
   (pcase event
-    ('finished (overlook-agent--set-status (if (overlook-agent--seen-p) 'idle 'done)))
-    ('working (unless (eq overlook-agent-status 'waiting)
-                (overlook-agent--set-status 'working)))
+    ('finished (unless (eq overlook-agent-status 'failed)
+                 (overlook-agent--set-status (if (overlook-agent--seen-p) 'idle 'done))))
+    ('failed (overlook-agent--set-status 'failed))
+    ('working
+     (setq overlook-agent-error nil)
+     (unless (eq overlook-agent-status 'waiting)
+       (overlook-agent--set-status 'working)))
     ('attention (unless (overlook-agent--seen-p)
                   (overlook-agent--set-status 'waiting)))))
 
@@ -501,8 +514,9 @@ the duration ends a column before it, so both line up across agents."
 
 (defun overlook-agent--brief (buffer)
   "Return what agent BUFFER is doing, on one line, or nil."
-  (when-let* ((brief (overlook-agent-get buffer 'brief))
-              (text (with-current-buffer buffer (ignore-errors (funcall brief))))
+  (when-let* ((text (or (buffer-local-value 'overlook-agent-error buffer)
+                       (when-let* ((brief (overlook-agent-get buffer 'brief)))
+                         (with-current-buffer buffer (ignore-errors (funcall brief))))))
               (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
               ((not (string-empty-p text))))
     text))
@@ -514,6 +528,7 @@ works, dimmed otherwise."
   (let* ((gap "  ")
          (face (pcase (buffer-local-value 'overlook-agent-status buffer)
                  ('waiting 'warning)
+                 ('failed 'error)
                  ('working 'font-lock-doc-face)
                  (_ 'shadow)))
          (room (- (overlook-window-pixels)
@@ -537,14 +552,14 @@ works, dimmed otherwise."
                        (car meta)
                        "\n"))
          (highlight (pcase status
-                      ('waiting 'overlook-agent-waiting)
+                      ((or 'waiting 'failed) 'overlook-agent-waiting)
                       ('done 'overlook-agent-done))))
     (when highlight
       (add-face-text-property (length overlook-indent) (length line) highlight t line))
     (overlook-insert-row (propertize line
                                      'overlook-item (cons 'agent buffer)
                                      'overlook-action (lambda () (overlook-agent-visit buffer))
-                                     'overlook-attention (memq status '(waiting done))
+                                     'overlook-attention (memq status '(waiting failed done))
                                      'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
                                                   (buffer-name buffer))
                                      'wrap-prefix overlook-agent--wrap-indent))))
@@ -582,7 +597,7 @@ A nil PERSPECTIVE inserts those in none."
   (let* ((statuses (mapcar (lambda (buffer) (buffer-local-value 'overlook-agent-status buffer))
                            (overlook-agent-buffers)))
          (working (seq-count (lambda (status) (eq status 'working)) statuses))
-         (attention (seq-count (lambda (status) (memq status '(waiting done))) statuses)))
+         (attention (seq-count (lambda (status) (memq status '(waiting failed done))) statuses)))
     (when statuses
       (string-join
        (delq nil (list (format "%d agent%s" (length statuses) (if (cdr statuses) "s" ""))
