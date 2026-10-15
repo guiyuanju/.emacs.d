@@ -47,6 +47,11 @@
 ;; `overlook-action' is called by RET, `overlook-heading' marks lines that
 ;; \\[overlook-next-heading] stops at, and `overlook-attention' those that
 ;; \\[overlook-next-attention] stops at.
+;;
+;; \\[overlook-toggle-fold] folds the lines under a row.  A section title sits at
+;; level 0, a heading at 1 and any other row deeper by its indent;
+;; `overlook-nest' adds to a row's level, and `overlook-folded' folds a
+;; row until it is toggled.
 
 ;;; Code:
 
@@ -265,6 +270,7 @@ The binding is recorded in `overlook-keys'."
 (pcase-dolist (`(,key . ,command)
                '(("RET" . overlook-visit)
                  ("o" . overlook-visit)
+                 ("TAB" . overlook-toggle-fold)
                  ("C-j" . overlook-next-heading)
                  ("C-k" . overlook-previous-heading)
                  ("C-S-j" . overlook-next-attention)
@@ -283,7 +289,8 @@ The binding is recorded in `overlook-keys'."
               word-wrap-by-category t
               left-margin-width 1
               right-margin-width 1
-              mode-line-format '(:eval (overlook--mode-line)))
+              mode-line-format '(:eval (overlook--mode-line))
+              buffer-invisibility-spec '((overlook-fold . t)))
   ;; Rows fit themselves to the window, so redraw when it resizes.
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1))
@@ -322,6 +329,7 @@ like `overlook-action', cover its whole line."
       (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
                unless (eq prop 'face)
                do (put-text-property 0 (length line) prop value line))
+      (put-text-property 0 (length line) 'overlook-section t line)
       (insert line))
     (let ((after-title (point)))
       (funcall body)
@@ -440,10 +448,13 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
         (erase-buffer)
         (run-hooks 'overlook-before-render-hook)
         (run-hooks 'overlook-sections)
+        (overlook--apply-folds)
         (goto-char (point-min))
         (if-let* ((pos (and item (overlook--find item))))
             (goto-char pos)
           (forward-line (1- line)))
+        (while (and (invisible-p (point)) (not (bobp)))
+          (forward-line -1))
         (move-to-column column)
         (when window (set-window-point window (point)))))))
 
@@ -461,7 +472,7 @@ FORWARD picks the direction; WHAT names those lines when there is none."
               (when (or (/= 0 (forward-line 1)) (eobp)) (goto-char (point-min)))
             (when (/= 0 (forward-line -1)) (goto-char (point-max)) (forward-line -1)))
           (when (= (point) start) (throw 'found nil))
-          (when (get-text-property (point) property)
+          (when (and (get-text-property (point) property) (not (invisible-p (point))))
             (throw 'found (setq pos (point)))))))
     (if pos
         (goto-char pos)
@@ -492,10 +503,79 @@ FORWARD picks the direction; WHAT names those lines when there is none."
   (get-text-property (line-beginning-position) 'overlook-item))
 
 (defun overlook-visit ()
-  "Run the action of the row at point."
+  "Run the action of the row at point, or fold the lines under it."
   (interactive)
-  (funcall (or (get-text-property (line-beginning-position) 'overlook-action)
-               (user-error "Nothing to visit on this line"))))
+  (cond ((get-text-property (line-beginning-position) 'overlook-action)
+         (funcall (get-text-property (line-beginning-position) 'overlook-action)))
+        ((assoc (line-beginning-position) (overlook--outline)) (overlook-toggle-fold))
+        (t (user-error "Nothing to visit on this line"))))
+
+;;; Folding
+
+(defvar overlook--folds nil
+  "Alist of a row's key to whether it is folded, for rows toggled by hand.
+A key is the row's identity followed by its parent's key.")
+
+(defun overlook--level ()
+  "Outline level of the line at point, or nil when it is blank."
+  (let ((bol (line-beginning-position)))
+    (cond ((save-excursion (beginning-of-line) (looking-at-p "[ \t]*$")) nil)
+          ((get-text-property bol 'overlook-section) 0)
+          ((get-text-property bol 'overlook-heading) 1)
+          (t (+ 2 (- (save-excursion (back-to-indentation) (point)) bol)
+                (or (get-text-property bol 'overlook-nest) 0))))))
+
+(defun overlook--outline ()
+  "Rows with lines under them, as (START KEY END) for each.
+START is the row's start and END the end of its last line under it."
+  (save-excursion
+    (goto-char (point-min))
+    (let (path folds)
+      (cl-flet ((close (level)
+                  (while (and path (or (null level) (>= (car (car path)) level)))
+                    (pcase-let ((`(,_ ,start ,key ,end) (pop path)))
+                      (when end (push (list start key end) folds))))))
+        (while (not (eobp))
+          (when-let* ((level (overlook--level)))
+            (close level)
+            (dolist (parent path) (setf (nth 3 parent) (line-end-position)))
+            (let ((id (or (get-text-property (point) 'overlook-item)
+                          (string-trim (buffer-substring-no-properties
+                                        (point) (line-end-position))))))
+              (push (list level (point) (cons id (nth 2 (car path))) nil) path)))
+          (forward-line 1))
+        (close nil))
+      folds)))
+
+(defun overlook--folded-p (key start)
+  "Whether the row at START with KEY is folded."
+  (if-let* ((entry (assoc key overlook--folds)))
+      (cdr entry)
+    (get-text-property start 'overlook-folded)))
+
+(defun overlook--apply-folds ()
+  "Hide the lines under every folded row."
+  (pcase-dolist (`(,start ,key ,end) (overlook--outline))
+    (when (overlook--folded-p key start)
+      (put-text-property (save-excursion (goto-char start) (line-end-position)) end
+                         'invisible 'overlook-fold))))
+
+(defun overlook-toggle-fold ()
+  "Fold or unfold the lines under the row at point, or under its parent."
+  (interactive)
+  (let* ((bol (line-beginning-position))
+         (fold (seq-reduce (lambda (best fold)
+                             (if (and (<= (car fold) bol (nth 2 fold))
+                                      (or (null best) (> (car fold) (car best))))
+                                 fold
+                               best))
+                           (overlook--outline) nil)))
+    (unless fold (user-error "Nothing to fold here"))
+    (pcase-let ((`(,start ,key ,_) fold))
+      (setf (alist-get key overlook--folds nil nil #'equal)
+            (not (overlook--folded-p key start)))
+      (goto-char start)
+      (overlook--render))))
 
 ;;; Window
 

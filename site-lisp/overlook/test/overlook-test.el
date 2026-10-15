@@ -159,6 +159,68 @@ Agents are listed; usage and repos are not."
     (overlook-visit)
     (should (equal overlook-test--current "two"))))
 
+(defun overlook-test--hidden-p (text)
+  "Whether the first line containing TEXT is folded away."
+  (save-excursion
+    (goto-char (point-min))
+    (search-forward text)
+    (invisible-p (line-beginning-position))))
+
+(ert-deftest overlook-tab-folds-a-heading-and-keeps-it-folded ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (beta (overlook-test--agent "beta"))
+        (overlook--folds nil)
+        (overlook-perspective-order 'backend))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,beta)) "one"
+          (goto-char (point-min))
+          (search-forward "alpha")
+          (overlook-toggle-fold)
+          (should (equal (overlook-item-at-point) '(perspective . "one")))
+          (should (overlook-test--hidden-p "alpha"))
+          (should-not (overlook-test--hidden-p "two"))
+          (should-not (overlook-test--hidden-p "beta"))
+          (overlook--render)
+          (should (overlook-test--hidden-p "alpha"))
+          (overlook-toggle-fold)
+          (should-not (overlook-test--hidden-p "alpha")))
+      (mapc #'kill-buffer (list alpha beta)))))
+
+(ert-deftest overlook-ret-folds-a-section-title ()
+  (let ((overlook--folds nil))
+    (overlook-test-with-dashboard '(("one") ("two")) "one"
+      (goto-char (point-min))
+      (overlook-visit)
+      (should (overlook-test--hidden-p "one"))
+      (should (overlook-test--hidden-p "two")))))
+
+(ert-deftest overlook-folded-rows-start-folded-and-nest ()
+  (let ((overlook--folds nil)
+        (overlook-sections
+         (list (lambda ()
+                 (overlook-insert-section
+                  "Todo"
+                  (lambda ()
+                    (insert (propertize "proj\n" 'overlook-heading t)
+                            "   now\n"
+                            (propertize "   2 more\n" 'overlook-folded t)
+                            (propertize "   later\n" 'overlook-nest 1)
+                            (propertize "     sub\n" 'overlook-nest 1)))))))
+        (dashboard (get-buffer-create overlook-buffer-name)))
+    (unwind-protect
+        (with-current-buffer dashboard
+          (overlook-mode)
+          (overlook--render)
+          (should-not (overlook-test--hidden-p "now"))
+          (should-not (overlook-test--hidden-p "2 more"))
+          (should (overlook-test--hidden-p "later"))
+          (should (overlook-test--hidden-p "sub"))
+          (goto-char (point-min))
+          (search-forward "2 more")
+          (overlook-toggle-fold)
+          (should-not (overlook-test--hidden-p "later")))
+      (kill-buffer dashboard))))
+
 (ert-deftest overlook-heading-navigation-wraps ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))

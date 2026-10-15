@@ -27,6 +27,7 @@
 (declare-function overlook-ordered-perspectives "overlook")
 (declare-function overlook-current-perspective "overlook")
 (declare-function overlook-main-window "overlook")
+(declare-function overlook-show-elsewhere "overlook")
 (declare-function overlook-agent-project-root "overlook-agent")
 (declare-function overlook-perspective-guess-root "overlook-perspective")
 (defvar overlook-sections)
@@ -375,35 +376,63 @@ A todo moves with its subitems, ranked by the most urgent of them."
     (concat (propertize clean 'face face)
             (if due (propertize (concat " " due) 'face 'shadow) ""))))
 
-(defun jgy-workspace--todo-visit (file line)
-  "Return a command that opens FILE at LINE in the main window."
+(defun jgy-workspace--todo-split (todos)
+  "Split sorted TODOS into (URGENT . REST) at the first plain top-level todo.
+A top-level todo is urgent when it or one of its subitems is #now or #waiting."
+  (let ((top (nth 2 (car todos)))
+        (rest todos))
+    (while (and rest
+                (let ((group (cons (car rest)
+                                   (seq-take-while (lambda (todo) (> (nth 2 todo) top)) (cdr rest)))))
+                  (when (< (apply #'min (mapcar (lambda (todo) (jgy-workspace--todo-rank (car todo))) group))
+                           2)
+                    (setq rest (nthcdr (length group) rest))))))
+    (cons (seq-take todos (- (length todos) (length rest))) rest)))
+
+(defun jgy-workspace--todo-visit (perspective file line)
+  "Return a command that opens FILE at LINE in the main window.
+It first switches to PERSPECTIVE, creating it if needed, when non-nil."
   (lambda ()
-    (overlook-main-window)
-    (find-file file)
-    (goto-char (point-min))
-    (forward-line (1- line))))
+    (overlook-show-elsewhere perspective
+                             (lambda ()
+                               (find-file file)
+                               (goto-char (point-min))
+                               (forward-line (1- line))))))
 
 (defun jgy-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
-Each group is (NAME FILE CURRENT ITEMS): a heading NAME that visits FILE,
-highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH)."
+Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE FOLDED): a heading NAME
+that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH).
+Visiting switches to PERSPECTIVE first when it is non-nil.  FOLDED items
+go under a line counting their top-level ones, folded until toggled."
   (let ((first t))
-    (pcase-dolist (`(,name ,file ,current ,items) groups)
+    (pcase-dolist (`(,name ,file ,current ,items ,perspective ,folded) groups)
       (unless first (insert "\n"))
       (setq first nil)
       (insert (propertize name
                           'face (if current 'overlook-heading-current 'overlook-heading)
                           'overlook-heading t
-                          'overlook-action (jgy-workspace--todo-visit file 1))
+                          'overlook-action (jgy-workspace--todo-visit perspective file 1))
               "\n")
-      (pcase-dolist (`(,text ,line ,depth) items)
-        (let ((indent (make-string (+ 3 depth) ?\s)))
-          ;; →、◷、☐ 在等宽字体里都占两列，折行接在它们后面。
-          (insert (propertize (concat indent (propertize (funcall mark text) 'face 'shadow) " "
-                                      (jgy-workspace--todo-display text))
-                              'overlook-action (jgy-workspace--todo-visit file line)
-                              'wrap-prefix (concat indent "   "))
-                  "\n"))))))
+      (cl-flet ((insert-items (items &optional nest)
+                  (pcase-dolist (`(,text ,line ,depth) items)
+                    (let ((indent (make-string (+ 3 depth) ?\s)))
+                      ;; →、◷、☐ 在等宽字体里都占两列，折行接在它们后面。
+                      (insert (propertize (concat indent (propertize (funcall mark text) 'face 'shadow) " "
+                                                  (jgy-workspace--todo-display text))
+                                          'overlook-action (jgy-workspace--todo-visit perspective file line)
+                                          'wrap-prefix (concat indent "   ")
+                                          'overlook-nest nest)
+                              "\n")))))
+        (insert-items items)
+        (when folded
+          (let ((top (nth 2 (car folded))))
+            (insert (propertize (format "   %d more\n"
+                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
+                                'face 'shadow
+                                'overlook-item (cons 'todo-fold name)
+                                'overlook-folded t))
+            (insert-items folded 1)))))))
 
 (defun jgy-workspace--todo-ordered (cards)
   "CARDS with todos, those with a perspective first in the dashboard's order."
@@ -420,9 +449,11 @@ highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH)."
      (lambda ()
        (jgy-workspace--insert-groups
         (mapcar (lambda (card)
-                  (list (plist-get card :id) (plist-get card :file)
-                        (equal (plist-get card :id) current)
-                        (jgy-workspace--todo-sort (plist-get card :todos))))
+                  (let ((split (jgy-workspace--todo-split
+                                (jgy-workspace--todo-sort (plist-get card :todos)))))
+                    (list (plist-get card :id) (plist-get card :file)
+                          (equal (plist-get card :id) current)
+                          (car split) (plist-get card :id) (cdr split))))
                 (jgy-workspace--todo-ordered (jgy-workspace--todo-cards)))
         #'jgy-workspace--todo-mark)))))
 

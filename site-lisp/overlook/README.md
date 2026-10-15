@@ -135,6 +135,7 @@ On the dashboard:
 | Key | |
 |---|---|
 | `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, compare a changed file in Ediff, show an agent |
+| `TAB` | fold or unfold the rows under a row, or under its parent |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `H` | hand the agent's task off to another agent |
@@ -207,7 +208,10 @@ add to it:
 Text properties on a row tell the dashboard about it: `overlook-action`
 is called by `RET`, `overlook-item` keeps point on the row across
 redraws, `overlook-heading` and `overlook-attention` mark the lines the
-motion commands stop at.  Call `overlook-refresh` when something you show
+motion commands stop at.  `TAB` folds the rows under a row: section titles
+sit at level 0, headings at 1 and other rows deeper by their indent;
+`overlook-nest` adds to a row's level and `overlook-folded` folds a row
+until it is toggled.  Call `overlook-refresh` when something you show
 changed.
 
 Another perspective implementation can drive overlook by setting the
