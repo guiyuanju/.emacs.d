@@ -87,7 +87,7 @@
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
 It opens in PARENT's perspective."
   (let* ((parent-buffer (when-let* ((agent (courier-agent parent))) (courier-agent-buffer agent)))
-         (perspective (and (buffer-live-p parent-buffer) (overlook-buffer-perspective parent-buffer)))
+         (perspective (and (buffer-live-p parent-buffer) (overlook-agent-perspective parent-buffer)))
          (buffer (let ((overlook-courier--parent parent))
                    (overlook-agent--launch name directory nil t))))
     (when perspective (overlook-add-to-perspective perspective buffer))

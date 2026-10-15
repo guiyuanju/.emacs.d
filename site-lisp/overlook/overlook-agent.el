@@ -24,9 +24,9 @@
 ;;; Commentary:
 
 ;; Tracks AI agents run by a frontend (overlook-agent-shell.el drives
-;; agent-shell) and lists each under the perspective holding its buffer:
-;; its status, how long its turn has run, its context usage and what it
-;; is doing.
+;; agent-shell) and lists each under the perspective holding its buffer,
+;; its project's perspective when several hold it: its status, how long
+;; its turn has run, its context usage and what it is doing.
 ;;
 ;; Agents are started with the frontend's own commands.  The frontend
 ;; describes each agent buffer it sees in `overlook-agent-identity', hands
@@ -213,10 +213,20 @@ A frontend calls it once per agent, before starting its process."
   (setq overlook-agent--last (overlook-agent-get buffer 'agent))
   (pop-to-buffer buffer '((display-buffer-reuse-window display-buffer-same-window))))
 
+(defun overlook-agent-perspective (buffer)
+  "The perspective agent BUFFER is listed under, or nil.
+A buffer shown in several perspectives belongs to the one of its project."
+  (let ((root (overlook-agent-get buffer 'root)))
+    (or (and root (seq-find (lambda (name)
+                              (and (equal (overlook-perspective-root name) root)
+                                   (memq buffer (overlook-perspective-buffers name))))
+                            (overlook-perspectives)))
+        (overlook-buffer-perspective buffer))))
+
 (defun overlook-agent-visit (buffer)
   "Switch to agent BUFFER's perspective and show it there."
   (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
-  (overlook-show-elsewhere (overlook-buffer-perspective buffer)
+  (overlook-show-elsewhere (overlook-agent-perspective buffer)
                            (lambda () (overlook-agent-show buffer))))
 
 ;;; Status
@@ -254,7 +264,7 @@ A frontend calls it once per agent, before starting its process."
           ('unfocused (not (seq-some (lambda (frame) (eq (frame-focus-state frame) t))
                                      (frame-list))))
           (option option))
-    (let ((perspective (overlook-buffer-perspective buffer))
+    (let ((perspective (overlook-agent-perspective buffer))
           (brief (overlook-agent--brief buffer)))
       (funcall overlook-agent-notify-function
                (format "%s %s" (or (overlook-agent-get buffer 'agent) "agent")
@@ -347,7 +357,7 @@ asking."
                                 `((agent . ,(overlook-agent-get buffer 'agent))
                                   (root . ,(overlook-agent-get buffer 'root))
                                   (session . ,session)
-                                  (perspective . ,(overlook-buffer-perspective buffer)))))
+                                  (perspective . ,(overlook-agent-perspective buffer)))))
                             (overlook-agent-buffers)))
           overlook-agent-saved))
 
@@ -409,7 +419,7 @@ asking."
   (let ((buffer (get-buffer name)))
     (concat "  " (overlook-agent-glyph buffer) " "
             (symbol-name (buffer-local-value 'overlook-agent-status buffer))
-            (if-let* ((perspective (overlook-buffer-perspective buffer)))
+            (if-let* ((perspective (overlook-agent-perspective buffer)))
                 (propertize (concat "  " perspective) 'face 'shadow)
               ""))))
 
@@ -552,10 +562,10 @@ works, dimmed otherwise."
              'wrap-prefix overlook-agent--wrap-indent))))
 
 (defun overlook-agent--insert (perspective)
-  "Insert the agents whose buffers are in PERSPECTIVE, then those saved there."
-  (let ((buffers (overlook-perspective-buffers perspective)))
-    (dolist (buffer (overlook-agent-buffers (lambda (buffer) (memq buffer buffers))))
-      (overlook-agent--row buffer perspective)))
+  "Insert the agents listed under PERSPECTIVE, then those saved there."
+  (dolist (buffer (overlook-agent-buffers
+                   (lambda (buffer) (equal (overlook-agent-perspective buffer) perspective))))
+    (overlook-agent--row buffer perspective))
   (dolist (saved overlook-agent-saved)
     (when (equal (overlook-agent--saved-perspective saved) perspective)
       (overlook-agent--saved-row saved perspective))))
@@ -563,7 +573,7 @@ works, dimmed otherwise."
 (defun overlook-agent--insert-orphans ()
   "Insert the agents in no perspective; non-nil when there were any."
   (let ((orphans (overlook-agent-buffers
-                  (lambda (buffer) (null (overlook-buffer-perspective buffer)))))
+                  (lambda (buffer) (null (overlook-agent-perspective buffer)))))
         (saved (seq-remove #'overlook-agent--saved-perspective overlook-agent-saved)))
     (dolist (buffer orphans)
       (overlook-agent--row buffer nil))

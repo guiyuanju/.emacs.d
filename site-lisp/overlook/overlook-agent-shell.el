@@ -290,7 +290,7 @@ Works from an agent shell or its dashboard row."
                      (cl-remove from (mapcar #'car overlook-agent-shell-configs) :test #'equal)
                      nil t)))
           (overlook-show-elsewhere
-           (overlook-buffer-perspective source)
+           (overlook-agent-perspective source)
            (lambda ()
              (let ((target (overlook-agent-shell-start name root t)))
                (agent-shell-insert :text (format overlook-agent-shell-handoff-prompt

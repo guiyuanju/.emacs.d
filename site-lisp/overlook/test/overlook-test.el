@@ -100,6 +100,21 @@ Agents are listed; usage and repos are not."
                       'overlook-heading-current)))
       (mapc #'kill-buffer (list alpha beta stray)))))
 
+(ert-deftest overlook-agent-shown-in-several-perspectives-sits-under-its-project ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (overlook-perspective-order 'backend))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,alpha)) "one"
+          (let ((overlook-perspective-root-function
+                 (lambda (name) (and (equal name "two") "/project/"))))
+            (overlook--render)
+            (should (equal (overlook-agent-perspective alpha) "two"))
+            (should (< (overlook-test--line-of "two") (overlook-test--line-of "alpha")))
+            (goto-char (point-min))
+            (search-forward "alpha")
+            (should-not (search-forward "alpha" nil t))))
+      (kill-buffer alpha))))
+
 (ert-deftest overlook-perspective-annotation-after-heading ()
   (let ((overlook-perspective-annotation (lambda (name) (and (equal name "one") "me")))
         (overlook-perspective-order 'backend))
