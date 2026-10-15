@@ -258,13 +258,14 @@ Agents are listed; usage and repos are not."
     (magit-section-update-highlight t)
     (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
 
-(ert-deftest overlook-blank-line-highlights-nothing ()
+(ert-deftest overlook-blank-line-belongs-to-the-section-above ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
     (search-forward "two")
     (forward-line -1)
+    (should (equal (oref (magit-current-section) value) '(perspective . "one")))
     (magit-section-update-highlight t)
-    (should-not magit-section-highlight-overlays)))
+    (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
 
 (ert-deftest overlook-highlight-covers-wrap-prefixes ()
   (let ((alpha (overlook-test--agent "alpha")))
@@ -536,6 +537,37 @@ Agents are listed; usage and repos are not."
               (should (eq (get-text-property (point) 'face) 'overlook-project-repo))
               (should (< (overlook-test--line-of "frontend") (overlook-test--line-of "alpha"))))))
       (kill-buffer alpha)
+      (delete-directory root t))))
+
+;; A changed file's diff stays folded under it, read only once unfolded.
+(ert-deftest overlook-project-file-unfolds-its-diff ()
+  (let ((root (make-temp-file "overlook-project" t))
+        (overlook-project--status (make-hash-table :test #'equal))
+        (reads 0))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "api/.git" root) t)
+          (puthash (file-name-as-directory (expand-file-name "api/" root))
+                   (list (float-time) "main" '("a.el" " M" 1 1))
+                   overlook-project--status)
+          (cl-letf (((symbol-function 'overlook-project--diff)
+                     (lambda (_dir _file)
+                       (cl-incf reads)
+                       "diff --git a/a.el b/a.el\n@@ -1 +1 @@\n-old\n+new\n")))
+            (overlook-test-with-dashboard '(("one")) "one"
+              (let ((overlook-perspective-root-function (lambda (_) root))
+                    (overlook-perspective-functions (list #'overlook-project--insert)))
+                (overlook--render)
+                (should-not (string-search "+new" (buffer-string)))
+                (should (= reads 0))
+                (goto-char (point-min))
+                (search-forward "a.el")
+                (call-interactively #'magit-section-toggle)
+                (should (= reads 1))
+                (should-not (overlook-test--hidden-p "+new"))
+                (should (eq (save-excursion (search-forward "+new") (get-text-property (1- (point)) 'face))
+                            (overlook-project--face 'added)))
+                (should (< (overlook-test--line-of "@@ -1") (overlook-test--line-of "-old")))))))
       (delete-directory root t))))
 
 ;;; overlook-test.el ends here

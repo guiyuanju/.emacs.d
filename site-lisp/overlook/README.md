@@ -135,7 +135,7 @@ On the dashboard:
 | Key | |
 |---|---|
 | `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, compare a changed file in Ediff, show an agent |
-| `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
+| `TAB` | fold or unfold the rows under a row, or a changed file's diff; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `H` | hand the agent's task off to another agent |

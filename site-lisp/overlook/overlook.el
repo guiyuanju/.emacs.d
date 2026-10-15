@@ -94,7 +94,7 @@ perspective."
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
 
-(defconst overlook-indent "   "
+(defconst overlook-indent ""
   "Indent of rows under a heading.")
 
 (defconst overlook-buffer-name " *overlook*"
@@ -340,17 +340,15 @@ The binding is recorded in `overlook-keys'."
 
 (cl-defmethod magit-section-highlight ((section overlook-section))
   "Highlight SECTION, including the wrap prefixes of its rows.
-Emacs draws a wrap prefix in the default face, which would leave a gap.
-Nothing is highlighted while point is on a blank line between rows."
-  (unless (save-excursion (beginning-of-line) (looking-at-p "[ \t]*$"))
-    (cl-call-next-method)
-    (save-excursion
-      (goto-char (oref section start))
-      (while (< (point) (oref section end))
-        (when-let* ((prefix (get-text-property (point) 'wrap-prefix)))
-          (overlay-put (magit-section-highlight-range (point) (line-end-position))
-                       'wrap-prefix (propertize prefix 'face 'magit-section-highlight)))
-        (forward-line 1)))))
+Emacs draws a wrap prefix in the default face, which would leave a gap."
+  (cl-call-next-method)
+  (save-excursion
+    (goto-char (oref section start))
+    (while (< (point) (oref section end))
+      (when-let* ((prefix (get-text-property (point) 'wrap-prefix)))
+        (overlay-put (magit-section-highlight-range (point) (line-end-position))
+                     'wrap-prefix (propertize prefix 'face 'magit-section-highlight)))
+      (forward-line 1))))
 
 (defun overlook--row-id (line)
   "What identifies row LINE across redraws: its `overlook-item', else its text."
@@ -361,15 +359,27 @@ Nothing is highlighted while point is on a blank line between rows."
   "Insert LINE, a row ending in a newline, and return its section.
 CHILDREN, a function, inserts the rows under it; they start folded when
 HIDE is non-nil, until the row is toggled.  CHILDREN can drop the row by
-calling `magit-cancel-section'; the section's end is then nil."
+calling `magit-cancel-section'; the section's end is then nil.  CHILDREN
+can wrap its insertion in `magit-insert-section-body' to put it off until
+the row is first unfolded."
   (magit-insert-section (overlook-section (overlook--row-id line) hide)
     (insert line)
     (when children
       (let ((heading-end (point)))
         (magit-insert-heading)
         (funcall children)
-        (when (= (point) heading-end)
+        (when (and (= (point) heading-end)
+                   (not (oref magit-insert-section--current washer)))
           (oset magit-insert-section--current content nil))))))
+
+(defun overlook-end-with-blank (section)
+  "Insert a blank line at point, the end of SECTION, as part of SECTION.
+Like Magit's, it highlights and folds with SECTION."
+  (let ((start (point)))
+    (insert "\n")
+    (put-text-property start (point) 'magit-section section)
+    (oset section end (point-marker))
+    (when (oref section hidden) (magit-section-hide section))))
 
 (defun overlook-insert-section (title body)
   "Insert section TITLE, then call BODY, a function, to fill it.
@@ -460,20 +470,20 @@ Rows of no perspective go under `overlook-orphan-perspective', which is
 left out while it has none and is not current, or else the current one."
   (let* ((current (overlook-current-perspective))
          (orphans (or (overlook-orphan-perspective) current))
-         (first t))
+         (previous nil))
     (dolist (name (overlook-ordered-perspectives))
       (let ((start (point)))
-        (unless first (insert "\n"))
-        (if (oref (overlook-insert-row
-                   (overlook--heading name (equal name current))
-                   (lambda ()
-                     (run-hook-with-args 'overlook-perspective-functions name)
-                     (when (equal name orphans)
-                       (run-hooks 'overlook-orphan-functions)
-                       (unless (equal name current) (magit-cancel-section t)))))
-                  end)
-            (setq first nil)
-          (delete-region start (point)))))))
+        (when previous (overlook-end-with-blank previous))
+        (let ((section (overlook-insert-row
+                        (overlook--heading name (equal name current))
+                        (lambda ()
+                          (run-hook-with-args 'overlook-perspective-functions name)
+                          (when (equal name orphans)
+                            (run-hooks 'overlook-orphan-functions)
+                            (unless (equal name current) (magit-cancel-section t)))))))
+          (if (oref section end)
+              (setq previous section)
+            (delete-region start (point))))))))
 
 (defun overlook--perspectives-section ()
   "Insert the Perspectives section."

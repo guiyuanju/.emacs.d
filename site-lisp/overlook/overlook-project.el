@@ -63,8 +63,8 @@
   "Face of a changed file's name under its repo."
   :group 'overlook)
 
-(defconst overlook-project--file-indent "        "
-  "Indent of the files under a repo, two columns past its name.")
+(defconst overlook-project--file-indent ""
+  "Indent of the files under a repo.")
 
 (defvar overlook-project--status (make-hash-table :test #'equal)
   "Repo directory to (TIME BRANCH . FILES), as last read.
@@ -74,6 +74,9 @@ commit, nil when unknown.")
 
 (defvar overlook-project--reading (make-hash-table :test #'equal)
   "Repo directories whose status is being read.")
+
+(defvar overlook-project--diffs (make-hash-table :test #'equal)
+  "(DIR . PATH) to (TIME . DIFF): PATH's diff, as of DIR's status read at TIME.")
 
 (defvar overlook-project--shown nil
   "Repo directories on the dashboard as last drawn.")
@@ -196,6 +199,62 @@ and a deleted one shown as a diff."
             (if state (propertize state 'face 'shadow) "")
             (if dir (propertize (concat " " dir) 'face 'shadow) ""))))
 
+(defun overlook-project--diff (dir file)
+  "Diff of FILE, an entry of repo DIR's status, against the last commit."
+  (pcase-let* ((`(,path ,code . ,_) file)
+               (time (car (gethash dir overlook-project--status)))
+               (cached (gethash (cons dir path) overlook-project--diffs)))
+    (if (and cached (equal (car cached) time))
+        (cdr cached)
+      (let ((diff (with-temp-buffer
+                    (let ((default-directory dir))
+                      (apply #'process-file "git" nil t nil
+                             "-c" "core.quotePath=false" "diff" "--no-color" "--no-ext-diff"
+                             (if (equal code "??")
+                                 (list "--no-index" "--" null-device path)
+                               (list "HEAD" "--" path))))
+                    (buffer-string))))
+        (puthash (cons dir path) (cons time diff) overlook-project--diffs)
+        diff))))
+
+(defclass overlook-project-hunk (magit-section) ()
+  "A hunk of a changed file's diff.")
+
+(cl-defmethod magit-section-highlight ((section overlook-project-hunk))
+  "Highlight only SECTION's @@ line, keeping its lines' diff colors."
+  (magit-section-highlight-range (oref section start)
+                                 (or (oref section content) (oref section end))
+                                 (overlook-project--face 'hunk-heading-highlight)))
+
+(defun overlook-project--face (name)
+  "Magit's diff face NAME when Magit is loaded, else diff-mode's."
+  (let ((magit (intern (format "magit-diff-%s" name))))
+    (if (facep magit)
+        magit
+      (pcase name
+        ('hunk-heading 'diff-hunk-header)
+        ('hunk-heading-highlight 'magit-section-highlight)
+        (_ (intern (format "diff-%s" name)))))))
+
+(defun overlook-project--insert-diff (diff)
+  "Insert the hunks of DIFF, each folding under its @@ line."
+  (let ((hunks nil))
+    (dolist (line (split-string diff "\n" t))
+      (cond ((string-prefix-p "@@" line) (push (list line) hunks))
+            (hunks (push line (car hunks)))))
+    (dolist (hunk (nreverse hunks))
+      (setq hunk (nreverse hunk))
+      (magit-insert-section (overlook-project-hunk (car hunk))
+        (insert (propertize (concat (car hunk) "\n") 'face (overlook-project--face 'hunk-heading)))
+        (magit-insert-heading)
+        (dolist (line (cdr hunk))
+          (insert (propertize (concat line "\n")
+                              'face (overlook-project--face
+                                     (pcase (aref line 0)
+                                       (?+ 'added)
+                                       (?- 'removed)
+                                       (_ 'context))))))))))
+
 (defun overlook-project--insert-files (dir files perspective)
   "Insert FILES changed in repo DIR, under its row in PERSPECTIVE.
 Past `overlook-project-files' the rest fold into one line with their totals."
@@ -209,7 +268,12 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                                                            perspective
                                                            (lambda () (overlook-project-open-file dir file))))
                                        'help-echo (car file)
-                                       'wrap-prefix prefix)))
+                                       'wrap-prefix prefix)
+                           (lambda ()
+                             (oset magit-insert-section--current selective-highlight t)
+                             (magit-insert-section-body
+                               (overlook-project--insert-diff (overlook-project--diff dir file))))
+                           t))
     (when rest
       (let ((total (overlook-project--total rest)))
         (overlook-insert-row (propertize

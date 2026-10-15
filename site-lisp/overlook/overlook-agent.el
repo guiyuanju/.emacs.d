@@ -98,7 +98,7 @@ it returns has been registered with `overlook-agent-register'."
   "Face added to the row of an agent that finished unseen."
   :group 'overlook)
 
-(defconst overlook-agent--wrap-indent "      "
+(defconst overlook-agent--wrap-indent "   "
   "Indent of an agent row's continuation lines, lining up with its name.")
 
 ;;; State

@@ -342,8 +342,11 @@ Tags inside `code' do not count."
           (t 2))))
 
 (defun jgy-workspace--todo-mark (text)
-  "Bullet of todo TEXT by its rank."
-  (pcase (jgy-workspace--todo-rank text) (0 "→") (1 "◷") (_ "☐")))
+  "Bullet of todo TEXT by its rank, dimmed unless #now."
+  (pcase (jgy-workspace--todo-rank text)
+    (0 "☐")
+    (1 (propertize "◷" 'face 'shadow))
+    (_ (propertize "☐" 'face 'shadow))))
 
 (defun jgy-workspace--todo-sort (todos)
   "TODOS with #now first, then #waiting, then the rest, among siblings.
@@ -405,43 +408,42 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE FOLDED): a heading NAME
 that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH),
 deeper ones under the item before them.  Visiting switches to PERSPECTIVE
-first when it is non-nil.  FOLDED items go under a line counting their
-top-level ones, folded until toggled."
-  (let ((first t))
+first when it is non-nil.  FOLDED items go under a \"later\" line counting
+their top-level ones, folded until toggled."
+  (let ((previous nil))
     (pcase-dolist (`(,name ,file ,current ,items ,perspective ,folded) groups)
-      (unless first (insert "\n"))
-      (setq first nil)
+      (when previous (overlook-end-with-blank previous))
       (cl-labels ((insert-items (items)
                     (while items
                       (pcase-let* ((`(,text ,line ,depth) (pop items))
                                    (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
                                                              items))
-                                   (indent (make-string (+ 3 depth) ?\s)))
+                                   (indent (make-string depth ?\s)))
                         (setq items (nthcdr (length children) items))
-                        ;; →、◷、☐ 在等宽字体里都占两列，折行接在它们后面。
+                        ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
                         (overlook-insert-row
-                         (propertize (concat indent (propertize (funcall mark text) 'face 'shadow) " "
+                         (propertize (concat indent (funcall mark text) " "
                                              (jgy-workspace--todo-display text) "\n")
                                      'overlook-action (jgy-workspace--todo-visit perspective file line)
                                      'wrap-prefix (concat indent "   "))
                          (and children (lambda () (insert-items children))))))))
-        (overlook-insert-row
-         (concat (propertize name
-                             'face (if current 'overlook-heading-current 'overlook-heading)
-                             'overlook-heading t
-                             'overlook-action (jgy-workspace--todo-visit perspective file 1))
-                 "\n")
-         (lambda ()
-           (insert-items items)
-           (when folded
-             (let ((top (nth 2 (car folded))))
-               (overlook-insert-row
-                (propertize (format "   %d more\n"
-                                    (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
-                            'face 'shadow
-                            'overlook-item (cons 'todo-fold name))
-                (lambda () (insert-items folded))
-                t)))))))))
+        (setq previous (overlook-insert-row
+                        (concat (propertize name
+                                            'face (if current 'overlook-heading-current 'overlook-heading)
+                                            'overlook-heading t
+                                            'overlook-action (jgy-workspace--todo-visit perspective file 1))
+                                "\n")
+                        (lambda ()
+                          (insert-items items)
+                          (when folded
+                            (let ((top (nth 2 (car folded))))
+                              (overlook-insert-row
+                               (propertize (format "later (%d)\n"
+                                                   (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
+                                           'face 'shadow
+                                           'overlook-item (cons 'todo-fold name))
+                               (lambda () (insert-items folded))
+                               t))))))))))
 
 (defun jgy-workspace--todo-ordered (cards)
   "CARDS with todos, those with a perspective first in the dashboard's order."
@@ -505,7 +507,7 @@ The workspace of the current perspective comes first."
                     (when-let* ((items (jgy-workspace--inbox-items file)))
                       (list (jgy-workspace--inbox-workspace file) file nil items)))
                   files)
-        (lambda (_) "☐"))))))
+        (lambda (_) (propertize "☐" 'face 'shadow)))))))
 
 (defun jgy-workspace--refresh-after-save ()
   "Re-render the dashboard after saving a project.md or inbox.md."
