@@ -394,7 +394,7 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
                       "\n")
               'overlook-item (cons 'perspective name)
               'overlook-heading t
-              'overlook-action (lambda () (overlook-switch-perspective name))))
+              'overlook-action (lambda () (overlook-show-elsewhere name #'ignore))))
 
 (defun overlook--perspectives ()
   "Insert each perspective's heading and rows, then those of no perspective."
