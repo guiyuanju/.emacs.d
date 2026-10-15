@@ -517,6 +517,7 @@
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
     "td" '(toggle-debug-on-error :which-key "debug on error")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
+    "tj" '(jgy-furigana-mode :which-key "furigana")
     "tl" '(jgy-toggle-line-numbers :which-key "line numbers")
     "tr" '(read-only-mode :which-key "read only")
     "tT" '(consult-theme :which-key "theme")
