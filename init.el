@@ -395,7 +395,7 @@
     "TAB k"   '(persp-remove-buffer :which-key "remove buffer")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(agent-shell :which-key "agent toggle")
+    "aa" '(jgy-agent-shell-toggle :which-key "agent toggle")
     "aA" '(agent-shell-new-shell :which-key "start agent")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ax" '(agent-shell-openai-start-codex :which-key "Codex")
@@ -819,6 +819,7 @@
 (use-package jgy-agent-shell
   :ensure nil
   :after agent-shell
+  :commands jgy-agent-shell-toggle
   :demand t
   :autoload jgy-agent-shell-dot-subdir)
 

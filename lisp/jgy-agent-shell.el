@@ -8,6 +8,26 @@
 
 (require 'agent-shell)
 
+(defun jgy-agent-shell-toggle (&optional arg)
+  "Show the most recently used agent in the current perspective.
+Inside an agent, with prefix ARG, or without a perspective agent,
+delegate to `agent-shell' to keep its toggle and startup behavior."
+  (interactive "P")
+  (require 'overlook-agent)
+  (let* ((perspective (overlook-current-perspective))
+         (buffer
+          (and (not arg)
+               (not (derived-mode-p 'agent-shell-mode
+                                    'agent-shell-viewport-view-mode
+                                    'agent-shell-viewport-edit-mode))
+               perspective
+               (seq-find (lambda (buffer)
+                           (equal perspective (overlook-agent-perspective buffer)))
+                         (agent-shell-buffers)))))
+    (if buffer
+        (overlook-agent-show buffer)
+      (agent-shell arg))))
+
 (defcustom jgy-agent-shell-header-separator "·"
   "Glyph separating fields in the agent-shell header line.
 agent-shell hardcodes a heavy arrowhead (➤); this replaces it.  Other
