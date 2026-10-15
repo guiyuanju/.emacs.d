@@ -14,7 +14,7 @@
         byte-compile-dest-file-function
         (lambda (file) (expand-file-name (concat (file-name-base file) ".elc") out)))
   (let ((failed (seq-remove #'byte-compile-file
-                            (directory-files root t "\\`overlook.*\\.el\\'"))))
+                            (directory-files root t "\\`\\(?:overlook.*\\|courier\\)\\.el\\'"))))
     (delete-directory out t)
     (when failed
       (message "Byte-compilation failed: %s" (mapconcat #'file-name-nondirectory failed " "))

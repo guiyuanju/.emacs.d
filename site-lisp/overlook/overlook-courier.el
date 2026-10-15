@@ -46,7 +46,7 @@
   (courier-environment (courier-new-id name root)))
 
 (defun overlook-courier--register (buffer)
-  "Register agent BUFFER with courier, once, when its frontend can take prompts."
+  "Register agent BUFFER with courier once its frontend is ready."
   (with-current-buffer buffer
     (when-let* (((not (and overlook-courier-id (courier-agent overlook-courier-id))))
                 (submit (overlook-agent-get buffer 'submit)))

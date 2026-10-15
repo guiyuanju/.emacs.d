@@ -149,7 +149,7 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
     (cdr entry)))
 
 (defun overlook-project-open (dir)
-  "Show repo DIR's changes since its last commit, or its status when clean.
+  "Show the diff since the last commit in DIR, or its status when clean.
 Uses Magit, or VC without it."
   (let ((default-directory dir)
         (changed (cdr (overlook-project--status dir))))

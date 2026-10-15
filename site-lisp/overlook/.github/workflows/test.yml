@@ -13,16 +13,8 @@ jobs:
         emacs: ['29.4', '30.1']
     env:
       OVERLOOK_INSTALL_DEPS: 1
-      OVERLOOK_LOAD_PATH: ${{ github.workspace }}/.ci-deps/site-lisp/courier
     steps:
       - uses: actions/checkout@v4
-      # Courier is not published separately yet; use its source repository.
-      - uses: actions/checkout@v4
-        with:
-          repository: guiyuanju/.emacs.d
-          ref: ab8fb31510e991a05e106b2dc81abcacb7aabe02
-          path: .ci-deps
-          sparse-checkout: site-lisp/courier
       - uses: purcell/setup-emacs@master
         with:
           version: ${{ matrix.emacs }}

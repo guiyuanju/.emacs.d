@@ -6,15 +6,18 @@
 
 (let* ((root (file-name-directory (directory-file-name
                                    (file-name-directory load-file-name))))
-       (files (directory-files root t "\\`overlook.*\\.el\\'"))
+       (files (directory-files root t "\\`\\(?:overlook.*\\|courier\\)\\.el\\'"))
        (failed nil))
   (dolist (dir (parse-colon-path (getenv "OVERLOOK_LOAD_PATH")))
     (add-to-list 'load-path dir))
   (add-to-list 'load-path root)
   (require 'package-lint)
   (require 'checkdoc)
-  (let ((package-lint-main-file (expand-file-name "overlook.el" root)))
-    (dolist (file files)
+  (dolist (file files)
+    ;; The bundled courier library retains its public courier-* API.
+    (let ((package-lint-main-file
+           (if (equal (file-name-nondirectory file) "courier.el") file
+             (expand-file-name "overlook.el" root))))
       (with-current-buffer (find-file-noselect file)
         (dolist (issue (package-lint-buffer))
           (setq failed t)

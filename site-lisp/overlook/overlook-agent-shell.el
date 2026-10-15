@@ -197,7 +197,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
   (map-nested-elt agent-shell--state '(:session :id)))
 
 (defun overlook-agent-shell--name (config)
-  "Name of the agent CONFIG runs, from `overlook-agent-shell-configs'."
+  "Return the name for CONFIG from `overlook-agent-shell-configs'."
   (let ((id (map-elt config :identifier)))
     (or (car (seq-find (lambda (entry)
                          (eq (map-elt (ignore-errors (funcall (cdr entry))) :identifier) id))

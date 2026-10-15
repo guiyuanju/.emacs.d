@@ -85,8 +85,8 @@ Turn on the modules you want; each is a global minor mode:
   (overlook-usage-mode 1))        ; Claude and Codex plan usage
 ```
 
-To let agents message, spawn and monitor each other, install
-[courier](../courier) and turn on its bridge:
+To let agents message, spawn and monitor each other, turn on the bundled
+[courier](docs/courier.md) bridge:
 
 ```elisp
 (require 'overlook-courier)
@@ -234,12 +234,10 @@ in `~/.codex/sessions`.  Either may change without notice.
 ## Development
 
 ```sh
-OVERLOOK_LOAD_PATH=/path/to/courier OVERLOOK_INSTALL_DEPS=1 make test lint
+OVERLOOK_INSTALL_DEPS=1 make test lint
 ```
 
-Provide the directory containing `courier.el` (currently `site-lisp/courier`
-in [the source repository](https://github.com/guiyuanju/.emacs.d)).  This
-installs the other dependencies into `.elpa/` and runs the tests, package-lint
+This installs the dependencies into `.elpa/` and runs the tests, package-lint
 and checkdoc.  Without `OVERLOOK_INSTALL_DEPS`, list the directories of
 installed dependencies in `OVERLOOK_LOAD_PATH`.
 

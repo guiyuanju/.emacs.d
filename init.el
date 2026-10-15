@@ -828,10 +828,10 @@
   :init
   (run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
-;; agent 之间互发消息（Erlang 式信箱），agent 经 bin/courier 调用；courier 本身不依赖 overlook。
+;; overlook 内置的 agent 信箱，agent 经 bin/courier 调用。
 (use-package courier
   :ensure nil
-  :load-path "site-lisp/courier"
+  :load-path "site-lisp/overlook"
   :commands courier-cli)
 
 ;; 不字节编译，改了源码重新加载即生效。
