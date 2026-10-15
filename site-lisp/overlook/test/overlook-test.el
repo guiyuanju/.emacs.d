@@ -561,6 +561,8 @@ Agents are listed; usage and repos are not."
                   (overlook-perspective-functions (list #'overlook-project--insert)))
               (overlook--render)
               (should-not (string-search "+new" (buffer-string)))
+              (overlook--render)
+              (should-not (string-search "+new" (buffer-string)))
               (goto-char (point-min))
               (search-forward "a.el")
               (call-interactively #'magit-section-toggle)
@@ -570,7 +572,13 @@ Agents are listed; usage and repos are not."
                 (search-forward "+new")
                 (should (eq (oref (magit-current-section) type) 'hunk))
                 (should-not (get-text-property (point) 'keymap))
-                (should (get-text-property (line-beginning-position) 'overlook-action))))))
+                (should (get-text-property (line-beginning-position) 'overlook-action)))
+              (goto-char (point-min))
+              (search-forward "a.el")
+              (call-interactively #'magit-section-toggle)
+              (should (overlook-test--hidden-p "+new"))
+              (overlook--render)
+              (should-not (string-search "+new" (buffer-string))))))
       (delete-directory root t))))
 
 ;;; overlook-test.el ends here
