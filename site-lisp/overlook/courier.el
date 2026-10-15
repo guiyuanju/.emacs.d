@@ -301,7 +301,7 @@ A turn courier did not deliver comes from a human, so its hops restart."
   (decode-coding-string (base64-decode-string arg) 'utf-8))
 
 (defun courier-cli (output from command &rest args)
-  "Run COMMAND with ARGS for agent FROM, writing what it says to file OUTPUT.
+  "Run COMMAND with ARGS for agent FROM and write the result to file OUTPUT.
 Called by bin/courier, which encodes every argument but OUTPUT with base64."
   (let* ((from (let ((id (courier--decode from))) (and (not (string-empty-p id)) id)))
          (args (mapcar #'courier--decode args))
