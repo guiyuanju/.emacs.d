@@ -587,7 +587,8 @@
   :demand t
   :custom
   ;; 位置固定的 repo 不软链进项目文件夹，在这里指给项目。
-  (jgy-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
+  (jgy-workspace-project-roots '(("overlook" . "~/.emacs.d/site-lisp/overlook/")
+                               ("emacs" . "~/.emacs.d/")))
   :config
   (jgy-workspace-dashboard-mode 1))
 
