@@ -328,7 +328,8 @@
                 '(evil-window-prev evil-goto-first-line
                   evil-ex-search-next evil-ex-search-previous
                   evil-jump-backward evil-jump-forward))
-        pulsar-pulse-region-functions nil)
+        pulsar-pulse-region-functions nil
+        pulsar-pulse-on-window-change t)
   (add-hook 'next-error-hook #'pulsar-pulse-line)
   (add-hook 'imenu-after-jump-hook #'pulsar-recenter-top)
   (with-eval-after-load 'consult
@@ -844,6 +845,7 @@
   :load-path "site-lisp/overlook"
   :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
              overlook-agent-project-root overlook-perspective-guess-root)
+  :hook (overlook-mode . pulsar-mode)
   :custom
   (overlook-side 'left)
   (overlook-width 0.26)
