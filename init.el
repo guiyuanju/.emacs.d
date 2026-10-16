@@ -336,6 +336,15 @@
     (add-hook 'consult-after-jump-hook #'pulsar-reveal-entry))
   (pulsar-global-mode 1))
 
+;; 离开 insert 时经 macism 切到英文输入法；只保留这一项，不轮询系统输入法。
+(use-package sis
+  :after evil
+  :config
+  (setq sis-auto-refresh-seconds nil
+        sis-respect-prefix-and-buffer nil)
+  (sis-ism-lazyman-config "com.apple.keylayout.ABC" "com.apple.inputmethod.SCIM.ITABC" 'macism)
+  (sis-global-respect-mode 1))
+
 (use-package evil-goggles
   :after evil
   :config

@@ -13,11 +13,13 @@
 (defvar ghostel--term)
 
 ;; 图形界面里 C-[ 与 ESC 键是不同事件；拆开后 agent 把 ESC 留给终端，C-[ 仍回 normal。
+;; 中文输入法下同一个键到达时是 C-【。
 (defun jgy-decode-control-bracket (&optional frame)
   "Make C-[ distinct from ESC on graphical FRAME."
   (when (display-graphic-p frame)
     (with-selected-frame (or frame (selected-frame))
-      (define-key input-decode-map [?\C-\[] [control-bracketleft]))))
+      (define-key input-decode-map [?\C-\[] [control-bracketleft])
+      (define-key input-decode-map [?\C-【] [control-bracketleft]))))
 
 ;; 普通态移动后 i/a 会把终端光标带到 point。
 (defun jgy-evil-ghostel-goto-input-position (pos)
