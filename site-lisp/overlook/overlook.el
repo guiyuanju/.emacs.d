@@ -307,8 +307,11 @@ The binding is recorded in `overlook-keys'."
               mode-line-format '(:eval (overlook--mode-line)))
   ;; Magit highlights sections with `font-lock-face', which only shows with
   ;; font-lock on; font-lock would strip the rows' faces, so alias it instead.
+  ;; Global font-lock is kept out too: in a buffer whose name starts with a
+  ;; space it cannot turn on, and the attempt removes the alias.
   (setq-local char-property-alias-alist
-              (cons '(face font-lock-face) char-property-alias-alist))
+              (cons '(face font-lock-face) char-property-alias-alist)
+              font-lock-global-modes nil)
   ;; Rows fit themselves to the window, so redraw when it resizes.
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))

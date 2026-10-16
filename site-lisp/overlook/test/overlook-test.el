@@ -258,6 +258,17 @@ Agents are listed; usage and repos are not."
     (magit-section-update-highlight t)
     (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
 
+(ert-deftest overlook-highlight-survives-global-font-lock ()
+  (let ((was global-font-lock-mode))
+    (global-font-lock-mode 1)
+    (unwind-protect
+        (overlook-test-with-dashboard '(("one") ("two")) "one"
+          (goto-char (point-min))
+          (search-forward "two")
+          (magit-section-update-highlight t)
+          (should (eq (get-char-property (point) 'face) 'magit-section-highlight)))
+      (global-font-lock-mode (if was 1 -1)))))
+
 (ert-deftest overlook-blank-line-belongs-to-the-section-above ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
