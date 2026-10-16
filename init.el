@@ -627,7 +627,9 @@
   :custom
   ;; 控制面板放在当前 frame 里，而不是借主 frame minibuffer 的独立小 frame。
   (ediff-window-setup-function #'ediff-setup-windows-plain)
-  (ediff-split-window-function #'split-window-horizontally))
+  (ediff-split-window-function #'split-window-horizontally)
+  :config
+  (advice-add 'ediff-quit :around #'jgy-ediff-quit-without-asking))
 
 (use-package magit
   :custom

@@ -5,6 +5,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'project)
 (declare-function consult-ripgrep "consult")
 (declare-function ghostel "ghostel")
@@ -112,6 +113,16 @@ history has done to `default-directory'."
    (t (jgy-toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
+
+(defun jgy-ediff-quit-without-asking (quit &rest args)
+  "Call QUIT with ARGS, answering yes to its \"Quit this Ediff session\" prompt.
+Other prompts during quitting are still asked."
+  (let ((ask (symbol-function 'y-or-n-p)))
+    (cl-letf (((symbol-function 'y-or-n-p)
+               (lambda (prompt)
+                 (or (string-prefix-p "Quit this Ediff session" prompt)
+                     (funcall ask prompt)))))
+      (apply quit args))))
 
 (provide 'jgy-commands)
 ;;; jgy-commands.el ends here
