@@ -10,6 +10,9 @@
 ;;   {"path": "app", "url": "git@github.com:owner/app.git"}
 ;;   ]
 ;; clone-repo 成功后自动登记；register-repos 登记现有仓库；restore-repos 补齐缺失项。
+;; clone 的候选来自 workspace 根下 .remotes 列出的远端，每行一个：
+;;   github <owner>   gh 列出 owner 名下未归档的仓库
+;;   gitlab <host>    glab 列出该 host 上我是 member 的仓库
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 
@@ -46,11 +49,6 @@
 (defcustom jgy-workspace-directory "~/workspace/"
   "Directory containing workspaces, each with a projects/ folder."
   :type 'directory
-  :group 'jgy-workspace)
-
-(defcustom jgy-workspace-code-directories '("~/Code/*/")
-  "Directories whose Git checkouts are clone sources; wildcards allowed."
-  :type '(repeat directory)
   :group 'jgy-workspace)
 
 (defcustom jgy-workspace-project-roots nil
@@ -214,16 +212,22 @@ The repositories are read with `completing-read-multiple'; none is fine."
   (interactive (list (string-trim (read-string "New project id: "))))
   (let* ((file (jgy-workspace--new-project id))
          (root (file-name-directory file))
-         (sources (jgy-workspace--clone-sources root))
-         ;; A function instead of t lets vertico select the empty prompt.
-         (repos (completing-read-multiple
-                 "Clone repositories (empty for none): " sources nil
-                 (lambda (input)
-                   (seq-every-p (lambda (repo) (member repo sources))
-                                (split-string input crm-separator t))))))
+         (candidates (condition-case err
+                         (jgy-workspace--clone-candidates root)
+                       (user-error (message "Skipping clone: %s" (error-message-string err))
+                                   nil)))
+         (repos (when candidates
+                  (let ((completion-extra-properties
+                         (jgy-workspace--candidate-properties candidates)))
+                    ;; A function instead of t lets vertico select the empty prompt.
+                    (completing-read-multiple
+                     "Clone repositories (empty for none): " candidates nil
+                     (lambda (input)
+                       (seq-every-p (lambda (repo) (assoc repo candidates))
+                                    (split-string input crm-separator t))))))))
     (jgy-workspace--switch id file)
-    (dolist (repo repos)
-      (jgy-workspace-clone-repo repo root))))
+    (when repos
+      (jgy-workspace--clone-candidates-into root (mapcar (lambda (repo) (assoc repo candidates)) repos)))))
 
 (defun jgy-workspace-visit-project-md ()
   "Open the project.md of the current perspective, project folder or root.
@@ -233,14 +237,100 @@ From a side window such as the dashboard it opens in the main window."
     (when (fboundp 'overlook-main-window) (overlook-main-window))
     (find-file (expand-file-name "project.md" dir))))
 
-(defun jgy-workspace--clone-sources (root)
-  "Checkouts to clone into project folder ROOT.
-They are the repos/ of ROOT's workspace and `jgy-workspace-code-directories'."
-  (delete-dups
-   (mapcan (lambda (dir)
-             (mapcar (lambda (git) (abbreviate-file-name (file-name-directory git)))
-                     (file-expand-wildcards (expand-file-name "*/.git" dir))))
-           (cons (expand-file-name "../../repos/" root) jgy-workspace-code-directories))))
+(defun jgy-workspace--cli-output (program &rest args)
+  "Stdout of PROGRAM run with ARGS from the home folder, or a `user-error'."
+  (let ((default-directory (expand-file-name "~/"))
+        (stderr (make-temp-file "jgy-workspace-cli")))
+    (unwind-protect
+        (with-temp-buffer
+          (let ((status (condition-case nil
+                            (apply #'call-process program nil (list t stderr) nil args)
+                          (file-missing (user-error "%s is not installed" program)))))
+            (unless (eql status 0)
+              (user-error "%s %s failed: %s" program (car args)
+                          (string-trim (with-temp-buffer
+                                         (insert-file-contents stderr)
+                                         (buffer-string)))))
+            (buffer-string)))
+      (delete-file stderr))))
+
+(defun jgy-workspace--parse-json-arrays (text)
+  "Concatenate the JSON arrays in TEXT, as printed page by page by glab."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+    (let (items)
+      (while (progn (skip-chars-forward " \t\n\r") (not (eobp)))
+        (setq items (append items (json-parse-buffer :array-type 'list :object-type 'alist
+                                                     :null-object nil))))
+      items)))
+
+(defun jgy-workspace--remotes (root)
+  "Remotes of project folder ROOT's workspace, read from its .remotes file.
+Each is a list (FORGE ARG) such as (\"github\" \"owner\")."
+  (let ((file (expand-file-name "../../.remotes" root)))
+    (unless (file-readable-p file)
+      (user-error "No remotes configured: %s not found" (abbreviate-file-name file)))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (delq nil (mapcar (lambda (line)
+                          (let ((fields (split-string (replace-regexp-in-string "#.*" "" line))))
+                            (when fields
+                              (unless (= (length fields) 2)
+                                (user-error "Bad line in %s: %s" file line))
+                              fields)))
+                        (split-string (buffer-string) "\n"))))))
+
+(defun jgy-workspace--remote-repos (forge arg)
+  "Repositories of remote FORGE with ARG, as (NAME PATH URL DESCRIPTION).
+The URL follows the protocol configured in the forge's CLI."
+  (pcase forge
+    ("github"
+     (let ((ssh (equal (string-trim (jgy-workspace--cli-output "gh" "config" "get" "git_protocol"))
+                       "ssh")))
+       (mapcar (lambda (repo)
+                 (let ((name (alist-get 'nameWithOwner repo)))
+                   (list name (file-name-nondirectory name)
+                         (if ssh (alist-get 'sshUrl repo) (concat (alist-get 'url repo) ".git"))
+                         (alist-get 'description repo))))
+               (json-parse-string
+                (jgy-workspace--cli-output "gh" "repo" "list" arg "--no-archived" "--limit" "1000"
+                                           "--json" "nameWithOwner,url,sshUrl,description")
+                :array-type 'list :object-type 'alist :null-object nil))))
+    ("gitlab"
+     (let ((ssh (equal (string-trim (jgy-workspace--cli-output "glab" "config" "get" "git_protocol"
+                                                               "--host" arg))
+                       "ssh")))
+       (mapcar (lambda (repo)
+                 (list (alist-get 'path_with_namespace repo) (alist-get 'path repo)
+                       (alist-get (if ssh 'ssh_url_to_repo 'http_url_to_repo) repo)
+                       (alist-get 'description repo)))
+               (jgy-workspace--parse-json-arrays
+                (jgy-workspace--cli-output
+                 "glab" "api" "--hostname" arg "--paginate"
+                 "projects?membership=true&simple=true&archived=false&per_page=100")))))
+    (_ (user-error "Unknown forge in .remotes: %s" forge))))
+
+(defun jgy-workspace--clone-candidates (root)
+  "Remote repos to clone into project folder ROOT, as (NAME PATH URL DESCRIPTION).
+Repos whose path exists in ROOT or is registered in its project.md are left out."
+  (let ((taken (mapcar (lambda (repo) (alist-get 'path repo)) (jgy-workspace--read-repos root)))
+        candidates)
+    (pcase-dolist (`(,forge ,arg) (jgy-workspace--remotes root))
+      (dolist (repo (jgy-workspace--remote-repos forge arg))
+        (unless (or (assoc (car repo) candidates)
+                    (member (nth 1 repo) taken)
+                    (file-exists-p (expand-file-name (nth 1 repo) root)))
+          (push repo candidates))))
+    (nreverse candidates)))
+
+(defun jgy-workspace--candidate-properties (candidates)
+  "`completion-extra-properties' showing the description of CANDIDATES."
+  (list :annotation-function
+        (lambda (name)
+          (when-let* ((description (nth 3 (assoc name candidates)))
+                      ((not (string-empty-p description))))
+            (concat "  " (propertize description 'face 'completions-annotations))))))
 
 (defun jgy-workspace--current-card-root ()
   "Return the current project's card directory, including mapped projects."
@@ -385,25 +475,28 @@ Existing paths are skipped.  Stop on failure and preserve Magit's log."
                      (error (message "Repository cloned; registration/restore stopped: %s"
                                      (error-message-string err))))))))))))))
 
-(defun jgy-workspace-clone-repo (repo &optional root)
-  "Clone REPO's origin into ROOT and register it after success.
-REPO is a checkout from `jgy-workspace--clone-sources'."
+(defun jgy-workspace--clone-candidates-into (root candidates)
+  "Clone CANDIDATES from `jgy-workspace--clone-candidates' into ROOT one by one.
+Each is registered in ROOT's project.md after it is cloned."
+  (let ((entries (mapcar (lambda (candidate)
+                           `((path . ,(nth 1 candidate)) (url . ,(nth 2 candidate))))
+                         candidates)))
+    (jgy-workspace--validate-repos (append (jgy-workspace--read-repos root) entries) root)
+    (jgy-workspace--clone-entries root entries t)))
+
+(defun jgy-workspace-clone-repo (repo &optional root candidates)
+  "Clone remote repository REPO into ROOT and register it after success.
+REPO is a name from CANDIDATES, by default `jgy-workspace--clone-candidates'."
   (interactive
-   (let ((root (jgy-workspace--current-card-root)))
-     (list (completing-read "Repository: " (jgy-workspace--clone-sources root) nil t) root)))
+   (let* ((root (jgy-workspace--current-card-root))
+          (candidates (or (jgy-workspace--clone-candidates root)
+                          (user-error "No remote repository left to clone")))
+          (completion-extra-properties (jgy-workspace--candidate-properties candidates)))
+     (list (completing-read "Repository: " candidates nil t) root candidates)))
   (let* ((root (or root (jgy-workspace--current-card-root)))
-         (path (file-name-nondirectory (directory-file-name repo)))
-         (url (car (process-lines "git" "-C" (expand-file-name repo) "remote" "get-url" "origin")))
-         (repos (jgy-workspace--read-repos root)))
-    (when (file-exists-p (expand-file-name path root))
-      (user-error "%s already exists" path))
-    (jgy-workspace--validate-repos
-     (append (seq-remove (lambda (r) (equal (alist-get 'path r) path)) repos)
-             (list `((path . ,path) (url . ,url)))) root)
-    (when-let* ((entry (seq-find (lambda (r) (equal (alist-get 'path r) path)) repos)))
-      (unless (equal (alist-get 'url entry) url)
-        (user-error "Repo %s already registered with another URL" path)))
-    (jgy-workspace--clone-entries root (list `((path . ,path) (url . ,url))) t)))
+         (candidate (or (assoc repo (or candidates (jgy-workspace--clone-candidates root)))
+                        (user-error "%s is not a repository to clone" repo))))
+    (jgy-workspace--clone-candidates-into root (list candidate))))
 
 (defun jgy-workspace-restore-repos (&optional root)
   "Clone missing repositories listed in the current project's project.md.
