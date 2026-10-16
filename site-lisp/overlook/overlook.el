@@ -201,11 +201,15 @@ The weights are zoxide's."
                       (lambda (a b) (> (alist-get a scores nil nil #'equal)
                                        (alist-get b scores nil nil #'equal)))))))))
 
+(defvar overlook--to-current nil
+  "Non-nil when the next redraw moves point to the current perspective.")
+
 (defun overlook-perspective-switched (&rest _)
-  "Show the dashboard in the new perspective and redraw it.
+  "Show the dashboard in the new perspective and redraw it on its heading.
 Backends call this after any perspective switch, including ones not made
 through overlook, since switching perspectives replaces the windows."
   (overlook--count-visit)
+  (setq overlook--to-current t)
   (overlook--follow)
   (run-hooks 'overlook-perspective-switch-hook)
   (overlook-refresh))
@@ -498,8 +502,18 @@ left out while it has none and is not current, or else the current one."
 
 ;;; Render
 
+(defun overlook--goto-current ()
+  "Move to the current perspective's heading; nil when it is not shown."
+  (when-let* ((name (overlook-current-perspective))
+              (match (save-excursion
+                       (goto-char (point-min))
+                       (text-property-search-forward
+                        'overlook-item (cons 'perspective name) #'equal))))
+    (goto-char (prop-match-beginning match))))
+
 (defun overlook--render ()
-  "Redraw the dashboard, keeping point on the same row."
+  "Redraw the dashboard, keeping point on the same row.
+After a perspective switch, point goes to the current perspective instead."
   (when-let* ((dashboard (get-buffer overlook-buffer-name)))
     (with-current-buffer dashboard
       (let* ((window (get-buffer-window dashboard t))
@@ -515,9 +529,12 @@ left out while it has none and is not current, or else the current one."
           (run-hooks 'overlook-sections))
         (magit-section-show magit-root-section)
         (goto-char (point-min))
-        (unless (and section (oref section parent)
-                     (apply #'magit-section-goto-successor section position))
-          (forward-line (1- line)))
+        (cond ((and overlook--to-current (overlook--goto-current))
+               (setq column 0))
+              ((and section (oref section parent)
+                    (apply #'magit-section-goto-successor section position)))
+              (t (forward-line (1- line))))
+        (setq overlook--to-current nil)
         (while (and (invisible-p (point)) (not (bobp)))
           (forward-line -1))
         (move-to-column column)

@@ -171,6 +171,23 @@ Agents are listed; usage and repos are not."
               (kill-buffer gamma))))
       (mapc #'kill-buffer (list alpha beta)))))
 
+(ert-deftest overlook-switch-moves-point-to-the-current-perspective ()
+  (let ((alpha (overlook-test--agent "alpha")))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("two")) "one"
+          (goto-char (point-min))
+          (search-forward "alpha")
+          (setq overlook-test--current "two")
+          (overlook-perspective-switched)
+          (overlook--render)
+          (should (equal (overlook-item-at-point) '(perspective . "two")))
+          (should (bolp))
+          ;; Later redraws keep point where it is.
+          (search-forward "one")
+          (overlook--render)
+          (should (equal (overlook-item-at-point) '(perspective . "one"))))
+      (kill-buffer alpha))))
+
 (ert-deftest overlook-heading-switches-perspective ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
