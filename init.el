@@ -840,7 +840,8 @@
   :commands jgy-agent-update-check
   :autoload jgy-agent-update-acp-use
   :init
-  (run-with-idle-timer 30 nil #'jgy-agent-update-check))
+  ;; 每天排一次空闲 30 秒后的检查。
+  (run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'jgy-agent-update-check))
 
 ;; overlook 内置的 agent 信箱，agent 经 bin/courier 调用。
 (use-package courier
