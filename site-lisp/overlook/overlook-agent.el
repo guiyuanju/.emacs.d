@@ -33,6 +33,9 @@
 ;; it to `overlook-agent-register', and reports through
 ;; `overlook-agent-report'.  `overlook-agent-start-function' starts agents
 ;; for overlook itself: to resume a saved one, or for courier to spawn.
+;;
+;; Overlook remembers which session each forked agent came from, in
+;; `overlook-agent-forks-file', and lists forks under their parent.
 
 ;;; Code:
 
@@ -56,6 +59,11 @@ it returns has been registered with `overlook-agent-register'."
 
 (defcustom overlook-agent-saved-file (locate-user-emacs-file "overlook-agents.eld")
   "File keeping the agents to offer for resuming after a restart."
+  :type 'file
+  :group 'overlook)
+
+(defcustom overlook-agent-forks-file (locate-user-emacs-file "overlook-forks.eld")
+  "File keeping the session each forked session was forked from."
   :type 'file
   :group 'overlook)
 
@@ -112,7 +120,8 @@ context usage percentage or nil; `brief' a function returning a line on
 what it is doing, or nil; `session' a function returning its session id,
 or nil; `submit' a function submitting a prompt to it; `ready' a function
 telling whether it can take a prompt now; `reply' a function returning
-its last reply, or nil; `environment' the entries of
+its last reply, or nil; `forked-from' a function returning the session id
+its session was forked from, or nil; `environment' the entries of
 `overlook-agent-make-environment' its process started with, or nil.")
 (put 'overlook-agent-identity 'permanent-local t)
 
@@ -150,6 +159,12 @@ Each is an alist with keys `agent', `root', `session' and `perspective'.")
 
 (defvar overlook-agent--saved-written nil
   "The agents last written to `overlook-agent-saved-file'.")
+
+(defvar overlook-agent-forks nil
+  "Alist of each forked session id to the session id it was forked from.")
+
+(defvar overlook-agent--forks-written nil
+  "The forks last written to `overlook-agent-forks-file'.")
 
 (defvar overlook-agent-changed-hook nil
   "Hook run by `overlook-agent-changed' when some agent's state changed.")
@@ -375,31 +390,65 @@ asking."
                             (overlook-agent-buffers)))
           overlook-agent-saved))
 
+(defun overlook-agent--forked-from (buffer)
+  "Session id agent BUFFER's session was forked from, as its frontend says, or nil."
+  (when-let* ((forked-from (overlook-agent-get buffer 'forked-from)))
+    (with-current-buffer buffer (ignore-errors (funcall forked-from)))))
+
+(defun overlook-agent--parent (session)
+  "Session id SESSION was forked from, or nil."
+  (and session (alist-get session overlook-agent-forks nil nil #'equal)))
+
+(defun overlook-agent--note-forks ()
+  "Add the forks among running agents to `overlook-agent-forks'."
+  (dolist (buffer (overlook-agent-buffers))
+    (let ((session (overlook-agent--session buffer))
+          (parent (overlook-agent--forked-from buffer)))
+      (when (and session parent (not (equal session parent))
+                 (not (overlook-agent--parent session)))
+        (push (cons session parent) overlook-agent-forks)))))
+
+(defun overlook-agent--write (file data)
+  "Print DATA to FILE."
+  (make-directory (file-name-directory file) t)
+  (let ((print-length nil)
+        (print-level nil))
+    (with-temp-file file
+      (prin1 data (current-buffer)))))
+
+(defun overlook-agent--read (file)
+  "The data in FILE, or nil when it is missing or unreadable."
+  (when (file-readable-p file)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (ignore-errors (read (current-buffer))))))
+
 (defun overlook-agent-save ()
-  "Write the agents to resume later to `overlook-agent-saved-file', if changed."
+  "Write the agents to resume later and the forks, each to its file, if changed."
   (with-demoted-errors "overlook: saving agents: %S"
     (let ((agents (overlook-agent--to-save)))
       (unless (equal agents overlook-agent--saved-written)
-        (make-directory (file-name-directory overlook-agent-saved-file) t)
-        (let ((print-length nil)
-              (print-level nil))
-          (with-temp-file overlook-agent-saved-file
-            (prin1 agents (current-buffer))))
-        (setq overlook-agent--saved-written agents)))))
+        (overlook-agent--write overlook-agent-saved-file agents)
+        (setq overlook-agent--saved-written agents)))
+    (overlook-agent--note-forks)
+    (unless (equal overlook-agent-forks overlook-agent--forks-written)
+      (overlook-agent--write overlook-agent-forks-file overlook-agent-forks)
+      (setq overlook-agent--forks-written overlook-agent-forks))))
 
 (defun overlook-agent--load-saved ()
-  "Read `overlook-agent-saved-file' once, skipping sessions already running."
+  "Read the saved agents and the forks once, skipping sessions already running."
   (unless overlook-agent--saved-loaded
     (setq overlook-agent--saved-loaded t)
     (let ((running (mapcar #'overlook-agent--session (overlook-agent-buffers)))
-          (agents (when (file-readable-p overlook-agent-saved-file)
-                    (with-temp-buffer
-                      (insert-file-contents overlook-agent-saved-file)
-                      (ignore-errors (read (current-buffer)))))))
+          (agents (overlook-agent--read overlook-agent-saved-file))
+          (forks (seq-filter (lambda (fork) (and (stringp (car-safe fork)) (stringp (cdr fork))))
+                             (overlook-agent--read overlook-agent-forks-file))))
       (setq overlook-agent-saved
             (seq-remove (lambda (saved) (member (alist-get 'session saved) running))
                         (seq-filter #'consp agents))
-            overlook-agent--saved-written agents))))
+            overlook-agent--saved-written agents
+            overlook-agent-forks (append overlook-agent-forks forks)
+            overlook-agent--forks-written forks))))
 
 (defun overlook-agent--resume (saved)
   "Resume SAVED agent from `overlook-agent-saved' and return its buffer."
@@ -537,12 +586,35 @@ works, dimmed otherwise."
          (text (overlook-fit brief room face)))
     (if text (concat gap text) "")))
 
-(defun overlook-agent--row (buffer perspective)
-  "Insert the row of agent BUFFER under PERSPECTIVE."
-  (let* ((head (concat overlook-indent (overlook-glyph-cell (overlook-agent-glyph buffer))
+(defun overlook-agent--tree-prefix (depth)
+  "What starts a row DEPTH forks below a row listed under a perspective."
+  (if (> depth 0)
+      (concat (make-string (* 2 (1- depth)) ?\s) (propertize "└ " 'face 'shadow))
+    ""))
+
+(defun overlook-agent--fork-label (session depth)
+  "A dimmed mark for a fork SESSION listed apart from its parent, at DEPTH 0."
+  (if (and (= depth 0) (overlook-agent--parent session))
+      (propertize " fork" 'face 'shadow)
+    ""))
+
+(defun overlook-agent--fork-echo (session)
+  "Help text naming the session SESSION was forked from, or an empty string."
+  (if-let* ((parent (overlook-agent--parent session)))
+      (concat "\nForked from " parent)
+    ""))
+
+(defun overlook-agent--row (buffer perspective &optional depth children)
+  "Insert the row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
+CHILDREN, a function, inserts the rows of its forks under it."
+  (let* ((depth (or depth 0))
+         (session (overlook-agent--session buffer))
+         (head (concat overlook-indent (overlook-agent--tree-prefix depth)
+                       (overlook-glyph-cell (overlook-agent-glyph buffer))
                        (or (overlook-agent-get buffer 'agent) "agent")
                        (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
                                                       overlook-agent-row-marks)))
+                       (overlook-agent--fork-label session depth)
                        (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)))
          (meta (overlook-agent--meta buffer))
          (brief (overlook-agent--brief buffer))
@@ -560,33 +632,86 @@ works, dimmed otherwise."
                                      'overlook-item (cons 'agent buffer)
                                      'overlook-action (lambda () (overlook-agent-visit buffer))
                                      'overlook-attention (memq status '(waiting failed done))
-                                     'help-echo (if brief (concat (buffer-name buffer) "\n" brief)
-                                                  (buffer-name buffer))
-                                     'wrap-prefix overlook-agent--wrap-indent))))
+                                     'help-echo (concat (buffer-name buffer)
+                                                        (if brief (concat "\n" brief) "")
+                                                        (overlook-agent--fork-echo session))
+                                     'wrap-prefix (concat overlook-agent--wrap-indent
+                                                          (make-string (* 2 depth) ?\s)))
+                         children)))
 
-(defun overlook-agent--saved-row (saved perspective)
-  "Insert the row of SAVED agent, dimmed, under PERSPECTIVE."
-  (let ((glyph (alist-get 'idle overlook-agent-status-glyphs)))
+(defun overlook-agent--saved-row (saved perspective &optional depth children)
+  "Insert the row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
+CHILDREN, a function, inserts the rows of its forks under it."
+  (let ((glyph (alist-get 'idle overlook-agent-status-glyphs))
+        (depth (or depth 0))
+        (session (alist-get 'session saved)))
     (overlook-insert-row (propertize
-                          (concat overlook-indent
+                          (concat overlook-indent (overlook-agent--tree-prefix depth)
                                   (overlook-glyph-cell (propertize (car glyph) 'face 'shadow))
                                   (propertize (concat (alist-get 'agent saved) " saved") 'face 'shadow)
+                                  (overlook-agent--fork-label session depth)
                                   (overlook-agent--project-label (alist-get 'root saved) perspective)
                                   "\n")
                           'overlook-item (cons 'saved saved)
                           'overlook-action (lambda () (overlook-agent-resume-visit saved))
-                          'help-echo (concat "Resume session " (alist-get 'session saved))
-                          'wrap-prefix overlook-agent--wrap-indent))))
+                          'help-echo (concat "Resume session " session
+                                             (overlook-agent--fork-echo session))
+                          'wrap-prefix (concat overlook-agent--wrap-indent
+                                               (make-string (* 2 depth) ?\s)))
+                         children)))
+
+(defun overlook-agent--item-session (item)
+  "Session id of ITEM, an (agent . BUFFER) or (saved . SAVED), or nil."
+  (pcase item
+    (`(agent . ,buffer) (overlook-agent--session buffer))
+    (`(saved . ,saved) (alist-get 'session saved))))
+
+(defun overlook-agent--insert-tree (item items perspective depth drawn)
+  "Insert ITEM under PERSPECTIVE, DEPTH forks deep, then its forks among ITEMS.
+DRAWN, a list in a cons, collects the items inserted, so none is twice."
+  (setcar drawn (cons item (car drawn)))
+  (let* ((session (overlook-agent--item-session item))
+         (forks (and session
+                     (seq-filter (lambda (other)
+                                   (and (not (memq other (car drawn)))
+                                        (equal (overlook-agent--parent
+                                                (overlook-agent--item-session other))
+                                               session)))
+                                 items)))
+         (children (and forks
+                        (lambda ()
+                          (dolist (fork forks)
+                            (unless (memq fork (car drawn))
+                              (overlook-agent--insert-tree fork items perspective
+                                                           (1+ depth) drawn)))))))
+    (pcase item
+      (`(agent . ,buffer) (overlook-agent--row buffer perspective depth children))
+      (`(saved . ,saved) (overlook-agent--saved-row saved perspective depth children)))))
 
 (defun overlook-agent--insert (perspective)
   "Insert the agents listed under PERSPECTIVE, then those saved there.
-A nil PERSPECTIVE inserts those in none."
-  (dolist (buffer (overlook-agent-buffers
-                   (lambda (buffer) (equal (overlook-agent-perspective buffer) perspective))))
-    (overlook-agent--row buffer perspective))
-  (dolist (saved overlook-agent-saved)
-    (when (equal (overlook-agent--saved-perspective saved) perspective)
-      (overlook-agent--saved-row saved perspective))))
+Forks sit under the agent they were forked from when it is listed there
+too.  A nil PERSPECTIVE inserts those in none."
+  (overlook-agent--note-forks)
+  (let* ((items (append (mapcar (lambda (buffer) (cons 'agent buffer))
+                                (overlook-agent-buffers
+                                 (lambda (buffer)
+                                   (equal (overlook-agent-perspective buffer) perspective))))
+                        (mapcar (lambda (saved) (cons 'saved saved))
+                                (seq-filter (lambda (saved)
+                                              (equal (overlook-agent--saved-perspective saved)
+                                                     perspective))
+                                            overlook-agent-saved))))
+         (sessions (delq nil (mapcar #'overlook-agent--item-session items)))
+         (drawn (list nil)))
+    (dolist (item items)
+      (unless (or (memq item (car drawn))
+                  (member (overlook-agent--parent (overlook-agent--item-session item)) sessions))
+        (overlook-agent--insert-tree item items perspective 0 drawn)))
+    ;; Left over only when the forks recorded form a loop.
+    (dolist (item items)
+      (unless (memq item (car drawn))
+        (overlook-agent--insert-tree item items perspective 0 drawn)))))
 
 (defun overlook-agent--insert-orphans ()
   "Insert the agents in no perspective."

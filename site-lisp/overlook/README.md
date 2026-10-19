@@ -162,6 +162,10 @@ Evil users can bind the same keys in normal state:
 - A saved agent: `○ claude saved`, dimmed, for each agent running when
   Emacs quit.  `RET` on it resumes its session where it left off, minus a turn cut
   short; they are kept in `overlook-agent-saved-file`.
+- A fork, made with `agent-shell-fork`: under the agent it was forked
+  from, after `└`, when both are listed under the same perspective;
+  otherwise marked `fork`.  Which session each fork came from is kept in
+  `overlook-agent-forks-file`, so the tree survives restarts.
 - When an agent turns `⚠`, `✖` or `●` while no Emacs frame has focus, a
   desktop notification says so (`osascript` on macOS, D-Bus elsewhere).
   Set `overlook-agent-notify` to `t` to be told even while Emacs has

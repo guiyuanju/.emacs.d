@@ -149,7 +149,9 @@ Prefers its description, as the title of a shell command is the command."
                                       (or (overlook-agent-shell--tool-title (map-elt event :data))
                                           "permission")))
     ('permission-response
-     (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil)))
+     (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil))
+    ;; agent-shell sets the session id after announcing it.
+    ('session-selected (run-at-time 0 nil #'overlook-agent-changed)))
   (pcase (map-elt event :event)
     ((or 'input-submitted 'permission-response 'tool-call-update 'agent-message-chunk)
      (overlook-agent-report 'working))
@@ -200,6 +202,10 @@ Nil until they are gathered, so that an empty environment is gathered once.")
   "This shell's session id, or nil before it has one."
   (map-nested-elt agent-shell--state '(:session :id)))
 
+(defun overlook-agent-shell--forked-from ()
+  "Session id `agent-shell-fork' forked this shell's session from, or nil."
+  (map-elt agent-shell--state :fork-session-id))
+
 (defun overlook-agent-shell--name (config)
   "Return the name for CONFIG from `overlook-agent-shell-configs'."
   (let ((id (map-elt config :identifier)))
@@ -245,6 +251,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (context . overlook-agent-shell--context)
               (brief . overlook-agent-shell--brief)
               (session . overlook-agent-shell--session)
+              (forked-from . overlook-agent-shell--forked-from)
               (submit . overlook-agent-shell--submit)
               (ready . overlook-agent-shell--ready)
               (reply . overlook-agent-shell--last-reply)))

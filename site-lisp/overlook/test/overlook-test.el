@@ -449,6 +449,64 @@ Agents are listed; usage and repos are not."
           (should (equal overlook-agent-saved (list lost))))
       (when resumed (kill-buffer resumed)))))
 
+;; A fork sits under its parent; one apart from its parent is marked.
+(ert-deftest overlook-agent-forks-sit-under-their-parent ()
+  (let* ((overlook-agent-forks nil)
+         (parent (overlook-test--agent "claude"))
+         (child (overlook-test--agent "child"))
+         (stray (overlook-test--agent "stray"))
+         (saved '((agent . "codex") (root . "/project/") (session . "s4") (perspective . "one")))
+         (overlook-agent-saved (list saved))
+         (overlook-perspective-order 'backend))
+    (with-current-buffer parent
+      (push '(session . (lambda () "s1")) overlook-agent-identity))
+    (with-current-buffer child
+      (push '(session . (lambda () "s2")) overlook-agent-identity)
+      (push '(forked-from . (lambda () "s1")) overlook-agent-identity))
+    (with-current-buffer stray
+      (push '(session . (lambda () "s3")) overlook-agent-identity)
+      (push '(forked-from . (lambda () "gone")) overlook-agent-identity))
+    (push '("s4" . "s2") overlook-agent-forks)
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,stray ,child ,parent)) "one"
+          (should (equal (overlook-agent--parent "s2") "s1"))
+          (should (< (overlook-test--line-of "claude")
+                     (overlook-test--line-of "child")
+                     (overlook-test--line-of "codex saved")))
+          (goto-char (point-min))
+          (search-forward "child")
+          (should (string-prefix-p "└ " (buffer-substring (line-beginning-position) (point))))
+          (search-forward "codex saved")
+          (should (string-prefix-p "  └ " (buffer-substring (line-beginning-position) (point))))
+          (goto-char (point-min))
+          (search-forward "stray")
+          (should (looking-at " fork"))
+          (should-not (string-search "└" (buffer-substring (line-beginning-position) (point)))))
+      (mapc #'kill-buffer (list parent child stray)))))
+
+(ert-deftest overlook-agent-forks-survive-a-restart ()
+  (let* ((overlook-agent-saved-file (make-temp-file "overlook-agents"))
+         (overlook-agent-forks-file (make-temp-file "overlook-forks"))
+         (overlook-agent-forks nil)
+         (overlook-agent--forks-written nil)
+         (overlook-agent-saved nil)
+         (overlook-agent--saved-written nil)
+         (overlook-agent--saved-loaded nil)
+         (agent (overlook-test--agent "claude")))
+    (unwind-protect
+        (progn
+          (with-current-buffer agent
+            (push '(session . (lambda () "s2")) overlook-agent-identity)
+            (push '(forked-from . (lambda () "s1")) overlook-agent-identity))
+          (overlook-agent-save)
+          (kill-buffer agent)
+          (setq overlook-agent-forks nil)
+          (overlook-agent--load-saved)
+          (should (equal overlook-agent-forks '(("s2" . "s1")))))
+      (when (buffer-live-p agent) (kill-buffer agent))
+      (delete-file overlook-agent-saved-file)
+      (delete-file overlook-agent-forks-file))))
+
 (ert-deftest overlook-courier-spawns-and-reports-back ()
   (let* ((courier--agents (make-hash-table :test #'equal))
          (overlook-agent-changed-hook nil)
