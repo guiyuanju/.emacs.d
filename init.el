@@ -867,6 +867,7 @@
   (overlook-orphan-perspective "main")
   (overlook-usage-file (expand-file-name "claude-usage.json" jgy-state-directory))
   (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" jgy-state-directory))
+  (overlook-agent-forks-file (expand-file-name "overlook-forks.eld" jgy-state-directory))
   (overlook-agent-shell-configs
    '(("claude" . agent-shell-anthropic-make-claude-code-config)
      ("codex" . agent-shell-openai-make-codex-config)
