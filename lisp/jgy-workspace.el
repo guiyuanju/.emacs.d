@@ -15,6 +15,7 @@
 ;;   gitlab <host>    glab 列出该 host 上我是 member 的仓库
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
+;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
 
 ;;; Code:
 
@@ -600,7 +601,7 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
 (defun jgy-workspace--todo-cards ()
   "Return parsed active cards, re-reading only when a card file changed."
   (let ((files (jgy-workspace-project-files)))
-    (seq-filter (lambda (card) (member (plist-get card :status) '("active" "waiting")))
+    (seq-filter (lambda (card) (member (plist-get card :status) '("active" "waiting" "later")))
                 (jgy-workspace--cached 'cards (jgy-workspace--mtimes files)
                                        (lambda () (mapcar #'jgy-workspace--todo-parse files))))))
 
@@ -680,7 +681,7 @@ Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE FOLDED): a heading NAME
 that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH),
 deeper ones under the item before them.  Visiting switches to PERSPECTIVE
 first when it is non-nil.  FOLDED items go under a \"later\" line counting
-their top-level ones, folded until toggled."
+their top-level ones, folded until toggled.  Return the last group's section."
   (let ((previous nil))
     (pcase-dolist (`(,name ,file ,current ,items ,perspective ,folded) groups)
       (when previous (overlook-end-with-blank previous))
@@ -714,7 +715,8 @@ their top-level ones, folded until toggled."
                                            'face 'shadow
                                            'overlook-item (cons 'todo-fold name))
                                (lambda () (insert-items folded))
-                               t))))))))))
+                               t))))))))
+    previous))
 
 (defun jgy-workspace--todo-ordered (cards)
   "CARDS with todos, those with a perspective first in the dashboard's order."
@@ -723,21 +725,39 @@ their top-level ones, folded until toggled."
                  #'<
                  (seq-filter (lambda (card) (plist-get card :todos)) cards))))
 
+(defun jgy-workspace--todo-groups (cards current)
+  "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT."
+  (mapcar (lambda (card)
+            (let ((split (jgy-workspace--todo-split
+                          (jgy-workspace--todo-sort (plist-get card :todos)))))
+              (list (plist-get card :id) (plist-get card :file)
+                    (equal (plist-get card :id) current)
+                    (car split) (plist-get card :id) (cdr split))))
+          cards))
+
 (defun jgy-workspace--todo-section ()
-  "Insert a Todo section with every ongoing project's open todos."
+  "Insert a Todo section with every ongoing project's open todos.
+Projects with status later go last, under a folded \"later\" line."
   (let ((current (overlook-current-perspective)))
     (overlook-insert-section
      "Todo"
      (lambda ()
-       (jgy-workspace--insert-groups
-        (mapcar (lambda (card)
-                  (let ((split (jgy-workspace--todo-split
-                                (jgy-workspace--todo-sort (plist-get card :todos)))))
-                    (list (plist-get card :id) (plist-get card :file)
-                          (equal (plist-get card :id) current)
-                          (car split) (plist-get card :id) (cdr split))))
-                (jgy-workspace--todo-ordered (jgy-workspace--todo-cards)))
-        #'jgy-workspace--todo-mark)))))
+       (let* ((cards (jgy-workspace--todo-ordered (jgy-workspace--todo-cards)))
+              (later-p (lambda (card) (equal (plist-get card :status) "later")))
+              (later (seq-filter later-p cards))
+              (last (jgy-workspace--insert-groups
+                     (jgy-workspace--todo-groups (seq-remove later-p cards) current)
+                     #'jgy-workspace--todo-mark)))
+         (when later
+           (when last (overlook-end-with-blank last))
+           (overlook-insert-row
+            (propertize (format "later (%d)\n" (length later))
+                        'face 'shadow
+                        'overlook-item '(todo-later))
+            (lambda ()
+              (jgy-workspace--insert-groups (jgy-workspace--todo-groups later current)
+                                            #'jgy-workspace--todo-mark))
+            t)))))))
 
 ;;; Dashboard inbox
 
