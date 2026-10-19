@@ -58,6 +58,11 @@ Each folder also keeps the registry entry it was installed from, as agent.json."
 (defvar jgy-agent-update--verbose nil
   "Whether the check in progress should report having nothing to do.")
 
+(defvar jgy-agent-update--busy nil
+  "Non-nil from when a check starts until its findings are declined or installed.
+A pending `y-or-n-p' still lets timers run, so without this a later daily
+check could stack a second prompt and a second, colliding install.")
+
 (defun jgy-agent-update--describe (findings)
   "Return a one-line summary of FINDINGS."
   (mapconcat (pcase-lambda (`(,_kind ,label ,detail ,_payload))
@@ -77,7 +82,8 @@ Each folder also keeps the registry entry it was installed from, as agent.json."
     (let ((findings (sort jgy-agent-update--findings :key #'cadr :lessp #'string<)))
       (setq jgy-agent-update--findings nil)
       (cond (findings (jgy-agent-update--offer findings))
-            (jgy-agent-update--verbose (message "Agents are up to date"))))))
+            (t (setq jgy-agent-update--busy nil)
+               (when jgy-agent-update--verbose (message "Agents are up to date")))))))
 
 (defun jgy-agent-update--probe (name command directory callback)
   "Run shell COMMAND in DIRECTORY as one probe of the check in progress.
@@ -283,7 +289,8 @@ The new folder replaces the old one whole, so running agents keep their binary."
                        (and install (append '("brew" "install" "--cask") install))))
            (mapcar #'jgy-agent-update--acp-install-command
                    (jgy-agent-update--payloads 'acp findings)))))
-    (when commands
+    (if (null commands)
+        (setq jgy-agent-update--busy nil)
       (with-current-buffer (get-buffer-create "*agent update*") (erase-buffer))
       (jgy-agent-update--run commands))))
 
@@ -292,6 +299,7 @@ The new folder replaces the old one whole, so running agents keep their binary."
 One at a time, since concurrent brew commands contend for brew's lock."
   (if (null commands)
       (progn
+        (setq jgy-agent-update--busy nil)
         (jgy-agent-update-acp-use)
         (message "Agents updated; restart any running agent shell"))
     (let ((buffer (get-buffer "*agent update*"))
@@ -304,6 +312,7 @@ One at a time, since concurrent brew commands contend for brew's lock."
                    (unless (process-live-p process)
                      (if (zerop (process-exit-status process))
                          (jgy-agent-update--run (cdr commands))
+                       (setq jgy-agent-update--busy nil)
                        (message "%s failed" (string-join (seq-take command 2) " "))
                        (display-buffer buffer))))))))
 
@@ -311,9 +320,12 @@ One at a time, since concurrent brew commands contend for brew's lock."
   "Ask whether to install FINDINGS, waiting until the minibuffer is free."
   (if (active-minibuffer-window)
       (run-with-idle-timer 60 nil #'jgy-agent-update--offer findings)
-    (when (y-or-n-p (format "Agent updates available (%s).  Update? "
-                            (jgy-agent-update--describe findings)))
-      (jgy-agent-update--install findings))))
+    (let (accepted)
+      (unwind-protect
+          (setq accepted (y-or-n-p (format "Agent updates available (%s).  Update? "
+                                           (jgy-agent-update--describe findings))))
+        (unless accepted (setq jgy-agent-update--busy nil)))
+      (when accepted (jgy-agent-update--install findings)))))
 
 (defun jgy-agent-update-check (&optional verbose)
   "Offer to install the updates npm, brew, elpaca and the ACP registry report.
@@ -325,10 +337,11 @@ are not installed at all for installation too.  With VERBOSE, also
 report when there is nothing to do, as when called interactively."
   (interactive (list t))
   (cond
-   ((> jgy-agent-update--pending 0)
-    (when verbose (message "Already checking for agent updates")))
+   (jgy-agent-update--busy
+    (when verbose (message "Already checking for or installing agent updates")))
    (t
-    (setq jgy-agent-update--verbose verbose
+    (setq jgy-agent-update--busy t
+          jgy-agent-update--verbose verbose
           jgy-agent-update--findings nil
           ;; Counted as a probe itself, so that the real ones cannot settle the
           ;; check before all of them are queued, and so that queueing none
