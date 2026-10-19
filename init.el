@@ -337,8 +337,10 @@
   (pulsar-global-mode 1))
 
 ;; 离开 insert 时经 macism 切到英文输入法；只保留这一项，不轮询系统输入法。
+(require 'use-package-ensure-system-package)
 (use-package sis
   :after evil
+  :ensure-system-package (macism . "brew install laishulu/homebrew/macism")
   :config
   (setq sis-auto-refresh-seconds nil
         sis-respect-prefix-and-buffer nil)
