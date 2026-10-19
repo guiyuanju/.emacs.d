@@ -737,7 +737,7 @@ their top-level ones, folded until toggled.  Return the last group's section."
 
 (defun jgy-workspace--todo-section ()
   "Insert a Todo section with every ongoing project's open todos.
-Projects with status later go last, under a folded \"later\" line."
+Projects with status later go last, under a folded \"later projects\" line."
   (let ((current (overlook-current-perspective)))
     (overlook-insert-section
      "Todo"
@@ -751,7 +751,7 @@ Projects with status later go last, under a folded \"later\" line."
          (when later
            (when last (overlook-end-with-blank last))
            (overlook-insert-row
-            (propertize (format "later (%d)\n" (length later))
+            (propertize (format "later projects (%d)\n" (length later))
                         'face 'shadow
                         'overlook-item '(todo-later))
             (lambda ()
