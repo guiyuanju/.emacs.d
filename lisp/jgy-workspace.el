@@ -106,10 +106,13 @@ Every project path is built from this, so paths compare with `equal'."
     (file-name-as-directory (file-truename dir))))
 
 (defun jgy-workspace--root-id (&optional directory)
-  "Id of the project whose root in `jgy-workspace-project-roots' holds DIRECTORY."
-  (car (seq-find (lambda (entry)
-                   (file-in-directory-p (or directory default-directory) (cdr entry)))
-                 jgy-workspace-project-roots)))
+  "Id of the project whose root in `jgy-workspace-project-roots' holds DIRECTORY.
+Of nested roots the innermost wins."
+  (let ((directory (or directory default-directory)))
+    (car (car (sort (seq-filter (lambda (entry) (file-in-directory-p directory (cdr entry)))
+                                jgy-workspace-project-roots)
+                    (lambda (a b) (> (length (jgy-workspace--root (car a)))
+                                     (length (jgy-workspace--root (car b))))))))))
 
 (defun jgy-workspace--file-id (file)
   "Id of the project whose card is FILE: its folder name."
@@ -600,11 +603,13 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
 ;;; Overlook
 
 (defun jgy-workspace-agent-root ()
-  "Return the project's root when inside its folder, else the version-control root.
+  "Return the project's root when inside its folder or root, else the version-control root.
 A project in `jgy-workspace-project-roots' has its root there."
   (if-let* ((folder (jgy-workspace-project-root)))
       (or (jgy-workspace--root (jgy-workspace--file-id folder)) folder)
-    (overlook-agent-project-root)))
+    (if-let* ((id (jgy-workspace--root-id)))
+        (jgy-workspace--root id)
+      (overlook-agent-project-root))))
 
 (defun jgy-workspace-perspective-root (name)
   "Root of perspective NAME: the root or project folder of that id, else a guess."

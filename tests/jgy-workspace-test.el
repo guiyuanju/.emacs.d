@@ -119,6 +119,21 @@ status: done
                      (file-name-as-directory (file-truename outside))))
       (should (equal (jgy-workspace-perspective-workspace "demo") "me")))))
 
+(ert-deftest jgy-workspace-agent-root-inside-mapped-root ()
+  ;; agent 的 buffer 在映射的根里而不在卡片文件夹里，也要算出同一个根；嵌套时取最内层。
+  (jgy-workspace-test--with-workspace
+    (let* ((outer (file-name-as-directory (file-truename (make-temp-file "jgy-root" t))))
+           (inner (expand-file-name "site/inner/" outer))
+           (jgy-workspace-project-roots `(("outer" . ,outer) ("inner" . ,inner))))
+      (unwind-protect
+          (progn
+            (make-directory (expand-file-name "src/" inner) t)
+            (let ((default-directory (expand-file-name "src/" inner)))
+              (should (equal (jgy-workspace-agent-root) inner)))
+            (let ((default-directory (expand-file-name "site/" outer)))
+              (should (equal (jgy-workspace-agent-root) outer))))
+        (delete-directory outer t)))))
+
 (ert-deftest jgy-workspace-inbox-items ()
   (jgy-workspace-test--with-workspace
     (should (equal (jgy-workspace--inbox-items
