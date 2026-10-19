@@ -114,4 +114,62 @@ each environment gathered says how many were gathered so far."
       (should (equal overlook-agent-error "Agent request failed"))
       (should-not overlook-agent-turn))))
 
+(ert-deftest overlook-agent-reply-brief-reads-markdown ()
+  (let ((overlook-agent-identity nil))
+    (cl-flet ((brief (reply)
+                (with-temp-buffer
+                  (setq-local overlook-agent-identity `((reply . ,(lambda () reply))))
+                  (overlook-agent--reply-brief (current-buffer)))))
+      (should (equal (brief "\n**Done**: pushed `dca5f03` to [main](http://x).\n\n- more\n")
+                     "Done: pushed dca5f03 to main."))
+      (should (equal (brief "## Plan\n```\ncode?\n```\n| a | b |\n---\nSplit it in two.  Go ahead?")
+                     "? Go ahead?"))
+      (should (equal (brief "先做一，再做二。要按这个做吗？") "? 要按这个做吗？"))
+      (should (equal (brief "建议：按这个做吗？") "? 按这个做吗？"))
+      (should-not (brief "\n```\nonly code\n```\n"))
+      (should-not (brief nil)))))
+
+(ert-deftest overlook-agent-shell-brief-follows-the-turn ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let ((overlook-agent-notify nil)
+          (overlook-perspectives-function #'ignore)
+          (reply (lambda (text)
+                   (overlook-agent-shell--track-reply
+                    `((params (update (sessionUpdate . "agent_message_chunk")
+                                      (content (text . ,text))))))))
+          (tool (lambda (title)
+                  (overlook-agent-shell--track-reply
+                   '((params (update (sessionUpdate . "tool_call")))))
+                  (overlook-agent-shell--on-event
+                   `((:event . tool-call-update) (:data (:tool-call (:title . ,title))))))))
+      (overlook-agent-shell--on-event '((:event . input-submitted)))
+      (funcall reply "Let me look.")
+      (funcall tool "git status")
+      (should (equal (overlook-agent--brief buffer) "git status"))
+      (overlook-agent-shell--on-event
+       '((:event . permission-request) (:data (:tool-call (:title . "git push")))))
+      (should (equal (overlook-agent--brief buffer) "⚠ git push"))
+      (should (eq overlook-agent-status 'waiting))
+      (overlook-agent-shell--on-event '((:event . permission-response)))
+      (overlook-agent-shell--on-event
+       '((:event . elicitation-request) (:data (:message . "Which one?"))))
+      (should (equal (overlook-agent--brief buffer) "? Which one?"))
+      (overlook-agent-shell--on-event '((:event . elicitation-response)))
+      (should (equal (overlook-agent--brief buffer) "git status"))
+      (funcall reply "Pushed **main**.\n\nAll green.")
+      (overlook-agent-shell--on-event '((:event . turn-complete)))
+      (should (equal (overlook-agent--brief buffer) "Pushed main."))
+      (should (eq overlook-agent-status 'done))
+      (overlook-agent-shell--on-event '((:event . input-submitted)))
+      (should (eq overlook-agent-status 'working))
+      (should-not (overlook-agent--brief buffer))
+      (funcall reply "Two ways.  Which do you want?")
+      (overlook-agent-shell--on-event '((:event . turn-complete)))
+      (should (equal (overlook-agent--brief buffer) "? Which do you want?"))
+      (should (eq overlook-agent-status 'waiting))
+      ;; The next prompt answers it, even when sent without looking.
+      (overlook-agent-shell--on-event '((:event . input-submitted)))
+      (should (eq overlook-agent-status 'working)))))
+
 ;;; overlook-agent-shell-test.el ends here

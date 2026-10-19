@@ -32,7 +32,8 @@
 ;;   ACP client.  Shells already running when the mode is turned on are
 ;;   tracked without them.
 ;; - An agent's brief is the tool call waiting for permission, else the
-;;   plan entry in progress, else its latest tool call.
+;;   question waiting for an answer, else the plan entry in progress,
+;;   else its latest tool call.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
 ;;   another agent in the same project.
 
@@ -67,6 +68,9 @@ path of its transcript."
 (defvar-local overlook-agent-shell--asking nil
   "Title of the tool call waiting for permission, or nil.")
 
+(defvar-local overlook-agent-shell--question nil
+  "The question waiting for an answer, or nil.")
+
 (defvar-local overlook-agent-shell--plan-step nil
   "This turn's plan entry in progress, or nil.")
 
@@ -84,9 +88,9 @@ path of its transcript."
 
 (defun overlook-agent-shell--brief ()
   "What the agent is doing, for its `brief' identity."
-  (if overlook-agent-shell--asking
-      (concat "? " overlook-agent-shell--asking)
-    (or overlook-agent-shell--plan-step overlook-agent-shell--last-tool)))
+  (cond (overlook-agent-shell--asking (concat "⚠ " overlook-agent-shell--asking))
+        (overlook-agent-shell--question (concat "? " overlook-agent-shell--question))
+        (t (or overlook-agent-shell--plan-step overlook-agent-shell--last-tool))))
 
 (defun overlook-agent-shell--track-plan (notification)
   "Remember the plan entry in progress carried by NOTIFICATION."
@@ -137,6 +141,7 @@ Prefers its description, as the title of a shell command is the command."
   (pcase (map-elt event :event)
     ('input-submitted
      (setq overlook-agent-shell--asking nil
+           overlook-agent-shell--question nil
            overlook-agent-shell--plan-step nil
            overlook-agent-shell--last-tool nil
            overlook-agent-shell--reply "")
@@ -150,12 +155,23 @@ Prefers its description, as the title of a shell command is the command."
                                           "permission")))
     ('permission-response
      (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil))
+    ('elicitation-request
+     (let ((data (map-elt event :data)))
+       (overlook-agent-shell--set-brief
+        'overlook-agent-shell--question
+        (or (map-elt data :message)
+            (map-nested-elt agent-shell--state
+                            (list :tool-calls (map-elt data :tool-call-id) :title))
+            "question"))))
+    ('elicitation-response
+     (overlook-agent-shell--set-brief 'overlook-agent-shell--question nil))
     ;; agent-shell sets the session id after announcing it.
     ('session-selected (run-at-time 0 nil #'overlook-agent-changed)))
   (pcase (map-elt event :event)
-    ((or 'input-submitted 'permission-response 'tool-call-update 'agent-message-chunk)
+    ((or 'input-submitted 'permission-response 'elicitation-response
+         'tool-call-update 'agent-message-chunk)
      (overlook-agent-report 'working))
-    ('permission-request (overlook-agent-report 'attention))
+    ((or 'permission-request 'elicitation-request) (overlook-agent-report 'attention))
     ('turn-complete (overlook-agent-report 'finished))
     ('error
      (setq overlook-agent-error

@@ -302,30 +302,36 @@ A buffer shown in several perspectives belongs to the one of its project."
 (defun overlook-agent-report (event)
   "Update the current agent buffer's status for EVENT.
 EVENT is `working', `finished', `failed' or `attention'.  Completion and
-attention depend on whether the agent is shown in the selected window;
+attention depend on whether the agent is shown in the selected window,
+and a turn whose reply ends with a question waits for an answer;
 failure stays visible until work starts again.  `working' after a turn
 ends starts another, which `overlook-agent-turn' times and
 `overlook-agent-turn-start-hook' announces."
   ;; Turns follow events, not statuses: glancing at an agent waiting for
   ;; approval resets it to idle, yet approving does not start a new turn.
-  (pcase event
-    ('working (when (or (null overlook-agent-turn) (cdr overlook-agent-turn))
-                (setq overlook-agent-turn (list (float-time)))
-                (run-hooks 'overlook-agent-turn-start-hook)))
-    ((or 'finished 'failed)
-     (when (and overlook-agent-turn (null (cdr overlook-agent-turn)))
-       (setcdr overlook-agent-turn (float-time))
-       (run-hooks 'overlook-agent-turn-end-hook))))
-  (pcase event
-    ('finished (unless (eq overlook-agent-status 'failed)
-                 (overlook-agent--set-status (if (overlook-agent--seen-p) 'idle 'done))))
-    ('failed (overlook-agent--set-status 'failed))
-    ('working
-     (setq overlook-agent-error nil)
-     (unless (eq overlook-agent-status 'waiting)
-       (overlook-agent--set-status 'working)))
-    ('attention (unless (overlook-agent--seen-p)
-                  (overlook-agent--set-status 'waiting)))))
+  (let ((started (and (eq event 'working)
+                      (or (null overlook-agent-turn) (cdr overlook-agent-turn)))))
+    (when started
+      (setq overlook-agent-turn (list (float-time)))
+      (run-hooks 'overlook-agent-turn-start-hook))
+    (when (and (memq event '(finished failed))
+               overlook-agent-turn (null (cdr overlook-agent-turn)))
+      (setcdr overlook-agent-turn (float-time))
+      (run-hooks 'overlook-agent-turn-end-hook))
+    (pcase event
+      ('finished (unless (eq overlook-agent-status 'failed)
+                   (overlook-agent--set-status
+                    (cond ((overlook-agent--seen-p) 'idle)
+                          ((overlook-agent--reply-question (current-buffer)) 'waiting)
+                          (t 'done)))))
+      ('failed (overlook-agent--set-status 'failed))
+      ('working
+       (setq overlook-agent-error nil)
+       ;; A question the last turn ended on is answered by the next one.
+       (unless (and (eq overlook-agent-status 'waiting) (not started))
+         (overlook-agent--set-status 'working)))
+      ('attention (unless (overlook-agent--seen-p)
+                    (overlook-agent--set-status 'waiting))))))
 
 (defun overlook-agent--acknowledge (&rest _)
   "Reset `done' and `waiting' once the agent is shown in the selected window."
@@ -561,9 +567,49 @@ the duration ends a column before it, so both line up across agents."
                   'face 'shadow)
     ""))
 
+(defun overlook-agent--reply (buffer)
+  "Agent BUFFER's last reply, as its frontend says, or nil."
+  (when-let* ((reply (overlook-agent-get buffer 'reply)))
+    (with-current-buffer buffer (ignore-errors (funcall reply)))))
+
+(defun overlook-agent--plain (line)
+  "LINE of markdown without its markup, trimmed."
+  (thread-last line
+               (replace-regexp-in-string "\\`[ \t]*\\(?:#+\\|>\\|[-*+]\\|[0-9]+[.)]\\)[ \t]+" "")
+               (replace-regexp-in-string "\\[\\([^]\n]*\\)\\]([^)\n]*)" "\\1")
+               (replace-regexp-in-string "\\*\\*\\|__\\|`" "")
+               (string-trim)))
+
+(defun overlook-agent--plain-lines (text)
+  "The lines of markdown TEXT that are prose, without their markup.
+Blank lines, code blocks, tables and rules are left out."
+  (let (lines fenced)
+    (dolist (line (split-string (or text "") "\n"))
+      (cond ((string-match-p "\\`[ \t]*\\(?:```\\|~~~\\)" line) (setq fenced (not fenced)))
+            ((or fenced (string-match-p "\\`[ \t]*\\(?:|\\|[-*_=]+[ \t]*\\'\\)" line)))
+            (t (let ((plain (overlook-agent--plain line)))
+                 (unless (string-empty-p plain) (push plain lines))))))
+    (nreverse lines)))
+
+(defun overlook-agent--reply-question (buffer)
+  "The question agent BUFFER's last reply ends with, or nil."
+  (when-let* ((line (car (last (overlook-agent--plain-lines (overlook-agent--reply buffer)))))
+              ((string-match "[^.!?。！？:：]*[?？]\\'" line)))
+    (string-trim (match-string 0 line))))
+
+(defun overlook-agent--reply-brief (buffer)
+  "What agent BUFFER's last reply comes to, on one line, or nil.
+The question it ends with after a `? ', else its first line."
+  (if-let* ((question (overlook-agent--reply-question buffer)))
+      (concat "? " question)
+    (car (overlook-agent--plain-lines (overlook-agent--reply buffer)))))
+
 (defun overlook-agent--brief (buffer)
-  "Return what agent BUFFER is doing, on one line, or nil."
+  "Return what agent BUFFER is doing, on one line, or nil.
+Once its turn has ended, what its last reply comes to."
   (when-let* ((text (or (buffer-local-value 'overlook-agent-error buffer)
+                       (and (cdr (buffer-local-value 'overlook-agent-turn buffer))
+                            (overlook-agent--reply-brief buffer))
                        (when-let* ((brief (overlook-agent-get buffer 'brief)))
                          (with-current-buffer buffer (ignore-errors (funcall brief))))))
               (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
