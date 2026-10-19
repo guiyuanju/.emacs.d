@@ -83,6 +83,12 @@ recently they were switched to; `backend' keeps the backend's order."
   "Function of a perspective NAME returning a tag shown after its heading, or nil."
   :type '(choice (const :tag "None" nil) function))
 
+(defcustom overlook-perspective-filter nil
+  "Function of a perspective NAME returning nil to hide it, or nil to show all.
+The current perspective, and one with a row needing your attention, are
+shown regardless."
+  :type '(choice (const :tag "Show all" nil) function))
+
 (defcustom overlook-orphan-perspective nil
   "Perspective listing the rows that belong to no perspective, or nil.
 Rows opened from there open in it, and it is left out while it has no
@@ -476,7 +482,9 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 (defun overlook--perspectives ()
   "Insert each perspective's heading and rows.
 Rows of no perspective go under `overlook-orphan-perspective', which is
-left out while it has none and is not current, or else the current one."
+left out while it has none and is not current, or else the current one.
+Those `overlook-perspective-filter' hides are left out unless current or
+needing attention."
   (let* ((current (overlook-current-perspective))
          (orphans (or (overlook-orphan-perspective) current))
          (previous nil))
@@ -490,7 +498,11 @@ left out while it has none and is not current, or else the current one."
                           (when (equal name orphans)
                             (run-hooks 'overlook-orphan-functions)
                             (unless (equal name current) (magit-cancel-section t)))))))
-          (if (oref section end)
+          (if (and (oref section end)
+                   (or (equal name current)
+                       (null overlook-perspective-filter)
+                       (funcall overlook-perspective-filter name)
+                       (text-property-not-all start (point) 'overlook-attention nil)))
               (setq previous section)
             (delete-region start (point))))))))
 

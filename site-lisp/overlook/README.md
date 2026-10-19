@@ -187,6 +187,10 @@ Evil users can bind the same keys in normal state:
 - `overlook-perspective-annotation`: a function of a perspective name
   returning a tag shown dimmed after its heading, such as which
   workspace it belongs to.
+- `overlook-perspective-filter`: a function of a perspective name
+  returning nil to hide it, such as one outside the workspace you are
+  working in.  The current perspective, and one with an agent needing
+  you, still show.
 - `overlook-orphan-perspective`: a perspective, such as perspective.el's
   `"main"`, to list agents of no perspective under; opening one there
   moves it in, and it is left out while empty unless current.  By default

@@ -125,6 +125,21 @@ Agents are listed; usage and repos are not."
       (search-forward "two")
       (should (eolp)))))
 
+(ert-deftest overlook-perspective-filter-hides-unless-current-or-needing-you ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (overlook-perspective-filter (lambda (name) (equal name "one")))
+        (overlook-perspective-order 'backend))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one") ("two") ("three") ("four" ,alpha)) "three"
+          (should (string-search "one" (buffer-string)))
+          (should-not (string-search "two" (buffer-string)))
+          (should (string-search "three" (buffer-string)))
+          (should-not (string-search "four" (buffer-string)))
+          (with-current-buffer alpha (setq overlook-agent-status 'waiting))
+          (overlook--render)
+          (should (string-search "four" (buffer-string))))
+      (kill-buffer alpha))))
+
 (ert-deftest overlook-empty-orphan-perspective-is-left-out ()
   (let ((alpha (overlook-test--agent "alpha"))
         (overlook-orphan-perspective "main")
