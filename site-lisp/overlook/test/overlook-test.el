@@ -675,6 +675,28 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha)
       (delete-directory root t))))
 
+;; Files past `overlook-project-files' fold into one line that unfolds to list them.
+(ert-deftest overlook-project-rest-files-unfold ()
+  (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+        (overlook-project-files 1)
+        (overlook-project--status (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "api/.git" root) t)
+          (puthash (expand-file-name "api/" root)
+                   (list (float-time) "main" '("a.el" " M" 1 0) '("b.el" " M" 2 0))
+                   overlook-project--status)
+          (overlook-test-with-dashboard '(("one")) "one"
+            (let ((overlook-perspective-root-function (lambda (_) root))
+                  (overlook-perspective-functions (list #'overlook-project--insert)))
+              (overlook--render)
+              (goto-char (point-min))
+              (search-forward "…+1")
+              (should (invisible-p (save-excursion (search-forward "b.el"))))
+              (magit-section-toggle (magit-current-section))
+              (should-not (invisible-p (save-excursion (search-forward "b.el")))))))
+      (delete-directory root t))))
+
 ;; A changed file's diff stays folded under it, Magit's once unfolded.
 (ert-deftest overlook-project-file-unfolds-its-diff ()
   (skip-unless (require 'magit nil t))

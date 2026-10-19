@@ -51,7 +51,8 @@
   :group 'overlook)
 
 (defcustom overlook-project-files 5
-  "Changed files listed under a repo before the rest fold into one line."
+  "Changed files listed under a repo before the rest fold into one line.
+That line unfolds to list the rest."
   :type 'natnum
   :group 'overlook)
 
@@ -213,25 +214,30 @@ ACTION replaces Magit's keys on it, which expect a Magit buffer of DIR."
     (remove-list-of-text-properties start (point) '(keymap))
     (put-text-property start (point) 'overlook-action action)))
 
+(defun overlook-project--insert-file (dir file perspective)
+  "Insert the row of FILE changed in repo DIR, under its row in PERSPECTIVE."
+  (let* ((prefix overlook-project--file-indent)
+         (action (lambda ()
+                   (overlook-show-elsewhere
+                    perspective (lambda () (overlook-project-open-file dir file))))))
+    (overlook-insert-row (propertize (concat prefix (overlook-project--file-label file) "\n")
+                                     'overlook-item (list 'repo-file dir (car file))
+                                     'overlook-action action
+                                     'help-echo (car file)
+                                     'wrap-prefix prefix)
+                         (and (fboundp 'magit-diff-working-tree)
+                              (lambda ()
+                                (magit-insert-section-body
+                                  (overlook-project--insert-diff dir file action))))
+                         t)))
+
 (defun overlook-project--insert-files (dir files perspective)
   "Insert FILES changed in repo DIR, under its row in PERSPECTIVE.
 Past `overlook-project-files' the rest fold into one line with their totals."
   (let ((prefix overlook-project--file-indent)
         (rest (nthcdr overlook-project-files files)))
     (dolist (file (seq-take files overlook-project-files))
-      (let ((action (lambda ()
-                      (overlook-show-elsewhere
-                       perspective (lambda () (overlook-project-open-file dir file))))))
-        (overlook-insert-row (propertize (concat prefix (overlook-project--file-label file) "\n")
-                                         'overlook-item (list 'repo-file dir (car file))
-                                         'overlook-action action
-                                         'help-echo (car file)
-                                         'wrap-prefix prefix)
-                             (and (fboundp 'magit-diff-working-tree)
-                                  (lambda ()
-                                    (magit-insert-section-body
-                                      (overlook-project--insert-diff dir file action))))
-                             t)))
+      (overlook-project--insert-file dir file perspective))
     (when rest
       (let ((total (overlook-project--total rest)))
         (overlook-insert-row (propertize
@@ -244,7 +250,11 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                                                  (overlook-show-elsewhere
                                                   perspective (lambda () (overlook-project-open dir))))
                               'help-echo (mapconcat #'car rest "\n")
-                              'wrap-prefix prefix))))))
+                              'wrap-prefix prefix)
+                             (lambda ()
+                               (dolist (file rest)
+                                 (overlook-project--insert-file dir file perspective)))
+                             t)))))
 
 (defun overlook-project--row (dir perspective width)
   "Insert the row of repo DIR in PERSPECTIVE, its name padded to WIDTH."
