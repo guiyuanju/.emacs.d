@@ -633,17 +633,19 @@ Agents are listed; usage and repos are not."
     (overlook-markers-mode -1)
     (should (equal project-find-functions (list #'project-try-vc)))))
 
-;; Repos sit dimmed under their perspective, names aligned, their changed files under them.
+;; Changed repos sit dimmed under their perspective, names aligned, their changed files
+;; under them; clean ones stay hidden.
 (ert-deftest overlook-project-rows-line-up-before-agents ()
   (let ((root (make-temp-file "overlook-project" t))
         (alpha (overlook-test--agent "alpha"))
         (overlook-project--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
-          (dolist (dir '("api/.git" "frontend/.git"))
+          (dolist (dir '("api/.git" "frontend/.git" "docs/.git"))
             (make-directory (expand-file-name dir root) t))
           (dolist (repo '(("api/" "main" ("src/a.el" " M" 3 1) ("b.el" "??"))
-                          ("frontend/" "dev")))
+                          ("frontend/" "dev" ("c.el" " M" 1 0))
+                          ("docs/" "main")))
             (puthash (file-name-as-directory (expand-file-name (car repo) root))
                      (cons (float-time) (cdr repo)) overlook-project--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
@@ -659,6 +661,8 @@ Agents are listed; usage and repos are not."
                                                                      (line-end-position)))))
                 (should (string-match-p "⎇ +api +main \\+3 −1\\'" api))
                 (should (string-match-p "⎇ +frontend  dev" frontend))
+                (should-not (string-search "docs" (buffer-string)))
+                (should (member (expand-file-name "docs/" root) overlook-project--shown))
                 (should (= (string-search "main" api) (string-search "dev" frontend))))
               (goto-char (point-min))
               (search-forward "a.el")
@@ -674,6 +678,45 @@ Agents are listed; usage and repos are not."
               (should (< (overlook-test--line-of "frontend") (overlook-test--line-of "alpha"))))))
       (kill-buffer alpha)
       (delete-directory root t))))
+
+;; A folder inside a larger repo lists only the changes under it, and only while it has some.
+(ert-deftest overlook-project-folder-in-repo-lists-its-changes ()
+  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+         (card (expand-file-name "projects/one/" top))
+         (overlook-project--status (make-hash-table :test #'equal))
+         (overlook-project--reading (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "notes" card) t)
+          (let ((default-directory top))
+            (call-process "git" nil nil nil "init" "-q")
+            (write-region "" nil "other.md")
+            (write-region "" nil "projects/one/notes/n.md"))
+          (overlook-project--read card)
+          (with-timeout (5 (ert-fail "git status timed out"))
+            (while (gethash card overlook-project--reading) (accept-process-output nil 0.05)))
+          (should (equal (mapcar #'car (cddr (gethash card overlook-project--status)))
+                         '("projects/one/")))
+          (puthash card (list (float-time) "main" '("projects/one/notes/n.md" " M" 2 0))
+                   overlook-project--status)
+          (overlook-test-with-dashboard '(("one")) "one"
+            (let ((overlook-perspective-root-function (lambda (_) card))
+                  (overlook-perspective-functions (list #'overlook-project--insert)))
+              (overlook--render)
+              (goto-char (point-min))
+              (should (string-match-p "⎇ +one +main \\+2"
+                                      (progn (search-forward "one  main")
+                                             (buffer-substring-no-properties
+                                              (line-beginning-position) (line-end-position)))))
+              (search-forward "n.md")
+              (should (string-match-p "n\\.md \\+2 notes/\\'"
+                                      (buffer-substring-no-properties (line-beginning-position)
+                                                                      (line-end-position))))
+              (puthash card (list (float-time) "main") overlook-project--status)
+              (overlook--render)
+              (should-not (string-search "⎇" (buffer-string)))
+              (should (member card overlook-project--shown)))))
+      (delete-directory top t))))
 
 ;; Files past `overlook-project-files' fold into one line that unfolds to list them.
 (ert-deftest overlook-project-rest-files-unfold ()

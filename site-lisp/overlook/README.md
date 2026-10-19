@@ -1,7 +1,7 @@
 # overlook
 
 A dashboard over everything you are working on in Emacs: each
-[perspective](https://github.com/nex3/perspective-el), the Git repos of
+[perspective](https://github.com/nex3/perspective-el), the changed Git repos of
 its project, and the AI agents working in it through
 [agent-shell](https://github.com/xenodium/agent-shell).
 
@@ -79,7 +79,7 @@ Turn on the modules you want; each is a global minor mode:
   (require 'overlook-usage)
   (persp-mode 1)
   (overlook-perspective-mode 1)   ; perspectives from perspective.el
-  (overlook-project-mode 1)       ; repos under each perspective
+  (overlook-project-mode 1)       ; changed repos under each perspective
   (overlook-agent-mode 1)         ; agents under each perspective
   (overlook-agent-shell-mode 1)   ; agents run in agent-shell
   (overlook-usage-mode 1))        ; Claude and Codex plan usage

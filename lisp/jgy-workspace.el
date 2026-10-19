@@ -612,6 +612,11 @@ A project in `jgy-workspace-project-roots' has its root there."
       (jgy-workspace-project-dir name)
       (overlook-perspective-guess-root name)))
 
+(defun jgy-workspace-perspective-folders (name)
+  "Folder of project NAME, whose project.md lives in the workspace repo."
+  (when-let* ((dir (jgy-workspace-project-dir name)))
+    (list dir)))
+
 (defun jgy-workspace-perspective-workspace (name)
   "Name of the workspace holding project NAME, or nil."
   (when-let* ((dir (jgy-workspace-project-dir name)))

@@ -862,6 +862,7 @@
   (overlook-width 0.26)
   (overlook-agent-root-function #'jgy-workspace-agent-root)
   (overlook-perspective-root #'jgy-workspace-perspective-root)
+  (overlook-project-folders #'jgy-workspace-perspective-folders)
   (overlook-perspective-annotation #'jgy-workspace-perspective-workspace)
   (overlook-perspective-filter #'jgy-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")

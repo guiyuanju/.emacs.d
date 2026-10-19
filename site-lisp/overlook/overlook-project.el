@@ -23,14 +23,19 @@
 
 ;;; Commentary:
 
-;; Lists the Git repos of each perspective's project under its heading:
-;; the project root when it is a repo itself, and the repos directly inside
-;; it, so a project made of several clones shows each.  A repo's row shows
+;; Lists the changed Git repos of each perspective's project under its
+;; heading: the project root when it is a repo itself, and the repos
+;; directly inside it, so a project made of several clones shows each.  A
+;; clean repo stays hidden until it changes.  A repo's row shows
 ;; its branch and the lines changed since its last commit, and under it
 ;; the changed files, read asynchronously and at most every
 ;; `overlook-project-status-interval' seconds.  RET on a repo shows its
 ;; diff in Magit, or its status when clean; RET on a file compares it with
 ;; its last commit in Ediff.  Without Magit, VC does both.
+;;
+;; `overlook-project-folders' adds folders lying inside a larger repo, such
+;; as a project's notes kept in a shared one; such a folder's row lists
+;; only the changes under it.
 
 ;;; Code:
 
@@ -56,6 +61,14 @@ That line unfolds to list the rest."
   :type 'natnum
   :group 'overlook)
 
+;;;###autoload
+(defcustom overlook-project-folders #'overlook-project-root-folder
+  "Function of a perspective NAME returning folders to list with its repos.
+A folder inside a larger repo lists that repo's changes under it; a
+folder that is a repo itself is listed as one."
+  :type 'function
+  :group 'overlook)
+
 (defface overlook-project-repo
   '((t :inherit shadow))
   "Face of a repo's row, dimmed so agents stand out."
@@ -70,7 +83,7 @@ That line unfolds to list the rest."
   "Indent of the files under a repo.")
 
 (defvar overlook-project--status (make-hash-table :test #'equal)
-  "Repo directory to (TIME BRANCH . FILES), as last read.
+  "Repo or folder directory to (TIME BRANCH . FILES), as last read.
 Each of FILES is (PATH CODE ADDED REMOVED): PATH relative to the repo,
 CODE its two-letter `git status' code, and line counts since the last
 commit, nil when unknown.")
@@ -79,7 +92,7 @@ commit, nil when unknown.")
   "Repo directories whose status is being read.")
 
 (defvar overlook-project--shown nil
-  "Repo directories on the dashboard as last drawn.")
+  "Repos and folders of the perspectives as last drawn, shown or clean.")
 
 (defun overlook-project--parse (status &optional numstat)
   "Branch and changed files from STATUS and NUMSTAT outputs.
@@ -105,6 +118,22 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
                       (cons path (cons (substring entry 0 2) (cdr (assoc path counts))))))
                   (cdr entries)))))
 
+(defun overlook-project-root-folder (name)
+  "Perspective NAME's root."
+  (when-let* ((root (overlook-perspective-root name)))
+    (list root)))
+
+(defun overlook-project--top (dir)
+  "Top of the repo holding DIR, or nil."
+  (when-let* ((top (locate-dominating-file dir ".git")))
+    (file-name-as-directory (expand-file-name top))))
+
+(defun overlook-project--prefix (dir)
+  "DIR relative to the top of its repo, or nil when DIR is the top."
+  (when-let* ((top (overlook-project--top dir))
+              ((not (equal top dir))))
+    (file-relative-name dir top)))
+
 (defun overlook-project--git (dir args then)
   "Run git with ARGS in DIR, calling THEN with its output, or nil on failure."
   (let ((output (generate-new-buffer " *overlook-git*"))
@@ -126,20 +155,23 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
   "Read DIR's status in the background, redrawing when it changed."
   (unless (gethash dir overlook-project--reading)
     (puthash dir t overlook-project--reading)
-    (overlook-project--git
-     dir '("status" "--porcelain" "--branch" "--no-renames" "-z")
-     (lambda (status)
-       (if (null status)
-           (remhash dir overlook-project--reading)
-         ;; Fails before the first commit, leaving the counts unknown.
-         (overlook-project--git
-          dir '("diff" "HEAD" "--numstat" "--no-renames" "-z")
-          (lambda (numstat)
-            (remhash dir overlook-project--reading)
-            (let ((old (cdr (gethash dir overlook-project--status)))
-                  (new (overlook-project--parse status numstat)))
-              (puthash dir (cons (float-time) new) overlook-project--status)
-              (unless (equal old new) (overlook-refresh))))))))))
+    (let ((top (or (overlook-project--top dir) dir))
+          (paths (when-let* ((prefix (overlook-project--prefix dir)))
+                   (list "--" (concat ":(literal)" prefix)))))
+      (overlook-project--git
+       top `("status" "--porcelain" "--branch" "--no-renames" "-z" ,@paths)
+       (lambda (status)
+         (if (null status)
+             (remhash dir overlook-project--reading)
+           ;; Fails before the first commit, leaving the counts unknown.
+           (overlook-project--git
+            top `("diff" "HEAD" "--numstat" "--no-renames" "-z" ,@paths)
+            (lambda (numstat)
+              (remhash dir overlook-project--reading)
+              (let ((old (cdr (gethash dir overlook-project--status)))
+                    (new (overlook-project--parse status numstat)))
+                (puthash dir (cons (float-time) new) overlook-project--status)
+                (unless (equal old new) (overlook-refresh)))))))))))
 
 (defun overlook-project--status (dir)
   "DIR's last known (BRANCH . FILES), reading it again when stale."
@@ -151,10 +183,13 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
 
 (defun overlook-project-open (dir)
   "Show the diff since the last commit in DIR, or its status when clean.
-Uses Magit, or VC without it."
-  (let ((default-directory dir)
+A folder inside a repo shows only its own changes.  Uses Magit, or VC
+without it."
+  (let ((default-directory (or (overlook-project--top dir) dir))
+        (prefix (overlook-project--prefix dir))
         (changed (cdr (overlook-project--status dir))))
-    (cond ((and changed (fboundp 'magit-diff-working-tree)) (magit-diff-working-tree "HEAD"))
+    (cond ((and changed (fboundp 'magit-diff-working-tree))
+           (magit-diff-working-tree "HEAD" nil (and prefix (list prefix))))
           ((fboundp 'magit-status-setup-buffer) (magit-status-setup-buffer dir))
           (changed (vc-root-diff nil))
           (t (vc-dir dir)))))
@@ -163,7 +198,7 @@ Uses Magit, or VC without it."
   "Compare FILE of repo DIR with its last commit in Ediff.
 FILE is an entry of DIR's status; an untracked file is visited instead,
 and a deleted one shown as a diff."
-  (pcase-let ((default-directory dir)
+  (pcase-let ((default-directory (or (overlook-project--top dir) dir))
               (`(,path ,code . ,_) file))
     (cond ((equal code "??") (find-file path))
           ((string-search "D" code)
@@ -188,10 +223,10 @@ and a deleted one shown as a diff."
   (cons (apply #'+ (mapcar (lambda (file) (or (nth 2 file) 0)) files))
         (apply #'+ (mapcar (lambda (file) (or (nth 3 file) 0)) files))))
 
-(defun overlook-project--file-label (file)
-  "FILE's name, its line counts or state, then its directory."
+(defun overlook-project--file-label (file &optional prefix)
+  "FILE's name, its line counts or state, then its directory below PREFIX."
   (pcase-let* ((`(,path ,code ,added ,removed) file)
-               (dir (file-name-directory path))
+               (dir (file-name-directory (if prefix (file-relative-name path prefix) path)))
                (state (cond ((equal code "??") " new")
                             ((string-search "D" code) " deleted"))))
     (concat (propertize (file-name-nondirectory path) 'face 'overlook-project-file)
@@ -203,7 +238,7 @@ and a deleted one shown as a diff."
   "Insert Magit's diff of FILE, from repo DIR's status, against the last commit.
 ACTION replaces Magit's keys on it, which expect a Magit buffer of DIR."
   (require 'magit)
-  (pcase-let ((default-directory dir)
+  (pcase-let ((default-directory (or (overlook-project--top dir) dir))
               (`(,path ,code . ,_) file)
               (start (point)))
     (magit-insert-section (overlook-project-diff path)
@@ -220,7 +255,10 @@ ACTION replaces Magit's keys on it, which expect a Magit buffer of DIR."
          (action (lambda ()
                    (overlook-show-elsewhere
                     perspective (lambda () (overlook-project-open-file dir file))))))
-    (overlook-insert-row (propertize (concat prefix (overlook-project--file-label file) "\n")
+    (overlook-insert-row (propertize (concat prefix
+                                             (overlook-project--file-label
+                                              file (overlook-project--prefix dir))
+                                             "\n")
                                      'overlook-item (list 'repo-file dir (car file))
                                      'overlook-action action
                                      'help-echo (car file)
@@ -258,7 +296,6 @@ Past `overlook-project-files' the rest fold into one line with their totals."
 
 (defun overlook-project--row (dir perspective width)
   "Insert the row of repo DIR in PERSPECTIVE, its name padded to WIDTH."
-  (push dir overlook-project--shown)
   (pcase-let* ((`(,branch . ,files) (overlook-project--status dir))
                (total (overlook-project--total files))
                (name (file-name-nondirectory (directory-file-name dir))))
@@ -278,9 +315,18 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                          (lambda () (overlook-project--insert-files dir files perspective)))))
 
 (defun overlook-project--insert (perspective)
-  "Insert the repos of PERSPECTIVE's project."
-  (when-let* ((root (overlook-perspective-root perspective)))
-    (let* ((dirs (overlook-project-repos root))
+  "Insert the changed repos and folders of PERSPECTIVE's project."
+  (let* ((root (overlook-perspective-root perspective))
+         (dirs (and root (overlook-project-repos root))))
+    (dolist (dir (funcall overlook-project-folders perspective))
+      (let ((dir (file-name-as-directory (expand-file-name dir))))
+        (when (and (overlook-project--top dir) (not (member dir dirs)))
+          (setq dirs (append dirs (list dir))))))
+    ;; A clean one stays off the dashboard but is still read on each tick.
+    (dolist (dir dirs)
+      (cl-pushnew dir overlook-project--shown :test #'equal))
+    (let* ((dirs (seq-filter (lambda (dir) (cdr (overlook-project--status dir)))
+                             dirs))
            (width (apply #'max 0 (mapcar (lambda (dir)
                                            (string-width (file-name-nondirectory
                                                           (directory-file-name dir))))
