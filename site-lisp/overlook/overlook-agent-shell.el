@@ -34,6 +34,8 @@
 ;; - An agent's brief is the tool call waiting for permission, else the
 ;;   question waiting for an answer, else the plan entry in progress,
 ;;   else its latest tool call.
+;; - The permission an agent waits for is answered from the dashboard too,
+;;   as is a question picking one option.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
 ;;   another agent in the same project.
 
@@ -66,10 +68,10 @@ path of its transcript."
 ;;; Brief
 
 (defvar-local overlook-agent-shell--asking nil
-  "Title of the tool call waiting for permission, or nil.")
+  "Tool calls waiting for permission, oldest first, as (ID . TITLE).")
 
-(defvar-local overlook-agent-shell--question nil
-  "The question waiting for an answer, or nil.")
+(defvar-local overlook-agent-shell--questions nil
+  "Elicitations waiting for an answer, oldest first, as (ID . QUESTION).")
 
 (defvar-local overlook-agent-shell--plan-step nil
   "This turn's plan entry in progress, or nil.")
@@ -86,11 +88,94 @@ path of its transcript."
     (set var value)
     (overlook-agent-changed)))
 
+(defun overlook-agent-shell--first (mark pending)
+  "MARK and the oldest of PENDING, an alist of (ID . TEXT), counting the rest."
+  (concat mark " " (cdar pending)
+          (if (cdr pending) (format " (+%d)" (1- (length pending))) "")))
+
 (defun overlook-agent-shell--brief ()
   "What the agent is doing, for its `brief' identity."
-  (cond (overlook-agent-shell--asking (concat "⚠ " overlook-agent-shell--asking))
-        (overlook-agent-shell--question (concat "? " overlook-agent-shell--question))
+  (cond (overlook-agent-shell--asking
+         (overlook-agent-shell--first "⚠" overlook-agent-shell--asking))
+        (overlook-agent-shell--questions
+         (overlook-agent-shell--first "?" overlook-agent-shell--questions))
         (t (or overlook-agent-shell--plan-step overlook-agent-shell--last-tool))))
+
+(defun overlook-agent-shell--pend (var id text)
+  "Add ID with TEXT to the end of pending alist VAR."
+  (overlook-agent-shell--set-brief
+   var (append (assoc-delete-all id (copy-sequence (symbol-value var))) (list (cons id text)))))
+
+(defun overlook-agent-shell--settle (var id)
+  "Drop ID from pending alist VAR."
+  (overlook-agent-shell--set-brief var (assoc-delete-all id (copy-sequence (symbol-value var)))))
+
+;;; Choices
+
+(defconst overlook-agent-shell--permission-keys
+  '(("allow_once" . "y") ("allow_always" . "!") ("reject_once" . "n") ("reject_always" . "N"))
+  "Dashboard key of each kind of permission option.")
+
+(defun overlook-agent-shell--permission-choices (id)
+  "Answers to the permission tool call ID waits for, as `choices' entries.
+Rejecting once interrupts the turn as well, as agent-shell's own button
+does, since the agent would otherwise go on without knowing why."
+  (let* ((state agent-shell--state)
+         (tool-call (map-nested-elt state (list :tool-calls id)))
+         (request (map-elt tool-call :permission-request-id))
+         (actions (map-elt tool-call :permission-actions))
+         (respond (lambda (action)
+                    (lambda ()
+                      (agent-shell--send-permission-response
+                       :client (map-elt state :client) :request-id request
+                       :option-id (map-elt action :option-id) :state state :tool-call-id id)
+                      (when (equal (map-elt action :kind) "reject_once")
+                        (agent-shell-interrupt t)))))
+         seen)
+    (when request
+      (append
+       (seq-keep (lambda (action)
+                   (when-let* ((key (cdr (assoc (map-elt action :kind)
+                                                overlook-agent-shell--permission-keys)))
+                               ((not (member key seen))))
+                     (push key seen)
+                     (list key (map-elt action :option) (funcall respond action))))
+                 actions)
+       (when-let* ((diffs (map-elt tool-call :diffs)))
+         (list (list "v" "Diff"
+                     (agent-shell--make-diff-viewing-function
+                      :diffs diffs :actions actions :client (map-elt state :client)
+                      :request-id request :state state :tool-call-id id))))))))
+
+(defun overlook-agent-shell--question-choices (id)
+  "Answers to the elicitation ID, as `choices' entries.
+Only a question picking one option is answered from the dashboard; any
+other form is answered in the shell."
+  (let* ((state agent-shell--state)
+         (elicitation (agent-shell-elicitation--get state id))
+         (fields (agent-shell-elicitation--answerable (map-elt elicitation :fields)))
+         (field (car fields)))
+    (when (and (eq (map-elt elicitation :status) 'pending)
+               (not (cdr fields))
+               (eq (map-elt field :type) 'single-select))
+      (seq-map-indexed
+       (lambda (option index)
+         (list (number-to-string (1+ index))
+               (or (map-elt option :title) (format "%s" (map-elt option :value)))
+               (lambda ()
+                 (agent-shell-elicitation--set-values
+                  state id (delq nil (list (cons (map-elt field :key) (map-elt option :value))
+                                           (when-let* ((custom (map-elt field :custom-key)))
+                                             (cons custom nil)))))
+                 (agent-shell-elicitation--submit :state state :id id))))
+       (seq-take (map-elt field :options) 9)))))
+
+(defun overlook-agent-shell--choices ()
+  "Answers to what the agent waits for, for its `choices' identity."
+  (cond (overlook-agent-shell--asking
+         (overlook-agent-shell--permission-choices (caar overlook-agent-shell--asking)))
+        (overlook-agent-shell--questions
+         (overlook-agent-shell--question-choices (caar overlook-agent-shell--questions)))))
 
 (defun overlook-agent-shell--track-plan (notification)
   "Remember the plan entry in progress carried by NOTIFICATION."
@@ -141,7 +226,7 @@ Prefers its description, as the title of a shell command is the command."
   (pcase (map-elt event :event)
     ('input-submitted
      (setq overlook-agent-shell--asking nil
-           overlook-agent-shell--question nil
+           overlook-agent-shell--questions nil
            overlook-agent-shell--plan-step nil
            overlook-agent-shell--last-tool nil
            overlook-agent-shell--reply "")
@@ -150,21 +235,27 @@ Prefers its description, as the title of a shell command is the command."
      (when-let* ((title (overlook-agent-shell--tool-title (map-elt event :data))))
        (overlook-agent-shell--set-brief 'overlook-agent-shell--last-tool title)))
     ('permission-request
-     (overlook-agent-shell--set-brief 'overlook-agent-shell--asking
-                                      (or (overlook-agent-shell--tool-title (map-elt event :data))
-                                          "permission")))
+     (let ((data (map-elt event :data)))
+       (overlook-agent-shell--pend 'overlook-agent-shell--asking (map-elt data :tool-call-id)
+                                   (or (overlook-agent-shell--tool-title data) "permission"))))
     ('permission-response
-     (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil))
+     (overlook-agent-shell--settle 'overlook-agent-shell--asking
+                                   (map-nested-elt event '(:data :tool-call-id))))
     ('elicitation-request
      (let ((data (map-elt event :data)))
-       (overlook-agent-shell--set-brief
-        'overlook-agent-shell--question
+       (overlook-agent-shell--pend
+        'overlook-agent-shell--questions (map-elt data :request-id)
         (or (map-elt data :message)
             (map-nested-elt agent-shell--state
                             (list :tool-calls (map-elt data :tool-call-id) :title))
             "question"))))
     ('elicitation-response
-     (overlook-agent-shell--set-brief 'overlook-agent-shell--question nil))
+     (overlook-agent-shell--settle 'overlook-agent-shell--questions
+                                   (map-nested-elt event '(:data :request-id))))
+    ;; Nothing waits on a turn that is over.
+    ('turn-complete
+     (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil)
+     (overlook-agent-shell--set-brief 'overlook-agent-shell--questions nil))
     ;; agent-shell sets the session id after announcing it.
     ('session-selected (run-at-time 0 nil #'overlook-agent-changed)))
   (pcase (map-elt event :event)
@@ -266,6 +357,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (insert . overlook-agent-shell--insert)
               (context . overlook-agent-shell--context)
               (brief . overlook-agent-shell--brief)
+              (choices . overlook-agent-shell--choices)
               (session . overlook-agent-shell--session)
               (forked-from . overlook-agent-shell--forked-from)
               (submit . overlook-agent-shell--submit)

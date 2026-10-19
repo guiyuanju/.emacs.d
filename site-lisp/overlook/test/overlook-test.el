@@ -361,6 +361,42 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) (cons 'agent beta))))
       (mapc #'kill-buffer (list alpha beta)))))
 
+(ert-deftest overlook-agent-choices-sit-under-the-row-and-take-keys ()
+  (let* ((agent (overlook-test--agent "claude"))
+         (asked t)
+         (given nil))
+    (with-current-buffer agent
+      (setq overlook-agent-status 'waiting)
+      (setf (alist-get 'choices overlook-agent-identity)
+            (lambda () (when asked
+                         `(("y" "Allow" ,(lambda () (push "y" given) (setq asked nil)))
+                           ("n" "Reject" ,(lambda () (push "n" given))))))))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,agent)) "one"
+          (goto-char (point-min))
+          (overlook-next-attention)
+          (should (equal (overlook-item-at-point) (cons 'agent agent)))
+          ;; The choices line is part of the row, but not a stop of its own.
+          (overlook-next-attention)
+          (should (= (line-number-at-pos) (overlook-test--line-of "claude")))
+          (forward-line 1)
+          (should (looking-at-p " *y Allow  n Reject$"))
+          (should (equal (overlook-item-at-point) (cons 'agent agent)))
+          (search-forward "Reject")
+          (backward-char)
+          (funcall (keymap-lookup (get-text-property (point) 'keymap) "RET"))
+          (should (equal given '("n")))
+          (goto-char (point-min))
+          (overlook-next-attention)
+          (funcall (keymap-lookup (get-text-property (point) 'keymap) "y"))
+          (should (equal given '("y" "n")))
+          ;; Answered: the agent works again and offers nothing.
+          (should (eq (buffer-local-value 'overlook-agent-status agent) 'working))
+          (overlook--render)
+          (should-not (string-match-p "Allow" (buffer-string)))
+          (should-error (overlook-agent-choose agent "y") :type 'user-error))
+      (kill-buffer agent))))
+
 (ert-deftest overlook-failed-agents-need-attention ()
   (let ((agent (overlook-test--agent "codex")))
     (unwind-protect

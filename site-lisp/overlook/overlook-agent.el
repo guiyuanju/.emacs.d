@@ -120,7 +120,9 @@ context usage percentage or nil; `brief' a function returning a line on
 what it is doing, or nil; `session' a function returning its session id,
 or nil; `submit' a function submitting a prompt to it; `ready' a function
 telling whether it can take a prompt now; `reply' a function returning
-its last reply, or nil; `forked-from' a function returning the session id
+its last reply, or nil; `choices' a function returning the answers it
+offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
+in its buffer, or nil; `forked-from' a function returning the session id
 its session was forked from, or nil; `environment' the entries of
 `overlook-agent-make-environment' its process started with, or nil.")
 (put 'overlook-agent-identity 'permanent-local t)
@@ -530,6 +532,56 @@ Interactively BEG and END are the region, when active."
                text))
     (overlook-agent-show buffer)))
 
+;;; Choices
+
+(defun overlook-agent--choices (buffer)
+  "The answers agent BUFFER offers you now, as its frontend says."
+  (when-let* ((choices (overlook-agent-get buffer 'choices)))
+    (with-current-buffer buffer (ignore-errors (funcall choices)))))
+
+(defun overlook-agent-choose (buffer key)
+  "Give agent BUFFER the answer it offers under KEY.
+Looked up afresh, so an answer given elsewhere meanwhile is not given twice."
+  (let ((choice (or (assoc key (overlook-agent--choices buffer))
+                    (user-error "%s no longer asks that" (buffer-name buffer)))))
+    (with-current-buffer buffer
+      (funcall (nth 2 choice))
+      ;; Answering here is attending to it, as looking at it would be.
+      (when (and (eq overlook-agent-status 'waiting)
+                 (not (overlook-agent--choices buffer)))
+        (overlook-agent--set-status 'working)))
+    (overlook-agent-changed)))
+
+(defun overlook-agent--choose-at-point (buffer)
+  "Give agent BUFFER the answer at point, or visit it off any answer."
+  (if-let* ((key (get-text-property (point) 'overlook-agent-choice)))
+      (overlook-agent-choose buffer key)
+    (overlook-visit)))
+
+(defun overlook-agent--choices-keymap (buffer choices)
+  "Keymap of an agent BUFFER's row giving it CHOICES by their keys."
+  (let ((map (make-sparse-keymap))
+        (at-point (lambda () (interactive) (overlook-agent--choose-at-point buffer))))
+    (pcase-dolist (`(,key . ,_) choices)
+      (keymap-set map key (lambda () (interactive) (overlook-agent-choose buffer key))))
+    (keymap-set map "RET" at-point)
+    (keymap-set map "<mouse-1>" (lambda (event)
+                                  (interactive "e")
+                                  (mouse-set-point event)
+                                  (overlook-agent--choose-at-point buffer)))
+    map))
+
+(defun overlook-agent--choices-line (choices depth)
+  "The line under an agent's row offering CHOICES, DEPTH forks deep."
+  (concat overlook-agent--wrap-indent (make-string (* 2 depth) ?\s)
+          (mapconcat (pcase-lambda (`(,key ,label . ,_))
+                       (propertize (concat (propertize key 'face 'help-key-binding) " "
+                                           (truncate-string-to-width label 40 nil nil "…"))
+                                   'overlook-agent-choice key
+                                   'mouse-face 'highlight))
+                     choices "  ")
+          "\n"))
+
 ;;; Rows
 
 (defun overlook-agent--context-label (buffer)
@@ -652,9 +704,11 @@ works, dimmed otherwise."
 
 (defun overlook-agent--row (buffer perspective &optional depth children)
   "Insert the row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
-CHILDREN, a function, inserts the rows of its forks under it."
+CHILDREN, a function, inserts the rows of its forks under it.  The
+answers the agent offers you sit on a line of their own under it."
   (let* ((depth (or depth 0))
          (session (overlook-agent--session buffer))
+         (choices (overlook-agent--choices buffer))
          (head (concat overlook-indent (overlook-agent--tree-prefix depth)
                        (overlook-glyph-cell (overlook-agent-glyph buffer))
                        (or (overlook-agent-get buffer 'agent) "agent")
@@ -665,25 +719,31 @@ CHILDREN, a function, inserts the rows of its forks under it."
          (meta (overlook-agent--meta buffer))
          (brief (overlook-agent--brief buffer))
          (status (buffer-local-value 'overlook-agent-status buffer))
-         (line (concat head
-                       (if brief (overlook-agent--brief-label buffer brief head (cdr meta)) "")
-                       (car meta)
-                       "\n"))
+         (line (concat (propertize (concat head
+                                           (if brief
+                                               (overlook-agent--brief-label buffer brief head (cdr meta))
+                                             "")
+                                           (car meta)
+                                           "\n")
+                                   'overlook-attention (memq status '(waiting failed done)))
+                       (if choices (overlook-agent--choices-line choices depth) "")))
          (highlight (pcase status
                       ((or 'waiting 'failed) 'overlook-agent-waiting)
                       ('done 'overlook-agent-done))))
     (when highlight
       (add-face-text-property (length overlook-indent) (length line) highlight t line))
-    (overlook-insert-row (propertize line
-                                     'overlook-item (cons 'agent buffer)
-                                     'overlook-action (lambda () (overlook-agent-visit buffer))
-                                     'overlook-attention (memq status '(waiting failed done))
-                                     'help-echo (concat (buffer-name buffer)
-                                                        (if brief (concat "\n" brief) "")
-                                                        (overlook-agent--fork-echo session))
-                                     'wrap-prefix (concat overlook-agent--wrap-indent
-                                                          (make-string (* 2 depth) ?\s)))
-                         children)))
+    (add-text-properties 0 (length line)
+                         `( overlook-item ,(cons 'agent buffer)
+                            overlook-action ,(lambda () (overlook-agent-visit buffer))
+                            help-echo ,(concat (buffer-name buffer)
+                                               (if brief (concat "\n" brief) "")
+                                               (overlook-agent--fork-echo session))
+                            wrap-prefix ,(concat overlook-agent--wrap-indent
+                                                 (make-string (* 2 depth) ?\s))
+                            ,@(when choices
+                                (list 'keymap (overlook-agent--choices-keymap buffer choices))))
+                         line)
+    (overlook-insert-row line children)))
 
 (defun overlook-agent--saved-row (saved perspective &optional depth children)
   "Insert the row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
