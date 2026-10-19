@@ -49,11 +49,11 @@ Agents are listed; usage and repos are not."
     (search-forward text)
     (line-number-at-pos)))
 
-(ert-deftest overlook-perspectives-current-first-then-frecency ()
-  (let ((overlook-perspective-visits
-         `(("one" 1 . ,(float-time))
-           ("two" 5 . ,(- (float-time) 7200))
-           ("three" 9 . ,(float-time)))))
+(ert-deftest overlook-perspectives-current-first-then-recent ()
+  (let ((overlook-perspective-switch-times
+         `(("one" . ,(- (float-time) 7200))
+           ("two" . ,(float-time))
+           ("three" . ,(- (float-time) 60)))))
     (overlook-test-with-dashboard '(("one") ("two") ("three") ("four")) "three"
       (should (< (overlook-test--line-of "three") (overlook-test--line-of "two")
                  (overlook-test--line-of "one") (overlook-test--line-of "four"))))

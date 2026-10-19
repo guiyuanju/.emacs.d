@@ -887,7 +887,7 @@
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
   (overlook-courier-mode 1)
-  (add-to-list 'savehist-additional-variables 'overlook-perspective-visits)
+  (add-to-list 'savehist-additional-variables 'overlook-perspective-switch-times)
   (require 'jgy-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
   (with-eval-after-load 'evil

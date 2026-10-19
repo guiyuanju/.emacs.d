@@ -73,11 +73,11 @@ An integer is a number of columns; a float is a fraction of the frame width."
   "Frame side the dashboard window is shown on."
   :type '(choice (const left) (const right)))
 
-(defcustom overlook-perspective-order 'frecency
+(defcustom overlook-perspective-order 'recent
   "Order of the perspectives on the dashboard.
-`frecency' puts the current one first, then the rest by how often and how
-recently they were switched to; `backend' keeps the backend's order."
-  :type '(choice (const frecency) (const backend)))
+`recent' puts the current one first, then the rest by how recently they
+were switched to; `backend' keeps the backend's order."
+  :type '(choice (const recent) (const backend)))
 
 (defcustom overlook-perspective-annotation nil
   "Function of a perspective NAME returning a tag shown after its heading, or nil."
@@ -175,37 +175,27 @@ perspective."
 (defvar overlook-perspective-switch-hook nil
   "Hook run after switching perspectives, in the new one.")
 
-(defvar overlook-perspective-visits nil
-  "Alist of perspective name to (COUNT . LAST-SWITCH-TIME).
+(defvar overlook-perspective-switch-times nil
+  "Alist of perspective name to the time it was last switched to.
 Add it to `savehist-additional-variables' to keep it across sessions.")
 
-(defun overlook--count-visit ()
-  "Count a switch to the current perspective."
+(defun overlook--record-switch ()
+  "Record the time of a switch to the current perspective."
   (when-let* ((name (overlook-current-perspective)))
-    (setf (alist-get name overlook-perspective-visits nil nil #'equal)
-          (cons (1+ (or (car (alist-get name overlook-perspective-visits nil nil #'equal)) 0))
-                (float-time)))))
-
-(defun overlook--frecency (name)
-  "Switch count of perspective NAME weighted by how recent its last switch is.
-The weights are zoxide's."
-  (pcase (alist-get name overlook-perspective-visits nil nil #'equal)
-    (`(,count . ,time)
-     (let ((age (- (float-time) time)))
-       (* count (cond ((< age 3600) 4) ((< age 86400) 2) ((< age 604800) 0.5) (t 0.25)))))
-    (_ 0)))
+    (setf (alist-get name overlook-perspective-switch-times nil nil #'equal)
+          (float-time))))
 
 (defun overlook-ordered-perspectives ()
   "Names of all perspectives, in the order of `overlook-perspective-order'."
   (let ((names (overlook-perspectives))
         (current (overlook-current-perspective)))
-    (if (not (eq overlook-perspective-order 'frecency))
+    (if (not (eq overlook-perspective-order 'recent))
         names
-      (let ((scores (mapcar (lambda (name) (cons name (overlook--frecency name))) names)))
+      (let ((time (lambda (name)
+                    (alist-get name overlook-perspective-switch-times 0 nil #'equal))))
         (append (and (member current names) (list current))
                 (sort (remove current names)
-                      (lambda (a b) (> (alist-get a scores nil nil #'equal)
-                                       (alist-get b scores nil nil #'equal)))))))))
+                      (lambda (a b) (> (funcall time a) (funcall time b)))))))))
 
 (defvar overlook--to-current nil
   "Non-nil when the next redraw moves point to the current perspective.")
@@ -214,7 +204,7 @@ The weights are zoxide's."
   "Show the dashboard in the new perspective and redraw it on its heading.
 Backends call this after any perspective switch, including ones not made
 through overlook, since switching perspectives replaces the windows."
-  (overlook--count-visit)
+  (overlook--record-switch)
   (setq overlook--to-current t)
   (overlook--follow)
   (run-hooks 'overlook-perspective-switch-hook)

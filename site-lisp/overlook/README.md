@@ -181,9 +181,9 @@ Evil users can bind the same keys in normal state:
 - `overlook-side`, `overlook-width`: where the dashboard sits, and how
   wide it is in columns or as a fraction of the frame.
 - `overlook-perspective-order`: the current perspective first, then the
-  rest by how often and how recently you switched to them (the default),
-  or the backend's order.  To remember switches across sessions:
-  `(add-to-list 'savehist-additional-variables 'overlook-perspective-visits)`.
+  rest by how recently you switched to them (the default), or the
+  backend's order.  To remember switches across sessions:
+  `(add-to-list 'savehist-additional-variables 'overlook-perspective-switch-times)`.
 - `overlook-markers`: the files marking a folder of several repos
   as one project.
 - `overlook-perspective-root`: how a perspective's project root is found.
