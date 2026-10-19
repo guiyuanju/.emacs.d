@@ -16,6 +16,8 @@
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
+;; `jgy-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
+;; also: [okj] 让项目也算进列出的其他 workspace。
 
 ;;; Code:
 
@@ -42,6 +44,7 @@
 (declare-function overlook-end-with-blank "overlook")
 (declare-function overlook-perspective-guess-root "overlook-perspective")
 (defvar overlook-sections)
+(defvar overlook-mode-line-functions)
 
 (defgroup jgy-workspace nil
   "Project folders under ~/workspace."
@@ -57,6 +60,13 @@
 The project's card stays in its workspace folder; the dashboard lists
 the repos of the root, and agents started in the card folder run there."
   :type '(alist :key-type string :value-type directory)
+  :group 'jgy-workspace)
+
+(defcustom jgy-workspace-filter nil
+  "Workspace whose projects the dashboard and `jgy-workspace-open-project' show.
+Nil shows every workspace.  A project also counts for the workspaces in
+the also: list of its front matter."
+  :type '(choice (const :tag "All" nil) string)
   :group 'jgy-workspace)
 
 (defcustom jgy-workspace-pull-repos '("~/.emacs.d/" "~/workspace/")
@@ -133,21 +143,61 @@ Globbed again only when the workspace root or a projects/ folder changes."
   "Return every project card of the workspaces."
   (mapcar #'cdr (jgy-workspace--projects)))
 
+(defun jgy-workspace--workspaces ()
+  "Names of the workspaces, the folders with a projects/ folder."
+  (mapcar (lambda (dir) (file-name-nondirectory (directory-file-name (file-name-parent-directory dir))))
+          (file-expand-wildcards (expand-file-name "*/projects/" (jgy-workspace--base)))))
+
+(defun jgy-workspace--file-workspace (file)
+  "Name of the workspace holding project card FILE."
+  (file-name-nondirectory (directory-file-name (file-name-parent-directory
+                                                (file-name-parent-directory
+                                                 (file-name-directory file))))))
+
+(defun jgy-workspace--shown-p (card)
+  "Non-nil when CARD belongs to `jgy-workspace-filter', or there is no filter."
+  (or (null jgy-workspace-filter)
+      (equal jgy-workspace-filter (plist-get card :workspace))
+      (member jgy-workspace-filter (plist-get card :also))))
+
+(defun jgy-workspace-perspective-shown-p (name)
+  "Non-nil unless perspective NAME is a project hidden by `jgy-workspace-filter'."
+  (let ((card (seq-find (lambda (card) (equal (plist-get card :id) name)) (jgy-workspace--cards))))
+    (or (null card) (jgy-workspace--shown-p card))))
+
+(defun jgy-workspace-switch-perspective (name)
+  "Switch to perspective NAME, offering those shown by `jgy-workspace-filter'.
+Any name works; a new one creates the perspective."
+  (interactive
+   (list (completing-read "Perspective: "
+                          (seq-filter #'jgy-workspace-perspective-shown-p
+                                      (remove (persp-current-name) (persp-names))))))
+  (persp-switch name))
+
+(defun jgy-workspace-cycle-filter ()
+  "Cycle `jgy-workspace-filter' through every workspace, then all."
+  (interactive)
+  (let ((choices (cons nil (jgy-workspace--workspaces))))
+    (setq jgy-workspace-filter (or (cadr (member jgy-workspace-filter choices)) nil))
+    (message "Workspace filter: %s" (or jgy-workspace-filter "all"))
+    (force-mode-line-update t)
+    (when (fboundp 'overlook-refresh) (overlook-refresh))))
+
 (defun jgy-workspace-project-dir (id)
   "Folder of project ID, or nil."
   (when-let* ((file (cdr (assoc id (jgy-workspace--projects)))))
     (file-name-directory file)))
 
 (defun jgy-workspace--projects-by-mtime ()
-  "Return the project.md of every project, newest first."
-  (sort (jgy-workspace-project-files) #'file-newer-than-file-p))
+  "Return the project.md of every project shown by the filter, newest first."
+  (sort (mapcar (lambda (card) (plist-get card :file))
+                (seq-filter #'jgy-workspace--shown-p (jgy-workspace--cards)))
+        #'file-newer-than-file-p))
 
 (defun jgy-workspace--read-workspace ()
   "Read a workspace name and return its projects folder."
   (let* ((base (jgy-workspace--base))
-         (names (mapcar (lambda (dir) (file-name-nondirectory (directory-file-name
-                                                                (file-name-parent-directory dir))))
-                        (file-expand-wildcards (expand-file-name "*/projects/" base))))
+         (names (jgy-workspace--workspaces))
          (name (if (cdr names)
                    (completing-read "Workspace: " names nil t)
                  (or (car names) (user-error "No workspace under %s" jgy-workspace-directory)))))
@@ -200,7 +250,8 @@ Globbed again only when the workspace root or a projects/ folder changes."
 
 (defun jgy-workspace-open-project (id)
   "Switch to the perspective of project ID, creating the project when it is new.
-A new perspective opens project.md; an existing one keeps its windows."
+A new perspective opens project.md; an existing one keeps its windows.
+Only projects shown by `jgy-workspace-filter' are offered; any id works."
   (interactive (list (string-trim
                       (completing-read "Project: " (mapcar #'jgy-workspace--file-id
                                                            (jgy-workspace--projects-by-mtime))))))
@@ -570,8 +621,9 @@ A project in `jgy-workspace-project-roots' has its root there."
 ;;; Dashboard todos
 
 (defun jgy-workspace--todo-parse (file)
-  "Parse card FILE into a plist of :id :status :file :todos.
-The id is the folder name and the status comes from the front matter.
+  "Parse card FILE into a plist of :id :workspace :status :also :file :todos.
+The id is the folder name; the status and the also: list of workspace
+names come from the front matter.
 Each todo is (TEXT LINE DEPTH) for an open checkbox under the Todo heading,
 or anywhere when tagged #waiting; DEPTH is its indent in columns."
   (with-temp-buffer
@@ -579,7 +631,7 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
     (goto-char (point-min))
     (let ((front (looking-at-p "---[ \t]*$"))
           (number 1)
-          status todos in-todo in-fence)
+          status also todos in-todo in-fence)
       (when front (forward-line 1) (setq number 2))
       (while (not (eobp))
         (let ((line (buffer-substring-no-properties (point) (line-end-position))))
@@ -587,7 +639,9 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
            (front
             (cond ((string-match-p "\\`---[ \t]*\\'" line) (setq front nil))
                   ((string-match "\\`status: *\\([a-z]+\\)" line)
-                   (setq status (match-string 1 line)))))
+                   (setq status (match-string 1 line)))
+                  ((string-match "\\`also: *\\[\\([^]]*\\)\\]" line)
+                   (setq also (split-string (match-string 1 line) "[ \t,\"']+" t)))))
            ((string-match-p "\\`[ \t]*```" line) (setq in-fence (not in-fence)))
            (in-fence)
            ((string-prefix-p "## " line) (setq in-todo (string= (string-trim-right line) "## Todo")))
@@ -596,14 +650,20 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
             (push (list (match-string 2 line) number (length (match-string 1 line))) todos))))
         (forward-line 1)
         (cl-incf number))
-      (list :id (jgy-workspace--file-id file) :status status :file file :todos (nreverse todos)))))
+      (list :id (jgy-workspace--file-id file) :workspace (jgy-workspace--file-workspace file)
+            :status status :also also :file file :todos (nreverse todos)))))
+
+(defun jgy-workspace--cards ()
+  "Return every parsed card, re-reading only when a card file changed."
+  (let ((files (jgy-workspace-project-files)))
+    (jgy-workspace--cached 'cards (jgy-workspace--mtimes files)
+                           (lambda () (mapcar #'jgy-workspace--todo-parse files)))))
 
 (defun jgy-workspace--todo-cards ()
-  "Return parsed active cards, re-reading only when a card file changed."
-  (let ((files (jgy-workspace-project-files)))
-    (seq-filter (lambda (card) (member (plist-get card :status) '("active" "waiting" "later")))
-                (jgy-workspace--cached 'cards (jgy-workspace--mtimes files)
-                                       (lambda () (mapcar #'jgy-workspace--todo-parse files))))))
+  "Return parsed ongoing cards shown by `jgy-workspace-filter'."
+  (seq-filter (lambda (card) (and (member (plist-get card :status) '("active" "waiting" "later"))
+                                  (jgy-workspace--shown-p card)))
+              (jgy-workspace--cards)))
 
 (defun jgy-workspace--todo-rank (text)
   "0 for a #now todo TEXT, 1 for #waiting, 2 for the rest.
@@ -785,9 +845,12 @@ Done items are left out together with their subitems."
 
 (defun jgy-workspace--inbox-section ()
   "Insert an Inbox section with each workspace's open inbox items.
-The workspace of the current perspective comes first."
+Only the inbox of `jgy-workspace-filter' shows when it is set.  The
+workspace of the current perspective comes first."
   (let* ((current (jgy-workspace-perspective-workspace (or (overlook-current-perspective) "")))
-         (files (file-expand-wildcards (expand-file-name "*/inbox.md" (jgy-workspace--base))))
+         (files (seq-filter (lambda (file) (or (null jgy-workspace-filter)
+                                               (equal jgy-workspace-filter (jgy-workspace--inbox-workspace file))))
+                            (file-expand-wildcards (expand-file-name "*/inbox.md" (jgy-workspace--base)))))
          (mine (lambda (file) (equal (jgy-workspace--inbox-workspace file) current)))
          (files (append (seq-filter mine files) (seq-remove mine files))))
     (overlook-insert-section
@@ -799,6 +862,10 @@ The workspace of the current perspective comes first."
                       (list (jgy-workspace--inbox-workspace file) file nil items)))
                   files)
         (lambda (_) (propertize "☐" 'face 'shadow)))))))
+
+(defun jgy-workspace--mode-line ()
+  "`jgy-workspace-filter' for the dashboard's mode line, or nil when unset."
+  (and jgy-workspace-filter (propertize jgy-workspace-filter 'face 'warning)))
 
 (defun jgy-workspace--refresh-after-save ()
   "Re-render the dashboard after saving a project.md or inbox.md."
@@ -818,9 +885,11 @@ The workspace of the current perspective comes first."
       (progn
         (add-hook 'overlook-sections #'jgy-workspace--todo-section 50)
         (add-hook 'overlook-sections #'jgy-workspace--inbox-section 60)
+        (add-hook 'overlook-mode-line-functions #'jgy-workspace--mode-line -50)
         (add-hook 'after-save-hook #'jgy-workspace--refresh-after-save))
     (remove-hook 'overlook-sections #'jgy-workspace--todo-section)
     (remove-hook 'overlook-sections #'jgy-workspace--inbox-section)
+    (remove-hook 'overlook-mode-line-functions #'jgy-workspace--mode-line)
     (remove-hook 'after-save-hook #'jgy-workspace--refresh-after-save)))
 
 (provide 'jgy-workspace)
