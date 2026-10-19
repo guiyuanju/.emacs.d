@@ -62,6 +62,31 @@ so copy it to `face' for the agent name to stand out over dimmed fields."
             #'jgy-agent-shell--minimal-header
             '((name . jgy-agent-shell-minimal-header)))
 
+(defun jgy-agent-shell--permission-arguments (orig &rest args)
+  "Call ORIG with ARGS, then append every argument of a multi-argument tool call.
+agent-shell shows `rawInput' only when it has a single field, so a
+multi-argument MCP call asked for permission showing only its tool name."
+  (let* ((title (apply orig args))
+         (tool-call (plist-get args :tool-call))
+         (raw-input (map-elt tool-call :raw-input)))
+    (if (and (member (map-elt tool-call :kind) '(nil "other"))
+             (> (length raw-input) 1)
+             (not (map-elt raw-input 'command)))
+        (concat title "\n\n"
+                (mapconcat
+                 (lambda (pair)
+                   (let ((value (cdr pair)))
+                     (if (and (stringp value) (string-search "\n" value))
+                         (format "%s:\n```\n%s\n```" (car pair) value)
+                       (format "- %s: `%s`" (car pair)
+                               (if (stringp value) value (json-encode value))))))
+                 raw-input "\n"))
+      title)))
+
+(advice-add 'agent-shell--permission-title :around
+            #'jgy-agent-shell--permission-arguments
+            '((name . jgy-agent-shell-permission-arguments)))
+
 (defun jgy-agent-shell--quiet-header-line ()
   "Draw this buffer's header line on the buffer background, with breathing room."
   (let* ((bg (face-background 'default nil t))
