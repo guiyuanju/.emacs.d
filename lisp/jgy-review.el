@@ -6,6 +6,7 @@
 ;; HEAD 停在 MR 的 base、工作区是 MR 的 head，于是 MR 的改动就是未提交的改动：
 ;; overlook 列出改动的文件，RET 打开 ediff，agent 用 `git diff HEAD' 看。
 ;; 要在上面自己改代码时用 `jgy-review-edit' 把 HEAD 移到 MR 的 head。
+;; 给 agent 的 prompt 只放进输入框，由你发送。
 
 ;;; Code:
 
@@ -14,7 +15,10 @@
 
 (declare-function agent-shell--start "agent-shell")
 (declare-function agent-shell-buffers "agent-shell")
-(declare-function agent-shell-prompt-queue "agent-shell-prompt-queue")
+(declare-function agent-shell-insert "agent-shell")
+(declare-function agent-shell-subscribe-to "agent-shell")
+(declare-function agent-shell-unsubscribe "agent-shell")
+(declare-function shell-maker-busy "shell-maker")
 (declare-function overlook-agent-perspective "overlook-agent")
 (declare-function agent-shell-anthropic-make-claude-code-config "agent-shell-anthropic")
 (declare-function overlook-refresh "overlook")
@@ -25,12 +29,13 @@
   :group 'jgy-workspace)
 
 (defcustom jgy-review-prompt "Review 这些 MR，多个时是一组相关改动：\n%s"
-  "Prompt sent to a new agent once the repos are ready; %s lists the MR URLs."
+  "Prompt put in a new agent's input once the repos are ready.
+%s lists the MR URLs."
   :type 'string
   :group 'jgy-workspace)
 
 (defcustom jgy-review-add-prompt "加入这些相关的 MR，和前面的一起 review：\n%s"
-  "Prompt sent to the agent when MRs are added; %s lists their URLs."
+  "Prompt put in the agent's input when MRs are added; %s lists their URLs."
   :type 'string
   :group 'jgy-workspace)
 
@@ -211,13 +216,25 @@ Each step is (DIR . ARGS).  On failure show the log and stop."
     (agent-shell--start :config (agent-shell-anthropic-make-claude-code-config)
                         :new-session t :session-strategy 'new :cwd root)))
 
+(defun jgy-review--insert (agent text)
+  "Put TEXT in AGENT's input for you to send."
+  (agent-shell-insert :text text :no-focus t :shell-buffer agent)
+  (message "Review prompt is in %s; RET there sends it" (buffer-name agent)))
+
 (defun jgy-review--prompt (agent template mrs)
-  "Send AGENT the prompt TEMPLATE filled with the URLs of MRS, once it is free."
-  (require 'agent-shell-prompt-queue)
+  "Put TEMPLATE filled with the URLs of MRS in AGENT's input, unsent.
+A busy AGENT gets it once its turn is done."
   (when (buffer-live-p agent)
-    (with-current-buffer agent
-      (agent-shell-prompt-queue
-       (format template (mapconcat (lambda (mr) (concat "- " (plist-get mr :url))) mrs "\n"))))))
+    (let ((text (format template (mapconcat (lambda (mr) (concat "- " (plist-get mr :url)))
+                                            mrs "\n"))))
+      (if (with-current-buffer agent (shell-maker-busy))
+          (let (token)
+            (setq token (agent-shell-subscribe-to
+                         :shell-buffer agent :event 'turn-complete
+                         :on-event (lambda (_event)
+                                     (agent-shell-unsubscribe :subscription token)
+                                     (jgy-review--insert agent text)))))
+        (jgy-review--insert agent text)))))
 
 (defun jgy-review--read-urls (prompt)
   "Merge request URLs read with PROMPT, separated by whitespace."
