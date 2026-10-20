@@ -320,6 +320,8 @@
   :config
   (evil-commentary-mode 1))
 
+(use-package nerd-icons)
+
 (use-package pulsar
   :demand t
   :config
@@ -894,6 +896,11 @@
   (overlook-usage-mode 1)
   (overlook-courier-mode 1)
   (add-to-list 'savehist-additional-variables 'overlook-perspective-switch-times)
+  ;; 看板上 agent 的名字换成图标。
+  (with-eval-after-load 'nerd-icons
+    (setopt overlook-agent-icons
+            `(("claude" . ,(nerd-icons-codicon "nf-cod-claude"))
+              ("codex" . ,(nerd-icons-codicon "nf-cod-openai")))))
   (require 'jgy-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
   (with-eval-after-load 'evil
