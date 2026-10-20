@@ -871,7 +871,7 @@
   :ensure nil
   :load-path "site-lisp/overlook"
   ;; 点击 agent 通知时回到 Emacs 并跳到该 agent。
-  :ensure-system-package terminal-notifier
+  :ensure-system-package (terminal-notifier . "brew install terminal-notifier")
   :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
              overlook-agent-project-root overlook-perspective-guess-root)
   :hook (overlook-mode . pulsar-mode)
