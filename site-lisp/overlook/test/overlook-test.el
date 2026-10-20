@@ -418,7 +418,7 @@ Agents are listed; usage and repos are not."
   (let* ((agent (overlook-test--agent "claude"))
          (sent nil)
          (overlook-agent-notify t)
-         (overlook-agent-notify-function (lambda (title body) (push (cons title body) sent)))
+         (overlook-agent-notify-function (lambda (title body _buffer) (push (cons title body) sent)))
          (overlook-perspective-buffers-function
           (lambda (name) (and (equal name "checkout") (list agent))))
          (overlook-perspectives-function (lambda () (list "checkout")))

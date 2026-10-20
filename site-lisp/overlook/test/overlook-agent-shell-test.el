@@ -80,7 +80,7 @@ each environment gathered says how many were gathered so far."
           (overlook-agent-turn-end-hook (list (lambda () (cl-incf ended))))
           (overlook-perspectives-function #'ignore))
       (let ((overlook-agent-notify-function
-             (lambda (title body) (push (cons title body) sent))))
+             (lambda (title body _buffer) (push (cons title body) sent))))
         (overlook-agent-shell--on-event '((:event . input-submitted)))
         (overlook-agent-shell--on-event
          '((:event . error) (:data (:code . -1) (:message . "Connection lost"))))

@@ -91,7 +91,7 @@ it returns has been registered with `overlook-agent-register'."
   :group 'overlook)
 
 (defcustom overlook-agent-notify-function #'overlook-agent-notify-system
-  "Function of TITLE and BODY showing a notification."
+  "Function of TITLE, BODY and the agent BUFFER showing a notification."
   :type 'function
   :group 'overlook)
 
@@ -268,9 +268,35 @@ A buffer shown in several perspectives belongs to the one of its project."
       (overlook-agent--notify (current-buffer)))
     (overlook-agent-changed)))
 
-(defun overlook-agent-notify-system (title body)
-  "Show a desktop notification of TITLE and BODY."
-  (cond ((eq system-type 'darwin)
+(defun overlook-agent--notify-click (buffer)
+  "terminal-notifier arguments making a click raise Emacs and visit agent BUFFER.
+Nil unless this Emacs runs a server on a local socket.  terminal-notifier
+runs only one click action, so the command raises Emacs itself."
+  (when-let* ((process (bound-and-true-p server-process))
+              ((process-live-p process))
+              (socket (process-contact process :local))
+              ((stringp socket))
+              (client (executable-find "emacsclient")))
+    (list "-group" (concat "overlook:" (buffer-name buffer))
+          "-execute" (concat "/usr/bin/open -b org.gnu.Emacs; "
+                             (mapconcat #'shell-quote-argument
+                                        (list client "--socket-name" socket "--eval"
+                                              (format "(overlook-agent-visit (get-buffer %S))"
+                                                      (buffer-name buffer)))
+                                        " ")))))
+
+(defun overlook-agent-notify-system (title body &optional buffer)
+  "Show a desktop notification of TITLE and BODY about agent BUFFER.
+On macOS, terminal-notifier makes clicking it raise Emacs and visit BUFFER;
+without terminal-notifier it falls back to osascript."
+  (cond ((and (eq system-type 'darwin) (executable-find "terminal-notifier"))
+         (apply #'call-process "terminal-notifier" nil 0 nil
+                "-title" title
+                ;; A leading bracket would be read as an option.
+                "-message" (if (string-empty-p body) " " (string-replace "[" "\\[" body))
+                (or (and buffer (overlook-agent--notify-click buffer))
+                    '("-activate" "org.gnu.Emacs"))))
+        ((eq system-type 'darwin)
          ;; Passed as arguments, so quotes in them need no escaping.
          (call-process "osascript" nil 0 nil
                        "-e" "on run argv"
@@ -295,7 +321,8 @@ A buffer shown in several perspectives belongs to the one of its project."
                          ('waiting "needs you")
                          ('failed "failed")
                          (_ "finished")))
-               (string-join (delq nil (list perspective brief)) ": ")))))
+               (string-join (delq nil (list perspective brief)) ": ")
+               buffer))))
 
 (defun overlook-agent--seen-p ()
   "Non-nil when this agent is shown in the selected window."

@@ -167,9 +167,12 @@ Evil users can bind the same keys in normal state:
   otherwise marked `fork`.  Which session each fork came from is kept in
   `overlook-agent-forks-file`, so the tree survives restarts.
 - When an agent turns `⚠`, `✖` or `●` while no Emacs frame has focus, a
-  desktop notification says so (`osascript` on macOS, D-Bus elsewhere).
-  Set `overlook-agent-notify` to `t` to be told even while Emacs has
-  focus, or `nil` never; `overlook-agent-notify-function` shows it.
+  desktop notification says so (D-Bus outside macOS).  On macOS it uses
+  `terminal-notifier` when installed: clicking the notification raises
+  Emacs and, while Emacs runs a server, visits that agent; otherwise it
+  falls back to `osascript`.  Set `overlook-agent-notify` to `t` to be told
+  even while Emacs has focus, or `nil` never; `overlook-agent-notify-function`
+  shows it.
 - A repo: its branch and the lines changed since its last commit, then the
   changed files with their line counts.  These come from Git, so they show
   every change in the working tree, whoever made it.
