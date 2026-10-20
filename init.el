@@ -914,7 +914,9 @@
       '(("https://catcoding.me/atom.xml" cat)
         ("https://news.ycombinator.com/rss" hacker)
         ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
-        ("https://sspai.com/feed" :fetch-link t :readable t sspai))))
+        ("https://sspai.com/feed" :fetch-link t :readable t sspai)
+        ("https://claude.dev/rss.xml" claude)
+        ("https://t3.at/rss.xml" t3))))
 
 (use-package gptel
   :defer t)
