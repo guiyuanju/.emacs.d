@@ -501,6 +501,8 @@
     "oe" '(jgy-eshell-toggle :which-key "Eshell")
     "of" '(jgy-reveal-in-finder :which-key "reveal in Finder")
     "op" '(popper-toggle :which-key "popup")
+    "or" '(elfeed :which-key "RSS (elfeed)")
+    "oR" '(elfeed-update :which-key "update RSS")
     "oP" '(popper-cycle :which-key "next popup")
     "ot" '(jgy-ghostel-toggle :which-key "terminal")
 
@@ -926,7 +928,9 @@
 (use-package jgy-elfeed-ai
   :ensure nil
   :after elfeed
-  :commands (jgy-elfeed-ai-summarize jgy-elfeed-ai-digest jgy-elfeed-ai-set-backend))
+  :demand t
+  :config
+  (add-to-list 'savehist-additional-variables 'jgy-elfeed-ai-digest-focus))
 
 (use-package jgy-log
   :ensure nil

@@ -3,9 +3,10 @@
 ;;; Commentary:
 ;; elfeed-show 里按 a 总结当前文章：先抓原文（缓存在 :link-content，与 elfeed 的
 ;; f 共用），抓不到就用 RSS 内容；总结存进条目 metadata，之后打开文章直接显示。
-;; elfeed-search 里按 a 把当前过滤出的条目汇总成一份按订阅源分组的摘要。
-;; 后端：claude 和 codex 走 CLI（订阅额度），deepseek 走 gptel（API key）。
-;; C-u a 临时换后端；M-x jgy-elfeed-ai-set-backend 改默认。
+;; elfeed-search 里按 a 给当前行（或 visual 选中的行）写一句话总结，显示在行尾；
+;; 按 A 在右侧窗口把当前过滤出的条目汇总，有关注重点时按重点排；C-u A 先改重点。
+;; 后端：claude 和 codex 走 CLI（订阅额度），deepseek 走 gptel（API key），汇总时流式输出。
+;; C-u a 临时换后端；gA 改默认。
 
 ;;; Code:
 
@@ -24,6 +25,7 @@
 (declare-function gptel-api-key-from-auth-source "gptel-request")
 (declare-function exec-path-from-shell-getenvs "exec-path-from-shell")
 (declare-function evil-define-key* "evil-core")
+(declare-function org-open-at-point "org")
 (defvar gptel-backend)
 (defvar gptel-model)
 (defvar gptel-use-tools)
@@ -59,9 +61,34 @@ nil uses the CLI's own default."
   "Most entries sent in one digest."
   :type 'natural)
 
+(defcustom jgy-elfeed-ai-digest-focus ""
+  "What the digest should put first, in plain words; empty for none."
+  :type 'string)
+
+(defcustom jgy-elfeed-ai-oneline-batch 20
+  "Most entries sent in one one-line summary request."
+  :type 'natural)
+
+(defcustom jgy-elfeed-ai-oneline-chars 1500
+  "Longest text sent per entry for a one-line summary."
+  :type 'natural)
+
 (defconst jgy-elfeed-ai--entry-prompt
   "用中文总结下面这篇文章，给 3 到 6 条要点，每条一行，以「- 」开头，只输出要点。
 不要编造原文没有的信息。")
+
+(defconst jgy-elfeed-ai--oneline-prompt
+  "下面是若干篇文章，每篇以「## 编号」开头。为每篇写一句中文总结，不超过 40 字，
+说清讲了什么，不要复述标题。每篇输出一行「编号: 总结」，按编号顺序，只输出这些行。
+不要编造原文没有的信息。")
+
+(defconst jgy-elfeed-ai--focus-prompt
+  "下面是 RSS 阅读器里的一批条目。我的关注重点：%s
+用中文写一份摘要，输出 Org 格式：
+先写「* 与关注重点相关」，按相关程度排序，每条「- [[链接][标题]]：两三句，讲了什么、为什么值得看」，
+没有相关的就写「- 无」；然后写「* 其他值得看的」，最多 8 条，每条「- [[链接][标题]]：一句话说明」；
+最后写「* 其余」，每条一行「- [[链接][标题]]」。
+标题不是中文的翻译成中文。只用给出的链接，不要编造内容，只输出 Org 正文。")
 
 (defconst jgy-elfeed-ai--digest-prompt
   "下面是 RSS 阅读器里的一批条目。用中文写一份摘要，输出 Org 格式：
@@ -123,8 +150,9 @@ TEXT is read from OUTPUT-FILE when given, else from stdout."
                        (exec-path-from-shell-getenvs '("DEEPSEEK_API_KEY")))))
       (user-error "No DeepSeek key: set jgy-deepseek-api-key in local.el")))
 
-(defun jgy-elfeed-ai--gptel (model input callback)
-  "Send INPUT to DeepSeek MODEL through gptel, then call CALLBACK."
+(defun jgy-elfeed-ai--gptel (model input callback &optional on-chunk)
+  "Send INPUT to DeepSeek MODEL through gptel, then call CALLBACK.
+With ON-CHUNK, stream and call it with each piece of text as it arrives."
   (require 'gptel)
   (jgy-elfeed-ai--deepseek-key)
   (let* ((gptel-backend
@@ -138,15 +166,28 @@ TEXT is read from OUTPUT-FILE when given, else from stdout."
          (gptel-model (intern model))
          (gptel-use-tools nil)
          (gptel-include-reasoning nil))
-    (gptel-request input
-      :system nil
-      :callback (lambda (response info)
-                  (cond ((stringp response) (funcall callback (string-trim response) nil))
-                        ((null response) (funcall callback nil (plist-get info :status))))))))
+    (if on-chunk
+        (let ((parts nil))
+          (gptel-request input
+            :system nil :stream t
+            :callback (lambda (response info)
+                        (cond ((stringp response)
+                               (push response parts)
+                               (funcall on-chunk response))
+                              ((eq response t)
+                               (funcall callback (apply #'concat (nreverse parts)) nil))
+                              ((null response)
+                               (funcall callback nil (plist-get info :status)))))))
+      (gptel-request input
+        :system nil
+        :callback (lambda (response info)
+                    (cond ((stringp response) (funcall callback (string-trim response) nil))
+                          ((null response) (funcall callback nil (plist-get info :status)))))))))
 
-(defun jgy-elfeed-ai--request (backend digest input callback)
+(defun jgy-elfeed-ai--request (backend digest input callback &optional on-chunk)
   "Send INPUT to BACKEND, then call CALLBACK with (TEXT ERROR).
-DIGEST picks the digest model."
+DIGEST picks the digest model.  ON-CHUNK gets streamed text where the
+backend can stream; CALLBACK still gets the whole text."
   (let ((model (jgy-elfeed-ai--model backend digest)))
     ;; 这里常在进程回调里运行，报错会被吞掉，所以转给 CALLBACK。
     (condition-case err
@@ -164,7 +205,7 @@ DIGEST picks the digest model."
                 "--skip-git-repo-check" "--ephemeral" "--sandbox" "read-only"
                 "--color" "never" "--output-last-message" ,file "-")
               input callback file)))
-          ('deepseek (jgy-elfeed-ai--gptel model input callback))
+          ('deepseek (jgy-elfeed-ai--gptel model input callback on-chunk))
           (_ (user-error "Unknown backend: %s" backend)))
       (error (funcall callback nil (error-message-string err))))))
 
@@ -291,30 +332,154 @@ DIGEST picks the digest model."
               (unless summary
                 (message "elfeed AI (%s) failed: %s" backend error))))))))))
 
+;;; One-line summary
+
+(defface jgy-elfeed-ai-oneline-face '((t :inherit shadow))
+  "Face of the one-line summary in elfeed-search.")
+
+(defvar jgy-elfeed-ai--oneline-pending (make-hash-table :test #'eq :weakness 'key)
+  "Entries waiting for a one-line summary.")
+
+(defun jgy-elfeed-ai-print-entry (entry)
+  "Print ENTRY like elfeed does, then its one-line summary."
+  (elfeed-search-print-entry--default entry)
+  (when-let* ((text (if (gethash entry jgy-elfeed-ai--oneline-pending) "…"
+                      (elfeed-meta entry :jgy-ai-oneline))))
+    (insert "  " (propertize text 'face 'jgy-elfeed-ai-oneline-face))))
+
+(defun jgy-elfeed-ai-oneline-eldoc (&rest _)
+  "Return the one-line summary of the entry at point, for eldoc."
+  (when-let* ((entry (elfeed-search-selected t)))
+    (elfeed-meta entry :jgy-ai-oneline)))
+
+(defun jgy-elfeed-ai--redraw (entries)
+  "Redraw ENTRIES in the search buffer."
+  (when-let* ((buf (get-buffer "*elfeed-search*")))
+    (with-current-buffer buf
+      (apply #'elfeed-search-update-entry entries))))
+
+(defun jgy-elfeed-ai--oneline-text (entry callback)
+  "Call CALLBACK with the text to summarize ENTRY from."
+  (let ((summary (cdr (elfeed-meta entry :jgy-ai-summary)))
+        (rss (jgy-elfeed-ai--rss-text entry)))
+    (cond (summary (funcall callback summary))
+          ((>= (length rss) 300) (funcall callback rss))
+          (t (jgy-elfeed-ai--article
+              entry (lambda (article) (funcall callback (or article rss))))))))
+
+(defun jgy-elfeed-ai--parse-oneline (text)
+  "Return TEXT's「编号: 总结」lines as an alist of (NUMBER . SUMMARY)."
+  (let (lines)
+    (dolist (line (split-string text "\n" t) lines)
+      (when (string-match "\\`[ \t#]*\\([0-9]+\\)[.:：、．)）]+[ \t]*\\(.+\\)" line)
+        (push (cons (string-to-number (match-string 1 line))
+                    (string-trim (match-string 2 line)))
+              lines)))))
+
+(defun jgy-elfeed-ai--oneline-request (backend entries texts)
+  "Ask BACKEND for one-line summaries of ENTRIES from TEXTS, then store them."
+  (jgy-elfeed-ai--request
+   backend nil
+   (with-output-to-string
+     (princ jgy-elfeed-ai--oneline-prompt)
+     (cl-loop for entry in entries for text in texts for i from 1
+              do (princ (format "\n\n## %d\n标题：%s\n%s" i (elfeed-entry-title entry)
+                                (truncate-string-to-width
+                                 (or text "") jgy-elfeed-ai-oneline-chars)))))
+   (lambda (reply error)
+     (let ((lines (and reply (jgy-elfeed-ai--parse-oneline reply))))
+       (cl-loop for entry in entries for i from 1
+                do (remhash entry jgy-elfeed-ai--oneline-pending)
+                (when-let* ((line (alist-get i lines)))
+                  (setf (elfeed-meta entry :jgy-ai-oneline) line)))
+       (jgy-elfeed-ai--redraw entries)
+       (unless lines
+         (message "elfeed AI (%s) failed: %s" backend (or error "no summary")))))))
+
+(defun jgy-elfeed-ai--oneline-batch (backend entries)
+  "Collect the texts of ENTRIES, then summarize them with BACKEND."
+  (let ((texts (make-list (length entries) nil))
+        (left (length entries)))
+    (cl-loop for entry in entries for cell on texts
+             do (let ((cell cell))
+                  (jgy-elfeed-ai--oneline-text
+                   entry
+                   (lambda (text)
+                     (setcar cell text)
+                     (when (zerop (cl-decf left))
+                       (jgy-elfeed-ai--oneline-request backend entries texts))))))))
+
+;;;###autoload
+(defun jgy-elfeed-ai-oneline (&optional pick)
+  "Summarize the selected entries in one line each; with PICK, ask for a backend."
+  (interactive "P" elfeed-search-mode)
+  (let ((backend (if pick (jgy-elfeed-ai--read-backend) jgy-elfeed-ai-backend))
+        (entries (cl-remove-if (lambda (entry) (gethash entry jgy-elfeed-ai--oneline-pending))
+                               (elfeed-search-selected))))
+    (unless entries (user-error "No entry to summarize"))
+    (when (use-region-p) (deactivate-mark))
+    (dolist (entry entries) (puthash entry t jgy-elfeed-ai--oneline-pending))
+    (jgy-elfeed-ai--redraw entries)
+    (dolist (batch (seq-partition entries jgy-elfeed-ai-oneline-batch))
+      (jgy-elfeed-ai--oneline-batch backend batch))))
+
 ;;; Digest
+
+(defvar-local jgy-elfeed-ai--digest-args nil
+  "The (BACKEND ENTRIES FILTER) of the digest in this buffer.")
+
+(defun jgy-elfeed-ai-digest-open ()
+  "Follow the link at point in another window, keeping the digest on the side."
+  (interactive)
+  (let ((buf (current-buffer))
+        (pos (point)))
+    (select-window (or (get-mru-window nil nil t) (selected-window)))
+    (with-current-buffer buf
+      (save-excursion (goto-char pos) (org-open-at-point)))))
+
+(defun jgy-elfeed-ai-digest-regenerate ()
+  "Write this digest again."
+  (interactive)
+  (apply #'jgy-elfeed-ai--digest jgy-elfeed-ai--digest-args))
+
+(defun jgy-elfeed-ai-digest-edit-focus ()
+  "Change the focus, then write this digest again."
+  (interactive)
+  (jgy-elfeed-ai--read-focus)
+  (jgy-elfeed-ai-digest-regenerate))
 
 (define-derived-mode jgy-elfeed-ai-digest-mode org-mode "Elfeed Digest"
   "Read an Elfeed digest and follow its entry links."
   (setq-local org-return-follows-link t)
   (read-only-mode 1))
 
-(define-key jgy-elfeed-ai-digest-mode-map (kbd "RET") #'org-open-at-point)
-(define-key jgy-elfeed-ai-digest-mode-map (kbd "<return>") #'org-open-at-point)
+(define-key jgy-elfeed-ai-digest-mode-map (kbd "RET") #'jgy-elfeed-ai-digest-open)
+(define-key jgy-elfeed-ai-digest-mode-map (kbd "<return>") #'jgy-elfeed-ai-digest-open)
 
 (with-eval-after-load 'evil
   (evil-define-key* '(normal motion) jgy-elfeed-ai-digest-mode-map
-    (kbd "RET") #'org-open-at-point
-    (kbd "<return>") #'org-open-at-point))
+    (kbd "RET") #'jgy-elfeed-ai-digest-open
+    (kbd "<return>") #'jgy-elfeed-ai-digest-open
+    "q" #'quit-window
+    "gr" #'jgy-elfeed-ai-digest-regenerate
+    "e" #'jgy-elfeed-ai-digest-edit-focus))
+
+(defun jgy-elfeed-ai--read-focus ()
+  "Ask for the digest focus and keep it."
+  (setq jgy-elfeed-ai-digest-focus
+        (string-trim (read-string "关注重点（留空不设）: " jgy-elfeed-ai-digest-focus))))
 
 (defun jgy-elfeed-ai--digest-input (entries)
   "Return the digest prompt for ENTRIES."
   (with-output-to-string
-    (princ jgy-elfeed-ai--digest-prompt)
+    (princ (if (string-empty-p jgy-elfeed-ai-digest-focus)
+               jgy-elfeed-ai--digest-prompt
+             (format jgy-elfeed-ai--focus-prompt jgy-elfeed-ai-digest-focus)))
     (dolist (entry entries)
       (let* ((feed (elfeed-entry-feed entry))
-             (summary (cdr (elfeed-meta entry :jgy-ai-summary)))
-             (text (if (and summary (string-prefix-p "- " summary)) summary
-                     (jgy-elfeed-ai--rss-text entry))))
+             (text (or (cdr (elfeed-meta entry :jgy-ai-summary))
+                       (elfeed-meta entry :jgy-ai-oneline)
+                       (jgy-elfeed-ai--rss-text entry))))
         (princ (format "\n\n订阅源：%s\n标题：%s\n链接：%s\n内容：%s"
                        (or (and feed (elfeed-feed-title feed)) "?")
                        (elfeed-entry-title entry)
@@ -323,35 +488,56 @@ DIGEST picks the digest model."
                                (cdr (elfeed-entry-id entry)))
                        (truncate-string-to-width text 400 nil nil "…")))))))
 
-;;;###autoload
-(defun jgy-elfeed-ai-digest (&optional pick)
-  "Digest the entries the search buffer shows; with PICK, ask for a backend."
-  (interactive "P" elfeed-search-mode)
-  (let* ((backend (if pick (jgy-elfeed-ai--read-backend) jgy-elfeed-ai-backend))
-         (entries (seq-take elfeed-search-entries jgy-elfeed-ai-digest-limit))
-         (filter elfeed-search-filter)
-         (buf (get-buffer-create "*elfeed-digest*")))
-    (unless entries (user-error "No entries under this filter"))
+(defun jgy-elfeed-ai--digest (backend entries filter)
+  "Digest ENTRIES with BACKEND into the side window, titled by FILTER."
+  (let ((buf (get-buffer-create "*elfeed-digest*"))
+        (focus jgy-elfeed-ai-digest-focus)
+        body)
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
         (jgy-elfeed-ai-digest-mode)
-        (insert (format "#+title: %s · %d 条 · %s\n\n生成中…\n" filter (length entries) backend)))
-      (read-only-mode 1))
-    (display-buffer buf)
-    (jgy-elfeed-ai--request
-     backend t (jgy-elfeed-ai--digest-input entries)
-     (lambda (text error)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (let ((inhibit-read-only t))
-             (goto-char (point-min))
-             (forward-line 2)
-             (delete-region (point) (point-max))
-             (insert (or text (format "失败：%s\n" error)))
-             (goto-char (point-min)))))))))
+        (setq jgy-elfeed-ai--digest-args (list backend entries filter))
+        (insert (format "#+title: %s · %d 条 · %s\n" filter (length entries) backend)
+                (if (string-empty-p focus) "" (format "#+subtitle: 关注：%s\n" focus))
+                "\n")
+        (setq body (point-marker))
+        (insert "生成中…\n")))
+    (display-buffer buf '(display-buffer-in-side-window
+                          (side . right) (window-width . 0.4)))
+    (let ((started nil))
+      (cl-flet ((write (text &optional replace)
+                  (when (buffer-live-p buf)
+                    (with-current-buffer buf
+                      (let ((inhibit-read-only t))
+                        (save-excursion
+                          (when (or replace (not started))
+                            (delete-region body (point-max))
+                            (setq started t))
+                          (goto-char (point-max))
+                          (insert text)))))))
+        (jgy-elfeed-ai--request
+         backend t (jgy-elfeed-ai--digest-input entries)
+         (lambda (text error)
+           (write (if text (concat (string-trim text) "\n") (format "失败：%s\n" error)) t))
+         #'write)))))
+
+;;;###autoload
+(defun jgy-elfeed-ai-digest (&optional edit-focus)
+  "Digest the entries the search buffer shows in a side window.
+With EDIT-FOCUS, change the focus first."
+  (interactive "P" elfeed-search-mode)
+  (let ((entries (seq-take elfeed-search-entries jgy-elfeed-ai-digest-limit)))
+    (unless entries (user-error "No entries under this filter"))
+    (when edit-focus (jgy-elfeed-ai--read-focus))
+    (jgy-elfeed-ai--digest jgy-elfeed-ai-backend entries elfeed-search-filter)))
 
 (add-hook 'elfeed-show-update-hook #'jgy-elfeed-ai-insert-summary)
+(setq elfeed-search-print-entry-function #'jgy-elfeed-ai-print-entry)
+(add-hook 'elfeed-search-mode-hook
+          (lambda ()
+            (add-hook 'eldoc-documentation-functions #'jgy-elfeed-ai-oneline-eldoc nil t)
+            (eldoc-mode 1)))
 
 (provide 'jgy-elfeed-ai)
 ;;; jgy-elfeed-ai.el ends here
