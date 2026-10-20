@@ -257,6 +257,7 @@ Prefers its description, as the title of a shell command is the command."
      (setq overlook-agent-shell--reply-over t)
      (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil)
      (overlook-agent-shell--set-brief 'overlook-agent-shell--questions nil))
+    ('session-title-changed (overlook-agent-changed))
     ;; agent-shell sets the session id after announcing it.
     ('session-selected (run-at-time 0 nil #'overlook-agent-changed)))
   (pcase (map-elt event :event)
@@ -326,6 +327,10 @@ Nil until they are gathered, so that an empty environment is gathered once.")
   "This shell's session id, or nil before it has one."
   (map-nested-elt agent-shell--state '(:session :id)))
 
+(defun overlook-agent-shell--title ()
+  "This shell's session title: the agent's, else its first prompt."
+  (map-nested-elt agent-shell--state '(:session :title)))
+
 (defun overlook-agent-shell--forked-from ()
   "Session id `agent-shell-fork' forked this shell's session from, or nil."
   (map-elt agent-shell--state :fork-session-id))
@@ -374,6 +379,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (insert . overlook-agent-shell--insert)
               (context . overlook-agent-shell--context)
               (brief . overlook-agent-shell--brief)
+              (title . overlook-agent-shell--title)
               (choices . overlook-agent-shell--choices)
               (session . overlook-agent-shell--session)
               (forked-from . overlook-agent-shell--forked-from)

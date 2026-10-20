@@ -21,7 +21,7 @@ checkout
    ◐ claude  Running the payment tests                 12m  41%
       refund.go +48 −6 api/internal/
       RefundButton.tsx +31 frontend/src/
-   ⚠ codex   ? Run git push                                  18%
+   ▲ codex   ? Run git push                                  18%
 
 main
 ```
@@ -153,7 +153,7 @@ Evil users can bind the same keys in normal state:
 
 ## What the rows show
 
-- An agent: `◐` working, `⚠` waiting for you, `●` finished while you were
+- An agent: `◐` working, `▲` waiting for you, `●` finished while you were
   not looking, `○` idle, `✖` failed; what it is doing; how long its turn has run; how
   much of its context window is used.
 - A failed agent shows its error message and stays marked after you view it,
@@ -166,7 +166,7 @@ Evil users can bind the same keys in normal state:
   from, after `└`, when both are listed under the same perspective;
   otherwise marked `fork`.  Which session each fork came from is kept in
   `overlook-agent-forks-file`, so the tree survives restarts.
-- When an agent turns `⚠`, `✖` or `●` while no Emacs frame has focus, a
+- When an agent turns `▲`, `✖` or `●` while no Emacs frame has focus, a
   desktop notification says so (D-Bus outside macOS).  On macOS it uses
   `terminal-notifier` when installed: clicking the notification raises
   Emacs and, while Emacs runs a server, visits that agent; otherwise it

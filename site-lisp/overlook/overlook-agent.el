@@ -69,7 +69,7 @@ it returns has been registered with `overlook-agent-register'."
 
 (defcustom overlook-agent-status-glyphs
   '((working "◐" warning)
-    (waiting "⚠" error)
+    (waiting "▲" error)
     (failed "✖" error)
     (done "●" success)
     (idle "○" shadow))
@@ -79,6 +79,16 @@ it returns has been registered with `overlook-agent-register'."
 
 (defcustom overlook-agent-context-warning 70
   "Context usage percentage from which an agent's is highlighted."
+  :type 'natnum
+  :group 'overlook)
+
+(defcustom overlook-agent-icons nil
+  "Icons shown in place of agents' names on their rows, keyed by name."
+  :type '(alist :key-type string :value-type string)
+  :group 'overlook)
+
+(defcustom overlook-agent-title-width 30
+  "Columns an agent's session title takes at most on its row."
   :type 'natnum
   :group 'overlook)
 
@@ -117,7 +127,8 @@ it returns has been registered with `overlook-agent-register'."
 Keys: `agent' its name; `root' its directory; `insert' a function
 inserting a string into its input; `context' a function returning its
 context usage percentage or nil; `brief' a function returning a line on
-what it is doing, or nil; `session' a function returning its session id,
+what it is doing, or nil; `title' a function returning its session's
+title, or nil; `session' a function returning its session id,
 or nil; `submit' a function submitting a prompt to it; `ready' a function
 telling whether it can take a prompt now; `reply' a function returning
 its last reply, or nil; `choices' a function returning the answers it
@@ -318,6 +329,7 @@ without terminal-notifier it falls back to osascript."
                                      (frame-list))))
           (option option))
     (let ((perspective (overlook-agent-perspective buffer))
+          (title (overlook-agent--title buffer))
           (brief (overlook-agent--brief buffer)))
       (funcall overlook-agent-notify-function
                (format "%s %s" (or (overlook-agent-get buffer 'agent) "agent")
@@ -325,7 +337,7 @@ without terminal-notifier it falls back to osascript."
                          ('waiting "needs you")
                          ('failed "failed")
                          (_ "finished")))
-               (string-join (delq nil (list perspective brief)) ": ")
+               (string-join (delq nil (list perspective title brief)) ": ")
                buffer))))
 
 (defun overlook-agent--seen-p ()
@@ -644,6 +656,25 @@ the duration ends a column before it, so both line up across agents."
                 (context 5)
                 (t 0)))))
 
+(defun overlook-agent--name-label (buffer)
+  "Agent BUFFER's icon from `overlook-agent-icons', else its name."
+  (let ((name (or (overlook-agent-get buffer 'agent) "agent")))
+    (or (alist-get name overlook-agent-icons nil nil #'equal) name)))
+
+(defun overlook-agent--title (buffer)
+  "Agent BUFFER's session title, as its frontend says, on one line, or nil."
+  (when-let* ((title (overlook-agent-get buffer 'title))
+              (text (with-current-buffer buffer (ignore-errors (funcall title))))
+              (text (string-trim (replace-regexp-in-string "[ \t\n]+" " " text)))
+              ((not (string-empty-p text))))
+    text))
+
+(defun overlook-agent--title-label (title)
+  "TITLE cut to `overlook-agent-title-width', or an empty string."
+  (if title
+      (concat " " (truncate-string-to-width title overlook-agent-title-width nil nil "…"))
+    ""))
+
 (defun overlook-agent--project-label (root perspective)
   "Name of the project at ROOT, dimmed, unless it is PERSPECTIVE's."
   (if (and root (not (equal (and perspective (overlook-perspective-root perspective))
@@ -737,23 +768,27 @@ works, dimmed otherwise."
 
 (defun overlook-agent--row (buffer perspective &optional depth children)
   "Insert the row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
-CHILDREN, a function, inserts the rows of its forks under it.  The
-answers the agent offers you sit on a line of their own under it."
+CHILDREN, a function, inserts the rows of its forks under it.  What it
+is doing shows unless it is idle with no question for you; the answers
+it offers you sit on a line of their own under it."
   (let* ((depth (or depth 0))
          (session (overlook-agent--session buffer))
          (choices (overlook-agent--choices buffer))
+         (title (overlook-agent--title buffer))
          (head (concat overlook-indent (overlook-agent--tree-prefix depth)
                        (overlook-glyph-cell (overlook-agent-glyph buffer))
-                       (or (overlook-agent-get buffer 'agent) "agent")
+                       (overlook-agent--name-label buffer)
                        (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
                                                       overlook-agent-row-marks)))
+                       (overlook-agent--title-label title)
                        (overlook-agent--fork-label session depth)
                        (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)))
          (meta (overlook-agent--meta buffer))
          (brief (overlook-agent--brief buffer))
          (status (buffer-local-value 'overlook-agent-status buffer))
          (line (concat (propertize (concat head
-                                           (if brief
+                                           (if (and brief (or (not (eq status 'idle))
+                                                            (overlook-agent--reply-question buffer)))
                                                (overlook-agent--brief-label buffer brief head (cdr meta))
                                              "")
                                            (car meta)
@@ -769,6 +804,7 @@ answers the agent offers you sit on a line of their own under it."
                          `( overlook-item ,(cons 'agent buffer)
                             overlook-action ,(lambda () (overlook-agent-visit buffer))
                             help-echo ,(concat (buffer-name buffer)
+                                               (if title (concat "\n" title) "")
                                                (if brief (concat "\n" brief) "")
                                                (overlook-agent--fork-echo session))
                             wrap-prefix ,(concat overlook-agent--wrap-indent
