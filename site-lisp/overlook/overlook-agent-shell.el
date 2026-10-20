@@ -82,6 +82,10 @@ path of its transcript."
 (defvar-local overlook-agent-shell--reply ""
   "What the agent has said since its latest tool call this turn.")
 
+(defvar-local overlook-agent-shell--reply-over nil
+  "Non-nil once the reply's turn is over, so the agent's next words start anew.
+Turns the agent begins on its own have no prompt to reset it.")
+
 (defun overlook-agent-shell--set-brief (var value)
   "Set brief source VAR to VALUE, and redraw the dashboard on a new value."
   (unless (equal (symbol-value var) value)
@@ -177,26 +181,22 @@ other form is answered in the shell."
         (overlook-agent-shell--questions
          (overlook-agent-shell--question-choices (caar overlook-agent-shell--questions)))))
 
-(defun overlook-agent-shell--track-plan (notification)
-  "Remember the plan entry in progress carried by NOTIFICATION."
-  (when (equal (map-nested-elt notification '(params update sessionUpdate)) "plan")
-    (let ((entries (map-nested-elt notification '(params update entries))))
-      (overlook-agent-shell--set-brief
-       'overlook-agent-shell--plan-step
-       (when-let* (((sequencep entries))
-                   (entry (seq-find (lambda (entry)
-                                      (equal (map-elt entry 'status) "in_progress"))
-                                    entries)))
-         (or (map-elt entry 'content) (map-elt entry 'step)))))))
+(defun overlook-agent-shell--update-plan (entries)
+  "Remember the plan entry in progress among ENTRIES."
+  (overlook-agent-shell--set-brief
+   'overlook-agent-shell--plan-step
+   (when-let* (((sequencep entries))
+               (entry (seq-find (lambda (entry)
+                                  (equal (map-elt entry 'status) "in_progress"))
+                                entries)))
+     (or (map-elt entry 'content) (map-elt entry 'step)))))
 
-(defun overlook-agent-shell--track-reply (notification)
-  "Collect the agent's words in NOTIFICATION, restarting at each tool call."
-  (pcase (map-nested-elt notification '(params update sessionUpdate))
-    ("tool_call" (setq overlook-agent-shell--reply ""))
-    ("agent_message_chunk"
-     (when-let* ((text (map-nested-elt notification '(params update content text)))
-                 ((stringp text)))
-       (setq overlook-agent-shell--reply (concat overlook-agent-shell--reply text))))))
+(defun overlook-agent-shell--add-reply (text)
+  "Add TEXT to the agent's words, starting anew after a turn is over."
+  (when (stringp text)
+    (setq overlook-agent-shell--reply
+          (concat (if overlook-agent-shell--reply-over "" overlook-agent-shell--reply) text)
+          overlook-agent-shell--reply-over nil)))
 
 (defun overlook-agent-shell--last-reply ()
   "The agent's final words of its latest turn, for its `reply' identity."
@@ -254,6 +254,7 @@ Prefers its description, as the title of a shell command is the command."
                                    (map-nested-elt event '(:data :request-id))))
     ;; Nothing waits on a turn that is over.
     ('turn-complete
+     (setq overlook-agent-shell--reply-over t)
      (overlook-agent-shell--set-brief 'overlook-agent-shell--asking nil)
      (overlook-agent-shell--set-brief 'overlook-agent-shell--questions nil))
     ;; agent-shell sets the session id after announcing it.
@@ -278,17 +279,32 @@ Prefers its description, as the title of a shell command is the command."
     (when (and used size (> size 0))
       (round (* 100.0 used) size))))
 
-(defun overlook-agent-shell--save-usage (notification)
-  "Save Claude's plan usage windows carried by NOTIFICATION.
-claude-agent-acp forwards them in the `_meta' of usage updates."
-  (when-let* (((fboundp 'overlook-usage-save-claude))
-              (windows (map-nested-elt notification
-                                       '(params update _meta _claude/rateLimit unifiedWindows))))
+(defun overlook-agent-shell--save-plan-usage (windows)
+  "Save Claude's plan usage WINDOWS."
+  (when (and windows (fboundp 'overlook-usage-save-claude))
     (overlook-usage-save-claude
      (mapcar (pcase-lambda (`(,key . ,window))
                `(,key (used_percentage . ,(round (* 100 (or (map-elt window 'utilization) 0))))
                       (resets_at . ,(map-elt window 'resetsAt))))
              windows))))
+
+(defun overlook-agent-shell--on-notification (notification)
+  "Track the session update in ACP NOTIFICATION."
+  (let ((update (map-nested-elt notification '(params update))))
+    (pcase (map-elt update 'sessionUpdate)
+      ("plan" (overlook-agent-shell--update-plan (map-elt update 'entries)))
+      ("tool_call" (setq overlook-agent-shell--reply ""
+                         overlook-agent-shell--reply-over nil))
+      ("agent_message_chunk"
+       (overlook-agent-shell--add-reply (map-nested-elt update '(content text))))
+      ("usage_update"
+       (overlook-agent-shell--save-plan-usage
+        (map-nested-elt update '(_meta _claude/rateLimit unifiedWindows)))
+       ;; claude-agent-acp sends usage with a cost at the end of every turn,
+       ;; while agent-shell completes only the turns a prompt started.
+       (when (and (map-elt update 'cost) (overlook-agent-turn-open-p)
+                  (not (shell-maker-busy)))
+         (overlook-agent-shell--on-event '((:event . turn-complete))))))))
 
 (defun overlook-agent-shell--insert (text)
   "Insert TEXT at this shell's prompt without submitting it."
@@ -366,10 +382,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (reply . overlook-agent-shell--last-reply)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
       (when-let* ((client (map-elt agent-shell--state :client)))
-        (dolist (handler '(overlook-agent-shell--save-usage overlook-agent-shell--track-plan
-                           overlook-agent-shell--track-reply))
-          (acp-subscribe-to-notifications :client client :buffer buffer
-                                          :on-notification handler)))
+        (acp-subscribe-to-notifications :client client :buffer buffer
+                                        :on-notification #'overlook-agent-shell--on-notification))
       (overlook-agent-register buffer (car origin)))))
 
 (defun overlook-agent-shell-start (name root &optional fresh session)

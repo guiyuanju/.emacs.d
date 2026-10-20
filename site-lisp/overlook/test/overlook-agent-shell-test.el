@@ -120,6 +120,36 @@ each environment gathered says how many were gathered so far."
         (should-not overlook-agent-turn)
         (should (= ended 1))))))
 
+(ert-deftest overlook-agent-shell-ends-a-turn-the-agent-began-itself ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let ((overlook-agent-notify nil)
+          (overlook-perspectives-function #'ignore)
+          (busy t)
+          (usage '((params (update (sessionUpdate . "usage_update") (cost (amount . 0.1)))))))
+      (cl-flet ((reply (text)
+                  (overlook-agent-shell--on-notification
+                   `((params (update (sessionUpdate . "agent_message_chunk")
+                                     (content (text . ,text))))))
+                  (overlook-agent-shell--on-event '((:event . agent-message-chunk)))))
+        (cl-letf (((symbol-function 'shell-maker-busy) (lambda () busy)))
+          (overlook-agent-shell--on-event '((:event . input-submitted)))
+          (reply "Waiting on the build.")
+          (overlook-agent-shell--on-notification usage)
+          (should (eq overlook-agent-status 'working))
+          (overlook-agent-shell--on-event '((:event . turn-complete)))
+          (should (equal (overlook-agent--brief buffer) "Waiting on the build."))
+          (setq busy nil)
+          (reply "The build passed.")
+          (should (eq overlook-agent-status 'working))
+          (overlook-agent-shell--on-notification
+           '((params (update (sessionUpdate . "usage_update") (used . 10)))))
+          (should (eq overlook-agent-status 'working))
+          (overlook-agent-shell--on-notification usage)
+          (should (eq overlook-agent-status 'done))
+          (should (cdr overlook-agent-turn))
+          (should (equal (overlook-agent--brief buffer) "The build passed.")))))))
+
 (ert-deftest overlook-agent-shell-startup-failure-has-a-fallback-message ()
   (overlook-agent-shell-test-with-shell 'claude-code
     (let ((overlook-agent-notify nil))
@@ -149,11 +179,11 @@ each environment gathered says how many were gathered so far."
     (let ((overlook-agent-notify nil)
           (overlook-perspectives-function #'ignore)
           (reply (lambda (text)
-                   (overlook-agent-shell--track-reply
+                   (overlook-agent-shell--on-notification
                     `((params (update (sessionUpdate . "agent_message_chunk")
                                       (content (text . ,text))))))))
           (tool (lambda (title)
-                  (overlook-agent-shell--track-reply
+                  (overlook-agent-shell--on-notification
                    '((params (update (sessionUpdate . "tool_call")))))
                   (overlook-agent-shell--on-event
                    `((:event . tool-call-update) (:data (:tool-call (:title . ,title))))))))

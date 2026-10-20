@@ -142,6 +142,10 @@ unseen.  `failed' persists until the next turn starts.")
 END is nil while the turn runs.")
 (put 'overlook-agent-turn 'permanent-local t)
 
+(defun overlook-agent-turn-open-p ()
+  "Non-nil while the current agent's latest turn runs."
+  (and overlook-agent-turn (null (cdr overlook-agent-turn))))
+
 (defvar-local overlook-agent-context nil
   "Percentage of the agent's context window in use, or nil when unknown.")
 (put 'overlook-agent-context 'permanent-local t)
@@ -339,13 +343,11 @@ turn ends starts another, which `overlook-agent-turn' times and
 of a resumed session's history, which reads as work but was none."
   ;; Turns follow events, not statuses: glancing at an agent waiting for
   ;; approval resets it to idle, yet approving does not start a new turn.
-  (let ((started (and (eq event 'working)
-                      (or (null overlook-agent-turn) (cdr overlook-agent-turn)))))
+  (let ((started (and (eq event 'working) (not (overlook-agent-turn-open-p)))))
     (when started
       (setq overlook-agent-turn (list (float-time)))
       (run-hooks 'overlook-agent-turn-start-hook))
-    (when (and (memq event '(finished failed restored))
-               overlook-agent-turn (null (cdr overlook-agent-turn)))
+    (when (and (memq event '(finished failed restored)) (overlook-agent-turn-open-p))
       (setcdr overlook-agent-turn (float-time))
       (run-hooks 'overlook-agent-turn-end-hook))
     (pcase event
