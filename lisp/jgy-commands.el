@@ -11,6 +11,8 @@
 (declare-function ghostel "ghostel")
 (declare-function ghostel-project "ghostel")
 (declare-function ghostel-project-buffer-list "ghostel")
+(declare-function ediff-recenter "ediff-util")
+(defvar ediff-mode-map)
 (defvar ghostel-buffer-name)
 
 (defun jgy-delete-this-file (&optional force)
@@ -123,6 +125,10 @@ Other prompts during quitting are still asked."
                  (or (string-prefix-p "Quit this Ediff session" prompt)
                      (funcall ask prompt)))))
       (apply quit args))))
+
+(defun jgy-ediff-bind-recenter ()
+  "Bind zz in the Ediff control panel to restore the windows and current diff."
+  (define-key ediff-mode-map "zz" #'ediff-recenter))
 
 (provide 'jgy-commands)
 ;;; jgy-commands.el ends here

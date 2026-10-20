@@ -650,7 +650,9 @@
   (ediff-window-setup-function #'ediff-setup-windows-plain)
   (ediff-split-window-function #'split-window-horizontally)
   :config
-  (advice-add 'ediff-quit :around #'jgy-ediff-quit-without-asking))
+  (advice-add 'ediff-quit :around #'jgy-ediff-quit-without-asking)
+  ;; 排在 evil-collection 之后，它每个会话都重建按键。
+  (add-hook 'ediff-keymap-setup-hook #'jgy-ediff-bind-recenter 90))
 
 (use-package magit
   :custom
