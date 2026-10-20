@@ -303,12 +303,13 @@ A buffer shown in several perspectives belongs to the one of its project."
 
 (defun overlook-agent-report (event)
   "Update the current agent buffer's status for EVENT.
-EVENT is `working', `finished', `failed' or `attention'.  Completion and
-attention depend on whether the agent is shown in the selected window,
-and a turn whose reply ends with a question waits for an answer;
-failure stays visible until work starts again.  `working' after a turn
-ends starts another, which `overlook-agent-turn' times and
-`overlook-agent-turn-start-hook' announces."
+EVENT is `working', `finished', `failed', `attention' or `restored'.
+Completion and attention depend on whether the agent is shown in the
+selected window, and a turn whose reply ends with a question waits for an
+answer; failure stays visible until work starts again.  `working' after a
+turn ends starts another, which `overlook-agent-turn' times and
+`overlook-agent-turn-start-hook' announces.  `restored' follows the replay
+of a resumed session's history, which reads as work but was none."
   ;; Turns follow events, not statuses: glancing at an agent waiting for
   ;; approval resets it to idle, yet approving does not start a new turn.
   (let ((started (and (eq event 'working)
@@ -316,11 +317,14 @@ ends starts another, which `overlook-agent-turn' times and
     (when started
       (setq overlook-agent-turn (list (float-time)))
       (run-hooks 'overlook-agent-turn-start-hook))
-    (when (and (memq event '(finished failed))
+    (when (and (memq event '(finished failed restored))
                overlook-agent-turn (null (cdr overlook-agent-turn)))
       (setcdr overlook-agent-turn (float-time))
       (run-hooks 'overlook-agent-turn-end-hook))
     (pcase event
+      ('restored
+       (setq overlook-agent-turn nil)
+       (overlook-agent--set-status 'idle))
       ('finished (unless (eq overlook-agent-status 'failed)
                    (overlook-agent--set-status
                     (cond ((overlook-agent--seen-p) 'idle)

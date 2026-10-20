@@ -264,6 +264,7 @@ Prefers its description, as the title of a shell command is the command."
      (overlook-agent-report 'working))
     ((or 'permission-request 'elicitation-request) (overlook-agent-report 'attention))
     ('turn-complete (overlook-agent-report 'finished))
+    ('session-restored (overlook-agent-report 'restored))
     ('error
      (setq overlook-agent-error
            (or (map-nested-elt event '(:data :message)) "Agent request failed"))

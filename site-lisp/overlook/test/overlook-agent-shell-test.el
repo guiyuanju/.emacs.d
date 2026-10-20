@@ -106,6 +106,20 @@ each environment gathered says how many were gathered so far."
         (should (eq overlook-agent-status 'done))
         (should (= ended 2))))))
 
+(ert-deftest overlook-agent-shell-restored-session-is-idle ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (let ((ended 0)
+          (overlook-agent-notify nil))
+      (let ((overlook-agent-turn-end-hook (list (lambda () (cl-incf ended))))
+            (overlook-perspectives-function #'ignore))
+        (overlook-agent-shell--on-event '((:event . agent-message-chunk)))
+        (overlook-agent-shell--on-event '((:event . tool-call-update)))
+        (should (eq overlook-agent-status 'working))
+        (overlook-agent-shell--on-event '((:event . session-restored)))
+        (should (eq overlook-agent-status 'idle))
+        (should-not overlook-agent-turn)
+        (should (= ended 1))))))
+
 (ert-deftest overlook-agent-shell-startup-failure-has-a-fallback-message ()
   (overlook-agent-shell-test-with-shell 'claude-code
     (let ((overlook-agent-notify nil))
