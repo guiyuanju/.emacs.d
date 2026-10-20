@@ -726,6 +726,10 @@
                  . ("uv" "run" "--with" "pygls<2" "sqlmesh_lsp")))
   (add-to-list 'eglot-server-programs
                '(swift-mode . ("xcrun" "sourcekit-lsp")))
+  ;; jdtls 要 Java 21+，sdkman 的 JAVA_HOME 可能是项目用的旧版本。
+  (add-to-list 'eglot-server-programs
+               '((java-mode java-ts-mode)
+                 . ("jdtls" "--java-executable" "/opt/homebrew/opt/openjdk/bin/java")))
   (with-eval-after-load 'evil
     (evil-define-minor-mode-key 'normal 'eglot--managed-mode
       (kbd "K") #'eldoc-doc-buffer
@@ -864,10 +868,10 @@
 (use-package overlook
   :ensure nil
   :load-path "site-lisp/overlook"
-  :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
-             overlook-agent-project-root overlook-perspective-guess-root)
   ;; 点击 agent 通知时回到 Emacs 并跳到该 agent。
   :ensure-system-package terminal-notifier
+  :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
+             overlook-agent-project-root overlook-perspective-guess-root)
   :hook (overlook-mode . pulsar-mode)
   :custom
   (overlook-side 'left)
