@@ -481,6 +481,7 @@
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
     "gm" '(jgy-browse-mr :which-key "merge request")
+    "gM" '(jgy-review-mr :which-key "review merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
@@ -619,6 +620,10 @@
 (use-package jgy-gitlab
   :ensure nil
   :commands jgy-browse-mr)
+
+(use-package jgy-review
+  :ensure nil
+  :commands (jgy-review-mr jgy-review-add-mr jgy-review-edit))
 
 ;;; Files and Git
 
