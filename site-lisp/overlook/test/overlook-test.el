@@ -603,6 +603,41 @@ Agents are listed; usage and repos are not."
                  '("main" ("a" "??"))))
   (should (equal (overlook-project--parse "## HEAD (no branch)\0") '("detached"))))
 
+(ert-deftest overlook-project-folds-a-rename-into-its-new-path ()
+  (should (equal (overlook-project--parse
+                  "## HEAD (no branch)\0D  old/a.el\0 A new/a.el\0 M b.el\0"
+                  "2\t1\t\0old/a.el\0new/a.el\0003\t0\tb.el\0")
+                 '("detached" ("new/a.el" " R" 2 1 "old/a.el") ("b.el" " M" 3 0))))
+  (should (string-search " ← old/"
+                         (overlook-project--file-label '("new/a.el" " R" 2 1 "old/a.el"))))
+  (should (equal (overlook-project--old-path "src/x/form/a.el" "src/x/dto/a.el") "form/"))
+  (should (equal (overlook-project--old-path "src/a.el" "src/b.el") "a.el"))
+  (should (equal (overlook-project--old-path "src/f/a.el" "src/g/b.el") "f/a.el"))
+  (should (equal (overlook-project--old-path "a.el" "src/a.el") "a.el"))
+  (require 'magit-ediff)
+  (let (compared)
+    (cl-letf (((symbol-function 'magit-ediff-compare)
+               (lambda (&rest args) (setq compared args))))
+      (overlook-project-open-file temporary-file-directory '("new/a.el" " R" 2 1 "old/a.el")))
+    (should (equal compared '("HEAD" "{worktree}" "old/a.el" "new/a.el")))))
+
+(ert-deftest overlook-project-treats-added-files-as-new ()
+  (should (string-search " new" (overlook-project--file-label '("a" " A" 2 0))))
+  (should (string-search " new" (overlook-project--file-label '("a" "A " 2 0))))
+  (should (string-search " deleted" (overlook-project--file-label '("a" "AD"))))
+  ;; Loaded first, or opening a file loads it over the stubs.
+  (require 'magit-ediff)
+  (let (opened)
+    (cl-letf (((symbol-function 'find-file) (lambda (path) (push (list 'visit path) opened)))
+              ((symbol-function 'magit-diff-working-tree)
+               (lambda (_rev _args files) (push (cons 'diff files) opened)))
+              ((symbol-function 'magit-ediff-show-working-tree)
+               (lambda (path) (push (list 'ediff path) opened))))
+      (dolist (file '(("n" " A") ("u" "??") ("g" "AD") ("m" " M")))
+        (overlook-project-open-file temporary-file-directory file)))
+    (should (equal (reverse opened)
+                   '((visit "n") (visit "u") (diff "g") (ediff "m"))))))
+
 (ert-deftest overlook-project-finds-root-and-nested-repos ()
   (let ((root (make-temp-file "overlook-project" t)))
     (unwind-protect

@@ -46,6 +46,7 @@
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
 (declare-function magit-ediff-show-working-tree "magit-ediff")
+(declare-function magit-ediff-compare "magit-ediff")
 (declare-function magit--git-wash "magit-git")
 (declare-function magit-diff-wash-diffs "magit-diff")
 (declare-function vc-version-ediff "vc")
@@ -84,9 +85,10 @@ folder that is a repo itself is listed as one."
 
 (defvar overlook-project--status (make-hash-table :test #'equal)
   "Repo or folder directory to (TIME BRANCH . FILES), as last read.
-Each of FILES is (PATH CODE ADDED REMOVED): PATH relative to the repo,
-CODE its two-letter `git status' code, and line counts since the last
-commit, nil when unknown.")
+Each of FILES is (PATH CODE ADDED REMOVED FROM): PATH relative to the
+repo, CODE its two-letter `git status' code, line counts since the last
+commit, nil when unknown, and for a renamed file the path it had there.
+A rename's CODE has R in place of the A of its new path.")
 
 (defvar overlook-project--reading (make-hash-table :test #'equal)
   "Repo directories whose status is being read.")
@@ -94,10 +96,30 @@ commit, nil when unknown.")
 (defvar overlook-project--shown nil
   "Repos and folders of the perspectives as last drawn, shown or clean.")
 
+(defun overlook-project--numstat (numstat)
+  "Line counts in NUMSTAT, from `git diff HEAD --numstat -M -z'.
+Each is (PATH ADDED REMOVED), with the old path after them for a rename."
+  (let ((fields (split-string (or numstat "") "\0" t))
+        counts)
+    (while fields
+      (when (string-match "\\`\\([0-9-]+\\)\t\\([0-9-]+\\)\t\\(.*\\)" (car fields))
+        (let ((added (string-to-number (match-string 1 (car fields))))
+              (removed (string-to-number (match-string 2 (car fields))))
+              (path (match-string 3 (car fields))))
+          ;; A rename leaves the path empty and gives the old and new paths after it.
+          (push (if (string-empty-p path)
+                    (prog1 (list (nth 2 fields) added removed (nth 1 fields))
+                      (setq fields (cddr fields)))
+                  (list path added removed))
+                counts)))
+      (setq fields (cdr fields)))
+    counts))
+
 (defun overlook-project--parse (status &optional numstat)
   "Branch and changed files from STATUS and NUMSTAT outputs.
-STATUS is from `git status --porcelain --branch -z', NUMSTAT from
-`git diff HEAD --numstat -z'; both list paths without renames."
+STATUS is from `git status --porcelain --branch --no-renames -z', NUMSTAT
+from `git diff HEAD --numstat -M -z'.  A rename NUMSTAT finds folds the
+old path's deletion into the new path's entry."
   (let* ((entries (split-string status "\0" t))
          (head (car entries))
          (branch (cond ((null head) nil)
@@ -106,17 +128,19 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
                        ((string-match "\\`## \\(HEAD\\) (no branch)" head) "detached")
                        ((string-match "\\`## \\([^.[:space:]]+\\)" head)
                         (match-string 1 head))))
-         (counts (mapcar (lambda (line)
-                           (when (string-match "\\`\\([0-9-]+\\)\t\\([0-9-]+\\)\t\\(.+\\)" line)
-                             (list (match-string 3 line)
-                                   (string-to-number (match-string 1 line))
-                                   (string-to-number (match-string 2 line)))))
-                         (split-string (or numstat "") "\0" t))))
+         (counts (overlook-project--numstat numstat))
+         (from (delq nil (mapcar (lambda (count) (nth 3 count)) counts))))
     (cons branch
-          (mapcar (lambda (entry)
-                    (let ((path (substring entry 3)))
-                      (cons path (cons (substring entry 0 2) (cdr (assoc path counts))))))
-                  (cdr entries)))))
+          (delq nil
+                (mapcar (lambda (entry)
+                          (let* ((path (substring entry 3))
+                                 (code (substring entry 0 2))
+                                 (count (cdr (assoc path counts))))
+                            (cond ((member path from) nil)
+                                  ((nth 2 count)
+                                   (cons path (cons (string-replace "A" "R" code) count)))
+                                  (t (cons path (cons code count))))))
+                        (cdr entries))))))
 
 (defun overlook-project-root-folder (name)
   "Perspective NAME's root."
@@ -165,7 +189,7 @@ STATUS is from `git status --porcelain --branch -z', NUMSTAT from
              (remhash dir overlook-project--reading)
            ;; Fails before the first commit, leaving the counts unknown.
            (overlook-project--git
-            top `("diff" "HEAD" "--numstat" "--no-renames" "-z" ,@paths)
+            top `("diff" "HEAD" "--numstat" "-M" "-z" ,@paths)
             (lambda (numstat)
               (remhash dir overlook-project--reading)
               (let ((old (cdr (gethash dir overlook-project--status)))
@@ -194,17 +218,24 @@ without it."
           (changed (vc-root-diff nil))
           (t (vc-dir dir)))))
 
+(defun overlook-project--new-p (code)
+  "Non-nil when status CODE is of a file not in the last commit.
+That is an untracked or added one, intent-to-add included."
+  (or (equal code "??") (string-search "A" code)))
+
 (defun overlook-project-open-file (dir file)
   "Compare FILE of repo DIR with its last commit in Ediff.
-FILE is an entry of DIR's status; an untracked file is visited instead,
-and a deleted one shown as a diff."
+FILE is an entry of DIR's status; a renamed one is compared with its old
+path, a deleted one shown as a diff, and a new one visited instead."
   (pcase-let ((default-directory (or (overlook-project--top dir) dir))
-              (`(,path ,code . ,_) file))
-    (cond ((equal code "??") (find-file path))
+              (`(,path ,code ,_ ,_ ,from) file))
+    (cond ((and from (require 'magit-ediff nil t))
+           (magit-ediff-compare "HEAD" "{worktree}" from path))
           ((string-search "D" code)
            (if (fboundp 'magit-diff-working-tree)
                (magit-diff-working-tree "HEAD" nil (list path))
              (vc-root-diff nil)))
+          ((overlook-project--new-p code) (find-file path))
           ((require 'magit-ediff nil t) (magit-ediff-show-working-tree path))
           (t (vc-version-ediff (list (expand-file-name path)) "HEAD" nil)))))
 
@@ -223,12 +254,23 @@ and a deleted one shown as a diff."
   (cons (apply #'+ (mapcar (lambda (file) (or (nth 2 file) 0)) files))
         (apply #'+ (mapcar (lambda (file) (or (nth 3 file) 0)) files))))
 
+(defun overlook-project--old-path (from path)
+  "The part of FROM, a renamed file's old path, that differs from its new PATH.
+Their common folders are left out, and the name when only folders changed."
+  (let ((old (split-string from "/")) (new (split-string path "/")))
+    (while (and (cdr old) (cdr new) (equal (car old) (car new)))
+      (setq old (cdr old) new (cdr new)))
+    (if (and (cdr old) (equal (car (last old)) (car (last new))))
+      (concat (string-join (butlast old) "/") "/")
+      (string-join old "/"))))
+
 (defun overlook-project--file-label (file &optional prefix)
   "FILE's name, its line counts or state, then its directory below PREFIX."
-  (pcase-let* ((`(,path ,code ,added ,removed) file)
+  (pcase-let* ((`(,path ,code ,added ,removed ,from) file)
                (dir (file-name-directory (if prefix (file-relative-name path prefix) path)))
-               (state (cond ((equal code "??") " new")
-                            ((string-search "D" code) " deleted"))))
+               (state (cond (from (concat " ← " (overlook-project--old-path from path)))
+                            ((string-search "D" code) " deleted")
+                            ((overlook-project--new-p code) " new"))))
     (concat (propertize (file-name-nondirectory path) 'face 'overlook-project-file)
             (overlook-project--counts added removed)
             (if state (propertize state 'face 'shadow) "")
@@ -239,13 +281,15 @@ and a deleted one shown as a diff."
 ACTION replaces Magit's keys on it, which expect a Magit buffer of DIR."
   (require 'magit)
   (pcase-let ((default-directory (or (overlook-project--top dir) dir))
-              (`(,path ,code . ,_) file)
+              (`(,path ,code ,_ ,_ ,from) file)
               (start (point)))
     (magit-insert-section (overlook-project-diff path)
       ;; An untracked file's diff against /dev/null exits with 1.
       (magit--git-wash #'magit-diff-wash-diffs 'wash-anyway
         "diff" "--no-prefix"
-        (if (equal code "??") (list "--no-index" "--" null-device path) (list "HEAD" "--" path))))
+        (cond ((equal code "??") (list "--no-index" "--" null-device path))
+              (from (list "-M" "HEAD" "--" from path))
+              (t (list "HEAD" "--" path)))))
     (remove-list-of-text-properties start (point) '(keymap))
     (put-text-property start (point) 'overlook-action action)))
 
