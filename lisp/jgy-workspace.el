@@ -838,23 +838,22 @@ section."
 (defun jgy-workspace--todo-groups (cards current)
   "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT.
 Each counts the card's open #now, #waiting and top-level todos and lists
-them folded, leaving out #now todos; a card with nothing but #now gets
-no group."
+them folded, leaving out #now todos."
   (delq nil
         (mapcar (lambda (card)
-                  (when-let* ((todos (cdr (jgy-workspace--todo-take-now (plist-get card :todos)))))
+                  (when-let* ((todos (plist-get card :todos)))
                     (list (plist-get card :id) (plist-get card :file)
                           (equal (plist-get card :id) current)
-                          (jgy-workspace--todo-sort todos) (plist-get card :id)
-                          (let* ((all (plist-get card :todos))
-                                 (top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) all)))
+                          (jgy-workspace--todo-sort (cdr (jgy-workspace--todo-take-now todos)))
+                          (plist-get card :id)
+                          (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
                                  (rank (lambda (n) (seq-count (lambda (todo) (= (jgy-workspace--todo-rank (car todo)) n))
-                                                              all))))
+                                                              todos))))
                             (mapconcat #'identity
                                        (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
                                                        (and (> (funcall rank 1) 0) (format "◷%d" (funcall rank 1)))
                                                        (number-to-string
-                                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) all))))
+                                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) todos))))
                                        " "))
                           t)))
                 cards)))
