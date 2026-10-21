@@ -29,8 +29,6 @@
 (keymap-global-set "s-j" (lambda () (interactive) (other-window 1)))
 (keymap-global-set "s-k" (lambda () (interactive) (other-window -1)))
 (fringe-mode 0)
-;; Line numbers are off by default; use `jgy-toggle-line-numbers' (SPC t l) per buffer.
-(setq display-line-numbers nil)
 
 ;; A minimal mode line: modified flag, buffer, line, branch, and major mode.
 ;; No mule/remote/frame info, minor-mode lighters, or misc info.  Evil inserts
@@ -150,6 +148,7 @@
   (setq use-package-always-ensure t)
   (elpaca-use-package-mode))
 (elpaca-wait)
+(require 'use-package-ensure-system-package)
 
 ;;; Environment
 
@@ -354,7 +353,6 @@
   (pulsar-global-mode 1))
 
 ;; 离开 insert 时经 macism 切到英文输入法；只保留这一项，不轮询系统输入法。
-(require 'use-package-ensure-system-package)
 (use-package sis
   :after evil
   :ensure-system-package (macism . "brew install laishulu/homebrew/macism")
@@ -378,7 +376,7 @@
 
 (use-package jgy-notes
   :ensure nil
-  :demand t)
+  :commands (jgy-notes-new jgy-notes-daily jgy-notes-find jgy-notes-search))
 
 ;;; Keybindings
 
@@ -405,7 +403,7 @@
     "'"   '(jgy-ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
-    "x"   '((lambda () (interactive) (switch-to-buffer "*scratch*")) :which-key "scratch")
+    "x"   '(scratch-buffer :which-key "scratch")
 
     "TAB"     '(:ignore t :which-key "perspective")
     "TAB TAB" '(jgy-workspace-switch-perspective :which-key "switch")
@@ -420,7 +418,7 @@
     "TAB ]"   '(persp-next :which-key "next")
     "TAB `"   '(persp-switch-last :which-key "last")
     "TAB d"   '(persp-kill :which-key "close")
-    "TAB r"   '(persp-rename :which-key "rename")
+    "TAB R"   '(persp-rename :which-key "rename")
     "TAB a"   '(persp-add-buffer :which-key "add buffer")
     "TAB k"   '(persp-remove-buffer :which-key "remove buffer")
 
@@ -640,7 +638,6 @@
 
 (use-package dired
   :ensure nil
-  :hook (dired-mode . (lambda () (display-line-numbers-mode -1)))
   :config
   (with-eval-after-load 'evil
     (evil-define-key* 'normal dired-mode-map ";" #'dired-up-directory))
@@ -651,7 +648,6 @@
     (setq dired-listing-switches "-alh")))
 
 (use-package transient
-  :ensure t
   :demand t)
 
 (use-package ediff
@@ -839,7 +835,6 @@
 ;; agent 用 agent-shell 自己的命令启动，overlook 接管每个 agent-shell buffer 并按 perspective 分组显示在看板上。
 
 (use-package agent-shell
-  :defer t
   :commands (agent-shell-anthropic-start-claude-code agent-shell-openai-start-codex)
   :custom
   (agent-shell-header-style 'text)
@@ -943,18 +938,18 @@
   (global-sdkman-mode 1))
 
 (use-package elfeed
-  :ensure t
+  :custom
+  (elfeed-feeds
+   '(("https://catcoding.me/atom.xml" cat)
+     ("https://news.ycombinator.com/rss" hacker)
+     ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
+     ("https://sspai.com/feed" :fetch-link t :readable t sspai)
+     ("https://claude.dev/rss.xml" claude)
+     ("https://t3.at/rss.xml" t3)))
   :init
   (require 'jgy-elfeed)
   (add-hook 'evil-collection-setup-hook #'jgy-elfeed-evil-keys)
-  (advice-add 'elfeed-show-refresh :before #'jgy-elfeed-show-set-referer)
-  (setq elfeed-feeds
-      '(("https://catcoding.me/atom.xml" cat)
-        ("https://news.ycombinator.com/rss" hacker)
-        ("https://www.nhk.or.jp/rss/news/cat0.xml" nhk)
-        ("https://sspai.com/feed" :fetch-link t :readable t sspai)
-        ("https://claude.dev/rss.xml" claude)
-        ("https://t3.at/rss.xml" t3))))
+  (advice-add 'elfeed-show-refresh :before #'jgy-elfeed-show-set-referer))
 
 (use-package gptel
   :defer t)

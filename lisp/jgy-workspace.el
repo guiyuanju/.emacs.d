@@ -494,15 +494,21 @@ Refuse to save over unsaved user edits or external file changes."
           (insert (if repos "\n  ]\n" "]\n"))
           (save-buffer))))))
 
+(defun jgy-workspace--add-repo (repos path url)
+  "Return REPOS with PATH and URL appended, unchanged when PATH is listed.
+Signal a `user-error' when PATH is listed with another URL."
+  (if-let* ((entry (seq-find (lambda (repo) (equal (alist-get 'path repo) path)) repos)))
+      (if (equal (alist-get 'url entry) url)
+          repos
+        (user-error "Repo %s already registered with another URL" path))
+    (append repos (list `((path . ,path) (url . ,url))))))
+
 (defun jgy-workspace--register-repo (root path url)
   "Register PATH and URL in ROOT after a successful clone."
   (let* ((repos (jgy-workspace--read-repos root))
-         (entry (seq-find (lambda (repo) (equal (alist-get 'path repo) path)) repos)))
-    (if entry
-        (unless (equal (alist-get 'url entry) url)
-          (user-error "Repo %s already registered with another URL" path))
-      (jgy-workspace--write-repos
-       root (append repos (list `((path . ,path) (url . ,url))))))))
+         (new (jgy-workspace--add-repo repos path url)))
+    (unless (eq new repos)
+      (jgy-workspace--write-repos root new))))
 
 (defun jgy-workspace--clone-entries (root repos &optional register)
   "Clone REPOS into ROOT sequentially, optionally REGISTER on success.
@@ -578,13 +584,9 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
          (repos (jgy-workspace--read-repos root)))
     (dolist (dir (directory-files root t directory-files-no-dot-files-regexp))
       (when (and (file-directory-p dir) (file-exists-p (expand-file-name ".git" dir)))
-        (let* ((path (file-name-nondirectory dir))
-               (url (car (process-lines "git" "-C" dir "remote" "get-url" "origin")))
-               (entry (seq-find (lambda (r) (equal (alist-get 'path r) path)) repos)))
-          (if entry
-              (unless (equal (alist-get 'url entry) url)
-                (user-error "Origin differs from manifest for %s" path))
-            (setq repos (append repos (list `((path . ,path) (url . ,url)))))))))
+        (setq repos (jgy-workspace--add-repo
+                     repos (file-name-nondirectory dir)
+                     (car (process-lines "git" "-C" dir "remote" "get-url" "origin"))))))
     (jgy-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
@@ -634,9 +636,8 @@ any project, return the version-control root."
 
 (defun jgy-workspace-perspective-workspace (name)
   "Name of the workspace holding project NAME, or nil."
-  (when-let* ((dir (jgy-workspace-project-dir name)))
-    (file-name-nondirectory (directory-file-name (file-name-parent-directory
-                                                  (file-name-parent-directory dir))))))
+  (when-let* ((file (cdr (assoc name (jgy-workspace--projects)))))
+    (jgy-workspace--file-workspace file)))
 
 ;;; Dashboard todos
 
