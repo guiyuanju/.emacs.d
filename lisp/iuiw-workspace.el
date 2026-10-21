@@ -17,7 +17,7 @@
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
 ;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
-;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
+;; status 为 later 的项目排在最后，收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
 
@@ -870,7 +870,8 @@ them folded, leaving out #now todos."
 (defun iuiw-workspace--todo-section ()
   "Insert a Todo section with every ongoing project's open todos.
 The #now todos of all of them come first, in a \"#now\" group.  Projects
-with status later go last, under a folded \"later projects\" line."
+with status later go last, under a folded \"later\" line, and then the
+done projects under a folded \"done\" line."
   (let ((current (overlook-current-perspective)))
     (overlook-insert-section
      "Todo"
@@ -879,17 +880,33 @@ with status later go last, under a folded \"later projects\" line."
               (later-p (lambda (card) (equal (plist-get card :status) "later")))
               (now (iuiw-workspace--todo-now-items cards current))
               (later (iuiw-workspace--todo-groups (seq-filter later-p cards) current))
+              (done (seq-filter (lambda (card) (and (equal (plist-get card :status) "done")
+                                                    (iuiw-workspace--shown-p card)))
+                                (iuiw-workspace--cards)))
               (last (iuiw-workspace--insert-groups
                      (append (and now (list (list "#now" nil nil now nil nil)))
                              (iuiw-workspace--todo-groups (seq-remove later-p cards) current))
                      #'iuiw-workspace--todo-mark)))
          (when later
            (when last (overlook-end-with-blank last))
+           (setq last (overlook-insert-row
+                       (propertize (format "later (%d)\n" (length later))
+                                   'face 'shadow
+                                   'overlook-item '(todo-later))
+                       (lambda () (iuiw-workspace--insert-groups later #'iuiw-workspace--todo-mark))
+                       t)))
+         (when done
+           (when last (overlook-end-with-blank last))
            (overlook-insert-row
-            (propertize (format "later projects (%d)\n" (length later))
+            (propertize (format "done (%d)\n" (length done))
                         'face 'shadow
-                        'overlook-item '(todo-later))
-            (lambda () (iuiw-workspace--insert-groups later #'iuiw-workspace--todo-mark))
+                        'overlook-item '(todo-done))
+            (lambda ()
+              (dolist (card done)
+                (overlook-insert-row
+                 (propertize (concat (plist-get card :id) "\n")
+                             'overlook-action (iuiw-workspace--todo-visit
+                                               nil (plist-get card :file) 1)))))
             t)))))))
 
 ;;; Dashboard inbox
