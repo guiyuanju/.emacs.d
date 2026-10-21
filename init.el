@@ -696,6 +696,10 @@
   :demand t
   :hook ((java-mode java-ts-mode) . jgy-java-indent-setup))
 
+(use-package jgy-mybatis
+  :ensure nil
+  :hook ((java-mode java-ts-mode nxml-mode) . jgy-mybatis-mode))
+
 (use-package yasnippet
   :hook (eglot-managed-mode . yas-minor-mode))
 
