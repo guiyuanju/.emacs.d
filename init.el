@@ -312,6 +312,8 @@
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
+  (evil-global-set-key 'motion (kbd "C-a") #'evil-beginning-of-line)
+  (evil-global-set-key 'motion (kbd "C-e") #'evil-end-of-line)
   (evil-global-set-key 'normal "gh" #'iuiw-symbol-overlay-put))
 
 ;; 光标停在高亮上时只有 n/N 生效，分别跳到下/上一处。
