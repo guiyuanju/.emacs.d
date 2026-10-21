@@ -13,7 +13,7 @@
 ;; clone 的候选来自 workspace 根下 .remotes 列出的远端，每行一个：
 ;;   github <owner>   gh 列出 owner 名下未归档的仓库
 ;;   gitlab <host>    glab 列出该 host 上我是 member 的仓库
-;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
+;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目（没有待办的也列名字）的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
 ;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
@@ -838,34 +838,34 @@ section."
     previous))
 
 (defun iuiw-workspace--todo-ordered (cards)
-  "CARDS with todos, those with a perspective first in the dashboard's order."
+  "CARDS, those with a perspective first in the dashboard's order."
   (let ((order (overlook-ordered-perspectives)))
     (seq-sort-by (lambda (card) (or (seq-position order (plist-get card :id)) (length order)))
                  #'<
-                 (seq-filter (lambda (card) (plist-get card :todos)) cards))))
+                 cards)))
 
 (defun iuiw-workspace--todo-groups (cards current)
   "Groups for `iuiw-workspace--insert-groups' of CARDS, highlighting CURRENT.
 Each counts the card's open #now, #waiting and top-level todos and lists
-them folded, leaving out #now todos."
-  (delq nil
-        (mapcar (lambda (card)
-                  (when-let* ((todos (plist-get card :todos)))
-                    (list (plist-get card :id) (plist-get card :file)
-                          (equal (plist-get card :id) current)
-                          (iuiw-workspace--todo-sort (cdr (iuiw-workspace--todo-take-now todos)))
-                          (plist-get card :id)
-                          (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
-                                 (rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
-                                                              todos))))
-                            (mapconcat #'identity
-                                       (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
-                                                       (and (> (funcall rank 1) 0) (format "◷%d" (funcall rank 1)))
-                                                       (number-to-string
-                                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) todos))))
-                                       " "))
-                          t)))
-                cards)))
+them folded, leaving out #now todos.  A card without todos shows no count."
+  (mapcar (lambda (card)
+            (let ((todos (plist-get card :todos)))
+              (list (plist-get card :id) (plist-get card :file)
+                    (equal (plist-get card :id) current)
+                    (iuiw-workspace--todo-sort (cdr (iuiw-workspace--todo-take-now todos)))
+                    (plist-get card :id)
+                    (when todos
+                      (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
+                             (rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
+                                                          todos))))
+                        (mapconcat #'identity
+                                   (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
+                                                   (and (> (funcall rank 1) 0) (format "◷%d" (funcall rank 1)))
+                                                   (number-to-string
+                                                    (seq-count (lambda (todo) (= (nth 2 todo) top)) todos))))
+                                   " ")))
+                    t)))
+          cards))
 
 (defun iuiw-workspace--todo-section ()
   "Insert a Todo section with every ongoing project's open todos.
