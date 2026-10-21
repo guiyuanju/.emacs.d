@@ -438,6 +438,7 @@
     "cC" '(recompile :which-key "recompile")
     "cd" '(xref-find-definitions :which-key "definition")
     "cD" '(xref-find-references :which-key "references")
+    "cb" '(jgy-xref-history :which-key "xref back stack")
     "cf" '(apheleia-format-buffer :which-key "format")
     "ci" '(eglot-find-implementation :which-key "implementation")
     "ck" '(eldoc-doc-buffer :which-key "documentation")

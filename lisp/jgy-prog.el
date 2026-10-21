@@ -12,6 +12,7 @@
 (declare-function eglot-find-implementation "eglot")
 (declare-function eglot-format-buffer "eglot")
 (declare-function eglot-ensure "eglot")
+(declare-function consult-global-mark "consult")
 (defvar apheleia-inhibit)
 
 (defun jgy-eglot-python-configuration (server)
@@ -79,6 +80,29 @@
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
     (add-hook 'xref-backend-functions #'jgy-sqlmesh-signal-xref-backend -10 t)
     (eglot-ensure)))
+
+(defun jgy-xref-history ()
+  "Pick a position from the xref back stack and return to it.
+Like repeating `xref-go-back' up to that position, so `xref-go-forward'
+retraces the skipped levels."
+  (interactive)
+  (let* ((history (xref--get-history))
+         (back (seq-filter #'marker-buffer (car history)))
+         (origin (point-marker)))
+    (unless back (user-error "At start of xref history"))
+    (consult-global-mark back)
+    (if-let* ((index (seq-position
+                      (car history) (point-marker)
+                      (lambda (m here)
+                        (and (eq (marker-buffer m) (marker-buffer here))
+                             (= m here))))))
+        (let ((skipped (cons origin (seq-take (car history) index)))
+              (target (nth index (car history))))
+          (dolist (marker skipped) (xref--push-forward marker))
+          (setcar history (nthcdr (1+ index) (car history)))
+          (set-marker target nil)
+          (run-hooks 'xref-after-return-hook))
+      (set-marker origin nil))))
 
 (defvar jgy-sql-dialects '("mysql" "postgres" "redshift")
   "sqlfluff dialects offered when formatting SQL.")
