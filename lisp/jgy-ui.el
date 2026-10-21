@@ -8,6 +8,8 @@
 
 (require 'subr-x)
 
+(declare-function modus-themes-get-color-value "modus-themes")
+
 (defvar jgy-font-size 14 "Default font size, overridable from local.el.")
 (defvar jgy-font-family "Sarasa Mono SC")
 (defvar jgy-variable-pitch-font-family "Sarasa UI SC")
@@ -121,7 +123,11 @@
 ;; line's colors for all of them so the frame looks like one piece.
 (defun jgy-modus-flat-faces ()
   "Match dividers, header lines, and the agent-shell header to the flat mode line."
-  (modus-themes-with-colors
+  (let ((bg-inactive (modus-themes-get-color-value 'bg-inactive t))
+        (bg-dim (modus-themes-get-color-value 'bg-dim t))
+        (bg-active (modus-themes-get-color-value 'bg-active t))
+        (fg-main (modus-themes-get-color-value 'fg-main t))
+        (fg-dim (modus-themes-get-color-value 'fg-dim t)))
     (set-face-attribute 'vertical-border nil :foreground bg-inactive)
     (set-face-attribute 'window-divider nil :foreground bg-inactive)
     (set-face-attribute 'window-divider-first-pixel nil :foreground bg-inactive)

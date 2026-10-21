@@ -8,6 +8,10 @@
 
 (require 'agent-shell)
 
+(declare-function overlook-agent-perspective "overlook-agent")
+(declare-function overlook-agent-show "overlook-agent")
+(declare-function overlook-current-perspective "overlook")
+
 (defun jgy-agent-shell-toggle (&optional arg)
   "Show the most recently used agent in the current perspective.
 Inside an agent, with prefix ARG, or without a perspective agent,

@@ -7,6 +7,7 @@ exec emacs -Q --batch --eval '
       (out (make-temp-file "emacs-test-" t)))
   (dolist (dir (file-expand-wildcards (expand-file-name "elpaca/builds/*" root)))
     (add-to-list (quote load-path) dir))
+  (add-to-list (quote load-path) (expand-file-name "site-lisp/overlook" root))
   (add-to-list (quote load-path) (expand-file-name "lisp" root))
   (setq byte-compile-error-on-warn t
         byte-compile-dest-file-function

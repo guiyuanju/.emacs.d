@@ -22,9 +22,12 @@
       (cl-letf (((symbol-function 'elfeed-db-get-entry)
                  (lambda (id) (should (equal id '("feed" . "entry"))) entry))
                 ((symbol-function 'elfeed-show-entry) (lambda (value) (setq opened value))))
-        (dolist (state '(normal motion insert))
-          (evil-change-state state)
-          (dolist (key '("RET" "<return>"))
-            (setq opened nil)
-            (call-interactively (key-binding (kbd key)))
-            (should (eq opened entry))))))))
+        (let ((digest (current-buffer)))
+          (dolist (state '(normal motion insert))
+            (dolist (key '("RET" "<return>"))
+              ;; 打开链接会选中另一个窗口，每次都回到摘要 buffer 再按键。
+              (with-current-buffer digest
+                (evil-change-state state)
+                (setq opened nil)
+                (call-interactively (key-binding (kbd key)))
+                (should (eq opened entry))))))))))

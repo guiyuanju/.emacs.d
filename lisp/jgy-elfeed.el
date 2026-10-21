@@ -8,6 +8,8 @@
 (declare-function evil-define-key* "evil-core")
 (declare-function evil-collection-define-operator-key "evil-collection")
 (declare-function elfeed-entry-link "elfeed-db")
+(declare-function elfeed-show-copy-url-at-point "elfeed-show")
+(declare-function jgy-elfeed-sync-open-digest "jgy-elfeed-sync")
 (defvar elfeed-search-mode-map)
 (defvar elfeed-show-mode-map)
 (defvar url-current-lastloc)

@@ -612,8 +612,9 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
 ;;; Overlook
 
 (defun jgy-workspace-agent-root ()
-  "Return the project's root when inside its folder or root, else the version-control root.
-A project in `jgy-workspace-project-roots' has its root there."
+  "Return the project's root when inside its folder or root.
+A project in `jgy-workspace-project-roots' has its root there.  Outside
+any project, return the version-control root."
   (if-let* ((folder (jgy-workspace-project-root)))
       (or (jgy-workspace--root (jgy-workspace--file-id folder)) folder)
     (if-let* ((id (jgy-workspace--root-id)))
@@ -794,9 +795,9 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 (defun jgy-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
-NAME followed by the string COUNT, if any, that visits FILE, if any, highlighted when
-CURRENT, then ITEMS, folded until toggled when FOLDED, as (TEXT LINE
-DEPTH), deeper ones under the item before them.  Visiting switches to
+NAME followed by the string COUNT, if any, that visits FILE, if any,
+highlighted when CURRENT, then ITEMS, folded until toggled when FOLDED, as
+\(TEXT LINE DEPTH), deeper ones under the item before them.  Visiting switches to
 PERSPECTIVE first when it is non-nil.  An item can be (TEXT LINE DEPTH
 FILE PERSPECTIVE BEFORE AFTER) instead, visiting its own FILE and showing
 the strings BEFORE and AFTER around its text.  Return the last group's

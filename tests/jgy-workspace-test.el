@@ -78,7 +78,7 @@ status: done
             (jgy-workspace--todo-section)
             (jgy-workspace--inbox-section)))
         (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                       (concat "demo 3\n◷ ask ops\n☐ first\n  ☐ child\n☐ after fence\n"
+                       (concat "demo ◷1 3\n◷ ask ops\n☐ first\n  ☐ child\n☐ after fence\n"
                                "me\n☐ call\n")))
         (goto-char (point-min))
         (should (eq (get-text-property (point) 'face) 'overlook-heading-current))
@@ -110,10 +110,13 @@ status: done
               ((symbol-function 'overlook-ordered-perspectives) (lambda () '("one" "two")))
               ((symbol-function 'overlook-current-perspective) (lambda () "one")))
       (with-temp-buffer
-        (jgy-workspace--todo-section)
+        (magit-section-mode)
+        (let ((inhibit-read-only t))
+          (magit-insert-section (overlook-section)
+            (jgy-workspace--todo-section)))
         (should (equal (buffer-substring-no-properties (point-min) (point-max))
                        (concat "#now\n☐ y › y1 2026-10-30  one\n☐ x  one\n☐ z 2026-10-22  two\n"
-                               "\none 2\n☐ y\n")))))))
+                               "\none ☐2 2\n☐ y\n\nlater projects (1)\ntwo ☐1 1\n")))))))
 
 (ert-deftest jgy-workspace-project-root ()
   (jgy-workspace-test--with-workspace
