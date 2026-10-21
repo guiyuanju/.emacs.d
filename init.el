@@ -287,6 +287,10 @@
         evil-kill-on-visual-paste nil
         evil-respect-visual-line-mode t
         evil-disable-insert-state-bindings t)
+  ;; xref 排第一，gd 才会进 xref 栈，C-t 能退回。
+  (setq evil-goto-definition-functions
+        '(evil-goto-definition-xref evil-goto-definition-imenu
+          evil-goto-definition-semantic evil-goto-definition-search))
   :config
   (evil-mode 1)
   (require 'jgy-evil)
