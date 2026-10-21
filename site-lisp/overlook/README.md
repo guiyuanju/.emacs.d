@@ -198,6 +198,9 @@ Evil users can bind the same keys in normal state:
   returning nil to hide it, such as one outside the workspace you are
   working in.  The current perspective, and one with an agent needing
   you, still show.
+- `overlook-project-folder-display`: `mark` to show a folder inside a
+  larger repo, from `overlook-project-folders`, as a `*` after its
+  perspective's heading while it has changes, instead of listing them.
 - `overlook-orphan-perspective`: a perspective, such as perspective.el's
   `"main"`, to list agents of no perspective under; opening one there
   moves it in, and it is left out while empty unless current.  By default

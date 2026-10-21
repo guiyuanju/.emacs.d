@@ -222,6 +222,10 @@ sits at depth 0.")
   "Functions inserting rows under a perspective's heading, by hook depth.
 Each is called with the perspective's NAME in the dashboard buffer.")
 
+(defvar overlook-heading-mark-functions nil
+  "Functions of a perspective NAME returning a mark put right after its heading.
+Each returns a string, such as \"*\", or nil.")
+
 (defvar overlook-orphan-functions nil
   "Functions inserting rows that belong to no perspective.
 Each is called with no arguments.  The rows go under the perspective
@@ -459,8 +463,12 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 (defun overlook--heading (name &optional current)
   "Heading line of perspective NAME, highlighted when CURRENT."
-  (propertize (concat (propertize name 'face (if current 'overlook-heading-current
-                                                'overlook-heading))
+  (propertize (concat (propertize (concat name
+                                          (mapconcat (lambda (function)
+                                                       (or (funcall function name) ""))
+                                                     overlook-heading-mark-functions))
+                                  'face (if current 'overlook-heading-current
+                                          'overlook-heading))
                       (when-let* ((tag (and overlook-perspective-annotation
                                             (funcall overlook-perspective-annotation name))))
                         (propertize (concat " " tag) 'face 'shadow))

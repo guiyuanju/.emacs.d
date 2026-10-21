@@ -35,7 +35,9 @@
 ;;
 ;; `overlook-project-folders' adds folders lying inside a larger repo, such
 ;; as a project's notes kept in a shared one; such a folder's row lists
-;; only the changes under it.
+;; only the changes under it.  With `overlook-project-folder-display' set
+;; to `mark', such a folder gets no row; a "*" after the perspective's
+;; heading tells it has changes.
 
 ;;; Code:
 
@@ -68,6 +70,13 @@ That line unfolds to list the rest."
 A folder inside a larger repo lists that repo's changes under it; a
 folder that is a repo itself is listed as one."
   :type 'function
+  :group 'overlook)
+
+(defcustom overlook-project-folder-display 'rows
+  "How changes of a folder inside a larger repo show.
+`rows' lists them under the perspective like a repo's; `mark' puts a
+\"*\" after the perspective's heading instead."
+  :type '(choice (const rows) (const mark))
   :group 'overlook)
 
 (defface overlook-project-repo
@@ -358,10 +367,24 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                                               perspective (lambda () (overlook-project-open dir)))))
                          (lambda () (overlook-project--insert-files dir files perspective)))))
 
+(defun overlook-project--folders (perspective)
+  "Folders of PERSPECTIVE lying inside a larger repo."
+  (seq-filter #'overlook-project--prefix
+              (mapcar (lambda (dir) (file-name-as-directory (expand-file-name dir)))
+                      (funcall overlook-project-folders perspective))))
+
+(defun overlook-project--heading-mark (perspective)
+  "\"*\" when a folder of PERSPECTIVE inside a larger repo has changes."
+  (when (and (eq overlook-project-folder-display 'mark)
+             (seq-some (lambda (dir) (cdr (overlook-project--status dir)))
+                       (overlook-project--folders perspective)))
+    "*"))
+
 (defun overlook-project--insert (perspective)
   "Insert the changed repos and folders of PERSPECTIVE's project."
   (let* ((root (overlook-perspective-root perspective))
-         (dirs (and root (overlook-project-repos root))))
+         (dirs (and root (overlook-project-repos root)))
+         (folders (overlook-project--folders perspective)))
     (dolist (dir (funcall overlook-project-folders perspective))
       (let ((dir (file-name-as-directory (expand-file-name dir))))
         (when (and (overlook-project--top dir) (not (member dir dirs)))
@@ -369,7 +392,10 @@ Past `overlook-project-files' the rest fold into one line with their totals."
     ;; A clean one stays off the dashboard but is still read on each tick.
     (dolist (dir dirs)
       (cl-pushnew dir overlook-project--shown :test #'equal))
-    (let* ((dirs (seq-filter (lambda (dir) (cdr (overlook-project--status dir)))
+    (let* ((dirs (seq-filter (lambda (dir)
+                               (and (cdr (overlook-project--status dir))
+                                    (not (and (eq overlook-project-folder-display 'mark)
+                                              (member dir folders)))))
                              dirs))
            (width (apply #'max 0 (mapcar (lambda (dir)
                                            (string-width (file-name-nondirectory
@@ -394,6 +420,7 @@ Past `overlook-project-files' the rest fold into one line with their totals."
   (overlook-toggle-hooks
    overlook-project-mode
    '((overlook-perspective-functions overlook-project--insert 50)
+     (overlook-heading-mark-functions overlook-project--heading-mark)
      (overlook-before-render-hook overlook-project--forget)
      (overlook-tick-hook overlook-project--tick)))
   (overlook-refresh))

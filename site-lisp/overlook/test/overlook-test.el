@@ -811,6 +811,32 @@ Agents are listed; usage and repos are not."
               (should (member card overlook-project--shown)))))
       (delete-directory top t))))
 
+;; With `mark', a changed folder inside a larger repo marks its heading instead of a row.
+(ert-deftest overlook-project-folder-in-repo-marks-the-heading ()
+  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+         (card (expand-file-name "projects/one/" top))
+         (overlook-project-folder-display 'mark)
+         (overlook-project--status (make-hash-table :test #'equal))
+         (overlook-heading-mark-functions (list #'overlook-project--heading-mark)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name ".git" top) t)
+          (make-directory card t)
+          (puthash card (list (float-time) "main" '("projects/one/n.md" " M" 2 0))
+                   overlook-project--status)
+          (overlook-test-with-dashboard '(("one")) "one"
+            (let ((overlook-perspective-root-function (lambda (_) card))
+                  (overlook-perspective-functions (list #'overlook-project--insert)))
+              (overlook--render)
+              (goto-char (point-min))
+              (should (search-forward "one*" nil t))
+              (should-not (string-search "⎇" (buffer-string)))
+              (should (member card overlook-project--shown))
+              (puthash card (list (float-time) "main") overlook-project--status)
+              (overlook--render)
+              (should-not (string-search "one*" (buffer-string))))))
+      (delete-directory top t))))
+
 ;; Files past `overlook-project-files' fold into one line that unfolds to list them.
 (ert-deftest overlook-project-rest-files-unfold ()
   (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
