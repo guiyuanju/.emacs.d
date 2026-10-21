@@ -176,7 +176,9 @@
   (vertico-cycle t)
   :bind (:map vertico-map
               ("C-j" . vertico-next)
-              ("C-k" . vertico-previous))
+              ("C-k" . vertico-previous)
+              :map minibuffer-local-map
+              ("C-u" . delete-minibuffer-contents))
   :config
   (vertico-mode 1))
 
@@ -205,7 +207,9 @@
   :init
   (marginalia-mode 1))
 
-(use-package consult)
+(use-package consult
+  :config
+  (consult-customize consult-ripgrep :initial (thing-at-point 'symbol t)))
 
 (use-package embark
   :bind (("C-;" . embark-act)
