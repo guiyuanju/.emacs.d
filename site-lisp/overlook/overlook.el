@@ -513,12 +513,35 @@ needing attention."
                         'overlook-item (cons 'perspective name) #'equal))))
     (goto-char (prop-match-beginning match))))
 
+(defun overlook--window-top (window)
+  "Where WINDOW starts, as (IDENT LINES LINE).
+IDENT is that of the section at its start, LINES how far into the section
+the start is, and LINE the start's line number."
+  (let* ((start (window-start window))
+         (section (magit-section-at start)))
+    (list (and section (magit-section-ident section))
+          (and section (count-lines (oref section start) start))
+          (line-number-at-pos start))))
+
+(defun overlook--window-top-position (top)
+  "Position of TOP, from `overlook--window-top', in the redrawn dashboard.
+It is LINES into the section of IDENT, or line LINE without that section."
+  (pcase-let ((`(,ident ,lines ,line) top))
+    (save-excursion
+      (if-let* ((section (and ident (magit-get-section ident))))
+          (progn (goto-char (oref section start))
+                 (forward-line lines))
+        (goto-char (point-min))
+        (forward-line (1- line)))
+      (point))))
+
 (defun overlook--render ()
-  "Redraw the dashboard, keeping point on the same row.
+  "Redraw the dashboard, keeping point on the same row and screen line.
 After a perspective switch, point goes to the current perspective instead."
   (when-let* ((dashboard (get-buffer overlook-buffer-name)))
     (with-current-buffer dashboard
       (let* ((window (get-buffer-window dashboard t))
+             (top (and window (overlook--window-top window)))
              (section (magit-current-section))
              (position (and section (magit-section-get-relative-position section)))
              (line (line-number-at-pos))
@@ -541,7 +564,10 @@ After a perspective switch, point goes to the current perspective instead."
           (forward-line -1))
         (move-to-column column)
         (magit-section-update-highlight t)
-        (when window (set-window-point window (point)))))))
+        (when window
+          (set-window-point window (point))
+          ;; Erasing sent the window back to the top; put it where it was.
+          (set-window-start window (overlook--window-top-position top) t))))))
 
 ;;; Navigation
 

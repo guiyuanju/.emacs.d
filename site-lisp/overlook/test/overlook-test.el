@@ -203,6 +203,28 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) '(perspective . "one"))))
       (kill-buffer alpha))))
 
+(ert-deftest overlook-redraw-keeps-the-window-still ()
+  (overlook-test-with-dashboard (mapcar (lambda (i) (list (format "p%02d" i))) (number-sequence 1 60)) "p01"
+    (save-window-excursion
+      (switch-to-buffer (current-buffer))
+      (delete-other-windows)
+      (let ((window (selected-window)))
+        (set-window-start window (save-excursion (goto-char (point-min)) (search-forward "p20")
+                                                 (line-beginning-position)))
+        (goto-char (point-min))
+        (search-forward "p25")
+        (set-window-point window (point))
+        (overlook--render)
+        (should (equal (overlook-item-at-point) '(perspective . "p25")))
+        (should (= (window-start window) (save-excursion (goto-char (point-min)) (search-forward "p20")
+                                                         (line-beginning-position))))
+        ;; A row added above the window leaves it showing the same rows.
+        (setq overlook-test--perspectives (cons '("p00") overlook-test--perspectives))
+        (overlook--render)
+        (should (equal (overlook-item-at-point) '(perspective . "p25")))
+        (should (= (window-start window) (save-excursion (goto-char (point-min)) (search-forward "p20")
+                                                         (line-beginning-position))))))))
+
 (ert-deftest overlook-heading-switches-perspective ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
