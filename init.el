@@ -844,7 +844,7 @@
   :hook ((text-mode . denote-fontify-links-mode-maybe)
          (dired-mode . denote-dired-mode-in-directories))
   :custom
-  (denote-directory (expand-file-name "~/workspace/okj/notes/"))
+  ;; denote-directory is set per machine in local.el.
   (denote-dired-directories (list denote-directory))
   (denote-file-type 'markdown-yaml)
   (denote-known-keywords nil)
