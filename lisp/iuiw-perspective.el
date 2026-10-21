@@ -7,10 +7,7 @@
 ;;; Code:
 
 (require 'seq)
-
-(declare-function persp-current-name "perspective")
-(declare-function persp-current-buffers "perspective")
-(declare-function persp-other-buffer "perspective")
+(require 'perspective)
 
 (defvar iuiw-persp-history (make-hash-table :test #'equal)
   "Perspective name to its buffers, most recently selected first.")
@@ -62,6 +59,19 @@ Without `persp-mode', switch to the other buffer of the frame."
   (dolist (buffer (buffer-list))
     (when (eq (buffer-local-value 'major-mode buffer) 'magit-status-mode)
       (kill-buffer buffer))))
+
+;; `persp-state-load' 依次恢复各 perspective，看板的 side window 会在之后的布局里
+;; 变成普通窗口，显示 *scratch*。
+(defun iuiw-persp-delete-stray-side-windows ()
+  "Delete windows dedicated as side windows that are not side windows."
+  (dolist (name (persp-names))
+    (with-perspective name
+      (dolist (window (window-list nil 'nomini))
+        (when (and (eq (window-dedicated-p window) 'side)
+                   (not (window-parameter window 'window-side)))
+          (if (window-parent window)
+              (delete-window window)
+            (set-window-dedicated-p window nil)))))))
 
 ;;;###autoload
 (define-minor-mode iuiw-persp-history-mode

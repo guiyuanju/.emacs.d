@@ -261,6 +261,7 @@
   (persp-mode 1)
   (add-hook 'kill-emacs-hook #'persp-state-save)
   (add-hook 'kill-emacs-hook #'iuiw-persp-kill-magit-status -10)
+  (add-hook 'persp-state-after-load-hook #'iuiw-persp-delete-stray-side-windows)
   (add-hook 'elpaca-after-init-hook
             (lambda ()
               (when (file-exists-p persp-state-default-file)
