@@ -16,7 +16,7 @@
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
-;; 项目名后是未完成的顶层待办数，其余待办折叠在项目名下，#waiting 在前。
+;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
 ;; `jgy-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
@@ -787,7 +787,7 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 (defun jgy-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
-NAME followed by COUNT, if any, that visits FILE, if any, highlighted when
+NAME followed by the string COUNT, if any, that visits FILE, if any, highlighted when
 CURRENT, then ITEMS, folded until toggled when FOLDED, as (TEXT LINE
 DEPTH), deeper ones under the item before them.  Visiting switches to
 PERSPECTIVE first when it is non-nil.  An item can be (TEXT LINE DEPTH
@@ -822,7 +822,7 @@ section."
                                             'overlook-item (list 'todo-group name)
                                             'overlook-action (and file (jgy-workspace--todo-visit
                                                                         perspective file 1)))
-                                (if count (propertize (format " %d" count) 'face 'shadow) "")
+                                (if count (propertize (concat " " count) 'face 'shadow) "")
                                 "\n")
                         (lambda () (insert-items items))
                         folded))))
@@ -837,8 +837,9 @@ section."
 
 (defun jgy-workspace--todo-groups (cards current)
   "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT.
-Each counts the card's open top-level todos and lists them folded,
-leaving out #now todos; a card with nothing but #now gets no group."
+Each counts the card's open #now, #waiting and top-level todos and lists
+them folded, leaving out #now todos; a card with nothing but #now gets
+no group."
   (delq nil
         (mapcar (lambda (card)
                   (when-let* ((todos (cdr (jgy-workspace--todo-take-now (plist-get card :todos)))))
@@ -846,8 +847,15 @@ leaving out #now todos; a card with nothing but #now gets no group."
                           (equal (plist-get card :id) current)
                           (jgy-workspace--todo-sort todos) (plist-get card :id)
                           (let* ((all (plist-get card :todos))
-                                 (top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) all))))
-                            (seq-count (lambda (todo) (= (nth 2 todo) top)) all))
+                                 (top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) all)))
+                                 (rank (lambda (n) (seq-count (lambda (todo) (= (jgy-workspace--todo-rank (car todo)) n))
+                                                              all))))
+                            (mapconcat #'identity
+                                       (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
+                                                       (and (> (funcall rank 1) 0) (format "◷%d" (funcall rank 1)))
+                                                       (number-to-string
+                                                        (seq-count (lambda (todo) (= (nth 2 todo) top)) all))))
+                                       " "))
                           t)))
                 cards)))
 
