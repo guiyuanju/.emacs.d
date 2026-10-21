@@ -274,6 +274,7 @@
 ;; SPC ` 切回当前 perspective 里上一个用过的 buffer。
 (use-package iuiw-perspective
   :ensure nil
+  :after perspective
   :demand t
   :config
   (iuiw-persp-history-mode 1))
