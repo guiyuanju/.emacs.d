@@ -46,6 +46,7 @@
 (declare-function overlook-end-with-blank "overlook")
 (declare-function overlook-perspective-guess-root "overlook-perspective")
 (defvar overlook-sections)
+(defvar persp-sort)
 (defvar overlook-mode-line-functions)
 
 (defgroup jgy-workspace nil
@@ -172,11 +173,17 @@ Globbed again only when the workspace root or a projects/ folder changes."
 
 (defun jgy-workspace-switch-perspective (name)
   "Switch to perspective NAME, offering those shown by `jgy-workspace-filter'.
-Any name works; a new one creates the perspective."
+Candidates are most recently used first.  Any name works; a new one
+creates the perspective."
   (interactive
-   (list (completing-read "Perspective: "
-                          (seq-filter #'jgy-workspace-perspective-shown-p
-                                      (remove (persp-current-name) (persp-names))))))
+   (let ((names (seq-filter #'jgy-workspace-perspective-shown-p
+                            (remove (persp-current-name)
+                                    (let ((persp-sort 'access)) (persp-names))))))
+     (list (completing-read "Perspective: "
+                            (lambda (string pred action)
+                              (if (eq action 'metadata)
+                                  '(metadata (display-sort-function . identity))
+                                (complete-with-action action names string pred)))))))
   (persp-switch name))
 
 (defun jgy-workspace-cycle-filter ()
