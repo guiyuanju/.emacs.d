@@ -384,10 +384,6 @@
   :ensure nil
   :demand t)
 
-(use-package iuiw-notes
-  :ensure nil
-  :commands (iuiw-notes-new iuiw-notes-daily iuiw-notes-find iuiw-notes-search))
-
 ;;; Keybindings
 
 (use-package general
@@ -517,10 +513,14 @@
     "iy" '(consult-yank-pop :which-key "kill ring")
 
     "n"  '(:ignore t :which-key "notes")
-    "nc" '(iuiw-notes-new :which-key "new")
-    "nd" '(iuiw-notes-daily :which-key "daily")
-    "nn" '(iuiw-notes-find :which-key "find")
-    "ns" '(iuiw-notes-search :which-key "search")
+    "nb" '(denote-backlinks :which-key "backlinks")
+    "nc" '(denote :which-key "new")
+    "nd" '(denote-journal-new-or-existing-entry :which-key "daily")
+    "nl" '(denote-link-or-create :which-key "link")
+    "nn" '(consult-denote-find :which-key "find")
+    "nr" '(denote-rename-file :which-key "rename")
+    "ns" '(consult-denote-grep :which-key "search")
+    "nt" '(denote-rename-file-keywords :which-key "tags")
 
     "o"  '(:ignore t :which-key "open")
     "od" '(overlook :which-key "agent dashboard")
@@ -835,6 +835,28 @@
   (markdown-xhtml-header-content iuiw-markdown-preview-head)
   (markdown-xhtml-body-preamble "<article class=\"markdown-body\">")
   (markdown-xhtml-body-epilogue "</article>"))
+
+(use-package denote
+  :commands (denote denote-link-or-create denote-backlinks
+             denote-rename-file denote-rename-file-keywords)
+  :hook ((text-mode . denote-fontify-links-mode-maybe)
+         (dired-mode . denote-dired-mode-in-directories))
+  :custom
+  (denote-directory (expand-file-name "~/workspace/okj/notes/"))
+  (denote-dired-directories (list denote-directory))
+  (denote-file-type 'markdown-yaml)
+  (denote-known-keywords nil)
+  :config
+  (consult-denote-mode 1))
+
+(use-package denote-journal
+  :commands denote-journal-new-or-existing-entry
+  :custom
+  (denote-journal-directory (expand-file-name "journal/" denote-directory))
+  (denote-journal-title-format "%Y-%m-%d"))
+
+(use-package consult-denote
+  :commands (consult-denote-find consult-denote-grep consult-denote-mode))
 
 (add-to-list 'auto-mode-alist '("uv\\.lock\\'" . conf-toml-mode))
 
