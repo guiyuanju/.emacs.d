@@ -56,6 +56,13 @@ Without `persp-mode', switch to the other buffer of the frame."
              (persp-other-buffer (current-buffer))))
      (other-buffer (current-buffer) t))))
 
+;; 恢复 magit-status 要对每个仓库跑一遍 git，拖慢启动。
+(defun iuiw-persp-kill-magit-status ()
+  "Kill magit-status buffers so `persp-state-save' does not record them."
+  (dolist (buffer (buffer-list))
+    (when (eq (buffer-local-value 'major-mode buffer) 'magit-status-mode)
+      (kill-buffer buffer))))
+
 ;;;###autoload
 (define-minor-mode iuiw-persp-history-mode
   "Record each perspective's buffer history for `iuiw-last-buffer'."

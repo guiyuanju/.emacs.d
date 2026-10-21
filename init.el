@@ -161,6 +161,14 @@
   :config
   (exec-path-from-shell-initialize))
 
+;; /usr/bin/git 是 xcrun 的转发壳，每次调用多花一倍时间；vc 和 magit 直接用真正的 git。
+(when (and (eq system-type 'darwin)
+           (equal (executable-find "git") "/usr/bin/git"))
+  (let ((git (string-trim (shell-command-to-string "xcrun -f git"))))
+    (when (file-executable-p git)
+      (setq vc-git-program git
+            magit-git-executable git))))
+
 (use-package server
   :ensure nil
   :config
@@ -252,6 +260,7 @@
   :config
   (persp-mode 1)
   (add-hook 'kill-emacs-hook #'persp-state-save)
+  (add-hook 'kill-emacs-hook #'iuiw-persp-kill-magit-status -10)
   (add-hook 'elpaca-after-init-hook
             (lambda ()
               (when (file-exists-p persp-state-default-file)
@@ -706,18 +715,16 @@
 (use-package yasnippet
   :hook (eglot-managed-mode . yas-minor-mode))
 
-(use-package treesit-auto
-  :demand t
+(use-package treesit
+  :ensure nil
   :custom
-  (treesit-auto-langs '(bash dockerfile go gomod java json lua python rust toml yaml))
-  (treesit-auto-install 'prompt)
+  (treesit-enabled-modes '(bash-ts-mode dockerfile-ts-mode go-ts-mode go-mod-ts-mode
+                           java-ts-mode json-ts-mode lua-ts-mode python-ts-mode
+                           rust-ts-mode toml-ts-mode yaml-ts-mode))
   :config
-  (global-treesit-auto-mode 1)
-  (treesit-auto-add-to-auto-mode-alist)
   ;; 博客构建用 go-ts-mode 给代码块上色，不能等打开 .go 文件时才提示安装。
-  (let ((treesit-auto-langs '(go gomod))
-        (treesit-auto-install t))
-    (treesit-auto-install-all)))
+  (let ((treesit-auto-install-grammar 'always))
+    (mapc #'treesit-ensure-installed '(go gomod))))
 
 
 (use-package eglot
