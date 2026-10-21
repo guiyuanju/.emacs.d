@@ -303,7 +303,7 @@
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
-  (evil-global-set-key 'normal "gh" #'symbol-overlay-put))
+  (evil-global-set-key 'normal "gh" #'jgy-symbol-overlay-put))
 
 ;; 光标停在高亮上时只有 n/N 生效，分别跳到下/上一处。
 (use-package symbol-overlay
@@ -311,6 +311,13 @@
   (setcdr symbol-overlay-map nil)
   (keymap-set symbol-overlay-map "n" #'symbol-overlay-jump-next)
   (keymap-set symbol-overlay-map "N" #'symbol-overlay-jump-prev))
+
+;; gh 的高亮在同一项目的所有文件里生效，新打开的文件也会带上。
+(use-package jgy-symbol-overlay
+  :ensure nil
+  :commands jgy-symbol-overlay-put
+  :config
+  (add-hook 'find-file-hook #'jgy-symbol-overlay-inherit))
 
 (use-package evil-collection
   :after evil
