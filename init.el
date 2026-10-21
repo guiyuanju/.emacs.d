@@ -951,6 +951,13 @@
   :config
   (add-to-list 'savehist-additional-variables 'jgy-elfeed-ai-digest-focus))
 
+(use-package jgy-elfeed-sync
+  :ensure nil
+  :after jgy-elfeed-ai
+  :demand t
+  :config
+  (jgy-elfeed-sync-mode 1))
+
 (use-package jgy-log
   :ensure nil
   :mode ("\\.log\\'" . jgy-log-mode))

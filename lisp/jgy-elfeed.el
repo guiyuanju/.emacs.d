@@ -29,6 +29,7 @@
       "@" #'elfeed-search-date-filter
       "O" #'elfeed-search-reverse-order
       "A" #'jgy-elfeed-ai-digest
+      "gd" #'jgy-elfeed-sync-open-digest
       "gA" #'jgy-elfeed-ai-set-backend)
     (evil-define-key* 'normal elfeed-show-mode-map
       "u" #'elfeed-show-tag-unread

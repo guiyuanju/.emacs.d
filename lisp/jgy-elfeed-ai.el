@@ -96,6 +96,11 @@ nil uses the CLI's own default."
 然后每个订阅源一个「* 订阅源名」标题，下面每条一行：「- [[链接][标题]]：一句话说明」。
 标题不是中文的翻译成中文。只用给出的链接，不要编造内容，只输出 Org 正文。")
 
+;; 同步模块靠它把总结记进仓库。
+(defvar jgy-elfeed-ai-summary-functions nil
+  "Functions called with (ENTRY KIND VALUE) after a summary is stored.
+KIND is `summary' with VALUE (BACKEND . TEXT), or `oneline' with VALUE a string.")
+
 ;;; Backends
 
 (defun jgy-elfeed-ai--model (backend digest)
@@ -281,7 +286,9 @@ backend can stream; CALLBACK still gets the whole text."
   (if status
       (puthash entry status jgy-elfeed-ai--pending)
     (remhash entry jgy-elfeed-ai--pending)
-    (when summary (setf (elfeed-meta entry :jgy-ai-summary) summary)))
+    (when summary
+      (setf (elfeed-meta entry :jgy-ai-summary) summary)
+      (run-hook-with-args 'jgy-elfeed-ai-summary-functions entry 'summary summary)))
   (dolist (buf (jgy-elfeed-ai--show-buffers entry))
     (with-current-buffer buf
       (let ((pos (point)))
@@ -391,7 +398,9 @@ backend can stream; CALLBACK still gets the whole text."
        (cl-loop for entry in entries for i from 1
                 do (remhash entry jgy-elfeed-ai--oneline-pending)
                 (when-let* ((line (alist-get i lines)))
-                  (setf (elfeed-meta entry :jgy-ai-oneline) line)))
+                  (setf (elfeed-meta entry :jgy-ai-oneline) line)
+                  (run-hook-with-args 'jgy-elfeed-ai-summary-functions
+                                      entry 'oneline line)))
        (jgy-elfeed-ai--redraw entries)
        (unless lines
          (message "elfeed AI (%s) failed: %s" backend (or error "no summary")))))))
@@ -440,6 +449,8 @@ backend can stream; CALLBACK still gets the whole text."
 (defun jgy-elfeed-ai-digest-regenerate ()
   "Write this digest again."
   (interactive)
+  (unless jgy-elfeed-ai--digest-args
+    (user-error "This digest was loaded from a file; press A in elfeed for a new one"))
   (apply #'jgy-elfeed-ai--digest jgy-elfeed-ai--digest-args))
 
 (defun jgy-elfeed-ai-digest-edit-focus ()
@@ -521,6 +532,11 @@ backend can stream; CALLBACK still gets the whole text."
          (lambda (text error)
            (write (if text (concat (string-trim text) "\n") (format "失败：%s\n" error)) t))
          #'write)))))
+
+(defun jgy-elfeed-ai-digest-request (entries callback)
+  "Digest ENTRIES with the default backend, then call CALLBACK with (TEXT ERROR)."
+  (jgy-elfeed-ai--request jgy-elfeed-ai-backend t
+                          (jgy-elfeed-ai--digest-input entries) callback))
 
 ;;;###autoload
 (defun jgy-elfeed-ai-digest (&optional edit-focus)
