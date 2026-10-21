@@ -72,19 +72,48 @@ status: done
               ((symbol-function 'overlook-ordered-perspectives) (lambda () '("demo")))
               ((symbol-function 'overlook-current-perspective) (lambda () "demo")))
       (with-temp-buffer
-        (jgy-workspace--todo-section)
-        (jgy-workspace--inbox-section)
+        (magit-section-mode)
+        (let ((inhibit-read-only t))
+          (magit-insert-section (overlook-section)
+            (jgy-workspace--todo-section)
+            (jgy-workspace--inbox-section)))
         (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                       (concat "demo\n   ◷ ask ops\n   ☐ first\n     ☐ child\n   ☐ after fence\n"
-                               "me\n   ☐ call\n")))
+                       (concat "demo 3\n◷ ask ops\n☐ first\n  ☐ child\n☐ after fence\n"
+                               "me\n☐ call\n")))
         (goto-char (point-min))
-        (should (eq (get-text-property (point) 'face) 'overlook-heading-current))))))
+        (should (eq (get-text-property (point) 'face) 'overlook-heading-current))
+        ;; 项目下的待办默认折叠，inbox 不折叠。
+        (should (oref (get-text-property (point) 'magit-section) hidden))
+        (search-forward "me")
+        (should-not (oref (get-text-property (point) 'magit-section) hidden))))))
 
 (ert-deftest jgy-workspace-todo-sort ()
   (should (equal (mapcar #'car (jgy-workspace--todo-sort
                                 '(("a" 1 0) ("a1" 2 2) ("b" 3 0) ("b1" 4 2) ("b2 #now" 5 2)
                                   ("c #waiting" 6 0))))
                  '("b" "b2 #now" "b1" "c #waiting" "a" "a1"))))
+
+(ert-deftest jgy-workspace-todo-take-now ()
+  (should (equal (jgy-workspace--todo-take-now
+                  '(("a" 1 0) ("a1 #now" 2 2) ("a11 #now" 3 4) ("a2" 4 2)
+                    ("b #now" 5 0) ("b1" 6 2) ("c" 7 0)))
+                 '((("a" ("a1 #now" 2 0) ("a11 #now" 3 2)) (nil ("b #now" 5 0) ("b1" 6 2)))
+                   . (("a" 1 0) ("a2" 4 2) ("c" 7 0))))))
+
+(ert-deftest jgy-workspace-todo-section-gathers-now ()
+  (jgy-workspace-test--with-workspace
+    (jgy-workspace-test--write "me/projects/one/project.md"
+                               "---\nstatus: active\n---\n## Todo\n- [ ] x #now\n- [ ] y\n  - [ ] y1 #now [due:: 2026-10-30]\n")
+    (jgy-workspace-test--write "me/projects/two/project.md"
+                               "---\nstatus: later\n---\n## Todo\n- [ ] z #now [due:: 2026-10-22]\n")
+    (cl-letf (((symbol-function 'overlook-insert-section) (lambda (_title body) (funcall body)))
+              ((symbol-function 'overlook-ordered-perspectives) (lambda () '("one" "two")))
+              ((symbol-function 'overlook-current-perspective) (lambda () "one")))
+      (with-temp-buffer
+        (jgy-workspace--todo-section)
+        (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                       (concat "#now\n☐ y › y1 2026-10-30  one\n☐ x  one\n☐ z 2026-10-22  two\n"
+                               "\none 2\n☐ y\n")))))))
 
 (ert-deftest jgy-workspace-project-root ()
   (jgy-workspace-test--with-workspace

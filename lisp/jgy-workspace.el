@@ -15,6 +15,8 @@
 ;;   gitlab <host>    glab 列出该 host 上我是 member 的仓库
 ;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目的待办：
 ;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
+;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
+;; 项目名后是未完成的顶层待办数，其余待办折叠在项目名下，#waiting 在前。
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
 ;; `jgy-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
@@ -722,18 +724,55 @@ A todo moves with its subitems, ranked by the most urgent of them."
     (concat (propertize clean 'face face)
             (if due (propertize (concat " " due) 'face 'shadow) ""))))
 
-(defun jgy-workspace--todo-split (todos)
-  "Split sorted TODOS into (URGENT . REST) at the first plain top-level todo.
-A top-level todo is urgent when it or one of its subitems is #now or #waiting."
-  (let ((top (nth 2 (car todos)))
-        (rest todos))
-    (while (and rest
-                (let ((group (cons (car rest)
-                                   (seq-take-while (lambda (todo) (> (nth 2 todo) top)) (cdr rest)))))
-                  (when (< (apply #'min (mapcar (lambda (todo) (jgy-workspace--todo-rank (car todo))) group))
-                           2)
-                    (setq rest (nthcdr (length group) rest))))))
-    (cons (seq-take todos (- (length todos) (length rest))) rest)))
+(defun jgy-workspace--todo-take-now (todos)
+  "Split TODOS into (NOW . REST), taking out each outermost #now todo.
+NOW lists them as (PARENT . ITEMS): PARENT is the text of the todo it
+sits under, or nil, and ITEMS are it and its subitems, depths from 0."
+  (let (now rest ancestors)
+    (while todos
+      (let* ((todo (pop todos))
+             (depth (nth 2 todo)))
+        (setq ancestors (seq-drop-while (lambda (ancestor) (>= (nth 2 ancestor) depth)) ancestors))
+        (if (= (jgy-workspace--todo-rank (car todo)) 0)
+            (let ((children (seq-take-while (lambda (child) (> (nth 2 child) depth)) todos)))
+              (setq todos (nthcdr (length children) todos))
+              (push (cons (car (car ancestors))
+                          (mapcar (lambda (item) (list (car item) (nth 1 item) (- (nth 2 item) depth)))
+                                  (cons todo children)))
+                    now))
+          (push todo ancestors)
+          (push todo rest))))
+    (cons (nreverse now) (nreverse rest))))
+
+(defun jgy-workspace--todo-now-items (cards current)
+  "The #now todos of CARDS with their subitems.
+Those of project CURRENT come first, then by due date, then card order.
+Each leading item names its project, highlighted when it is CURRENT, and
+its parent todo, if any, before its text."
+  (let (subtrees)
+    (dolist (card cards)
+      (let ((id (plist-get card :id))
+            (file (plist-get card :file)))
+        (pcase-dolist (`(,parent . ,items) (car (jgy-workspace--todo-take-now (plist-get card :todos))))
+          (push (cons (list (car (car items)) (nth 1 (car items)) 0 file id
+                            (and parent
+                                 (propertize (concat (substring-no-properties
+                                                      (jgy-workspace--todo-display parent))
+                                                     " › ")
+                                             'face 'shadow))
+                            (propertize (concat "  " id)
+                                        'face (if (equal id current) 'overlook-heading-current 'shadow)))
+                      (mapcar (lambda (item) (append item (list file id))) (cdr items)))
+                subtrees))))
+    (apply #'append
+           (seq-sort-by (lambda (subtree)
+                          (let ((text (car (car subtree))))
+                            (concat (if (equal (nth 4 (car subtree)) current) "0" "1")
+                                    (if (string-match "\\[due:: *\\([0-9-]+\\)\\]" text)
+                                        (match-string 1 text)
+                                      "~"))))
+                        #'string<
+                        (nreverse subtrees)))))
 
 (defun jgy-workspace--todo-visit (perspective file line)
   "Return a command that opens FILE at LINE in the main window.
@@ -747,17 +786,21 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 
 (defun jgy-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
-Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE FOLDED): a heading NAME
-that visits FILE, highlighted when CURRENT, then ITEMS as (TEXT LINE DEPTH),
-deeper ones under the item before them.  Visiting switches to PERSPECTIVE
-first when it is non-nil.  FOLDED items go under a \"later\" line counting
-their top-level ones, folded until toggled.  Return the last group's section."
+Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
+NAME followed by COUNT, if any, that visits FILE, if any, highlighted when
+CURRENT, then ITEMS, folded until toggled when FOLDED, as (TEXT LINE
+DEPTH), deeper ones under the item before them.  Visiting switches to
+PERSPECTIVE first when it is non-nil.  An item can be (TEXT LINE DEPTH
+FILE PERSPECTIVE BEFORE AFTER) instead, visiting its own FILE and showing
+the strings BEFORE and AFTER around its text.  Return the last group's
+section."
   (let ((previous nil))
-    (pcase-dolist (`(,name ,file ,current ,items ,perspective ,folded) groups)
+    (pcase-dolist (`(,name ,file ,current ,items ,perspective ,count ,folded) groups)
       (when previous (overlook-end-with-blank previous))
       (cl-labels ((insert-items (items)
                     (while items
-                      (pcase-let* ((`(,text ,line ,depth) (pop items))
+                      (pcase-let* ((`(,text ,line ,depth ,item-file ,item-perspective ,before ,after)
+                                    (pop items))
                                    (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
                                                              items))
                                    (indent (make-string depth ?\s)))
@@ -765,27 +808,24 @@ their top-level ones, folded until toggled.  Return the last group's section."
                         ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
                         (overlook-insert-row
                          (propertize (concat indent (funcall mark text) " "
-                                             (jgy-workspace--todo-display text) "\n")
-                                     'overlook-action (jgy-workspace--todo-visit perspective file line)
+                                             before (jgy-workspace--todo-display text) after "\n")
+                                     'overlook-action (jgy-workspace--todo-visit
+                                                       (or item-perspective perspective)
+                                                       (or item-file file)
+                                                       line)
                                      'wrap-prefix (concat indent "   "))
                          (and children (lambda () (insert-items children))))))))
         (setq previous (overlook-insert-row
                         (concat (propertize name
                                             'face (if current 'overlook-heading-current 'overlook-heading)
                                             'overlook-heading t
-                                            'overlook-action (jgy-workspace--todo-visit perspective file 1))
+                                            'overlook-item (list 'todo-group name)
+                                            'overlook-action (and file (jgy-workspace--todo-visit
+                                                                        perspective file 1)))
+                                (if count (propertize (format " %d" count) 'face 'shadow) "")
                                 "\n")
-                        (lambda ()
-                          (insert-items items)
-                          (when folded
-                            (let ((top (nth 2 (car folded))))
-                              (overlook-insert-row
-                               (propertize (format "later (%d)\n"
-                                                   (seq-count (lambda (todo) (= (nth 2 todo) top)) folded))
-                                           'face 'shadow
-                                           'overlook-item (cons 'todo-fold name))
-                               (lambda () (insert-items folded))
-                               t))))))))
+                        (lambda () (insert-items items))
+                        folded))))
     previous))
 
 (defun jgy-workspace--todo-ordered (cards)
@@ -796,27 +836,36 @@ their top-level ones, folded until toggled.  Return the last group's section."
                  (seq-filter (lambda (card) (plist-get card :todos)) cards))))
 
 (defun jgy-workspace--todo-groups (cards current)
-  "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT."
-  (mapcar (lambda (card)
-            (let ((split (jgy-workspace--todo-split
-                          (jgy-workspace--todo-sort (plist-get card :todos)))))
-              (list (plist-get card :id) (plist-get card :file)
-                    (equal (plist-get card :id) current)
-                    (car split) (plist-get card :id) (cdr split))))
-          cards))
+  "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT.
+Each counts the card's open top-level todos and lists them folded,
+leaving out #now todos; a card with nothing but #now gets no group."
+  (delq nil
+        (mapcar (lambda (card)
+                  (when-let* ((todos (cdr (jgy-workspace--todo-take-now (plist-get card :todos)))))
+                    (list (plist-get card :id) (plist-get card :file)
+                          (equal (plist-get card :id) current)
+                          (jgy-workspace--todo-sort todos) (plist-get card :id)
+                          (let* ((all (plist-get card :todos))
+                                 (top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) all))))
+                            (seq-count (lambda (todo) (= (nth 2 todo) top)) all))
+                          t)))
+                cards)))
 
 (defun jgy-workspace--todo-section ()
   "Insert a Todo section with every ongoing project's open todos.
-Projects with status later go last, under a folded \"later projects\" line."
+The #now todos of all of them come first, in a \"#now\" group.  Projects
+with status later go last, under a folded \"later projects\" line."
   (let ((current (overlook-current-perspective)))
     (overlook-insert-section
      "Todo"
      (lambda ()
        (let* ((cards (jgy-workspace--todo-ordered (jgy-workspace--todo-cards)))
               (later-p (lambda (card) (equal (plist-get card :status) "later")))
-              (later (seq-filter later-p cards))
+              (now (jgy-workspace--todo-now-items cards current))
+              (later (jgy-workspace--todo-groups (seq-filter later-p cards) current))
               (last (jgy-workspace--insert-groups
-                     (jgy-workspace--todo-groups (seq-remove later-p cards) current)
+                     (append (and now (list (list "#now" nil nil now nil nil)))
+                             (jgy-workspace--todo-groups (seq-remove later-p cards) current))
                      #'jgy-workspace--todo-mark)))
          (when later
            (when last (overlook-end-with-blank last))
@@ -824,9 +873,7 @@ Projects with status later go last, under a folded \"later projects\" line."
             (propertize (format "later projects (%d)\n" (length later))
                         'face 'shadow
                         'overlook-item '(todo-later))
-            (lambda ()
-              (jgy-workspace--insert-groups (jgy-workspace--todo-groups later current)
-                                            #'jgy-workspace--todo-mark))
+            (lambda () (jgy-workspace--insert-groups later #'jgy-workspace--todo-mark))
             t)))))))
 
 ;;; Dashboard inbox
