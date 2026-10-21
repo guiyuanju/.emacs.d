@@ -57,21 +57,21 @@
 (add-to-list 'default-frame-alist '(undecorated-round . t))
 
 ;; Keep generated state out of the configuration root without another package.
-(defconst jgy-state-directory (locate-user-emacs-file "var/"))
-(defconst jgy-backup-directory (expand-file-name "backup/" jgy-state-directory))
-(defconst jgy-auto-save-directory (expand-file-name "auto-save/" jgy-state-directory))
-(dolist (directory (list jgy-state-directory jgy-backup-directory
-                         jgy-auto-save-directory))
+(defconst iuiw-state-directory (locate-user-emacs-file "var/"))
+(defconst iuiw-backup-directory (expand-file-name "backup/" iuiw-state-directory))
+(defconst iuiw-auto-save-directory (expand-file-name "auto-save/" iuiw-state-directory))
+(dolist (directory (list iuiw-state-directory iuiw-backup-directory
+                         iuiw-auto-save-directory))
   (make-directory directory t))
 
-(setq custom-file (expand-file-name "custom.el" jgy-state-directory)
-      backup-directory-alist `(("." . ,jgy-backup-directory))
-      auto-save-file-name-transforms `((".*" ,jgy-auto-save-directory t))
-      auto-save-list-file-prefix (expand-file-name ".saves-" jgy-auto-save-directory)
-      recentf-save-file (expand-file-name "recentf.el" jgy-state-directory)
-      save-place-file (expand-file-name "save-place.el" jgy-state-directory)
-      savehist-file (expand-file-name "savehist.el" jgy-state-directory)
-      project-list-file (expand-file-name "project-list.el" jgy-state-directory)
+(setq custom-file (expand-file-name "custom.el" iuiw-state-directory)
+      backup-directory-alist `(("." . ,iuiw-backup-directory))
+      auto-save-file-name-transforms `((".*" ,iuiw-auto-save-directory t))
+      auto-save-list-file-prefix (expand-file-name ".saves-" iuiw-auto-save-directory)
+      recentf-save-file (expand-file-name "recentf.el" iuiw-state-directory)
+      save-place-file (expand-file-name "save-place.el" iuiw-state-directory)
+      savehist-file (expand-file-name "savehist.el" iuiw-state-directory)
+      project-list-file (expand-file-name "project-list.el" iuiw-state-directory)
       recentf-max-saved-items 200
       history-length 1000)
 (load custom-file 'noerror 'nomessage)
@@ -92,13 +92,13 @@
 (load-theme 'modus-vivendi t)
 
 ;; 在 load-theme 之后加载：用到 Modus 的配色宏。
-(require 'jgy-ui)
+(require 'iuiw-ui)
 (when (display-graphic-p)
-  (jgy-apply-fonts)
-  (jgy-ensure-fonts))
-(jgy-modus-flat-faces)
-(add-hook 'modus-themes-after-load-theme-hook #'jgy-modus-flat-faces)
-(with-eval-after-load 'agent-shell (jgy-modus-flat-faces))
+  (iuiw-apply-fonts)
+  (iuiw-ensure-fonts))
+(iuiw-modus-flat-faces)
+(add-hook 'modus-themes-after-load-theme-hook #'iuiw-modus-flat-faces)
+(with-eval-after-load 'agent-shell (iuiw-modus-flat-faces))
 
 ;;; Package manager
 
@@ -248,7 +248,7 @@
   :demand t
   :custom
   (persp-suppress-no-prefix-key-warning t)
-  (persp-state-default-file (expand-file-name "perspective.el" jgy-state-directory))
+  (persp-state-default-file (expand-file-name "perspective.el" iuiw-state-directory))
   :config
   (persp-mode 1)
   (add-hook 'kill-emacs-hook #'persp-state-save)
@@ -262,11 +262,11 @@
     (add-to-list 'consult-buffer-sources persp-consult-source)))
 
 ;; SPC ` 切回当前 perspective 里上一个用过的 buffer。
-(use-package jgy-perspective
+(use-package iuiw-perspective
   :ensure nil
   :demand t
   :config
-  (jgy-persp-history-mode 1))
+  (iuiw-persp-history-mode 1))
 
 ;;; Modal editing
 
@@ -292,17 +292,17 @@
           evil-goto-definition-semantic evil-goto-definition-search))
   :config
   (evil-mode 1)
-  (require 'jgy-evil)
+  (require 'iuiw-evil)
   (define-key evil-insert-state-map (kbd "C-g") #'evil-normal-state)
-  (jgy-decode-control-bracket)
-  (add-hook 'after-make-frame-functions #'jgy-decode-control-bracket)
+  (iuiw-decode-control-bracket)
+  (add-hook 'after-make-frame-functions #'iuiw-decode-control-bracket)
   (define-key function-key-map [control-bracketleft] [escape])
   (define-key evil-insert-state-map [control-bracketleft] #'evil-normal-state)
   (define-key evil-insert-state-map (kbd "C-h")
               #'evil-delete-backward-char-and-join)
   (evil-global-set-key 'motion "j" #'evil-next-visual-line)
   (evil-global-set-key 'motion "k" #'evil-previous-visual-line)
-  (evil-global-set-key 'normal "gh" #'jgy-symbol-overlay-put))
+  (evil-global-set-key 'normal "gh" #'iuiw-symbol-overlay-put))
 
 ;; 光标停在高亮上时只有 n/N 生效，分别跳到下/上一处。
 (use-package symbol-overlay
@@ -312,11 +312,11 @@
   (keymap-set symbol-overlay-map "N" #'symbol-overlay-jump-prev))
 
 ;; gh 的高亮在同一项目的所有文件里生效，新打开的文件也会带上。
-(use-package jgy-symbol-overlay
+(use-package iuiw-symbol-overlay
   :ensure nil
-  :commands jgy-symbol-overlay-put
+  :commands iuiw-symbol-overlay-put
   :config
-  (add-hook 'find-file-hook #'jgy-symbol-overlay-inherit))
+  (add-hook 'find-file-hook #'iuiw-symbol-overlay-inherit))
 
 (use-package evil-collection
   :after evil
@@ -370,13 +370,13 @@
 
 ;;; Commands
 
-(use-package jgy-commands
+(use-package iuiw-commands
   :ensure nil
   :demand t)
 
-(use-package jgy-notes
+(use-package iuiw-notes
   :ensure nil
-  :commands (jgy-notes-new jgy-notes-daily jgy-notes-find jgy-notes-search))
+  :commands (iuiw-notes-new iuiw-notes-daily iuiw-notes-find iuiw-notes-search))
 
 ;;; Keybindings
 
@@ -384,36 +384,36 @@
   :after evil
   :config
   (general-evil-setup t)
-  (general-create-definer jgy-leader-keys
+  (general-create-definer iuiw-leader-keys
     :states '(normal insert visual emacs motion)
     :keymaps 'override
     :prefix "SPC"
     :global-prefix "C-SPC")
 
-  (jgy-leader-keys
+  (iuiw-leader-keys
     "SPC" '(project-find-file :which-key "project file")
     "."   '(find-file :which-key "find file")
     ","   '(consult-buffer :which-key "switch buffer")
     "/"   '(consult-ripgrep :which-key "search project")
-    "*"   '(jgy-search-symbol-at-point :which-key "search symbol")
+    "*"   '(iuiw-search-symbol-at-point :which-key "search symbol")
     ":"   '(execute-extended-command :which-key "M-x")
     ";"   '(dired-jump :which-key "dired here")
-    "`"   '(jgy-last-buffer :which-key "last buffer")
+    "`"   '(iuiw-last-buffer :which-key "last buffer")
     "\\"  '(vertico-repeat :which-key "resume completion")
-    "'"   '(jgy-ghostel-toggle :which-key "terminal")
+    "'"   '(iuiw-ghostel-toggle :which-key "terminal")
     "h"   '(:keymap help-map :which-key "help")
     "w"   '(:keymap evil-window-map :package evil :which-key "window")
     "x"   '(scratch-buffer :which-key "scratch")
 
     "TAB"     '(:ignore t :which-key "perspective")
-    "TAB TAB" '(jgy-workspace-switch-perspective :which-key "switch")
-    "TAB o"   '(jgy-workspace-open-project :which-key "open project")
-    "TAB n"   '(jgy-workspace-new-project :which-key "new project")
-    "TAB c"   '(jgy-workspace-clone-repo :which-key "clone repo")
-    "TAB r"   '(jgy-workspace-restore-repos :which-key "restore repos")
-    "TAB u"   '(jgy-workspace-pull :which-key "pull emacs & workspace")
-    "TAB p"   '(jgy-workspace-visit-project-md :which-key "project.md")
-    "TAB w"   '(jgy-workspace-cycle-filter :which-key "filter workspace")
+    "TAB TAB" '(iuiw-workspace-switch-perspective :which-key "switch")
+    "TAB o"   '(iuiw-workspace-open-project :which-key "open project")
+    "TAB n"   '(iuiw-workspace-new-project :which-key "new project")
+    "TAB c"   '(iuiw-workspace-clone-repo :which-key "clone repo")
+    "TAB r"   '(iuiw-workspace-restore-repos :which-key "restore repos")
+    "TAB u"   '(iuiw-workspace-pull :which-key "pull emacs & workspace")
+    "TAB p"   '(iuiw-workspace-visit-project-md :which-key "project.md")
+    "TAB w"   '(iuiw-workspace-cycle-filter :which-key "filter workspace")
     "TAB ["   '(persp-prev :which-key "previous")
     "TAB ]"   '(persp-next :which-key "next")
     "TAB `"   '(persp-switch-last :which-key "last")
@@ -423,7 +423,7 @@
     "TAB k"   '(persp-remove-buffer :which-key "remove buffer")
 
     "a"  '(:ignore t :which-key "AI")
-    "aa" '(jgy-agent-shell-toggle :which-key "agent toggle")
+    "aa" '(iuiw-agent-shell-toggle :which-key "agent toggle")
     "aA" '(agent-shell-new-shell :which-key "start agent")
     "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
     "ax" '(agent-shell-openai-start-codex :which-key "Codex")
@@ -447,7 +447,7 @@
     "cC" '(recompile :which-key "recompile")
     "cd" '(xref-find-definitions :which-key "definition")
     "cD" '(xref-find-references :which-key "references")
-    "cb" '(jgy-xref-history :which-key "xref back stack")
+    "cb" '(iuiw-xref-history :which-key "xref back stack")
     "cf" '(apheleia-format-buffer :which-key "format")
     "ci" '(eglot-find-implementation :which-key "implementation")
     "ck" '(eldoc-doc-buffer :which-key "documentation")
@@ -473,7 +473,7 @@
     "dr" '(dape-restart :which-key "restart")
 
     "f"  '(:ignore t :which-key "file")
-    "fD" '(jgy-delete-this-file :which-key "delete")
+    "fD" '(iuiw-delete-this-file :which-key "delete")
     "fe" '((lambda () (interactive) (find-file user-emacs-directory))
             :which-key "emacs directory")
     "ff" '(find-file :which-key "find")
@@ -482,8 +482,8 @@
     "fr" '(consult-recent-file :which-key "recent")
     "fR" '(rename-visited-file :which-key "rename")
     "fs" '(save-buffer :which-key "save")
-    "fy" '(jgy-yank-buffer-path :which-key "copy path")
-    "fY" '((lambda () (interactive) (jgy-yank-buffer-path t))
+    "fy" '(iuiw-yank-buffer-path :which-key "copy path")
+    "fY" '((lambda () (interactive) (iuiw-yank-buffer-path t))
             :which-key "copy project path")
 
     "g"  '(:ignore t :which-key "Git")
@@ -494,33 +494,33 @@
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
     "gl" '(magit-log-current :which-key "log")
-    "gm" '(jgy-browse-mr :which-key "merge request")
+    "gm" '(iuiw-browse-mr :which-key "merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
     "gy" '(git-link :which-key "copy link")
 
     "i"  '(:ignore t :which-key "insert")
-    "if" '(jgy-insert-buffer-path :which-key "path")
+    "if" '(iuiw-insert-buffer-path :which-key "path")
     "ir" '(consult-register :which-key "register")
     "iu" '(insert-char :which-key "character")
     "iy" '(consult-yank-pop :which-key "kill ring")
 
     "n"  '(:ignore t :which-key "notes")
-    "nc" '(jgy-notes-new :which-key "new")
-    "nd" '(jgy-notes-daily :which-key "daily")
-    "nn" '(jgy-notes-find :which-key "find")
-    "ns" '(jgy-notes-search :which-key "search")
+    "nc" '(iuiw-notes-new :which-key "new")
+    "nd" '(iuiw-notes-daily :which-key "daily")
+    "nn" '(iuiw-notes-find :which-key "find")
+    "ns" '(iuiw-notes-search :which-key "search")
 
     "o"  '(:ignore t :which-key "open")
     "od" '(overlook :which-key "agent dashboard")
-    "oe" '(jgy-eshell-toggle :which-key "Eshell")
-    "of" '(jgy-reveal-in-finder :which-key "reveal in Finder")
+    "oe" '(iuiw-eshell-toggle :which-key "Eshell")
+    "of" '(iuiw-reveal-in-finder :which-key "reveal in Finder")
     "op" '(popper-toggle :which-key "popup")
     "or" '(elfeed :which-key "RSS (elfeed)")
     "oR" '(elfeed-update :which-key "update RSS")
     "oP" '(popper-cycle :which-key "next popup")
-    "ot" '(jgy-ghostel-toggle :which-key "terminal")
+    "ot" '(iuiw-ghostel-toggle :which-key "terminal")
 
     "p"  '(:ignore t :which-key "project")
     "p!" '(project-shell-command :which-key "command")
@@ -538,7 +538,7 @@
     "qr" '(restart-emacs :which-key "restart")
 
     "s"  '(:ignore t :which-key "search")
-    "sd" '(jgy-search-directory :which-key "directory")
+    "sd" '(iuiw-search-directory :which-key "directory")
     "si" '(consult-imenu :which-key "symbols")
     "sI" '(consult-imenu-multi :which-key "project symbols")
     "sp" '(consult-ripgrep :which-key "project")
@@ -549,15 +549,15 @@
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
     "td" '(toggle-debug-on-error :which-key "debug on error")
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
-    "tj" '(jgy-furigana-mode :which-key "furigana")
-    "tl" '(jgy-toggle-line-numbers :which-key "line numbers")
+    "tj" '(iuiw-furigana-mode :which-key "furigana")
+    "tl" '(iuiw-toggle-line-numbers :which-key "line numbers")
     "tr" '(read-only-mode :which-key "read only")
     "tT" '(consult-theme :which-key "theme")
     "tw" '(visual-line-mode :which-key "wrap")
     "tW" '(toggle-truncate-lines :which-key "truncate lines"))
 
   (keymap-unset help-map "r" t)
-  (keymap-set help-map "r r" #'jgy-reload-config)
+  (keymap-set help-map "r r" #'iuiw-reload-config)
   (which-key-add-key-based-replacements "SPC h r" "reload")
   (general-def evil-window-map
     "d" #'evil-window-delete
@@ -603,7 +603,7 @@
   (evil-ghostel-initial-state 'normal)
   :config
   (advice-add 'evil-ghostel-goto-input-position :override
-              #'jgy-evil-ghostel-goto-input-position))
+              #'iuiw-evil-ghostel-goto-input-position))
 
 ;; ghostel 收到 OSC 9/777 时经 alert 发出 macOS 通知。
 (use-package alert
@@ -613,14 +613,14 @@
 
 ;;; Workspace
 
-(use-package jgy-workspace
+(use-package iuiw-workspace
   :ensure nil
   :demand t
   :custom
   ;; 位置固定的 repo 不软链进项目文件夹，在这里指给项目。
-  (jgy-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
+  (iuiw-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
   :config
-  (jgy-workspace-dashboard-mode 1))
+  (iuiw-workspace-dashboard-mode 1))
 
 ;; 有 .overlook 的项目文件夹连同其中所有 clone 算一个 project；启动时就要生效，不等看板加载。
 (use-package overlook-markers
@@ -630,9 +630,9 @@
   :config
   (overlook-markers-mode 1))
 
-(use-package jgy-gitlab
+(use-package iuiw-gitlab
   :ensure nil
-  :commands jgy-browse-mr)
+  :commands iuiw-browse-mr)
 
 ;;; Files and Git
 
@@ -657,9 +657,9 @@
   (ediff-window-setup-function #'ediff-setup-windows-plain)
   (ediff-split-window-function #'split-window-horizontally)
   :config
-  (advice-add 'ediff-quit :around #'jgy-ediff-quit-without-asking)
+  (advice-add 'ediff-quit :around #'iuiw-ediff-quit-without-asking)
   ;; 排在 evil-collection 之后，它每个会话都重建按键。
-  (add-hook 'ediff-keymap-setup-hook #'jgy-ediff-bind-recenter 90))
+  (add-hook 'ediff-keymap-setup-hook #'iuiw-ediff-bind-recenter 90))
 
 (use-package magit
   :custom
@@ -694,14 +694,14 @@
 
 ;;; Programming
 
-(use-package jgy-prog
+(use-package iuiw-prog
   :ensure nil
   :demand t
-  :hook ((java-mode java-ts-mode) . jgy-java-indent-setup))
+  :hook ((java-mode java-ts-mode) . iuiw-java-indent-setup))
 
-(use-package jgy-mybatis
+(use-package iuiw-mybatis
   :ensure nil
-  :hook ((java-mode java-ts-mode nxml-mode) . jgy-mybatis-mode))
+  :hook ((java-mode java-ts-mode nxml-mode) . iuiw-mybatis-mode))
 
 (use-package yasnippet
   :hook (eglot-managed-mode . yas-minor-mode))
@@ -729,7 +729,7 @@
   :init
   (setq read-process-output-max (* 1024 1024))
   :config
-  (setq-default eglot-workspace-configuration #'jgy-eglot-python-configuration)
+  (setq-default eglot-workspace-configuration #'iuiw-eglot-python-configuration)
   (add-to-list 'eglot-server-programs
                '((python-mode python-ts-mode)
                  . ("uvx" "--from" "basedpyright"
@@ -754,7 +754,7 @@
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
   (setf (alist-get 'sqlfluff apheleia-formatters)
-        '("sqlfluff" "format" "--dialect" jgy-sql-dialect
+        '("sqlfluff" "format" "--dialect" iuiw-sql-dialect
           "--disable-progress-bar" "-"))
   (setf (alist-get 'sql-mode apheleia-mode-alist) 'sqlfluff)
   (setf (alist-get 'swift-format apheleia-formatters)
@@ -762,8 +762,8 @@
   (setf (alist-get 'swift-mode apheleia-mode-alist) 'swift-format)
   (dolist (mode '(java-mode java-ts-mode emacs-lisp-mode))
     (setf (alist-get mode apheleia-mode-alist nil t) nil))
-  (advice-add 'apheleia-format-buffer :before #'jgy-sql-read-dialect)
-  (add-hook 'apheleia-inhibit-functions #'jgy-sql-inhibit-format-on-save)
+  (advice-add 'apheleia-format-buffer :before #'iuiw-sql-read-dialect)
+  (add-hook 'apheleia-inhibit-functions #'iuiw-sql-inhibit-format-on-save)
   (apheleia-global-mode 1))
 
 (use-package dape
@@ -790,7 +790,7 @@
 
 (use-package sql
   :ensure nil
-  :hook (sql-mode . jgy-sqlmesh-setup))
+  :hook (sql-mode . iuiw-sqlmesh-setup))
 
 (use-package csv-mode
   :mode "\\.[ct]sv\\'")
@@ -804,7 +804,7 @@
 
 (use-package edit-indirect)
 
-(use-package jgy-markdown
+(use-package iuiw-markdown
   :ensure nil
   :demand t)
 
@@ -824,7 +824,7 @@
   (markdown-content-type "text/html")
   ;; highlight.js colours the blocks, so pandoc must not pre-tokenise them.
   (markdown-command "pandoc --from=gfm --to=html5 --syntax-highlighting=none")
-  (markdown-xhtml-header-content jgy-markdown-preview-head)
+  (markdown-xhtml-header-content iuiw-markdown-preview-head)
   (markdown-xhtml-body-preamble "<article class=\"markdown-body\">")
   (markdown-xhtml-body-epilogue "</article>"))
 
@@ -845,30 +845,30 @@
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-openai-default-config-options '(("reasoning_effort" . "low")))
   (agent-shell-context-sources '(region))
-  (agent-shell-dot-subdir-function #'jgy-agent-shell-dot-subdir)
-  (agent-shell-cwd-function #'jgy-workspace-agent-root)
+  (agent-shell-dot-subdir-function #'iuiw-agent-shell-dot-subdir)
+  (agent-shell-cwd-function #'iuiw-workspace-agent-root)
   :config
   ;; overlook 要在第一个 shell 启动前接管，才能给 agent 进程加上环境变量。
   (require 'overlook)
   ;; 声明 elicitation 能力后 Claude 才会拿到 AskUserQuestion 工具；实验功能，只有内部变量可开。
   (setq agent-shell-elicitation--experimental-feature-enabled t)
-  ;; Antigravity 等二进制 ACP agent 由 jgy-agent-update 装在 var/acp/ 下。
-  (jgy-agent-update-acp-use))
+  ;; Antigravity 等二进制 ACP agent 由 iuiw-agent-update 装在 var/acp/ 下。
+  (iuiw-agent-update-acp-use))
 
-(use-package jgy-agent-shell
+(use-package iuiw-agent-shell
   :ensure nil
   :after agent-shell
-  :commands jgy-agent-shell-toggle
+  :commands iuiw-agent-shell-toggle
   :demand t
-  :autoload jgy-agent-shell-dot-subdir)
+  :autoload iuiw-agent-shell-dot-subdir)
 
-(use-package jgy-agent-update
+(use-package iuiw-agent-update
   :ensure nil
-  :commands jgy-agent-update-check
-  :autoload jgy-agent-update-acp-use
+  :commands iuiw-agent-update-check
+  :autoload iuiw-agent-update-acp-use
   :init
   ;; 每天排一次空闲 30 秒后的检查。
-  (run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'jgy-agent-update-check))
+  (run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'iuiw-agent-update-check))
 
 ;; overlook 内置的 agent 信箱，agent 经 bin/courier 调用。
 (use-package courier
@@ -888,16 +888,16 @@
   :custom
   (overlook-side 'left)
   (overlook-width 0.26)
-  (overlook-agent-root-function #'jgy-workspace-agent-root)
-  (overlook-perspective-root #'jgy-workspace-perspective-root)
-  (overlook-project-folders #'jgy-workspace-perspective-folders)
+  (overlook-agent-root-function #'iuiw-workspace-agent-root)
+  (overlook-perspective-root #'iuiw-workspace-perspective-root)
+  (overlook-project-folders #'iuiw-workspace-perspective-folders)
   (overlook-project-folder-display 'mark)
-  (overlook-perspective-annotation #'jgy-workspace-perspective-workspace)
-  (overlook-perspective-filter #'jgy-workspace-perspective-shown-p)
+  (overlook-perspective-annotation #'iuiw-workspace-perspective-workspace)
+  (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")
-  (overlook-usage-file (expand-file-name "claude-usage.json" jgy-state-directory))
-  (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" jgy-state-directory))
-  (overlook-agent-forks-file (expand-file-name "overlook-forks.eld" jgy-state-directory))
+  (overlook-usage-file (expand-file-name "claude-usage.json" iuiw-state-directory))
+  (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" iuiw-state-directory))
+  (overlook-agent-forks-file (expand-file-name "overlook-forks.eld" iuiw-state-directory))
   (overlook-agent-shell-configs
    '(("claude" . agent-shell-anthropic-make-claude-code-config)
      ("codex" . agent-shell-openai-make-codex-config)
@@ -923,7 +923,7 @@
     (setopt overlook-agent-icons
             `(("claude" . ,(nerd-icons-codicon "nf-cod-claude"))
               ("codex" . ,(nerd-icons-codicon "nf-cod-openai")))))
-  (require 'jgy-deepseek)
+  (require 'iuiw-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
   (with-eval-after-load 'evil
     (pcase-dolist (`(,key . ,command) overlook-keys)
@@ -947,29 +947,29 @@
      ("https://claude.dev/rss.xml" claude)
      ("https://t3.at/rss.xml" t3)))
   :init
-  (require 'jgy-elfeed)
-  (add-hook 'evil-collection-setup-hook #'jgy-elfeed-evil-keys)
-  (advice-add 'elfeed-show-refresh :before #'jgy-elfeed-show-set-referer))
+  (require 'iuiw-elfeed)
+  (add-hook 'evil-collection-setup-hook #'iuiw-elfeed-evil-keys)
+  (advice-add 'elfeed-show-refresh :before #'iuiw-elfeed-show-set-referer))
 
 (use-package gptel
   :defer t)
 
-(use-package jgy-elfeed-ai
+(use-package iuiw-elfeed-ai
   :ensure nil
   :after elfeed
   :demand t
   :config
-  (add-to-list 'savehist-additional-variables 'jgy-elfeed-ai-digest-focus))
+  (add-to-list 'savehist-additional-variables 'iuiw-elfeed-ai-digest-focus))
 
-(use-package jgy-elfeed-sync
+(use-package iuiw-elfeed-sync
   :ensure nil
-  :after jgy-elfeed-ai
+  :after iuiw-elfeed-ai
   :demand t
   :config
-  (jgy-elfeed-sync-mode 1))
+  (iuiw-elfeed-sync-mode 1))
 
-(use-package jgy-log
+(use-package iuiw-log
   :ensure nil
-  :mode ("\\.log\\'" . jgy-log-mode))
+  :mode ("\\.log\\'" . iuiw-log-mode))
 
 ;;; init.el ends here

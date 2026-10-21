@@ -1,21 +1,21 @@
-;;; jgy-elfeed-ai-test.el --- Digest navigation tests -*- lexical-binding: t; -*-
+;;; iuiw-elfeed-ai-test.el --- Digest navigation tests -*- lexical-binding: t; -*-
 (require 'ert)
-(require 'jgy-elfeed-ai)
+(require 'iuiw-elfeed-ai)
 (require 'evil)
 
-(ert-deftest jgy-elfeed-digest-input-links-to-entry ()
+(ert-deftest iuiw-elfeed-digest-input-links-to-entry ()
   (let ((entry (elfeed-entry--create :id '("feed" . "entry")
                                     :title "Title" :link "https://example.org")))
-    (cl-letf (((symbol-function 'jgy-elfeed-ai--rss-text) (lambda (_) "Text")))
+    (cl-letf (((symbol-function 'iuiw-elfeed-ai--rss-text) (lambda (_) "Text")))
       (should (string-match-p "链接：elfeed:feed#entry"
-                              (jgy-elfeed-ai--digest-input (list entry)))))))
+                              (iuiw-elfeed-ai--digest-input (list entry)))))))
 
-(ert-deftest jgy-elfeed-digest-enter-opens-entry-in-evil-states ()
+(ert-deftest iuiw-elfeed-digest-enter-opens-entry-in-evil-states ()
   (let ((entry (elfeed-entry--create :id '("feed" . "entry")))
         (elfeed-db t) (elfeed-db-entries (make-hash-table :test #'equal)) opened)
     (puthash (elfeed-entry-id entry) entry elfeed-db-entries)
     (with-temp-buffer
-      (jgy-elfeed-ai-digest-mode)
+      (iuiw-elfeed-ai-digest-mode)
       (let ((inhibit-read-only t)) (insert "- [[elfeed:feed#entry][Title]]\n"))
       (goto-char 8)
       (evil-local-mode 1)

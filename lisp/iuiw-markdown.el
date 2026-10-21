@@ -1,11 +1,11 @@
-;;; jgy-markdown.el --- GitHub-styled markdown preview -*- lexical-binding: t; -*-
+;;; iuiw-markdown.el --- GitHub-styled markdown preview -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; markdown-preview 页面的 head：GitHub 样式、深浅色、highlight.js 与任务列表。
 
 ;;; Code:
 
-(defconst jgy-markdown-preview-head
+(defconst iuiw-markdown-preview-head
   (let ((gh "https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.css")
         (hl "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11"))
     (concat
@@ -36,5 +36,5 @@
      "});</script>\n"))
   "Head markup giving `markdown-preview' GitHub styling and highlight.js.")
 
-(provide 'jgy-markdown)
-;;; jgy-markdown.el ends here
+(provide 'iuiw-markdown)
+;;; iuiw-markdown.el ends here

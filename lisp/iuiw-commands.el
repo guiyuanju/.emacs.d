@@ -1,4 +1,4 @@
-;;; jgy-commands.el --- Personal editing and window commands -*- lexical-binding: t; -*-
+;;; iuiw-commands.el --- Personal editing and window commands -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; 绑在 leader 键上的通用命令：文件与路径、搜索、行号、终端开关、启动 agent。
@@ -15,7 +15,7 @@
 (defvar ediff-mode-map)
 (defvar ghostel-buffer-name)
 
-(defun jgy-delete-this-file (&optional force)
+(defun iuiw-delete-this-file (&optional force)
   "Delete the current file and kill its buffer.
 With FORCE, do not ask for confirmation."
   (interactive "P")
@@ -27,7 +27,7 @@ With FORCE, do not ask for confirmation."
       (when-let* ((buffer (get-file-buffer file)))
         (kill-buffer buffer)))))
 
-(defun jgy-buffer-path (&optional relative)
+(defun iuiw-buffer-path (&optional relative)
   "Return the current path, optionally RELATIVE to its project."
   (let ((path (or (buffer-file-name (buffer-base-buffer)) default-directory)))
     (if-let* ((relative)
@@ -35,33 +35,33 @@ With FORCE, do not ask for confirmation."
         (file-relative-name path (project-root project))
       (abbreviate-file-name path))))
 
-(defun jgy-yank-buffer-path (&optional relative)
+(defun iuiw-yank-buffer-path (&optional relative)
   "Copy the current path; with RELATIVE, use the project root."
   (interactive "P")
-  (message "Copied: %s" (kill-new (jgy-buffer-path relative))))
+  (message "Copied: %s" (kill-new (iuiw-buffer-path relative))))
 
-(defun jgy-insert-buffer-path ()
+(defun iuiw-insert-buffer-path ()
   "Insert the current buffer path."
   (interactive)
-  (insert (jgy-buffer-path)))
+  (insert (iuiw-buffer-path)))
 
-(defun jgy-reload-config ()
+(defun iuiw-reload-config ()
   "Reload init.el.  Restart when changing package declarations."
   (interactive)
   (load user-init-file nil 'nomessage)
   (message "Reloaded %s" (abbreviate-file-name user-init-file)))
 
-(defun jgy-search-directory ()
+(defun iuiw-search-directory ()
   "Run ripgrep in `default-directory'."
   (interactive)
   (consult-ripgrep default-directory))
 
-(defun jgy-search-symbol-at-point ()
+(defun iuiw-search-symbol-at-point ()
   "Run project ripgrep for the symbol at point."
   (interactive)
   (consult-ripgrep nil (thing-at-point 'symbol t)))
 
-(defun jgy-toggle-line-numbers ()
+(defun iuiw-toggle-line-numbers ()
   "Cycle absolute, relative, and hidden line numbers."
   (interactive)
   (let ((next (pcase display-line-numbers
@@ -75,14 +75,14 @@ With FORCE, do not ask for confirmation."
       (display-line-numbers-mode -1))
     (message "Line numbers: %s" (or next "off"))))
 
-(defun jgy-reveal-in-finder ()
+(defun iuiw-reveal-in-finder ()
   "Reveal the current path in Finder."
   (interactive)
   (unless (eq system-type 'darwin) (user-error "Finder is only available on macOS"))
   (call-process "open" nil 0 nil "-R"
                 (or (buffer-file-name (buffer-base-buffer)) default-directory)))
 
-(defun jgy-toggle-buffer (buffer create-function)
+(defun iuiw-toggle-buffer (buffer create-function)
   "Hide BUFFER if visible, show it if live, otherwise call CREATE-FUNCTION."
   (if-let* ((window (and buffer (get-buffer-window buffer t))))
       (quit-window nil window)
@@ -91,7 +91,7 @@ With FORCE, do not ask for confirmation."
                  (save-window-excursion (funcall create-function)))))
       (select-window (display-buffer buf)))))
 
-(defun jgy-eshell-toggle ()
+(defun iuiw-eshell-toggle ()
   "Toggle the current project's Eshell, or the global one outside projects.
 Called from inside an Eshell it hides that buffer, whatever its `cd'
 history has done to `default-directory'."
@@ -100,10 +100,10 @@ history has done to `default-directory'."
       (quit-window)
     (let* ((project (project-current))
            (name (if project (project-prefixed-buffer-name "eshell") "*eshell*")))
-      (jgy-toggle-buffer (get-buffer name)
+      (iuiw-toggle-buffer (get-buffer name)
                          (if project #'project-eshell #'eshell)))))
 
-(defun jgy-ghostel-toggle ()
+(defun iuiw-ghostel-toggle ()
   "Toggle the current project's Ghostel, or the global terminal outside projects.
 Called from inside a Ghostel it hides that buffer, whatever its `cd'
 history has done to `default-directory'."
@@ -111,12 +111,12 @@ history has done to `default-directory'."
   (cond
    ((derived-mode-p 'ghostel-mode) (quit-window))
    ((project-current)
-    (jgy-toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project))
-   (t (jgy-toggle-buffer
+    (iuiw-toggle-buffer (car (ghostel-project-buffer-list)) #'ghostel-project))
+   (t (iuiw-toggle-buffer
        (get-buffer (or (bound-and-true-p ghostel-buffer-name) "*ghostel*"))
        #'ghostel))))
 
-(defun jgy-ediff-quit-without-asking (quit &rest args)
+(defun iuiw-ediff-quit-without-asking (quit &rest args)
   "Call QUIT with ARGS, answering yes to its \"Quit this Ediff session\" prompt.
 Other prompts during quitting are still asked."
   (let ((ask (symbol-function 'y-or-n-p)))
@@ -126,9 +126,9 @@ Other prompts during quitting are still asked."
                      (funcall ask prompt)))))
       (apply quit args))))
 
-(defun jgy-ediff-bind-recenter ()
+(defun iuiw-ediff-bind-recenter ()
   "Bind zz in the Ediff control panel to restore the windows and current diff."
   (define-key ediff-mode-map "zz" #'ediff-recenter))
 
-(provide 'jgy-commands)
-;;; jgy-commands.el ends here
+(provide 'iuiw-commands)
+;;; iuiw-commands.el ends here

@@ -17,5 +17,5 @@ After editing, apply the change to the running Emacs with `emacsclient --eval` w
 ## Where code goes
 
 - `init.el` holds settings and `use-package` declarations only, plus the hooks and advice that wire things together.
-- Custom functions and variables go in `lisp/jgy-<topic>.el`, loaded from `init.el` with `use-package ... :ensure nil`.
+- Custom functions and variables go in `lisp/iuiw-<topic>.el`, loaded from `init.el` with `use-package ... :ensure nil`.
 - `site-lisp/overlook/` is the overlook package, kept as a git subtree of https://github.com/guiyuanju/overlook. Edit and commit it here like any other file; publish with `git subtree push --prefix site-lisp/overlook https://github.com/guiyuanju/overlook.git main`. Run its tests from that folder with `make test`.

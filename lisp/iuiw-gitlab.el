@@ -1,4 +1,4 @@
-;;; jgy-gitlab.el --- GitLab merge requests through glab -*- lexical-binding: t; -*-
+;;; iuiw-gitlab.el --- GitLab merge requests through glab -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; 在浏览器里打开当前分支的 GitLab merge request。
@@ -7,7 +7,7 @@
 
 (require 'seq)
 
-(defun jgy-gitlab--json (&rest args)
+(defun iuiw-gitlab--json (&rest args)
   "Return the parsed JSON output of glab ARGS."
   (with-temp-buffer
     (unless (zerop (apply #'call-process "glab" nil '(t nil) nil args))
@@ -15,7 +15,7 @@
     (goto-char (point-min))
     (json-parse-buffer :object-type 'alist :array-type 'list)))
 
-(defun jgy-browse-mr ()
+(defun iuiw-browse-mr ()
   "Open the GitLab merge request for the current branch in a browser.
 An open request wins over merged or closed ones; with none, offer the
 new merge request page."
@@ -24,7 +24,7 @@ new merge request page."
   (let* ((branch (car (ignore-errors
                         (process-lines "git" "branch" "--show-current"))))
          (_ (unless branch (user-error "Not on a Git branch")))
-         (mrs (jgy-gitlab--json "mr" "list" "--source-branch" branch
+         (mrs (iuiw-gitlab--json "mr" "list" "--source-branch" branch
                                       "--all" "-F" "json"))
          (mr (or (seq-find (lambda (mr) (equal (alist-get 'state mr) "opened"))
                            mrs)
@@ -37,9 +37,9 @@ new merge request page."
      ((y-or-n-p (format "No merge request for %s; create one? " branch))
       (browse-url
        (format "%s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s"
-               (alist-get 'web_url (jgy-gitlab--json "repo" "view"
+               (alist-get 'web_url (iuiw-gitlab--json "repo" "view"
                                                            "-F" "json"))
                (url-hexify-string branch)))))))
 
-(provide 'jgy-gitlab)
-;;; jgy-gitlab.el ends here
+(provide 'iuiw-gitlab)
+;;; iuiw-gitlab.el ends here

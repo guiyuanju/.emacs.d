@@ -1,9 +1,9 @@
-;;; jgy-workspace.el --- Workspaces, projects, perspectives and repos -*- lexical-binding: t; -*-
+;;; iuiw-workspace.el --- Workspaces, projects, perspectives and repos -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; workspace（~/workspace/me、okj…）→ 项目 projects/<id>/（project.md）→ 若干 repo（各一个 git 仓库）；
 ;; 每个项目对应一个同名 perspective，项目 id 即文件夹名。
-;; 位置固定的 repo（如 ~/.emacs.d）不搬进项目文件夹，用 `jgy-workspace-project-roots' 指过去：
+;; 位置固定的 repo（如 ~/.emacs.d）不搬进项目文件夹，用 `iuiw-workspace-project-roots' 指过去：
 ;; project.md 仍在 workspace，看板、agent 以那个目录为项目根。
 ;; project.md 的 front matter 可用 YAML 兼容的 JSON 数组记录仓库，例如：
 ;; repos: [
@@ -18,7 +18,7 @@
 ;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
 ;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面。
-;; `jgy-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
+;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
 
 ;;; Code:
@@ -49,134 +49,134 @@
 (defvar persp-sort)
 (defvar overlook-mode-line-functions)
 
-(defgroup jgy-workspace nil
+(defgroup iuiw-workspace nil
   "Project folders under ~/workspace."
   :group 'convenience)
 
-(defcustom jgy-workspace-directory "~/workspace/"
+(defcustom iuiw-workspace-directory "~/workspace/"
   "Directory containing workspaces, each with a projects/ folder."
   :type 'directory
-  :group 'jgy-workspace)
+  :group 'iuiw-workspace)
 
-(defcustom jgy-workspace-project-roots nil
+(defcustom iuiw-workspace-project-roots nil
   "Alist of project id to its root outside the workspaces.
 The project's card stays in its workspace folder; the dashboard lists
 the repos of the root, and agents started in the card folder run there."
   :type '(alist :key-type string :value-type directory)
-  :group 'jgy-workspace)
+  :group 'iuiw-workspace)
 
-(defcustom jgy-workspace-filter nil
-  "Workspace whose projects the dashboard and `jgy-workspace-open-project' show.
+(defcustom iuiw-workspace-filter nil
+  "Workspace whose projects the dashboard and `iuiw-workspace-open-project' show.
 Nil shows every workspace.  A project also counts for the workspaces in
 the also: list of its front matter."
   :type '(choice (const :tag "All" nil) string)
-  :group 'jgy-workspace)
+  :group 'iuiw-workspace)
 
-(defcustom jgy-workspace-pull-repos '("~/.emacs.d/" "~/workspace/")
-  "Repos pulled by `jgy-workspace-pull'."
+(defcustom iuiw-workspace-pull-repos '("~/.emacs.d/" "~/workspace/")
+  "Repos pulled by `iuiw-workspace-pull'."
   :type '(repeat directory)
-  :group 'jgy-workspace)
+  :group 'iuiw-workspace)
 
 ;;; Cache
 
-(defvar jgy-workspace--cache nil
-  "Alist of key to (STAMP . VALUE), see `jgy-workspace--cached'.")
+(defvar iuiw-workspace--cache nil
+  "Alist of key to (STAMP . VALUE), see `iuiw-workspace--cached'.")
 
-(defun jgy-workspace--cached (key stamp compute)
+(defun iuiw-workspace--cached (key stamp compute)
   "Value cached under KEY while it was computed at STAMP, else call COMPUTE."
-  (let ((entry (alist-get key jgy-workspace--cache)))
+  (let ((entry (alist-get key iuiw-workspace--cache)))
     (if (and entry (equal (car entry) stamp))
         (cdr entry)
       (let ((value (funcall compute)))
-        (setf (alist-get key jgy-workspace--cache) (cons stamp value))
+        (setf (alist-get key iuiw-workspace--cache) (cons stamp value))
         value))))
 
-(defun jgy-workspace--mtimes (files)
+(defun iuiw-workspace--mtimes (files)
   "FILES paired with their modification times, nil for missing ones."
   (mapcar (lambda (file) (cons file (file-attribute-modification-time (file-attributes file))))
           files))
 
 ;;; Projects
 
-(defun jgy-workspace--base ()
-  "`jgy-workspace-directory' with symlinks resolved, as a directory name.
+(defun iuiw-workspace--base ()
+  "`iuiw-workspace-directory' with symlinks resolved, as a directory name.
 Every project path is built from this, so paths compare with `equal'."
-  (file-name-as-directory (file-truename jgy-workspace-directory)))
+  (file-name-as-directory (file-truename iuiw-workspace-directory)))
 
-(defun jgy-workspace--root (id)
-  "Root of project ID from `jgy-workspace-project-roots', or nil."
-  (when-let* ((dir (cdr (assoc id jgy-workspace-project-roots))))
+(defun iuiw-workspace--root (id)
+  "Root of project ID from `iuiw-workspace-project-roots', or nil."
+  (when-let* ((dir (cdr (assoc id iuiw-workspace-project-roots))))
     (file-name-as-directory (file-truename dir))))
 
-(defun jgy-workspace--root-id (&optional directory)
-  "Id of the project whose root in `jgy-workspace-project-roots' holds DIRECTORY.
+(defun iuiw-workspace--root-id (&optional directory)
+  "Id of the project whose root in `iuiw-workspace-project-roots' holds DIRECTORY.
 Of nested roots the innermost wins."
   (let ((directory (or directory default-directory)))
     (car (car (sort (seq-filter (lambda (entry) (file-in-directory-p directory (cdr entry)))
-                                jgy-workspace-project-roots)
-                    (lambda (a b) (> (length (jgy-workspace--root (car a)))
-                                     (length (jgy-workspace--root (car b))))))))))
+                                iuiw-workspace-project-roots)
+                    (lambda (a b) (> (length (iuiw-workspace--root (car a)))
+                                     (length (iuiw-workspace--root (car b))))))))))
 
-(defun jgy-workspace--file-id (file)
+(defun iuiw-workspace--file-id (file)
   "Id of the project whose card is FILE: its folder name."
   (file-name-nondirectory (directory-file-name (file-name-directory file))))
 
-(defun jgy-workspace-project-root (&optional directory)
+(defun iuiw-workspace-project-root (&optional directory)
   "Return the <workspace>/projects/<id>/ folder containing DIRECTORY, or nil.
 Symlinks are resolved first, so a link into a project folder finds it."
   (let ((dir (file-name-as-directory (file-truename (or directory default-directory)))))
-    (when (string-match (concat "\\`" (regexp-quote (jgy-workspace--base)) "[^/]+/projects/[^./][^/]*/")
+    (when (string-match (concat "\\`" (regexp-quote (iuiw-workspace--base)) "[^/]+/projects/[^./][^/]*/")
                         dir)
       (let ((root (match-string 0 dir)))
         (and (file-exists-p (expand-file-name "project.md" root)) root)))))
 
-(defun jgy-workspace--projects ()
+(defun iuiw-workspace--projects ()
   "Alist of project id to project.md across the workspaces.
 Globbed again only when the workspace root or a projects/ folder changes."
-  (let* ((base (jgy-workspace--base))
-         (stamp (cons base (jgy-workspace--mtimes
+  (let* ((base (iuiw-workspace--base))
+         (stamp (cons base (iuiw-workspace--mtimes
                             (cons base (mapcar (lambda (dir) (expand-file-name "projects/" dir))
                                                (directory-files base t "\\`[^.]")))))))
-    (jgy-workspace--cached
+    (iuiw-workspace--cached
      'projects stamp
      (lambda ()
        (seq-keep (lambda (file)
-                   (let ((id (jgy-workspace--file-id file)))
+                   (let ((id (iuiw-workspace--file-id file)))
                      (unless (string-prefix-p "." id) (cons id file))))
                  (file-expand-wildcards (expand-file-name "*/projects/*/project.md" base)))))))
 
-(defun jgy-workspace-project-files ()
+(defun iuiw-workspace-project-files ()
   "Return every project card of the workspaces."
-  (mapcar #'cdr (jgy-workspace--projects)))
+  (mapcar #'cdr (iuiw-workspace--projects)))
 
-(defun jgy-workspace--workspaces ()
+(defun iuiw-workspace--workspaces ()
   "Names of the workspaces, the folders with a projects/ folder."
   (mapcar (lambda (dir) (file-name-nondirectory (directory-file-name (file-name-parent-directory dir))))
-          (file-expand-wildcards (expand-file-name "*/projects/" (jgy-workspace--base)))))
+          (file-expand-wildcards (expand-file-name "*/projects/" (iuiw-workspace--base)))))
 
-(defun jgy-workspace--file-workspace (file)
+(defun iuiw-workspace--file-workspace (file)
   "Name of the workspace holding project card FILE."
   (file-name-nondirectory (directory-file-name (file-name-parent-directory
                                                 (file-name-parent-directory
                                                  (file-name-directory file))))))
 
-(defun jgy-workspace--shown-p (card)
-  "Non-nil when CARD belongs to `jgy-workspace-filter', or there is no filter."
-  (or (null jgy-workspace-filter)
-      (equal jgy-workspace-filter (plist-get card :workspace))
-      (member jgy-workspace-filter (plist-get card :also))))
+(defun iuiw-workspace--shown-p (card)
+  "Non-nil when CARD belongs to `iuiw-workspace-filter', or there is no filter."
+  (or (null iuiw-workspace-filter)
+      (equal iuiw-workspace-filter (plist-get card :workspace))
+      (member iuiw-workspace-filter (plist-get card :also))))
 
-(defun jgy-workspace-perspective-shown-p (name)
-  "Non-nil unless perspective NAME is a project hidden by `jgy-workspace-filter'."
-  (let ((card (seq-find (lambda (card) (equal (plist-get card :id) name)) (jgy-workspace--cards))))
-    (or (null card) (jgy-workspace--shown-p card))))
+(defun iuiw-workspace-perspective-shown-p (name)
+  "Non-nil unless perspective NAME is a project hidden by `iuiw-workspace-filter'."
+  (let ((card (seq-find (lambda (card) (equal (plist-get card :id) name)) (iuiw-workspace--cards))))
+    (or (null card) (iuiw-workspace--shown-p card))))
 
-(defun jgy-workspace-switch-perspective (name)
-  "Switch to perspective NAME, offering those shown by `jgy-workspace-filter'.
+(defun iuiw-workspace-switch-perspective (name)
+  "Switch to perspective NAME, offering those shown by `iuiw-workspace-filter'.
 Candidates are most recently used first.  Any name works; a new one
 creates the perspective."
   (interactive
-   (let ((names (seq-filter #'jgy-workspace-perspective-shown-p
+   (let ((names (seq-filter #'iuiw-workspace-perspective-shown-p
                             (remove (persp-current-name)
                                     (let ((persp-sort 'access)) (persp-names))))))
      (list (completing-read "Perspective: "
@@ -186,51 +186,51 @@ creates the perspective."
                                 (complete-with-action action names string pred)))))))
   (persp-switch name))
 
-(defun jgy-workspace-cycle-filter ()
-  "Cycle `jgy-workspace-filter' through every workspace, then all."
+(defun iuiw-workspace-cycle-filter ()
+  "Cycle `iuiw-workspace-filter' through every workspace, then all."
   (interactive)
-  (let ((choices (cons nil (jgy-workspace--workspaces))))
-    (setq jgy-workspace-filter (or (cadr (member jgy-workspace-filter choices)) nil))
-    (message "Workspace filter: %s" (or jgy-workspace-filter "all"))
+  (let ((choices (cons nil (iuiw-workspace--workspaces))))
+    (setq iuiw-workspace-filter (or (cadr (member iuiw-workspace-filter choices)) nil))
+    (message "Workspace filter: %s" (or iuiw-workspace-filter "all"))
     (force-mode-line-update t)
     (when (fboundp 'overlook-refresh) (overlook-refresh))))
 
-(defun jgy-workspace-project-dir (id)
+(defun iuiw-workspace-project-dir (id)
   "Folder of project ID, or nil."
-  (when-let* ((file (cdr (assoc id (jgy-workspace--projects)))))
+  (when-let* ((file (cdr (assoc id (iuiw-workspace--projects)))))
     (file-name-directory file)))
 
-(defun jgy-workspace--projects-by-mtime ()
+(defun iuiw-workspace--projects-by-mtime ()
   "Return the project.md of every project shown by the filter, newest first."
   (sort (mapcar (lambda (card) (plist-get card :file))
-                (seq-filter #'jgy-workspace--shown-p (jgy-workspace--cards)))
+                (seq-filter #'iuiw-workspace--shown-p (iuiw-workspace--cards)))
         #'file-newer-than-file-p))
 
-(defun jgy-workspace--read-workspace ()
+(defun iuiw-workspace--read-workspace ()
   "Read a workspace name and return its projects folder."
-  (let* ((base (jgy-workspace--base))
-         (names (jgy-workspace--workspaces))
+  (let* ((base (iuiw-workspace--base))
+         (names (iuiw-workspace--workspaces))
          (name (if (cdr names)
                    (completing-read "Workspace: " names nil t)
-                 (or (car names) (user-error "No workspace under %s" jgy-workspace-directory)))))
+                 (or (car names) (user-error "No workspace under %s" iuiw-workspace-directory)))))
     (expand-file-name (concat name "/projects/") base)))
 
-(defun jgy-workspace--check-new-id (id)
+(defun iuiw-workspace--check-new-id (id)
   "Signal a `user-error' unless ID can name a new project."
   (unless (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" id)
     (user-error "Project id must be lowercase letters, digits and hyphens: %S" id))
   (when (and (fboundp 'persp-names) (bound-and-true-p persp-mode) (member id (persp-names)))
     (user-error "Perspective %s exists and is not a project" id)))
 
-(defun jgy-workspace--template ()
+(defun iuiw-workspace--template ()
   "Contents of the project template, or a `user-error' when it is missing."
-  (let ((file (expand-file-name "project-template.md" jgy-workspace-directory)))
+  (let ((file (expand-file-name "project-template.md" iuiw-workspace-directory)))
     (unless (file-readable-p file) (user-error "No project template at %s" file))
     (with-temp-buffer
       (insert-file-contents file)
       (buffer-string))))
 
-(defun jgy-workspace--create-project (file id title)
+(defun iuiw-workspace--create-project (file id title)
   "Create project.md FILE for ID with TITLE from the project template."
   (let ((text (replace-regexp-in-string
                "{{\\(id\\|title\\|date\\)}}"
@@ -239,72 +239,72 @@ creates the perspective."
                    ("{{id}}" id)
                    ("{{title}}" title)
                    (_ (format-time-string "%F"))))
-               (jgy-workspace--template) t t)))
+               (iuiw-workspace--template) t t)))
     (make-directory (file-name-directory file) t)
     ;; overlook-markers 据此把项目文件夹连同其中所有 clone 当作一个 project。
     (write-region "" nil (expand-file-name ".overlook" (file-name-directory file)))
     (write-region text nil file nil nil nil 'excl)))
 
-(defun jgy-workspace--new-project (id)
+(defun iuiw-workspace--new-project (id)
   "Create project ID in a workspace read from the user; return its project.md."
-  (jgy-workspace--check-new-id id)
-  (when (assoc id (jgy-workspace--projects)) (user-error "Project %s exists" id))
-  (jgy-workspace--template)
-  (let ((file (expand-file-name (concat id "/project.md") (jgy-workspace--read-workspace))))
-    (jgy-workspace--create-project file id (read-string "Title: "))
+  (iuiw-workspace--check-new-id id)
+  (when (assoc id (iuiw-workspace--projects)) (user-error "Project %s exists" id))
+  (iuiw-workspace--template)
+  (let ((file (expand-file-name (concat id "/project.md") (iuiw-workspace--read-workspace))))
+    (iuiw-workspace--create-project file id (read-string "Title: "))
     file))
 
-(defun jgy-workspace--switch (id file)
+(defun iuiw-workspace--switch (id file)
   "Switch to the perspective of project ID; a new one opens its project.md FILE."
   (let ((new (not (member id (persp-names)))))
     (persp-switch id)
     (when new (find-file file))))
 
-(defun jgy-workspace-open-project (id)
+(defun iuiw-workspace-open-project (id)
   "Switch to the perspective of project ID, creating the project when it is new.
 A new perspective opens project.md; an existing one keeps its windows.
-Only projects shown by `jgy-workspace-filter' are offered; any id works."
+Only projects shown by `iuiw-workspace-filter' are offered; any id works."
   (interactive (list (string-trim
-                      (completing-read "Project: " (mapcar #'jgy-workspace--file-id
-                                                           (jgy-workspace--projects-by-mtime))))))
-  (jgy-workspace--switch id (or (cdr (assoc id (jgy-workspace--projects)))
-                                (jgy-workspace--new-project id))))
+                      (completing-read "Project: " (mapcar #'iuiw-workspace--file-id
+                                                           (iuiw-workspace--projects-by-mtime))))))
+  (iuiw-workspace--switch id (or (cdr (assoc id (iuiw-workspace--projects)))
+                                (iuiw-workspace--new-project id))))
 
-(defun jgy-workspace-new-project (id)
+(defun iuiw-workspace-new-project (id)
   "Create project ID, clone repositories into it and open it in its perspective.
 The repositories are read with `completing-read-multiple'; none is fine."
   (interactive (list (string-trim (read-string "New project id: "))))
-  (let* ((file (jgy-workspace--new-project id))
+  (let* ((file (iuiw-workspace--new-project id))
          (root (file-name-directory file))
          (candidates (condition-case err
-                         (jgy-workspace--clone-candidates root)
+                         (iuiw-workspace--clone-candidates root)
                        (user-error (message "Skipping clone: %s" (error-message-string err))
                                    nil)))
          (repos (when candidates
                   (let ((completion-extra-properties
-                         (jgy-workspace--candidate-properties candidates)))
+                         (iuiw-workspace--candidate-properties candidates)))
                     ;; A function instead of t lets vertico select the empty prompt.
                     (completing-read-multiple
                      "Clone repositories (empty for none): " candidates nil
                      (lambda (input)
                        (seq-every-p (lambda (repo) (assoc repo candidates))
                                     (split-string input crm-separator t))))))))
-    (jgy-workspace--switch id file)
+    (iuiw-workspace--switch id file)
     (when repos
-      (jgy-workspace--clone-candidates-into root (mapcar (lambda (repo) (assoc repo candidates)) repos)))))
+      (iuiw-workspace--clone-candidates-into root (mapcar (lambda (repo) (assoc repo candidates)) repos)))))
 
-(defun jgy-workspace-visit-project-md ()
+(defun iuiw-workspace-visit-project-md ()
   "Open the project.md of the current perspective, project folder or root.
 From a side window such as the dashboard it opens in the main window."
   (interactive)
-  (let ((dir (jgy-workspace--current-card-root)))
+  (let ((dir (iuiw-workspace--current-card-root)))
     (when (fboundp 'overlook-main-window) (overlook-main-window))
     (find-file (expand-file-name "project.md" dir))))
 
-(defun jgy-workspace--cli-output (program &rest args)
+(defun iuiw-workspace--cli-output (program &rest args)
   "Stdout of PROGRAM run with ARGS from the home folder, or a `user-error'."
   (let ((default-directory (expand-file-name "~/"))
-        (stderr (make-temp-file "jgy-workspace-cli")))
+        (stderr (make-temp-file "iuiw-workspace-cli")))
     (unwind-protect
         (with-temp-buffer
           (let ((status (condition-case nil
@@ -318,7 +318,7 @@ From a side window such as the dashboard it opens in the main window."
             (buffer-string)))
       (delete-file stderr))))
 
-(defun jgy-workspace--parse-json-arrays (text)
+(defun iuiw-workspace--parse-json-arrays (text)
   "Concatenate the JSON arrays in TEXT, as printed page by page by glab."
   (with-temp-buffer
     (insert text)
@@ -329,7 +329,7 @@ From a side window such as the dashboard it opens in the main window."
                                                      :null-object nil))))
       items)))
 
-(defun jgy-workspace--remotes (root)
+(defun iuiw-workspace--remotes (root)
   "Remotes of project folder ROOT's workspace, read from its .remotes file.
 Each is a list (FORGE ARG) such as (\"github\" \"owner\")."
   (let ((file (expand-file-name "../../.remotes" root)))
@@ -345,12 +345,12 @@ Each is a list (FORGE ARG) such as (\"github\" \"owner\")."
                               fields)))
                         (split-string (buffer-string) "\n"))))))
 
-(defun jgy-workspace--remote-repos (forge arg)
+(defun iuiw-workspace--remote-repos (forge arg)
   "Repositories of remote FORGE with ARG, as (NAME PATH URL DESCRIPTION).
 The URL follows the protocol configured in the forge's CLI."
   (pcase forge
     ("github"
-     (let ((ssh (equal (string-trim (jgy-workspace--cli-output "gh" "config" "get" "git_protocol"))
+     (let ((ssh (equal (string-trim (iuiw-workspace--cli-output "gh" "config" "get" "git_protocol"))
                        "ssh")))
        (mapcar (lambda (repo)
                  (let ((name (alist-get 'nameWithOwner repo)))
@@ -358,37 +358,37 @@ The URL follows the protocol configured in the forge's CLI."
                          (if ssh (alist-get 'sshUrl repo) (concat (alist-get 'url repo) ".git"))
                          (alist-get 'description repo))))
                (json-parse-string
-                (jgy-workspace--cli-output "gh" "repo" "list" arg "--no-archived" "--limit" "1000"
+                (iuiw-workspace--cli-output "gh" "repo" "list" arg "--no-archived" "--limit" "1000"
                                            "--json" "nameWithOwner,url,sshUrl,description")
                 :array-type 'list :object-type 'alist :null-object nil))))
     ("gitlab"
-     (let ((ssh (equal (string-trim (jgy-workspace--cli-output "glab" "config" "get" "git_protocol"
+     (let ((ssh (equal (string-trim (iuiw-workspace--cli-output "glab" "config" "get" "git_protocol"
                                                                "--host" arg))
                        "ssh")))
        (mapcar (lambda (repo)
                  (list (alist-get 'path_with_namespace repo) (alist-get 'path repo)
                        (alist-get (if ssh 'ssh_url_to_repo 'http_url_to_repo) repo)
                        (alist-get 'description repo)))
-               (jgy-workspace--parse-json-arrays
-                (jgy-workspace--cli-output
+               (iuiw-workspace--parse-json-arrays
+                (iuiw-workspace--cli-output
                  "glab" "api" "--hostname" arg "--paginate"
                  "projects?membership=true&simple=true&archived=false&per_page=100")))))
     (_ (user-error "Unknown forge in .remotes: %s" forge))))
 
-(defun jgy-workspace--clone-candidates (root)
+(defun iuiw-workspace--clone-candidates (root)
   "Remote repos to clone into project folder ROOT, as (NAME PATH URL DESCRIPTION).
 Repos whose path exists in ROOT or is registered in its project.md are left out."
-  (let ((taken (mapcar (lambda (repo) (alist-get 'path repo)) (jgy-workspace--read-repos root)))
+  (let ((taken (mapcar (lambda (repo) (alist-get 'path repo)) (iuiw-workspace--read-repos root)))
         candidates)
-    (pcase-dolist (`(,forge ,arg) (jgy-workspace--remotes root))
-      (dolist (repo (jgy-workspace--remote-repos forge arg))
+    (pcase-dolist (`(,forge ,arg) (iuiw-workspace--remotes root))
+      (dolist (repo (iuiw-workspace--remote-repos forge arg))
         (unless (or (assoc (car repo) candidates)
                     (member (nth 1 repo) taken)
                     (file-exists-p (expand-file-name (nth 1 repo) root)))
           (push repo candidates))))
     (nreverse candidates)))
 
-(defun jgy-workspace--candidate-properties (candidates)
+(defun iuiw-workspace--candidate-properties (candidates)
   "`completion-extra-properties' showing the description of CANDIDATES."
   (list :annotation-function
         (lambda (name)
@@ -396,16 +396,16 @@ Repos whose path exists in ROOT or is registered in its project.md are left out.
                       ((not (string-empty-p description))))
             (concat "  " (propertize description 'face 'completions-annotations))))))
 
-(defun jgy-workspace--current-card-root ()
+(defun iuiw-workspace--current-card-root ()
   "Return the current project's card directory, including mapped projects."
   (or (and (bound-and-true-p persp-mode)
-           (jgy-workspace-project-dir (persp-current-name)))
-      (jgy-workspace-project-root)
-      (when-let* ((id (jgy-workspace--root-id)))
-        (jgy-workspace-project-dir id))
+           (iuiw-workspace-project-dir (persp-current-name)))
+      (iuiw-workspace-project-root)
+      (when-let* ((id (iuiw-workspace--root-id)))
+        (iuiw-workspace-project-dir id))
       (user-error "Not inside a project folder")))
 
-(defun jgy-workspace--repos-region ()
+(defun iuiw-workspace--repos-region ()
   "Return bounds of the repos field in the current card's front matter.
 Leave point at the closing delimiter if the field is absent."
   (goto-char (point-min))
@@ -426,7 +426,7 @@ Leave point at the closing delimiter if the field is absent."
       (goto-char (max start end))
       nil)))
 
-(defun jgy-workspace--validate-repos (repos root)
+(defun iuiw-workspace--validate-repos (repos root)
   "Validate REPOS and their paths under ROOT, returning REPOS.
 Each entry has symbol keys path and url.  Paths are relative directories."
   (unless (listp repos) (user-error "repos must be a JSON array"))
@@ -453,7 +453,7 @@ Each entry has symbol keys path and url.  Paths are relative directories."
           (push target seen)))))
   repos)
 
-(defun jgy-workspace--read-repos (root)
+(defun iuiw-workspace--read-repos (root)
   "Read ROOT's repos array using Emacs's built-in JSON parser.
 The JSON array is also valid YAML.  Other front matter is left untouched."
   (with-current-buffer (find-file-noselect (expand-file-name "project.md" root))
@@ -462,7 +462,7 @@ The JSON array is also valid YAML.  Other front matter is left untouched."
     (save-excursion
       (save-restriction
         (widen)
-        (let ((region (jgy-workspace--repos-region)))
+        (let ((region (iuiw-workspace--repos-region)))
           (when region
             (let* ((text (buffer-substring-no-properties (+ (car region) 6) (cdr region)))
                    (repos (condition-case nil
@@ -471,19 +471,19 @@ The JSON array is also valid YAML.  Other front matter is left untouched."
                             (error (user-error "repos must be a JSON array of path/url objects")))))
               (unless (string-prefix-p "[" (string-trim-left text))
                 (user-error "repos must be a JSON array"))
-              (jgy-workspace--validate-repos repos root))))))))
+              (iuiw-workspace--validate-repos repos root))))))))
 
-(defun jgy-workspace--write-repos (root repos)
+(defun iuiw-workspace--write-repos (root repos)
   "Save REPOS in ROOT's card, preserving other fields and body.
 Refuse to save over unsaved user edits or external file changes."
-  (jgy-workspace--validate-repos repos root)
+  (iuiw-workspace--validate-repos repos root)
   (with-current-buffer (find-file-noselect (expand-file-name "project.md" root))
     (when (or (buffer-modified-p) (not (verify-visited-file-modtime (current-buffer))))
       (user-error "Save or revert project.md before registering repositories"))
     (save-excursion
       (save-restriction
         (widen)
-        (let ((region (jgy-workspace--repos-region))
+        (let ((region (iuiw-workspace--repos-region))
               (json-encoding-pretty-print nil))
           (when region
             (delete-region (car region) (cdr region))
@@ -494,7 +494,7 @@ Refuse to save over unsaved user edits or external file changes."
           (insert (if repos "\n  ]\n" "]\n"))
           (save-buffer))))))
 
-(defun jgy-workspace--add-repo (repos path url)
+(defun iuiw-workspace--add-repo (repos path url)
   "Return REPOS with PATH and URL appended, unchanged when PATH is listed.
 Signal a `user-error' when PATH is listed with another URL."
   (if-let* ((entry (seq-find (lambda (repo) (equal (alist-get 'path repo) path)) repos)))
@@ -503,14 +503,14 @@ Signal a `user-error' when PATH is listed with another URL."
         (user-error "Repo %s already registered with another URL" path))
     (append repos (list `((path . ,path) (url . ,url))))))
 
-(defun jgy-workspace--register-repo (root path url)
+(defun iuiw-workspace--register-repo (root path url)
   "Register PATH and URL in ROOT after a successful clone."
-  (let* ((repos (jgy-workspace--read-repos root))
-         (new (jgy-workspace--add-repo repos path url)))
+  (let* ((repos (iuiw-workspace--read-repos root))
+         (new (iuiw-workspace--add-repo repos path url)))
     (unless (eq new repos)
-      (jgy-workspace--write-repos root new))))
+      (iuiw-workspace--write-repos root new))))
 
-(defun jgy-workspace--clone-entries (root repos &optional register)
+(defun iuiw-workspace--clone-entries (root repos &optional register)
   "Clone REPOS into ROOT sequentially, optionally REGISTER on success.
 Existing paths are skipped.  Stop on failure and preserve Magit's log."
   (if (null repos)
@@ -522,7 +522,7 @@ Existing paths are skipped.  Stop on failure and preserve Magit's log."
       (if (or (file-exists-p target) (file-symlink-p target))
           (progn
             (message "Skipping existing path: %s" target)
-            (jgy-workspace--clone-entries root (cdr repos) register))
+            (iuiw-workspace--clone-entries root (cdr repos) register))
         (require 'magit-process)
         (make-directory (file-name-directory target) t)
         (let* ((default-directory root)
@@ -534,66 +534,66 @@ Existing paths are skipped.  Stop on failure and preserve Magit's log."
              (unwind-protect
                  (funcall sentinel proc event)
                (when (and (memq (process-status proc) '(exit signal))
-                          (not (process-get proc 'jgy-workspace-handled)))
-                 (process-put proc 'jgy-workspace-handled t)
+                          (not (process-get proc 'iuiw-workspace-handled)))
+                 (process-put proc 'iuiw-workspace-handled t)
                  (if (not (zerop (process-exit-status proc)))
                      (message "Clone failed for %s; see Magit process buffer" path)
                    (condition-case err
                        (progn
-                         (when register (jgy-workspace--register-repo root path url))
-                         (jgy-workspace--clone-entries root (cdr repos) register))
+                         (when register (iuiw-workspace--register-repo root path url))
+                         (iuiw-workspace--clone-entries root (cdr repos) register))
                      (error (message "Repository cloned; registration/restore stopped: %s"
                                      (error-message-string err))))))))))))))
 
-(defun jgy-workspace--clone-candidates-into (root candidates)
-  "Clone CANDIDATES from `jgy-workspace--clone-candidates' into ROOT one by one.
+(defun iuiw-workspace--clone-candidates-into (root candidates)
+  "Clone CANDIDATES from `iuiw-workspace--clone-candidates' into ROOT one by one.
 Each is registered in ROOT's project.md after it is cloned."
   (let ((entries (mapcar (lambda (candidate)
                            `((path . ,(nth 1 candidate)) (url . ,(nth 2 candidate))))
                          candidates)))
-    (jgy-workspace--validate-repos (append (jgy-workspace--read-repos root) entries) root)
-    (jgy-workspace--clone-entries root entries t)))
+    (iuiw-workspace--validate-repos (append (iuiw-workspace--read-repos root) entries) root)
+    (iuiw-workspace--clone-entries root entries t)))
 
-(defun jgy-workspace-clone-repo (repo &optional root candidates)
+(defun iuiw-workspace-clone-repo (repo &optional root candidates)
   "Clone remote repository REPO into ROOT and register it after success.
-REPO is a name from CANDIDATES, by default `jgy-workspace--clone-candidates'."
+REPO is a name from CANDIDATES, by default `iuiw-workspace--clone-candidates'."
   (interactive
-   (let* ((root (jgy-workspace--current-card-root))
-          (candidates (or (jgy-workspace--clone-candidates root)
+   (let* ((root (iuiw-workspace--current-card-root))
+          (candidates (or (iuiw-workspace--clone-candidates root)
                           (user-error "No remote repository left to clone")))
-          (completion-extra-properties (jgy-workspace--candidate-properties candidates)))
+          (completion-extra-properties (iuiw-workspace--candidate-properties candidates)))
      (list (completing-read "Repository: " candidates nil t) root candidates)))
-  (let* ((root (or root (jgy-workspace--current-card-root)))
-         (candidate (or (assoc repo (or candidates (jgy-workspace--clone-candidates root)))
+  (let* ((root (or root (iuiw-workspace--current-card-root)))
+         (candidate (or (assoc repo (or candidates (iuiw-workspace--clone-candidates root)))
                         (user-error "%s is not a repository to clone" repo))))
-    (jgy-workspace--clone-candidates-into root (list candidate))))
+    (iuiw-workspace--clone-candidates-into root (list candidate))))
 
-(defun jgy-workspace-restore-repos (&optional root)
+(defun iuiw-workspace-restore-repos (&optional root)
   "Clone missing repositories listed in the current project's project.md.
 Existing paths, branches and working trees are left alone."
   (interactive)
-  (let ((root (or root (jgy-workspace--current-card-root))))
-    (jgy-workspace--clone-entries root (jgy-workspace--read-repos root))))
+  (let ((root (or root (iuiw-workspace--current-card-root))))
+    (iuiw-workspace--clone-entries root (iuiw-workspace--read-repos root))))
 
-(defun jgy-workspace-register-repos (&optional root)
+(defun iuiw-workspace-register-repos (&optional root)
   "Add existing immediate child Git repositories to project.md.
 Use this once for projects created before repo manifests were available.
 Mapped external roots such as ~/.emacs.d remain configured separately."
   (interactive)
-  (let* ((root (or root (jgy-workspace--current-card-root)))
-         (repos (jgy-workspace--read-repos root)))
+  (let* ((root (or root (iuiw-workspace--current-card-root)))
+         (repos (iuiw-workspace--read-repos root)))
     (dolist (dir (directory-files root t directory-files-no-dot-files-regexp))
       (when (and (file-directory-p dir) (file-exists-p (expand-file-name ".git" dir)))
-        (setq repos (jgy-workspace--add-repo
+        (setq repos (iuiw-workspace--add-repo
                      repos (file-name-nondirectory dir)
                      (car (process-lines "git" "-C" dir "remote" "get-url" "origin"))))))
-    (jgy-workspace--write-repos root repos)
+    (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
-(defun jgy-workspace--pull (dirs)
+(defun iuiw-workspace--pull (dirs)
   "Pull DIRS one after another, stopping at the first failure."
   (if (null dirs)
-      (message "Pulled %s" (mapconcat #'abbreviate-file-name jgy-workspace-pull-repos ", "))
+      (message "Pulled %s" (mapconcat #'abbreviate-file-name iuiw-workspace-pull-repos ", "))
     (let* ((default-directory (file-name-as-directory (expand-file-name (car dirs))))
            (process (magit-run-git-async "pull" "--rebase" "--autostash")))
       (set-process-sentinel
@@ -602,46 +602,46 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
          (magit-process-sentinel proc event)
          (when (memq (process-status proc) '(exit signal))
            (if (zerop (process-exit-status proc))
-               (jgy-workspace--pull (cdr dirs))
+               (iuiw-workspace--pull (cdr dirs))
              (message "Pull failed in %s, see magit process buffer" (car dirs)))))))))
 
-(defun jgy-workspace-pull ()
-  "Pull every repo in `jgy-workspace-pull-repos' through magit."
+(defun iuiw-workspace-pull ()
+  "Pull every repo in `iuiw-workspace-pull-repos' through magit."
   (interactive)
   (require 'magit-process)
-  (jgy-workspace--pull jgy-workspace-pull-repos))
+  (iuiw-workspace--pull iuiw-workspace-pull-repos))
 
 ;;; Overlook
 
-(defun jgy-workspace-agent-root ()
+(defun iuiw-workspace-agent-root ()
   "Return the project's root when inside its folder or root.
-A project in `jgy-workspace-project-roots' has its root there.  Outside
+A project in `iuiw-workspace-project-roots' has its root there.  Outside
 any project, return the version-control root."
-  (if-let* ((folder (jgy-workspace-project-root)))
-      (or (jgy-workspace--root (jgy-workspace--file-id folder)) folder)
-    (if-let* ((id (jgy-workspace--root-id)))
-        (jgy-workspace--root id)
+  (if-let* ((folder (iuiw-workspace-project-root)))
+      (or (iuiw-workspace--root (iuiw-workspace--file-id folder)) folder)
+    (if-let* ((id (iuiw-workspace--root-id)))
+        (iuiw-workspace--root id)
       (overlook-agent-project-root))))
 
-(defun jgy-workspace-perspective-root (name)
+(defun iuiw-workspace-perspective-root (name)
   "Root of perspective NAME: the root or project folder of that id, else a guess."
-  (or (jgy-workspace--root name)
-      (jgy-workspace-project-dir name)
+  (or (iuiw-workspace--root name)
+      (iuiw-workspace-project-dir name)
       (overlook-perspective-guess-root name)))
 
-(defun jgy-workspace-perspective-folders (name)
+(defun iuiw-workspace-perspective-folders (name)
   "Folder of project NAME, whose project.md lives in the workspace repo."
-  (when-let* ((dir (jgy-workspace-project-dir name)))
+  (when-let* ((dir (iuiw-workspace-project-dir name)))
     (list dir)))
 
-(defun jgy-workspace-perspective-workspace (name)
+(defun iuiw-workspace-perspective-workspace (name)
   "Name of the workspace holding project NAME, or nil."
-  (when-let* ((file (cdr (assoc name (jgy-workspace--projects)))))
-    (jgy-workspace--file-workspace file)))
+  (when-let* ((file (cdr (assoc name (iuiw-workspace--projects)))))
+    (iuiw-workspace--file-workspace file)))
 
 ;;; Dashboard todos
 
-(defun jgy-workspace--todo-parse (file)
+(defun iuiw-workspace--todo-parse (file)
   "Parse card FILE into a plist of :id :workspace :status :also :file :todos.
 The id is the folder name; the status and the also: list of workspace
 names come from the front matter.
@@ -671,22 +671,22 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
             (push (list (match-string 2 line) number (length (match-string 1 line))) todos))))
         (forward-line 1)
         (cl-incf number))
-      (list :id (jgy-workspace--file-id file) :workspace (jgy-workspace--file-workspace file)
+      (list :id (iuiw-workspace--file-id file) :workspace (iuiw-workspace--file-workspace file)
             :status status :also also :file file :todos (nreverse todos)))))
 
-(defun jgy-workspace--cards ()
+(defun iuiw-workspace--cards ()
   "Return every parsed card, re-reading only when a card file changed."
-  (let ((files (jgy-workspace-project-files)))
-    (jgy-workspace--cached 'cards (jgy-workspace--mtimes files)
-                           (lambda () (mapcar #'jgy-workspace--todo-parse files)))))
+  (let ((files (iuiw-workspace-project-files)))
+    (iuiw-workspace--cached 'cards (iuiw-workspace--mtimes files)
+                           (lambda () (mapcar #'iuiw-workspace--todo-parse files)))))
 
-(defun jgy-workspace--todo-cards ()
-  "Return parsed ongoing cards shown by `jgy-workspace-filter'."
+(defun iuiw-workspace--todo-cards ()
+  "Return parsed ongoing cards shown by `iuiw-workspace-filter'."
   (seq-filter (lambda (card) (and (member (plist-get card :status) '("active" "waiting" "later"))
-                                  (jgy-workspace--shown-p card)))
-              (jgy-workspace--cards)))
+                                  (iuiw-workspace--shown-p card)))
+              (iuiw-workspace--cards)))
 
-(defun jgy-workspace--todo-rank (text)
+(defun iuiw-workspace--todo-rank (text)
   "0 for a #now todo TEXT, 1 for #waiting, 2 for the rest.
 Tags inside `code' do not count."
   (let ((text (replace-regexp-in-string "`[^`]*`" "" text)))
@@ -694,14 +694,14 @@ Tags inside `code' do not count."
           ((string-match-p "#waiting\\>" text) 1)
           (t 2))))
 
-(defun jgy-workspace--todo-mark (text)
+(defun iuiw-workspace--todo-mark (text)
   "Bullet of todo TEXT by its rank, dimmed unless #now."
-  (pcase (jgy-workspace--todo-rank text)
+  (pcase (iuiw-workspace--todo-rank text)
     (0 "☐")
     (1 (propertize "◷" 'face 'shadow))
     (_ (propertize "☐" 'face 'shadow))))
 
-(defun jgy-workspace--todo-sort (todos)
+(defun iuiw-workspace--todo-sort (todos)
   "TODOS with #now first, then #waiting, then the rest, among siblings.
 A todo moves with its subitems, ranked by the most urgent of them."
   (let (siblings)
@@ -709,17 +709,17 @@ A todo moves with its subitems, ranked by the most urgent of them."
       (let* ((todo (pop todos))
              (children (seq-take-while (lambda (child) (> (nth 2 child) (nth 2 todo))) todos)))
         (setq todos (nthcdr (length children) todos))
-        (push (cons todo (jgy-workspace--todo-sort children)) siblings)))
+        (push (cons todo (iuiw-workspace--todo-sort children)) siblings)))
     (mapcan #'copy-sequence
-            (seq-sort-by (lambda (group) (apply #'min (mapcar (lambda (todo) (jgy-workspace--todo-rank (car todo))) group)))
+            (seq-sort-by (lambda (group) (apply #'min (mapcar (lambda (todo) (iuiw-workspace--todo-rank (car todo))) group)))
                          #'<
                          (nreverse siblings)))))
 
-(defun jgy-workspace--todo-display (text)
+(defun iuiw-workspace--todo-display (text)
   "Return TEXT without inline fields and tags, with its due date appended.
 #now shows plain, #waiting italic and the rest dimmed."
   (let ((due (and (string-match "\\[due:: *\\([0-9-]+\\)\\]" text) (match-string 1 text)))
-        (face (pcase (jgy-workspace--todo-rank text)
+        (face (pcase (iuiw-workspace--todo-rank text)
                 (0 'default)
                 (1 'italic)
                 (_ 'shadow)))
@@ -733,7 +733,7 @@ A todo moves with its subitems, ranked by the most urgent of them."
     (concat (propertize clean 'face face)
             (if due (propertize (concat " " due) 'face 'shadow) ""))))
 
-(defun jgy-workspace--todo-take-now (todos)
+(defun iuiw-workspace--todo-take-now (todos)
   "Split TODOS into (NOW . REST), taking out each outermost #now todo.
 NOW lists them as (PARENT . ITEMS): PARENT is the text of the todo it
 sits under, or nil, and ITEMS are it and its subitems, depths from 0."
@@ -742,7 +742,7 @@ sits under, or nil, and ITEMS are it and its subitems, depths from 0."
       (let* ((todo (pop todos))
              (depth (nth 2 todo)))
         (setq ancestors (seq-drop-while (lambda (ancestor) (>= (nth 2 ancestor) depth)) ancestors))
-        (if (= (jgy-workspace--todo-rank (car todo)) 0)
+        (if (= (iuiw-workspace--todo-rank (car todo)) 0)
             (let ((children (seq-take-while (lambda (child) (> (nth 2 child) depth)) todos)))
               (setq todos (nthcdr (length children) todos))
               (push (cons (car (car ancestors))
@@ -753,7 +753,7 @@ sits under, or nil, and ITEMS are it and its subitems, depths from 0."
           (push todo rest))))
     (cons (nreverse now) (nreverse rest))))
 
-(defun jgy-workspace--todo-now-items (cards current)
+(defun iuiw-workspace--todo-now-items (cards current)
   "The #now todos of CARDS with their subitems.
 Those of project CURRENT come first, then by due date, then card order.
 Each leading item names its project, highlighted when it is CURRENT, and
@@ -762,11 +762,11 @@ its parent todo, if any, before its text."
     (dolist (card cards)
       (let ((id (plist-get card :id))
             (file (plist-get card :file)))
-        (pcase-dolist (`(,parent . ,items) (car (jgy-workspace--todo-take-now (plist-get card :todos))))
+        (pcase-dolist (`(,parent . ,items) (car (iuiw-workspace--todo-take-now (plist-get card :todos))))
           (push (cons (list (car (car items)) (nth 1 (car items)) 0 file id
                             (and parent
                                  (propertize (concat (substring-no-properties
-                                                      (jgy-workspace--todo-display parent))
+                                                      (iuiw-workspace--todo-display parent))
                                                      " › ")
                                              'face 'shadow))
                             (propertize (concat "  " id)
@@ -783,7 +783,7 @@ its parent todo, if any, before its text."
                         #'string<
                         (nreverse subtrees)))))
 
-(defun jgy-workspace--todo-visit (perspective file line)
+(defun iuiw-workspace--todo-visit (perspective file line)
   "Return a command that opens FILE at LINE in the main window.
 It first switches to PERSPECTIVE, creating it if needed, when non-nil."
   (lambda ()
@@ -793,7 +793,7 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
                                (goto-char (point-min))
                                (forward-line (1- line))))))
 
-(defun jgy-workspace--insert-groups (groups mark)
+(defun iuiw-workspace--insert-groups (groups mark)
   "Insert GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
 NAME followed by the string COUNT, if any, that visits FILE, if any,
@@ -817,8 +817,8 @@ section."
                         ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
                         (overlook-insert-row
                          (propertize (concat indent (funcall mark text) " "
-                                             before (jgy-workspace--todo-display text) after "\n")
-                                     'overlook-action (jgy-workspace--todo-visit
+                                             before (iuiw-workspace--todo-display text) after "\n")
+                                     'overlook-action (iuiw-workspace--todo-visit
                                                        (or item-perspective perspective)
                                                        (or item-file file)
                                                        line)
@@ -829,7 +829,7 @@ section."
                                             'face (if current 'overlook-heading-current 'overlook-heading)
                                             'overlook-heading t
                                             'overlook-item (list 'todo-group name)
-                                            'overlook-action (and file (jgy-workspace--todo-visit
+                                            'overlook-action (and file (iuiw-workspace--todo-visit
                                                                         perspective file 1)))
                                 (if count (propertize (concat " " count) 'face 'shadow) "")
                                 "\n")
@@ -837,15 +837,15 @@ section."
                         folded))))
     previous))
 
-(defun jgy-workspace--todo-ordered (cards)
+(defun iuiw-workspace--todo-ordered (cards)
   "CARDS with todos, those with a perspective first in the dashboard's order."
   (let ((order (overlook-ordered-perspectives)))
     (seq-sort-by (lambda (card) (or (seq-position order (plist-get card :id)) (length order)))
                  #'<
                  (seq-filter (lambda (card) (plist-get card :todos)) cards))))
 
-(defun jgy-workspace--todo-groups (cards current)
-  "Groups for `jgy-workspace--insert-groups' of CARDS, highlighting CURRENT.
+(defun iuiw-workspace--todo-groups (cards current)
+  "Groups for `iuiw-workspace--insert-groups' of CARDS, highlighting CURRENT.
 Each counts the card's open #now, #waiting and top-level todos and lists
 them folded, leaving out #now todos."
   (delq nil
@@ -853,10 +853,10 @@ them folded, leaving out #now todos."
                   (when-let* ((todos (plist-get card :todos)))
                     (list (plist-get card :id) (plist-get card :file)
                           (equal (plist-get card :id) current)
-                          (jgy-workspace--todo-sort (cdr (jgy-workspace--todo-take-now todos)))
+                          (iuiw-workspace--todo-sort (cdr (iuiw-workspace--todo-take-now todos)))
                           (plist-get card :id)
                           (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
-                                 (rank (lambda (n) (seq-count (lambda (todo) (= (jgy-workspace--todo-rank (car todo)) n))
+                                 (rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
                                                               todos))))
                             (mapconcat #'identity
                                        (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
@@ -867,7 +867,7 @@ them folded, leaving out #now todos."
                           t)))
                 cards)))
 
-(defun jgy-workspace--todo-section ()
+(defun iuiw-workspace--todo-section ()
   "Insert a Todo section with every ongoing project's open todos.
 The #now todos of all of them come first, in a \"#now\" group.  Projects
 with status later go last, under a folded \"later projects\" line."
@@ -875,30 +875,30 @@ with status later go last, under a folded \"later projects\" line."
     (overlook-insert-section
      "Todo"
      (lambda ()
-       (let* ((cards (jgy-workspace--todo-ordered (jgy-workspace--todo-cards)))
+       (let* ((cards (iuiw-workspace--todo-ordered (iuiw-workspace--todo-cards)))
               (later-p (lambda (card) (equal (plist-get card :status) "later")))
-              (now (jgy-workspace--todo-now-items cards current))
-              (later (jgy-workspace--todo-groups (seq-filter later-p cards) current))
-              (last (jgy-workspace--insert-groups
+              (now (iuiw-workspace--todo-now-items cards current))
+              (later (iuiw-workspace--todo-groups (seq-filter later-p cards) current))
+              (last (iuiw-workspace--insert-groups
                      (append (and now (list (list "#now" nil nil now nil nil)))
-                             (jgy-workspace--todo-groups (seq-remove later-p cards) current))
-                     #'jgy-workspace--todo-mark)))
+                             (iuiw-workspace--todo-groups (seq-remove later-p cards) current))
+                     #'iuiw-workspace--todo-mark)))
          (when later
            (when last (overlook-end-with-blank last))
            (overlook-insert-row
             (propertize (format "later projects (%d)\n" (length later))
                         'face 'shadow
                         'overlook-item '(todo-later))
-            (lambda () (jgy-workspace--insert-groups later #'jgy-workspace--todo-mark))
+            (lambda () (iuiw-workspace--insert-groups later #'iuiw-workspace--todo-mark))
             t)))))))
 
 ;;; Dashboard inbox
 
-(defun jgy-workspace--inbox-workspace (file)
+(defun iuiw-workspace--inbox-workspace (file)
   "Name of the workspace holding inbox FILE."
   (file-name-nondirectory (directory-file-name (file-name-directory file))))
 
-(defun jgy-workspace--inbox-items (file)
+(defun iuiw-workspace--inbox-items (file)
   "Open items of inbox FILE, as (TEXT LINE DEPTH) like todos.
 Done items are left out together with their subitems."
   (with-temp-buffer
@@ -916,54 +916,54 @@ Done items are left out together with their subitems."
         (cl-incf number))
       (nreverse items))))
 
-(defun jgy-workspace--inbox-section ()
+(defun iuiw-workspace--inbox-section ()
   "Insert an Inbox section with each workspace's open inbox items.
-Only the inbox of `jgy-workspace-filter' shows when it is set.  The
+Only the inbox of `iuiw-workspace-filter' shows when it is set.  The
 workspace of the current perspective comes first."
-  (let* ((current (jgy-workspace-perspective-workspace (or (overlook-current-perspective) "")))
-         (files (seq-filter (lambda (file) (or (null jgy-workspace-filter)
-                                               (equal jgy-workspace-filter (jgy-workspace--inbox-workspace file))))
-                            (file-expand-wildcards (expand-file-name "*/inbox.md" (jgy-workspace--base)))))
-         (mine (lambda (file) (equal (jgy-workspace--inbox-workspace file) current)))
+  (let* ((current (iuiw-workspace-perspective-workspace (or (overlook-current-perspective) "")))
+         (files (seq-filter (lambda (file) (or (null iuiw-workspace-filter)
+                                               (equal iuiw-workspace-filter (iuiw-workspace--inbox-workspace file))))
+                            (file-expand-wildcards (expand-file-name "*/inbox.md" (iuiw-workspace--base)))))
+         (mine (lambda (file) (equal (iuiw-workspace--inbox-workspace file) current)))
          (files (append (seq-filter mine files) (seq-remove mine files))))
     (overlook-insert-section
      "Inbox"
      (lambda ()
-       (jgy-workspace--insert-groups
+       (iuiw-workspace--insert-groups
         (seq-keep (lambda (file)
-                    (when-let* ((items (jgy-workspace--inbox-items file)))
-                      (list (jgy-workspace--inbox-workspace file) file nil items)))
+                    (when-let* ((items (iuiw-workspace--inbox-items file)))
+                      (list (iuiw-workspace--inbox-workspace file) file nil items)))
                   files)
         (lambda (_) (propertize "☐" 'face 'shadow)))))))
 
-(defun jgy-workspace--mode-line ()
-  "`jgy-workspace-filter' for the dashboard's mode line, or nil when unset."
-  (and jgy-workspace-filter (propertize jgy-workspace-filter 'face 'warning)))
+(defun iuiw-workspace--mode-line ()
+  "`iuiw-workspace-filter' for the dashboard's mode line, or nil when unset."
+  (and iuiw-workspace-filter (propertize iuiw-workspace-filter 'face 'warning)))
 
-(defun jgy-workspace--refresh-after-save ()
+(defun iuiw-workspace--refresh-after-save ()
   "Re-render the dashboard after saving a project.md or inbox.md."
   (when (and buffer-file-name
              (fboundp 'overlook-refresh)
              (pcase (file-name-nondirectory buffer-file-name)
-               ("project.md" (jgy-workspace-project-root))
-               ("inbox.md" (file-in-directory-p buffer-file-name jgy-workspace-directory))))
+               ("project.md" (iuiw-workspace-project-root))
+               ("inbox.md" (file-in-directory-p buffer-file-name iuiw-workspace-directory))))
     (overlook-refresh)))
 
 ;;;###autoload
-(define-minor-mode jgy-workspace-dashboard-mode
+(define-minor-mode iuiw-workspace-dashboard-mode
   "Show ongoing projects' todos and the inboxes in the agents dashboard."
   :global t
-  :group 'jgy-workspace
-  (if jgy-workspace-dashboard-mode
+  :group 'iuiw-workspace
+  (if iuiw-workspace-dashboard-mode
       (progn
-        (add-hook 'overlook-sections #'jgy-workspace--todo-section 50)
-        (add-hook 'overlook-sections #'jgy-workspace--inbox-section 60)
-        (add-hook 'overlook-mode-line-functions #'jgy-workspace--mode-line -50)
-        (add-hook 'after-save-hook #'jgy-workspace--refresh-after-save))
-    (remove-hook 'overlook-sections #'jgy-workspace--todo-section)
-    (remove-hook 'overlook-sections #'jgy-workspace--inbox-section)
-    (remove-hook 'overlook-mode-line-functions #'jgy-workspace--mode-line)
-    (remove-hook 'after-save-hook #'jgy-workspace--refresh-after-save)))
+        (add-hook 'overlook-sections #'iuiw-workspace--todo-section 50)
+        (add-hook 'overlook-sections #'iuiw-workspace--inbox-section 60)
+        (add-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line -50)
+        (add-hook 'after-save-hook #'iuiw-workspace--refresh-after-save))
+    (remove-hook 'overlook-sections #'iuiw-workspace--todo-section)
+    (remove-hook 'overlook-sections #'iuiw-workspace--inbox-section)
+    (remove-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line)
+    (remove-hook 'after-save-hook #'iuiw-workspace--refresh-after-save)))
 
-(provide 'jgy-workspace)
-;;; jgy-workspace.el ends here
+(provide 'iuiw-workspace)
+;;; iuiw-workspace.el ends here

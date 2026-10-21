@@ -1,11 +1,11 @@
-;;; jgy-symbol-overlay-test.el --- Project-wide highlight checks -*- lexical-binding: t; -*-
+;;; iuiw-symbol-overlay-test.el --- Project-wide highlight checks -*- lexical-binding: t; -*-
 
 (require 'ert)
-(require 'jgy-symbol-overlay)
+(require 'iuiw-symbol-overlay)
 
-(ert-deftest jgy-symbol-overlay-spreads-across-project ()
+(ert-deftest iuiw-symbol-overlay-spreads-across-project ()
   (let* ((dir (file-name-as-directory (make-temp-file "symbol-overlay" t)))
-         (find-file-hook (cons #'jgy-symbol-overlay-inherit find-file-hook))
+         (find-file-hook (cons #'iuiw-symbol-overlay-inherit find-file-hook))
          (count (lambda (buffer)
                   (with-current-buffer buffer
                     (length (symbol-overlay-get-list 0 "foo")))))
@@ -19,7 +19,7 @@
                 b (find-file-noselect (expand-file-name "b.el" dir)))
           (with-current-buffer a
             (goto-char (point-min))
-            (jgy-symbol-overlay-put))
+            (iuiw-symbol-overlay-put))
           (should (= 2 (funcall count b)))
           (should (equal (buffer-local-value 'symbol-overlay-keywords-alist a)
                          (buffer-local-value 'symbol-overlay-keywords-alist b)))
@@ -27,7 +27,7 @@
           (should (= 2 (funcall count c)))
           (with-current-buffer b
             (goto-char (point-min))
-            (jgy-symbol-overlay-put))
+            (iuiw-symbol-overlay-put))
           (should (= 0 (funcall count a)))
           (should (= 0 (funcall count c))))
       (mapc (lambda (buffer) (when buffer (kill-buffer buffer))) (list a b c))

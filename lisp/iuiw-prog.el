@@ -1,4 +1,4 @@
-;;; jgy-prog.el --- Language server, indentation and SQL formatting helpers -*- lexical-binding: t; -*-
+;;; iuiw-prog.el --- Language server, indentation and SQL formatting helpers -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; basedpyright 用项目 .venv，Java 四格缩进，SQLMesh 项目启用其 LSP，SQL 按需选择 sqlfluff 方言。
@@ -15,7 +15,7 @@
 (declare-function consult-global-mark "consult")
 (defvar apheleia-inhibit)
 
-(defun jgy-eglot-python-configuration (server)
+(defun iuiw-eglot-python-configuration (server)
   "Return basedpyright settings for SERVER's project virtualenv."
   (when-let* ((root (project-root (eglot--project server)))
               (python (expand-file-name ".venv/bin/python" root))
@@ -26,14 +26,14 @@
                       :diagnosticSeverityOverrides
                       (:reportPrivateImportUsage "none"))))))
 
-(defun jgy-java-indent-setup ()
+(defun iuiw-java-indent-setup ()
   "Use four-space indentation in Java buffers."
   (setq-local indent-tabs-mode nil tab-width 4)
   (when (boundp 'c-basic-offset) (setq-local c-basic-offset 4))
   (when (boundp 'java-ts-mode-indent-offset)
     (setq-local java-ts-mode-indent-offset 4)))
 
-(defun jgy-sqlmesh-project-p ()
+(defun iuiw-sqlmesh-project-p ()
   "Return non-nil when point is inside a SQLMesh project."
   (locate-dominating-file
    default-directory
@@ -41,9 +41,9 @@
      (and (file-exists-p (expand-file-name "config.yaml" directory))
           (file-directory-p (expand-file-name "models" directory))))))
 
-(defun jgy-sqlmesh-signal-locations (name)
+(defun iuiw-sqlmesh-signal-locations (name)
   "Return xref items for signal NAME defined under the project's signals/."
-  (when-let* ((root (jgy-sqlmesh-project-p))
+  (when-let* ((root (iuiw-sqlmesh-project-p))
               (dir (expand-file-name "signals" root))
               ((file-directory-p dir)))
     (let ((regexp (format "^def %s\\_>" (regexp-quote name)))
@@ -60,28 +60,28 @@
                   items)))))))
 
 ;; sqlmesh_lsp 不解析 signals (...) 里的 signal 名，这里先接管，其余交给 Eglot。
-(defun jgy-sqlmesh-signal-xref-backend ()
+(defun iuiw-sqlmesh-signal-xref-backend ()
   "Return the signal backend when the symbol at point is a SQLMesh signal."
   (when-let* ((name (thing-at-point 'symbol t))
-              ((jgy-sqlmesh-signal-locations name)))
-    'jgy-sqlmesh-signal))
+              ((iuiw-sqlmesh-signal-locations name)))
+    'iuiw-sqlmesh-signal))
 
-(cl-defmethod xref-backend-identifier-at-point ((_ (eql jgy-sqlmesh-signal)))
+(cl-defmethod xref-backend-identifier-at-point ((_ (eql iuiw-sqlmesh-signal)))
   (thing-at-point 'symbol t))
 
-(cl-defmethod xref-backend-definitions ((_ (eql jgy-sqlmesh-signal)) name)
-  (jgy-sqlmesh-signal-locations name))
+(cl-defmethod xref-backend-definitions ((_ (eql iuiw-sqlmesh-signal)) name)
+  (iuiw-sqlmesh-signal-locations name))
 
-(defun jgy-sqlmesh-setup ()
+(defun iuiw-sqlmesh-setup ()
   "Enable SQLMesh's language server in SQLMesh projects."
-  (when (and buffer-file-name (jgy-sqlmesh-project-p))
+  (when (and buffer-file-name (iuiw-sqlmesh-project-p))
     (setq-local sql-product 'postgres
                 apheleia-inhibit t)
     (local-set-key [remap apheleia-format-buffer] #'eglot-format-buffer)
-    (add-hook 'xref-backend-functions #'jgy-sqlmesh-signal-xref-backend -10 t)
+    (add-hook 'xref-backend-functions #'iuiw-sqlmesh-signal-xref-backend -10 t)
     (eglot-ensure)))
 
-(defun jgy-xref-history ()
+(defun iuiw-xref-history ()
   "Pick a position from the xref back stack and return to it.
 Like repeating `xref-go-back' up to that position, so `xref-go-forward'
 retraces the skipped levels."
@@ -104,22 +104,22 @@ retraces the skipped levels."
           (run-hooks 'xref-after-return-hook))
       (set-marker origin nil))))
 
-(defvar jgy-sql-dialects '("mysql" "postgres" "redshift")
+(defvar iuiw-sql-dialects '("mysql" "postgres" "redshift")
   "sqlfluff dialects offered when formatting SQL.")
 
-(defvar-local jgy-sql-dialect "redshift"
+(defvar-local iuiw-sql-dialect "redshift"
   "sqlfluff dialect used to format this buffer.")
 
-(defun jgy-sql-read-dialect (&rest _)
+(defun iuiw-sql-read-dialect (&rest _)
   "Ask which dialect to format this SQL buffer with."
   (when (derived-mode-p 'sql-mode)
-    (setq jgy-sql-dialect
-          (completing-read (format-prompt "SQL dialect" jgy-sql-dialect)
-                           jgy-sql-dialects nil t nil nil jgy-sql-dialect))))
+    (setq iuiw-sql-dialect
+          (completing-read (format-prompt "SQL dialect" iuiw-sql-dialect)
+                           iuiw-sql-dialects nil t nil nil iuiw-sql-dialect))))
 
-(defun jgy-sql-inhibit-format-on-save ()
+(defun iuiw-sql-inhibit-format-on-save ()
   "Format SQL buffers only on demand."
   (derived-mode-p 'sql-mode))
 
-(provide 'jgy-prog)
-;;; jgy-prog.el ends here
+(provide 'iuiw-prog)
+;;; iuiw-prog.el ends here

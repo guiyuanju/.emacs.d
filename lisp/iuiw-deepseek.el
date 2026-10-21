@@ -1,4 +1,4 @@
-;;; jgy-deepseek.el --- DeepSeek balance and observed account spending -*- lexical-binding: t; -*-
+;;; iuiw-deepseek.el --- DeepSeek balance and observed account spending -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; Account balance comes from /user/balance; spending estimates track observed balance decreases.
@@ -10,36 +10,36 @@
 (require 'json)
 (require 'subr-x)
 
-(defvar jgy-deepseek-api-key nil
+(defvar iuiw-deepseek-api-key nil
   "DeepSeek API key configured in local.el.")
-(defvar jgy-deepseek--balance nil)
-(defvar jgy-deepseek--error nil)
-(defvar jgy-deepseek--requested 0)
-(defvar jgy-deepseek--process nil)
-(defvar jgy-deepseek-state-file
+(defvar iuiw-deepseek--balance nil)
+(defvar iuiw-deepseek--error nil)
+(defvar iuiw-deepseek--requested 0)
+(defvar iuiw-deepseek--process nil)
+(defvar iuiw-deepseek-state-file
   (locate-user-emacs-file "var/deepseek-spending.json"))
-(defvar jgy-deepseek--state nil)
-(defvar jgy-deepseek--loaded-key nil)
+(defvar iuiw-deepseek--state nil)
+(defvar iuiw-deepseek--loaded-key nil)
 
-(defcustom jgy-deepseek-usage-url "https://platform.deepseek.com/usage"
+(defcustom iuiw-deepseek-usage-url "https://platform.deepseek.com/usage"
   "Page the dashboard's DeepSeek usage row opens on RET."
   :type 'string
   :group 'overlook)
 
-(defun jgy-deepseek-open-usage ()
+(defun iuiw-deepseek-open-usage ()
   "Open DeepSeek's usage page in a browser."
   (interactive)
-  (browse-url jgy-deepseek-usage-url))
+  (browse-url iuiw-deepseek-usage-url))
 
-(defun jgy-deepseek--load-state ()
+(defun iuiw-deepseek--load-state ()
   "Restore observations for this key, without storing the key itself."
-  (let ((key (secure-hash 'sha256 jgy-deepseek-api-key)))
-    (unless (equal key jgy-deepseek--loaded-key)
-      (setq jgy-deepseek--loaded-key key
-            jgy-deepseek--state
+  (let ((key (secure-hash 'sha256 iuiw-deepseek-api-key)))
+    (unless (equal key iuiw-deepseek--loaded-key)
+      (setq iuiw-deepseek--loaded-key key
+            iuiw-deepseek--state
             (condition-case nil
                 (with-temp-buffer
-                  (insert-file-contents jgy-deepseek-state-file)
+                  (insert-file-contents iuiw-deepseek-state-file)
                   (let ((data (json-parse-buffer :object-type 'alist :array-type 'list)))
                     (when (and (equal (alist-get 'key data) key)
                                (stringp (alist-get 'day data))
@@ -54,16 +54,16 @@
                       data)))
               (error nil))))))
 
-(defun jgy-deepseek--record (balance &optional time)
+(defun iuiw-deepseek--record (balance &optional time)
   "Record BALANCE at TIME; accumulate decreases within the local day.
 Increases establish a new baseline without erasing observed spending.
 The first sample of each day starts at zero: overnight gaps are not billed
 entirely to the new day.  Recharge and expiry make this only an estimate."
-  (jgy-deepseek--load-state)
+  (iuiw-deepseek--load-state)
   (let* ((now (or time (float-time)))
          (day (format-time-string "%F" now))
-         (same-day (equal day (alist-get 'day jgy-deepseek--state)))
-         (old (and same-day (alist-get 'rows jgy-deepseek--state)))
+         (same-day (equal day (alist-get 'day iuiw-deepseek--state)))
+         (old (and same-day (alist-get 'rows iuiw-deepseek--state)))
          (rows
           (mapcar
            (lambda (pair)
@@ -76,35 +76,35 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                               (if previous
                                   (max 0 (- (alist-get 'last previous) value)) 0))))))
            balance)))
-    (setq jgy-deepseek--state
-          `((key . ,jgy-deepseek--loaded-key) (day . ,day)
-            (since . ,(if same-day (alist-get 'since jgy-deepseek--state) now))
+    (setq iuiw-deepseek--state
+          `((key . ,iuiw-deepseek--loaded-key) (day . ,day)
+            (since . ,(if same-day (alist-get 'since iuiw-deepseek--state) now))
             (rows . ,rows)))
-    (let* ((dir (file-name-directory jgy-deepseek-state-file))
+    (let* ((dir (file-name-directory iuiw-deepseek-state-file))
            (temporary nil))
       (make-directory dir t)
       (unwind-protect
           (progn
             (setq temporary (make-temp-file (expand-file-name ".deepseek-" dir)))
             (with-temp-file temporary
-              (insert (json-encode jgy-deepseek--state)))
-            (rename-file temporary jgy-deepseek-state-file t))
+              (insert (json-encode iuiw-deepseek--state)))
+            (rename-file temporary iuiw-deepseek-state-file t))
         (when (and temporary (file-exists-p temporary)) (delete-file temporary))))))
 
-(defun jgy-deepseek--today ()
+(defun iuiw-deepseek--today ()
   "Format today's observed account spending in the balance currency."
-  (jgy-deepseek--load-state)
-  (if (and (equal (format-time-string "%F") (alist-get 'day jgy-deepseek--state))
-           (alist-get 'rows jgy-deepseek--state))
+  (iuiw-deepseek--load-state)
+  (if (and (equal (format-time-string "%F") (alist-get 'day iuiw-deepseek--state))
+           (alist-get 'rows iuiw-deepseek--state))
       (concat
        (mapconcat (lambda (row)
                     (format "~%s%.4f" (if (equal (alist-get 'currency row) "CNY") "¥" "$")
                             (alist-get 'spent row)))
-                  (alist-get 'rows jgy-deepseek--state) " / ")
-       (if jgy-deepseek--error " stale" ""))
+                  (alist-get 'rows iuiw-deepseek--state) " / ")
+       (if iuiw-deepseek--error " stale" ""))
     "?"))
 
-(defun jgy-deepseek--parse-balance (data)
+(defun iuiw-deepseek--parse-balance (data)
   "Validate DATA and return currency/balance pairs, preserving decimal strings."
   (let ((rows (alist-get 'balance_infos data)))
     (unless (and rows (seq-every-p
@@ -118,16 +118,16 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
     (mapcar (lambda (row) (cons (alist-get 'currency row)
                                 (alist-get 'total_balance row))) rows)))
 
-(defun jgy-deepseek--fetch ()
+(defun iuiw-deepseek--fetch ()
   "Refresh balance asynchronously, with a five-minute retry interval."
-  (when (and (bound-and-true-p jgy-deepseek-api-key)
-             (not (process-live-p jgy-deepseek--process))
-             (>= (- (float-time) jgy-deepseek--requested) 300))
-    (setq jgy-deepseek--requested (float-time))
+  (when (and (bound-and-true-p iuiw-deepseek-api-key)
+             (not (process-live-p iuiw-deepseek--process))
+             (>= (- (float-time) iuiw-deepseek--requested) 300))
+    (setq iuiw-deepseek--requested (float-time))
     (let ((buffer (generate-new-buffer " *deepseek-balance*")))
       (condition-case nil
           (progn
-            (setq jgy-deepseek--process
+            (setq iuiw-deepseek--process
                   (make-process
                    :name "deepseek-balance" :buffer buffer :noquery t
                    :connection-type 'pipe
@@ -142,66 +142,66 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                                  (unless (zerop (process-exit-status process))
                                    (error "Balance request failed"))
                                  (goto-char (point-min))
-                                 (setq jgy-deepseek--balance
-                                       (jgy-deepseek--parse-balance
+                                 (setq iuiw-deepseek--balance
+                                       (iuiw-deepseek--parse-balance
                                         (json-parse-buffer :object-type 'alist :array-type 'list))
-                                       jgy-deepseek--error nil)
-                                 (jgy-deepseek--record jgy-deepseek--balance))
-                             (error (setq jgy-deepseek--error t)))
+                                       iuiw-deepseek--error nil)
+                                 (iuiw-deepseek--record iuiw-deepseek--balance))
+                             (error (setq iuiw-deepseek--error t)))
                          (kill-buffer (process-buffer process)))
                        (overlook-usage-scan)))))
             ;; Only accept a single header value; no curl-config injection.
-            (unless (string-match-p "\\`[A-Za-z0-9_-]+\\'" jgy-deepseek-api-key)
+            (unless (string-match-p "\\`[A-Za-z0-9_-]+\\'" iuiw-deepseek-api-key)
               (error "Invalid key format"))
-            (process-send-string jgy-deepseek--process
+            (process-send-string iuiw-deepseek--process
                                  (concat "header = \"Authorization: Bearer "
-                                         jgy-deepseek-api-key "\"\n"))
-            (process-send-eof jgy-deepseek--process))
+                                         iuiw-deepseek-api-key "\"\n"))
+            (process-send-eof iuiw-deepseek--process))
         (error
-         (setq jgy-deepseek--error t)
-         (when (process-live-p jgy-deepseek--process)
-           (delete-process jgy-deepseek--process))
+         (setq iuiw-deepseek--error t)
+         (when (process-live-p iuiw-deepseek--process)
+           (delete-process iuiw-deepseek--process))
          (when (buffer-live-p buffer) (kill-buffer buffer)))))))
 
-(defun jgy-deepseek-usage ()
+(defun iuiw-deepseek-usage ()
   "Return account balance and observed account spending."
-  (when (bound-and-true-p jgy-deepseek-api-key)
+  (when (bound-and-true-p iuiw-deepseek-api-key)
     (list (propertize "deepseek"
-                      'overlook-action #'jgy-deepseek-open-usage
+                      'overlook-action #'iuiw-deepseek-open-usage
                       'help-echo "RET opens DeepSeek's usage page")
           (list "balance"
                 (propertize
-                 (if jgy-deepseek--balance
+                 (if iuiw-deepseek--balance
                      (concat
                       (mapconcat (lambda (row)
                                    (concat (if (equal (car row) "CNY") "¥" "$")
                                            (cdr row)))
-                                 jgy-deepseek--balance " / ")
-                      (if jgy-deepseek--error " stale" ""))
-                   (if jgy-deepseek--error "unavailable" "loading"))
-                 'face (if jgy-deepseek--error 'warning 'default)
+                                 iuiw-deepseek--balance " / ")
+                      (if iuiw-deepseek--error " stale" ""))
+                   (if iuiw-deepseek--error "unavailable" "loading"))
+                 'face (if iuiw-deepseek--error 'warning 'default)
                  'help-echo "DeepSeek account balance; refreshed every 5 minutes. stale means the last refresh failed.")
                 nil)
           (list "today"
                 (propertize
-                 (jgy-deepseek--today)
-                 'face (if jgy-deepseek--error 'warning 'default)
+                 (iuiw-deepseek--today)
+                 'face (if iuiw-deepseek--error 'warning 'default)
                  'help-echo
                  (concat "Observed account balance decreases today, including Pi, gptel and other clients. Refreshed at most every 5 minutes; local timezone. Estimate only: top-ups can hide spending, credit expiry can look like spending. "
-                         (if (and (alist-get 'since jgy-deepseek--state)
-                                  (equal (format-time-string "%F") (alist-get 'day jgy-deepseek--state)))
+                         (if (and (alist-get 'since iuiw-deepseek--state)
+                                  (equal (format-time-string "%F") (alist-get 'day iuiw-deepseek--state)))
                              (format "Tracked since %s; earlier spending is excluded."
-                                     (format-time-string "%H:%M" (alist-get 'since jgy-deepseek--state)))
+                                     (format-time-string "%H:%M" (alist-get 'since iuiw-deepseek--state)))
                            "Waiting for today's first balance sample.")))
                 nil))))
 
-(defun jgy-deepseek--tick ()
+(defun iuiw-deepseek--tick ()
   "Refresh the balance while the dashboard is live."
   (when (overlook-live-p)
-    (jgy-deepseek--fetch)))
+    (iuiw-deepseek--fetch)))
 
-(add-to-list 'overlook-usage-functions #'jgy-deepseek-usage t)
-(add-hook 'overlook-tick-hook #'jgy-deepseek--tick)
+(add-to-list 'overlook-usage-functions #'iuiw-deepseek-usage t)
+(add-hook 'overlook-tick-hook #'iuiw-deepseek--tick)
 
-(provide 'jgy-deepseek)
-;;; jgy-deepseek.el ends here
+(provide 'iuiw-deepseek)
+;;; iuiw-deepseek.el ends here
