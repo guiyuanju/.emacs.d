@@ -318,6 +318,8 @@ The binding is recorded in `overlook-keys'."
               font-lock-global-modes nil)
   ;; Rows fit themselves to the window, so redraw when it resizes.
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
+  (add-hook 'post-command-hook #'overlook--remember-point nil t)
+  (advice-add 'set-window-configuration :after #'overlook--restore-points)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
 
 (defun overlook--mode-line ()
@@ -521,39 +523,58 @@ needing attention."
                         'overlook-item (cons 'perspective name) #'equal))))
     (goto-char (prop-match-beginning match))))
 
-(defun overlook--window-top (window)
-  "Where WINDOW starts, as (IDENT LINES LINE).
-IDENT is that of the section at its start, LINES how far into the section
-the start is, and LINE the start's line number."
-  (let* ((start (window-start window))
-         (section (magit-section-at start)))
-    (list (and section (magit-section-ident section))
-          (and section (count-lines (oref section start) start))
-          (line-number-at-pos start))))
+(defun overlook--place (pos)
+  "Where POS is, as (SECTION LINE CHAR NUMBER), to find it after a redraw.
+SECTION is the innermost one at POS below the root, LINE and CHAR are
+relative to its start, and NUMBER is POS's line number."
+  (save-excursion
+    (goto-char pos)
+    (let ((section (magit-current-section)))
+      `(,@(if (and section (oref section parent))
+              (cons section (magit-section-get-relative-position section))
+            (list nil nil nil))
+        ,(line-number-at-pos)))))
 
-(defun overlook--window-top-position (top)
-  "Position of TOP, from `overlook--window-top', in the redrawn dashboard.
-It is LINES into the section of IDENT, or line LINE without that section."
-  (pcase-let ((`(,ident ,lines ,line) top))
+(defun overlook--find-place (place &optional successor)
+  "Position of PLACE, from `overlook--place', in the redrawn dashboard.
+With SUCCESSOR, a section that is gone gives way to a nearby one;
+otherwise, or with no section left at all, PLACE's line number is used."
+  (pcase-let ((`(,section ,line ,char ,number) place))
     (save-excursion
-      (if-let* ((section (and ident (magit-get-section ident))))
-          (progn (goto-char (oref section start))
-                 (forward-line lines))
-        (goto-char (point-min))
-        (forward-line (1- line)))
+      (goto-char (point-min))
+      (unless (and section
+                   (if successor
+                       (magit-section-goto-successor section line char)
+                     (when-let* ((found (magit-get-section (magit-section-ident section))))
+                       (goto-char (oref found start))
+                       (forward-line line))))
+        (forward-line (1- number)))
       (point))))
 
+(defun overlook--redrawn-point (place)
+  "Where point at PLACE goes after a redraw, or the current perspective's
+heading after a perspective switch."
+  (save-excursion
+    (unless (and overlook--to-current (overlook--goto-current))
+      (goto-char (overlook--find-place place t)))
+    (while (and (invisible-p (point)) (not (bobp)))
+      (forward-line -1))
+    (point)))
+
 (defun overlook--render ()
-  "Redraw the dashboard, keeping point on the same row and screen line.
+  "Redraw the dashboard, keeping each window on the same rows.
 After a perspective switch, point goes to the current perspective instead."
   (when-let* ((dashboard (get-buffer overlook-buffer-name)))
     (with-current-buffer dashboard
-      (let* ((window (get-buffer-window dashboard t))
-             (top (and window (overlook--window-top window)))
-             (section (magit-current-section))
-             (position (and section (magit-section-get-relative-position section)))
-             (line (line-number-at-pos))
-             (column (current-column))
+      (let* ((windows (get-buffer-window-list dashboard nil t))
+             ;; The selected window goes last, so the buffer's point ends up as its.
+             (places (if windows
+                         (mapcar (lambda (window)
+                                   (list window
+                                         (overlook--place (window-point window))
+                                         (overlook--place (window-start window))))
+                                 (reverse windows))
+                       (list (list nil (overlook--place (point)) nil))))
              (overlook--buffers-cache (make-hash-table :test #'equal))
              (inhibit-read-only t))
         (erase-buffer)
@@ -561,21 +582,42 @@ After a perspective switch, point goes to the current perspective instead."
         (magit-insert-section (overlook-section 'root)
           (run-hooks 'overlook-sections))
         (magit-section-show magit-root-section)
-        (goto-char (point-min))
-        (cond ((and overlook--to-current (overlook--goto-current))
-               (setq column 0))
-              ((and section (oref section parent)
-                    (apply #'magit-section-goto-successor section position)))
-              (t (forward-line (1- line))))
+        (pcase-dolist (`(,window ,point ,start) places)
+          (let ((point (overlook--redrawn-point point))
+                ;; Erasing sent the window back to the top; put it where it was.
+                (start (if start (overlook--find-place start) (point-min))))
+            (goto-char point)
+            (when window
+              (set-window-point window point)
+              (set-window-start window start t))
+            (overlook--remember-point point start)))
         (setq overlook--to-current nil)
-        (while (and (invisible-p (point)) (not (bobp)))
-          (forward-line -1))
-        (move-to-column column)
-        (magit-section-update-highlight t)
-        (when window
-          (set-window-point window (point))
-          ;; Erasing sent the window back to the top; put it where it was.
-          (set-window-start window (overlook--window-top-position top) t))))))
+        (magit-section-update-highlight t)))))
+
+(defvar-local overlook--point nil
+  "Point and window start, as markers, after the last redraw or command.")
+
+(defun overlook--remember-point (&optional point start)
+  "Record POINT and START, by default those of the selected window."
+  (let ((point (or point (point)))
+        (start (or start (window-start))))
+    (if overlook--point
+        (progn (move-marker (car overlook--point) point)
+               (move-marker (cdr overlook--point) start))
+      (setq overlook--point (cons (copy-marker point) (copy-marker start))))))
+
+(defun overlook--restore-points (&rest _)
+  "Put dashboard windows left at the top back where `overlook--point' was.
+Restoring a window configuration saved before a redraw, as Ediff does on
+quitting, leaves them there."
+  (when-let* ((dashboard (get-buffer overlook-buffer-name)))
+    (pcase-let ((`(,point . ,start) (buffer-local-value 'overlook--point dashboard)))
+      (dolist (window (get-buffer-window-list dashboard nil t))
+        (when (and point (/= point 1)
+                   (= (window-point window) 1)
+                   (= (window-start window) 1))
+          (set-window-point window point)
+          (set-window-start window start t))))))
 
 ;;; Navigation
 

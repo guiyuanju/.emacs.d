@@ -19,6 +19,7 @@ Agents are listed; usage and repos are not."
   (declare (indent 2))
   `(let* ((overlook-test--perspectives ,perspectives)
           (overlook-test--current ,current)
+          (overlook--shown nil)
           (overlook-perspectives-function (lambda () (mapcar #'car overlook-test--perspectives)))
           (overlook-current-perspective-function (lambda () overlook-test--current))
           (overlook-switch-perspective-function (lambda (name) (setq overlook-test--current name)))
@@ -224,6 +225,41 @@ Agents are listed; usage and repos are not."
         (should (equal (overlook-item-at-point) '(perspective . "p25")))
         (should (= (window-start window) (save-excursion (goto-char (point-min)) (search-forward "p20")
                                                          (line-beginning-position))))))))
+
+(ert-deftest overlook-redraw-keeps-every-window-on-its-row ()
+  (overlook-test-with-dashboard (mapcar (lambda (i) (list (format "p%02d" i))) (number-sequence 1 60)) "p01"
+    (save-window-excursion
+      (switch-to-buffer (current-buffer))
+      (delete-other-windows)
+      (let ((one (selected-window))
+            (two (split-window-right)))
+        (dolist (pair `((,one . "p10") (,two . "p40")))
+          (with-selected-window (car pair)
+            (goto-char (point-min))
+            (search-forward (cdr pair))))
+        (overlook--render)
+        (dolist (pair `((,one . "p10") (,two . "p40")))
+          (with-selected-window (car pair)
+            (should (equal (overlook-item-at-point) (cons 'perspective (cdr pair))))))))))
+
+(ert-deftest overlook-restored-window-configuration-keeps-the-row ()
+  (overlook-test-with-dashboard (mapcar (lambda (i) (list (format "p%02d" i))) (number-sequence 1 60)) "p01"
+    (save-window-excursion
+      (switch-to-buffer (current-buffer))
+      (delete-other-windows)
+      (let ((window (selected-window)))
+        (goto-char (point-min))
+        (search-forward "p25")
+        (overlook--remember-point)
+        (select-window (split-window-right))
+        (switch-to-buffer "*scratch*")
+        (let ((config (current-window-configuration)))
+          (delete-other-windows)
+          ;; The redraw sends the configuration's saved point to the top.
+          (overlook--render)
+          (set-window-configuration config)
+          (should (equal (with-selected-window window (overlook-item-at-point))
+                         '(perspective . "p25"))))))))
 
 (ert-deftest overlook-heading-switches-perspective ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
