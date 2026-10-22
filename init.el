@@ -440,6 +440,11 @@
     "al" '(overlook-agent-switch :which-key "list agents")
     "ad" '(overlook :which-key "dashboard")
     "ae" '(overlook-agent-send :which-key "send to agent")
+    "ag" '(iuiw-assistant-chat :which-key "assistant chat")
+    "aq" '(iuiw-assistant-ask :which-key "ask assistant")
+    "at" '(iuiw-assistant-translate :which-key "translate")
+    "as" '(iuiw-assistant-summarize :which-key "summarize")
+    "ar" '(iuiw-assistant-run :which-key "assistant task")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -895,6 +900,16 @@
   :demand t
   :autoload iuiw-agent-shell-dot-subdir)
 
+(use-package iuiw-assistant
+  :ensure nil
+  :commands (iuiw-assistant-chat iuiw-assistant-ask iuiw-assistant-run
+             iuiw-assistant-translate iuiw-assistant-summarize iuiw-assistant-explain)
+  :autoload iuiw-assistant-shell-p
+  :config
+  (with-eval-after-load 'evil
+    (evil-define-key* 'normal iuiw-assistant-result-mode-map
+      "q" #'iuiw-assistant-quit "y" #'iuiw-assistant-copy "r" #'iuiw-assistant-replace)))
+
 (use-package iuiw-agent-update
   :ensure nil
   :commands iuiw-agent-update-check
@@ -928,6 +943,7 @@
   (overlook-perspective-annotation #'iuiw-workspace-perspective-workspace)
   (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")
+  (overlook-agent-shell-ignore-function #'iuiw-assistant-shell-p)
   (overlook-usage-file (expand-file-name "claude-usage.json" iuiw-state-directory))
   (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" iuiw-state-directory))
   (overlook-agent-forks-file (expand-file-name "overlook-forks.eld" iuiw-state-directory))
