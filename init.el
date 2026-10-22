@@ -14,7 +14,8 @@
       enable-recursive-minibuffers t
       read-extended-command-predicate #'command-completion-default-include-p
       delete-by-moving-to-trash t
-      global-auto-revert-non-file-buffers t)
+      global-auto-revert-non-file-buffers t
+      confirm-kill-emacs #'y-or-n-p)
 
 (setq-default indent-tabs-mode nil
               tab-width 2)
