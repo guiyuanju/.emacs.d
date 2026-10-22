@@ -56,6 +56,11 @@ With FORCE, do not ask for confirmation."
   (interactive)
   (consult-ripgrep default-directory))
 
+(defun iuiw-search-repo ()
+  "Run ripgrep in the Git repo of the current buffer, else in its project."
+  (interactive)
+  (consult-ripgrep (locate-dominating-file default-directory ".git")))
+
 (defun iuiw-search-symbol-at-point ()
   "Run project ripgrep for the symbol at point."
   (interactive)

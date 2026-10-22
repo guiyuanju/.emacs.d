@@ -217,7 +217,7 @@
 
 (use-package consult
   :config
-  (consult-customize consult-ripgrep :initial (thing-at-point 'symbol t)))
+  (consult-customize consult-ripgrep iuiw-search-repo :initial (thing-at-point 'symbol t)))
 
 (use-package embark
   :bind (("C-;" . embark-act)
@@ -404,7 +404,8 @@
     "SPC" '(project-find-file :which-key "project file")
     "."   '(find-file :which-key "find file")
     ","   '(consult-buffer :which-key "switch buffer")
-    "/"   '(consult-ripgrep :which-key "search project")
+    "/"   '(iuiw-search-repo :which-key "search repo")
+    "?"   '(consult-ripgrep :which-key "search project")
     "*"   '(iuiw-search-symbol-at-point :which-key "search symbol")
     ":"   '(execute-extended-command :which-key "M-x")
     ";"   '(dired-jump :which-key "dired here")
