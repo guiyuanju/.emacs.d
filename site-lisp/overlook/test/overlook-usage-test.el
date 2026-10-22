@@ -86,5 +86,15 @@
         (should (= (+ (string-search "%" meter) 1)
                    (+ (string-search "¥14.15" text) (length "¥14.15"))))))))
 
+(ert-deftest overlook-usage-row-shows-agent-icon ()
+  (with-temp-buffer
+    (let ((overlook-agent-icons '(("claude" . "C")))
+          (overlook-usage--rows
+           (list (cons (propertize "claude" 'overlook-action #'ignore)
+                       (list (list "5h" 43 nil))))))
+      (overlook-usage--insert)
+      (should (string-prefix-p "C  5h" (buffer-string)))
+      (should (eq (get-text-property (point-min) 'overlook-action) #'ignore)))))
+
 (provide 'overlook-usage-test)
 ;;; overlook-usage-test.el ends here

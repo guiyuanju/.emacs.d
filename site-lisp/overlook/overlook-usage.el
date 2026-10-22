@@ -39,6 +39,8 @@
 (require 'seq)
 (require 'subr-x)
 
+(defvar overlook-agent-icons)
+
 (defcustom overlook-usage-file (locate-user-emacs-file "overlook-claude-usage.json")
   "File keeping Claude's last plan usage.
 `overlook-usage-save-claude' writes it."
@@ -212,6 +214,19 @@ It turns `warning' from `overlook-usage-warning'."
                         'face (if (>= percentage overlook-usage-warning) 'warning 'overlook-usage-bar))
             (propertize (make-string (- width filled) ?━) 'face 'overlook-usage-bar-track))))
 
+(defun overlook-usage--label (name)
+  "NAME as `overlook-agent-icons' draws it, keeping NAME's properties."
+  (if-let* ((icon (alist-get (substring-no-properties name)
+                             (bound-and-true-p overlook-agent-icons) nil nil #'equal)))
+      (let ((icon (copy-sequence icon))
+            (face (get-text-property 0 'face name)))
+        (cl-loop for (property value) on (text-properties-at 0 name) by #'cddr
+                 unless (eq property 'face)
+                 do (put-text-property 0 (length icon) property value icon))
+        (when face (add-face-text-property 0 (length icon) face nil icon))
+        icon)
+    name))
+
 (defun overlook-usage--insert ()
   "Insert a row per agent in `overlook-usage--rows', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
@@ -228,6 +243,7 @@ window has left, so a row never wraps."
                                            window))
                                        (cdr row))))
                        (seq-filter #'cdr overlook-usage--rows)))
+         (shown (mapcar (lambda (row) (overlook-usage--label (car row))) rows))
          (windows (mapcan (lambda (row) (copy-sequence (cdr row))) rows))
          (texts (seq-filter (lambda (window) (stringp (nth 1 window))) windows))
          (meters (seq-remove (lambda (window) (stringp (nth 1 window))) windows))
@@ -245,7 +261,7 @@ window has left, so a row never wraps."
                                               (+ (string-width (car window)) 1
                                                  (string-width (nth 1 window))))
                                             texts)))
-         (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
+         (name-width (apply #'max 0 (mapcar #'string-width shown)))
          (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
          (window (get-buffer-window (current-buffer) t))
          (columns (if window (window-body-width window) (overlook-columns)))
@@ -254,14 +270,17 @@ window has left, so a row never wraps."
                    (min 20 (/ (- columns (length overlook-indent) name-width 2 1
                                  (* count fixed) (* (1- count) 3))
                               count)))))
-    (pcase-dolist (`(,name . ,windows) rows)
-      (overlook-insert-row
+    (cl-loop
+     for (name . windows) in rows
+     for icon in shown
+     do
+     (overlook-insert-row
        (propertize
         (concat
          (if-let* ((action (get-text-property 0 'overlook-action name)))
              (propertize overlook-indent 'overlook-action action)
            overlook-indent)
-         name (make-string (- (+ name-width 2) (string-width name)) ?\s)
+         icon (make-string (- (+ name-width 2) (string-width icon)) ?\s)
          (mapconcat
           (pcase-lambda (`(,label ,percentage ,resets))
             (if (stringp percentage)
