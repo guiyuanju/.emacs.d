@@ -371,7 +371,8 @@ WAITED is the seconds waited so far."
     (run-at-time 5 nil #'iuiw-elfeed-sync--after-update fn (+ (or waited 0) 5))))
 
 (defun iuiw-elfeed-sync--write-digest ()
-  "Digest the entries since the last digest into today's file, then sync."
+  "Digest the entries since the last digest into today's file, then sync.
+The digested entries are marked read."
   (let* ((until (float-time))
          (entries (iuiw-elfeed-sync--entries-since (iuiw-elfeed-sync--since)))
          (file (iuiw-elfeed-sync--file (format-time-string "digest/%F.org")))
@@ -383,6 +384,10 @@ WAITED is the seconds waited so far."
                     (insert (format "#+title: Elfeed 摘要 %s\n#+until: %.0f\n#+subtitle: %d 条 · %s · %s\n\n%s\n"
                                     (format-time-string "%F") until (length entries)
                                     backend iuiw-elfeed-sync--host body))))
+                (when entries
+                  (elfeed-untag entries 'unread)
+                  (when-let* ((buf (get-buffer "*elfeed-search*")))
+                    (with-current-buffer buf (elfeed-search-update :force))))
                 (setq iuiw-elfeed-sync--digesting nil)
                 (iuiw-elfeed-sync)))
       (if (null entries)
