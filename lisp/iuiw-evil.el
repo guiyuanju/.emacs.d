@@ -1,7 +1,7 @@
 ;;; iuiw-evil.el --- Evil tweaks for keys and terminals -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; C-[ 与 ESC 分开解码，以及 evil-ghostel 光标定位的修正。
+;; C-[ 与 ESC、C-i 与 TAB 分开解码，以及 evil-ghostel 光标定位的修正。
 
 ;;; Code:
 
@@ -12,14 +12,15 @@
 (declare-function evil-ghostel--sync-render "evil-ghostel")
 (defvar ghostel--term)
 
-;; 图形界面里 C-[ 与 ESC 键是不同事件；拆开后 agent 把 ESC 留给终端，C-[ 仍回 normal。
-;; 中文输入法下同一个键到达时是 C-【。
-(defun iuiw-decode-control-bracket (&optional frame)
-  "Make C-[ distinct from ESC on graphical FRAME."
+;; 图形界面里 C-[ 与 ESC 键、C-i 与 TAB 键是不同事件；拆开后 agent 把 ESC 留给终端，
+;; C-[ 仍回 normal，C-i 留给 evil 往前跳。中文输入法下 C-[ 到达时是 C-【。
+(defun iuiw-decode-control-keys (&optional frame)
+  "Make C-[ distinct from ESC and C-i from TAB on graphical FRAME."
   (when (display-graphic-p frame)
     (with-selected-frame (or frame (selected-frame))
       (define-key input-decode-map [?\C-\[] [control-bracketleft])
-      (define-key input-decode-map [?\C-【] [control-bracketleft]))))
+      (define-key input-decode-map [?\C-【] [control-bracketleft])
+      (define-key input-decode-map [?\C-i] [C-i]))))
 
 ;; 普通态移动后 i/a 会把终端光标带到 point。
 (defun iuiw-evil-ghostel-goto-input-position (pos)
