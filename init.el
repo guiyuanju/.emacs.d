@@ -712,6 +712,9 @@
   :config
   (define-key vdiff-mode-map (kbd "C-c") vdiff-mode-prefix-map)
   (define-key vdiff-3way-mode-map (kbd "C-c") vdiff-mode-prefix-map)
+  (advice-add 'vdiff-2way-layout-function-default :after
+              (lambda (_buffer-a buffer-b &rest _)
+                (select-window (get-buffer-window buffer-b))))
   (general-def :states 'normal :keymaps '(vdiff-mode-map vdiff-3way-mode-map)
     "q" #'vdiff-quit))
 
