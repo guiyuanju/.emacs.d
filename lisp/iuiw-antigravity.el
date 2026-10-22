@@ -83,14 +83,15 @@ A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
                (overlook-usage-scan)))))))
 
 (defun iuiw-antigravity-usage ()
-  "Antigravity's plan usage per model group, as last fetched."
+  "Antigravity's Gemini usage, as last fetched.
+A blank first window puts the weekly one under the other rows' 7d column."
   (when iuiw-antigravity--windows
     (cons (propertize "antigravity"
                       'face (and iuiw-antigravity--error 'warning)
                       'help-echo (if iuiw-antigravity--error
                                      "Last quota refresh failed; showing the previous reading"
                                    "Weekly limit shared by the Gemini models; refreshed every 5 minutes"))
-          iuiw-antigravity--windows)))
+          (cons '("" "" nil) iuiw-antigravity--windows))))
 
 (defun iuiw-antigravity--tick ()
   "Refresh the quota while the dashboard is live."
