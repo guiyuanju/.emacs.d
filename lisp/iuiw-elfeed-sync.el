@@ -39,6 +39,10 @@
   "Seconds between checks for today's digest."
   :type 'natural)
 
+(defcustom iuiw-elfeed-sync-digest-hour 8
+  "Hour of the day before which no digest is written."
+  :type '(integer :tag "Hour"))
+
 (defvar iuiw-elfeed-sync--host (car (split-string (system-name) "\\.")))
 
 (defvar iuiw-elfeed-sync--state (make-hash-table :test #'equal)
@@ -265,6 +269,7 @@ Then call CALLBACK with an error message, or nil on success."
                iuiw-elfeed-sync--last (float-time))
          (iuiw-elfeed-sync--load)
          (iuiw-elfeed-sync--apply-all)
+         (iuiw-elfeed-sync--announce-digest)
          (when (and err (not callbacks))
            (message "elfeed sync: %s" err))
          (dolist (cb callbacks) (funcall cb err))
@@ -315,6 +320,25 @@ Then call CALLBACK with an error message, or nil on success."
 
 (defvar iuiw-elfeed-sync--digesting nil)
 
+(defvar iuiw-elfeed-sync--seen-digest nil
+  "The latest digest file already announced.")
+
+(defun iuiw-elfeed-sync--announce-digest ()
+  "Announce the latest digest if it is new, whichever machine wrote it."
+  (let ((file (car (last (iuiw-elfeed-sync--digests)))))
+    (when (and file (not (equal file iuiw-elfeed-sync--seen-digest)))
+      (setq iuiw-elfeed-sync--seen-digest file)
+      (let ((subtitle (with-temp-buffer
+                        (insert-file-contents file)
+                        (when (re-search-forward "^#\\+subtitle: \\(.*\\)" nil t)
+                          (match-string 1))))
+            (title (concat "Elfeed 摘要 " (file-name-base file))))
+        (message "elfeed: %s 已生成（%s），在 elfeed 里按 gd 查看" title subtitle)
+        (when (fboundp 'ns-do-applescript)
+          (ns-do-applescript
+           (format "display notification %S with title %S"
+                   (concat subtitle " · 在 elfeed 里按 gd 查看") title)))))))
+
 (defun iuiw-elfeed-sync--digests ()
   "Return the digest files, oldest first."
   (ignore-errors (directory-files (iuiw-elfeed-sync--file "digest") t "\\.org\\'")))
@@ -360,8 +384,7 @@ WAITED is the seconds waited so far."
                                     (format-time-string "%F") until (length entries)
                                     backend iuiw-elfeed-sync--host body))))
                 (setq iuiw-elfeed-sync--digesting nil)
-                (iuiw-elfeed-sync)
-                (message "elfeed: 今日摘要已生成，在 elfeed 里按 gd 查看")))
+                (iuiw-elfeed-sync)))
       (if (null entries)
           (finish "没有新条目。")
         (iuiw-elfeed-ai-digest-request
@@ -381,7 +404,9 @@ WAITED is the seconds waited so far."
     (iuiw-elfeed-sync
      (lambda (err)
        (when err (message "elfeed sync: %s" err))
-       (if (or err (file-exists-p (iuiw-elfeed-sync--file (format-time-string "digest/%F.org"))))
+       (if (or err
+               (< (decoded-time-hour (decode-time)) iuiw-elfeed-sync-digest-hour)
+               (file-exists-p (iuiw-elfeed-sync--file (format-time-string "digest/%F.org"))))
            (setq iuiw-elfeed-sync--digesting nil)
          (elfeed-update)
          (iuiw-elfeed-sync--after-update #'iuiw-elfeed-sync--write-digest 0))))))
@@ -421,6 +446,7 @@ WAITED is the seconds waited so far."
         (add-hook 'elfeed-update-init-hook #'iuiw-elfeed-sync-soon)
         (add-hook 'elfeed-search-mode-hook #'iuiw-elfeed-sync-soon)
         (add-hook 'kill-emacs-hook #'iuiw-elfeed-sync--on-kill)
+        (setq iuiw-elfeed-sync--seen-digest (car (last (iuiw-elfeed-sync--digests))))
         (setq iuiw-elfeed-sync--check-timer
               (run-at-time 30 iuiw-elfeed-sync-check-interval #'iuiw-elfeed-sync-check)))
     (remove-hook 'elfeed-tag-hook #'iuiw-elfeed-sync--on-tag-add)
