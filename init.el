@@ -706,7 +706,7 @@
   :defer t
   :custom
   (vdiff-subtraction-fill-char ?\s)
-  (vdiff-diff-algorithm 'git-diff-histogram)
+  (vdiff-diff-algorithm 'difftastic)
   (vdiff-auto-refine t)
   (vdiff-only-highlight-refinements t)
   :config
@@ -714,6 +714,20 @@
   (define-key vdiff-3way-mode-map (kbd "C-c") vdiff-mode-prefix-map)
   (general-def :states 'normal :keymaps '(vdiff-mode-map vdiff-3way-mode-map)
     "q" #'vdiff-quit))
+
+(use-package iuiw-vdiff-difftastic
+  :ensure nil
+  :after vdiff
+  :config
+  (advice-add 'vdiff-refresh :around #'iuiw-vdiff-difftastic-refresh)
+  (advice-add 'vdiff--parse-diff-u :around #'iuiw-vdiff-difftastic-parse)
+  (advice-add 'vdiff--diff-refresh-finish :around #'iuiw-vdiff-difftastic-finish))
+
+(use-package difftastic
+  :defer t
+  :init
+  (with-eval-after-load 'magit
+    (difftastic-bindings-mode 1)))
 
 (use-package vdiff-magit
   :after magit
