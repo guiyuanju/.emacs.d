@@ -509,12 +509,15 @@
     "gb" '(magit-branch-checkout :which-key "branch")
     "gB" '(magit-blame-addition :which-key "blame")
     "gc" '(magit-commit :which-key "commit")
+    "gd" '(diff-hl-diff-reference-goto-hunk :which-key "file diff")
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
+    "gh" '(diff-hl-show-hunk :which-key "show hunk")
     "gl" '(magit-log-current :which-key "log")
     "gm" '(iuiw-browse-mr :which-key "merge request")
     "go" '(git-link-homepage :which-key "repository URL")
     "gr" '(diff-hl-revert-hunk :which-key "revert hunk")
+    "gR" '(iuiw-diff-hl-against-branch :which-key "diff against branch")
     "gs" '(diff-hl-stage-dwim :which-key "stage hunk")
     "gy" '(git-link :which-key "copy link")
 
@@ -707,6 +710,9 @@
 (use-package diff-hl
   :demand t
   :hook (dired-mode . diff-hl-dired-mode)
+  :custom
+  (diff-hl-show-hunk-inline-hide-hunk t)
+  (diff-hl-show-hunk-inline-smart-lines nil)
   :config
   ;; 恢复 perspective 时可能带回已被删除目录的 dired buffer。
   (advice-add 'diff-hl-dired-update :before-while
@@ -716,6 +722,10 @@
   (global-diff-hl-mode 1)
   (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
   (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
+
+(use-package iuiw-diff-hl
+  :ensure nil
+  :commands iuiw-diff-hl-against-branch)
 
 ;;; Programming
 
