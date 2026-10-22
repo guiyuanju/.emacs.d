@@ -75,5 +75,16 @@
         (dolist (line (split-string (buffer-string) "\n" t))
           (should (< (string-width line) columns)))))))
 
+(ert-deftest overlook-usage-text-ends-with-percentages ()
+  (with-temp-buffer
+    (let ((overlook-usage--rows
+           (list (list "claude" (list "5h" 43 (+ (float-time) 66000)))
+                 (list "deepseek" (list "balance" "¥14.15" nil)))))
+      (cl-letf (((symbol-function 'overlook-columns) (lambda () 69)))
+        (overlook-usage--insert))
+      (pcase-let ((`(,meter ,text) (split-string (buffer-string) "\n" t)))
+        (should (= (+ (string-search "%" meter) 1)
+                   (+ (string-search "¥14.15" text) (length "¥14.15"))))))))
+
 (provide 'overlook-usage-test)
 ;;; overlook-usage-test.el ends here

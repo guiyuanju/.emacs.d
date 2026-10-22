@@ -239,6 +239,8 @@ window has left, so a row never wraps."
                                                  meters)))
          ;; A meter's label, percentage like " 42%" and countdown, around its bar.
          (fixed (+ label-width 1 5 1 countdown-width))
+         ;; Text values end where percentages do, in the countdown column only when short of room.
+         (tail (if meters (1+ countdown-width) 0))
          (text-width (apply #'max 0 (mapcar (lambda (window)
                                               (+ (string-width (car window)) 1
                                                  (string-width (nth 1 window))))
@@ -263,11 +265,12 @@ window has left, so a row never wraps."
          (mapconcat
           (pcase-lambda (`(,label ,percentage ,resets))
             (if (stringp percentage)
-                (concat (propertize label 'face 'shadow)
-                        (make-string (max 1 (- (+ bar fixed)
-                                               (string-width label)
-                                               (string-width percentage))) ?\s)
-                        percentage)
+                (let* ((room (- (+ bar fixed) (string-width label) (string-width percentage)))
+                       (trailing (max 0 (min tail (1- room)))))
+                  (concat (propertize label 'face 'shadow)
+                          (make-string (max 1 (- room trailing)) ?\s)
+                          percentage
+                          (make-string trailing ?\s)))
               (concat (propertize (string-pad label label-width) 'face 'shadow) " "
                       (overlook-usage--bar percentage bar)
                       (propertize (format " %3d%%" (floor percentage))
