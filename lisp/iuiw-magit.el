@@ -7,10 +7,24 @@
 
 (require 'magit-mode)
 
-(defcustom iuiw-magit-side-window-width 0.35
+(defcustom iuiw-magit-side-window-width 0.25
   "Width of the window left beside a diff, as a fraction of the frame."
   :type 'float
   :group 'magit)
+
+(defun iuiw-magit--display-buffer-topleft (buffer alist)
+  "Like `magit--display-buffer-topleft', narrowing the window pushed right.
+Only a fresh split is resized; `window-width' in ALIST would also resize
+the diff window each time it is reused."
+  (let* ((windows (count-windows))
+         (window (magit--display-buffer-topleft buffer alist)))
+    (when (and window (> (count-windows) windows))
+      (let ((side (selected-window)))
+        (window-resize side (- (round (* iuiw-magit-side-window-width
+                                         (frame-width (window-frame side))))
+                               (window-total-width side))
+                       t t)))
+    window))
 
 (defun iuiw-magit-display-buffer (buffer)
   "Display BUFFER like `magit-display-buffer-fullframe-status-topleft-v1'.
@@ -22,8 +36,7 @@ pushes to the right gets `iuiw-magit-side-window-width'."
           '(magit--display-buffer-fullframe))
          ((with-current-buffer buffer
             (derived-mode-p 'magit-diff-mode 'magit-process-mode))
-          `(magit--display-buffer-topleft
-            (window-width . ,iuiw-magit-side-window-width)))
+          '(iuiw-magit--display-buffer-topleft))
          ('(display-buffer-same-window)))))
 
 (provide 'iuiw-magit)
