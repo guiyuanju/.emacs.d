@@ -10,6 +10,7 @@
 (require 'magit-files)
 
 (declare-function vdiff-buffers "vdiff")
+(defvar vdiff-disable-folding)
 (declare-function diff-hl-show-hunk-hide "diff-hl-show-hunk")
 
 (defun iuiw-diff-hl--repo-project ()
@@ -48,13 +49,21 @@ Commits merged to the branch after the fork stay out."
 
 ;;;###autoload
 (defun iuiw-diff-hl-vdiff ()
-  "Compare this file with diff-hl's reference revision in vdiff."
+  "Compare this file with diff-hl's reference revision in vdiff.
+Unchanged lines stay unfolded, so the whole file shows."
   (interactive)
   (require 'vdiff)
-  (let ((file (or buffer-file-name (user-error "Not visiting a file")))
-        (rev (or diff-hl-reference-revision "HEAD")))
-    (vdiff-buffers (magit-find-file-noselect rev file t t) (current-buffer)
-                   nil (lambda (old _new) (kill-buffer old)) t nil)))
+  (let* ((file (or buffer-file-name (user-error "Not visiting a file")))
+         (rev (or diff-hl-reference-revision "HEAD"))
+         (old (magit-find-file-noselect rev file t t)))
+    (dolist (buf (list old (current-buffer)))
+      (with-current-buffer buf (setq-local vdiff-disable-folding t)))
+    (vdiff-buffers old (current-buffer) nil
+                   (lambda (old new)
+                     (kill-buffer old)
+                     (with-current-buffer new
+                       (kill-local-variable 'vdiff-disable-folding)))
+                   t nil)))
 
 ;;;###autoload
 (defun iuiw-diff-hl-show-hunk-vdiff ()
