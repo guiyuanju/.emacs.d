@@ -7,6 +7,10 @@
 
 (require 'diff-hl)
 (require 'magit-git)
+(require 'magit-files)
+
+(declare-function vdiff-buffers "vdiff")
+(declare-function diff-hl-show-hunk-hide "diff-hl-show-hunk")
 
 (defun iuiw-diff-hl--repo-project ()
   "Return the VC project of the current Git repository.
@@ -41,6 +45,23 @@ Commits merged to the branch after the fork stay out."
                           (format "refs/remotes/%s/HEAD" remote)))
       (and-let* ((main (magit-main-branch)))
         (or (magit-get-upstream-branch main) main))))
+
+;;;###autoload
+(defun iuiw-diff-hl-vdiff ()
+  "Compare this file with diff-hl's reference revision in vdiff."
+  (interactive)
+  (require 'vdiff)
+  (let ((file (or buffer-file-name (user-error "Not visiting a file")))
+        (rev (or diff-hl-reference-revision "HEAD")))
+    (vdiff-buffers (magit-find-file-noselect rev file t t) (current-buffer)
+                   nil (lambda (old _new) (kill-buffer old)) t nil)))
+
+;;;###autoload
+(defun iuiw-diff-hl-show-hunk-vdiff ()
+  "Close the hunk popup and compare its file in vdiff."
+  (interactive)
+  (diff-hl-show-hunk-hide)
+  (iuiw-diff-hl-vdiff))
 
 (provide 'iuiw-diff-hl)
 ;;; iuiw-diff-hl.el ends here

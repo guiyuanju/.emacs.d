@@ -509,7 +509,7 @@
     "gb" '(magit-branch-checkout :which-key "branch")
     "gB" '(magit-blame-addition :which-key "blame")
     "gc" '(magit-commit :which-key "commit")
-    "gd" '(diff-hl-diff-reference-goto-hunk :which-key "file diff")
+    "gd" '(iuiw-diff-hl-vdiff :which-key "file diff")
     "gf" '(magit-fetch :which-key "fetch")
     "gg" '(magit-status :which-key "status")
     "gh" '(diff-hl-show-hunk :which-key "show hunk")
@@ -687,8 +687,6 @@
   (add-hook 'ediff-keymap-setup-hook #'iuiw-ediff-bind-recenter 90))
 
 (use-package magit
-  :custom
-  (magit-ediff-dwim-show-on-hunks t)
   :config
   (setq magit-display-buffer-function #'iuiw-magit-display-buffer
         magit-bury-buffer-function #'magit-restore-window-configuration)
@@ -703,6 +701,31 @@
 (use-package iuiw-magit
   :ensure nil
   :commands iuiw-magit-display-buffer)
+
+(use-package vdiff
+  :defer t
+  :custom
+  (vdiff-subtraction-fill-char ?\s)
+  (vdiff-diff-algorithm 'git-diff-histogram)
+  (vdiff-auto-refine t)
+  (vdiff-only-highlight-refinements t)
+  :config
+  (define-key vdiff-mode-map (kbd "C-c") vdiff-mode-prefix-map)
+  (define-key vdiff-3way-mode-map (kbd "C-c") vdiff-mode-prefix-map)
+  (general-def :states 'normal :keymaps '(vdiff-mode-map vdiff-3way-mode-map)
+    "q" #'vdiff-quit))
+
+(use-package vdiff-magit
+  :after magit
+  :custom
+  (vdiff-magit-dwim-show-on-hunks t)
+  :config
+  (define-key magit-mode-map "e" #'vdiff-magit-dwim)
+  (define-key magit-mode-map "E" #'vdiff-magit)
+  (transient-suffix-put 'magit-dispatch "e" :description "vdiff (dwim)")
+  (transient-suffix-put 'magit-dispatch "e" :command #'vdiff-magit-dwim)
+  (transient-suffix-put 'magit-dispatch "E" :description "vdiff")
+  (transient-suffix-put 'magit-dispatch "E" :command #'vdiff-magit))
 
 (use-package git-link
   :commands (git-link git-link-homepage)
@@ -728,7 +751,12 @@
 
 (use-package iuiw-diff-hl
   :ensure nil
-  :commands iuiw-diff-hl-against-branch)
+  :commands (iuiw-diff-hl-against-branch iuiw-diff-hl-vdiff
+             iuiw-diff-hl-show-hunk-vdiff)
+  :init
+  (with-eval-after-load 'diff-hl-show-hunk
+    (general-def :states 'normal :keymaps 'diff-hl-show-hunk-map
+      "e" #'iuiw-diff-hl-show-hunk-vdiff)))
 
 ;;; Programming
 
@@ -960,6 +988,7 @@
   (overlook-perspective-root #'iuiw-workspace-perspective-root)
   (overlook-project-folders #'iuiw-workspace-perspective-folders)
   (overlook-project-folder-display 'mark)
+  (overlook-project-diff-tool 'vdiff)
   (overlook-perspective-annotation #'iuiw-workspace-perspective-workspace)
   (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")
