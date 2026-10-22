@@ -41,18 +41,19 @@ printf 'header = \"Authorization: Bearer %s\"\\n' \"$tok\" \\
               "1.4.1")))
 
 (defun iuiw-antigravity--parse (data)
-  "Usage windows from retrieveUserQuotaSummary DATA, one per model group.
-A group is labelled by the first word of its name; a missing
-`remainingFraction' is proto3 omitting zero, so the limit is used up."
+  "The Gemini models' weekly window from retrieveUserQuotaSummary DATA.
+A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
   (or (mapcan
        (lambda (group)
-         (when-let* ((bucket (car (alist-get 'buckets group))))
-           (list (list (downcase (car (split-string (alist-get 'displayName group))))
-                       (* 100 (- 1 (or (alist-get 'remainingFraction bucket) 0)))
-                       (when-let* ((time (alist-get 'resetTime bucket)))
-                         (float-time (date-to-time time)))))))
+         (mapcan (lambda (bucket)
+                   (when (equal (alist-get 'bucketId bucket) "gemini-weekly")
+                     (list (list "7d"
+                                 (* 100 (- 1 (or (alist-get 'remainingFraction bucket) 0)))
+                                 (when-let* ((time (alist-get 'resetTime bucket)))
+                                   (float-time (date-to-time time)))))))
+                 (alist-get 'buckets group)))
        (alist-get 'groups data))
-      (error "No quota in response")))
+      (error "No Gemini quota in response")))
 
 (defun iuiw-antigravity--fetch ()
   "Refresh the quota asynchronously, at most every five minutes."
@@ -88,7 +89,7 @@ A group is labelled by the first word of its name; a missing
                       'face (and iuiw-antigravity--error 'warning)
                       'help-echo (if iuiw-antigravity--error
                                      "Last quota refresh failed; showing the previous reading"
-                                   "Weekly limit shared by each model group; refreshed every 5 minutes"))
+                                   "Weekly limit shared by the Gemini models; refreshed every 5 minutes"))
           iuiw-antigravity--windows)))
 
 (defun iuiw-antigravity--tick ()
