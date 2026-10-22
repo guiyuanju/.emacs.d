@@ -64,5 +64,16 @@
       (overlook-usage--insert)
       (should-not (get-text-property (point-min) 'overlook-action)))))
 
+(ert-deftest overlook-usage-rows-fit-the-window ()
+  (dolist (columns '(55 69 100))
+    (with-temp-buffer
+      (let ((overlook-usage--rows
+             (list (list "antigravity" (list "5h" 43 (+ (float-time) 66000)) (list "7d" 50 (+ (float-time) 902000)))
+                   (list "deepseek" (list "balance" "¥14.15" nil) (list "today" "~¥0.1600" nil)))))
+        (cl-letf (((symbol-function 'overlook-columns) (lambda () columns)))
+          (overlook-usage--insert))
+        (dolist (line (split-string (buffer-string) "\n" t))
+          (should (< (string-width line) columns)))))))
+
 (provide 'overlook-usage-test)
 ;;; overlook-usage-test.el ends here

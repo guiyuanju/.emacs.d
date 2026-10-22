@@ -216,19 +216,42 @@ It turns `warning' from `overlook-usage-warning'."
   "Insert a row per agent in `overlook-usage--rows', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
 left out; anything the agent ever reported stays listed.  A row whose
-name carries `overlook-action' runs it when the line is visited."
+name carries `overlook-action' runs it when the line is visited.
+Columns are as wide as their widest entry, and the bars take what the
+window has left, so a row never wraps."
   (let* ((now (float-time))
-         (past (lambda (window) (and (numberp (nth 2 window)) (<= (nth 2 window) now))))
-         (rows (seq-filter #'cdr overlook-usage--rows))
+         (rows (mapcar (lambda (row)
+                         (cons (car row)
+                               (mapcar (lambda (window)
+                                         (if (and (numberp (nth 2 window)) (<= (nth 2 window) now))
+                                             (list (car window) 0 nil)
+                                           window))
+                                       (cdr row))))
+                       (seq-filter #'cdr overlook-usage--rows)))
+         (windows (mapcan (lambda (row) (copy-sequence (cdr row))) rows))
+         (texts (seq-filter (lambda (window) (stringp (nth 1 window))) windows))
+         (meters (seq-remove (lambda (window) (stringp (nth 1 window))) windows))
+         (countdown (lambda (window)
+                      (if (nth 2 window) (overlook-format-duration (- (nth 2 window) now)) "")))
+         (label-width (apply #'max 0 (mapcar (lambda (window) (string-width (car window))) meters)))
+         (countdown-width (apply #'max 0 (mapcar (lambda (window)
+                                                   (string-width (funcall countdown window)))
+                                                 meters)))
+         ;; A meter's label, percentage like " 42%" and countdown, around its bar.
+         (fixed (+ label-width 1 5 1 countdown-width))
+         (text-width (apply #'max 0 (mapcar (lambda (window)
+                                              (+ (string-width (car window)) 1
+                                                 (string-width (nth 1 window))))
+                                            texts)))
          (name-width (apply #'max 0 (mapcar (lambda (row) (string-width (car row))) rows)))
          (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
          (window (get-buffer-window (current-buffer) t))
          (columns (if window (window-body-width window) (overlook-columns)))
-         ;; Besides its bar each window takes 14 columns: label, percentage and reset
-         ;; countdown; windows are 3 columns apart, and the row leaves 1 at its end.
-         (bar (max 4 (min 20 (/ (- columns (length overlook-indent) name-width 2 1
-                                   (* count 14) (* (1- count) 3))
-                                count)))))
+         ;; Windows are 3 columns apart, and the row leaves 1 at its end.
+         (bar (max 4 (- text-width fixed)
+                   (min 20 (/ (- columns (length overlook-indent) name-width 2 1
+                                 (* count fixed) (* (1- count) 3))
+                              count)))))
     (pcase-dolist (`(,name . ,windows) rows)
       (overlook-insert-row
        (propertize
@@ -238,24 +261,22 @@ name carries `overlook-action' runs it when the line is visited."
            overlook-indent)
          name (make-string (- (+ name-width 2) (string-width name)) ?\s)
          (mapconcat
-          (lambda (window)
-            (pcase-let* ((`(,label ,percentage ,resets)
-                          (if (funcall past window) (list (car window) 0 nil) window)))
-              (if (stringp percentage)
-                  (concat (propertize label 'face 'shadow)
-                          (make-string (max 1 (- (+ bar 14)
-                                                 (string-width label)
-                                                 (string-width percentage))) ?\s)
-                          percentage)
-                (concat (propertize label 'face 'shadow) " "
-                        (overlook-usage--bar percentage bar)
-                        (propertize (format " %3d%%" (floor percentage))
-                                    'face (if (>= percentage overlook-usage-warning)
-                                              'warning
-                                            'default))
-                        (propertize (format " %-5s"
-                                            (if resets (overlook-format-duration (- resets now)) ""))
-                                    'face 'shadow)))))
+          (pcase-lambda (`(,label ,percentage ,resets))
+            (if (stringp percentage)
+                (concat (propertize label 'face 'shadow)
+                        (make-string (max 1 (- (+ bar fixed)
+                                               (string-width label)
+                                               (string-width percentage))) ?\s)
+                        percentage)
+              (concat (propertize (string-pad label label-width) 'face 'shadow) " "
+                      (overlook-usage--bar percentage bar)
+                      (propertize (format " %3d%%" (floor percentage))
+                                  'face (if (>= percentage overlook-usage-warning)
+                                            'warning
+                                          'default))
+                      (propertize (concat " " (string-pad (funcall countdown (list label percentage resets))
+                                                          countdown-width))
+                                  'face 'shadow))))
           windows "   ")
          "\n")
         'overlook-item (cons 'usage (substring-no-properties name)))))))
