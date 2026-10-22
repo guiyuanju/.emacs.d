@@ -695,7 +695,10 @@
   (add-to-list 'magit-process-password-prompt-regexps
                "^.*Verification code: ?$")
   (magit-add-section-hook 'magit-status-sections-hook
-                          #'magit-insert-worktrees nil t))
+                          #'magit-insert-worktrees nil t)
+  ;; blob buffer 里 g 绑着 revert-buffer，挡住了 evil 的 gg。
+  (general-def :states '(normal visual) :keymaps 'magit-blob-mode-map
+    "gg" #'evil-goto-first-line))
 
 (use-package iuiw-magit
   :ensure nil
