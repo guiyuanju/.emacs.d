@@ -9,8 +9,7 @@
 (require 'magit-git)
 (require 'magit-files)
 
-(declare-function vdiff-buffers "vdiff")
-(defvar vdiff-disable-folding)
+(require 'vdiff)
 (declare-function diff-hl-show-hunk-hide "diff-hl-show-hunk")
 
 (defun iuiw-diff-hl--repo-project ()
@@ -50,20 +49,66 @@ Commits merged to the branch after the fork stay out."
 ;;;###autoload
 (defun iuiw-diff-hl-vdiff ()
   "Compare this file with diff-hl's reference revision in vdiff.
-Unchanged lines stay unfolded, so the whole file shows."
+Unchanged lines stay unfolded, so the whole file shows.  When either
+window of the session switches to another file, the session follows it."
   (interactive)
-  (require 'vdiff)
-  (let* ((file (or buffer-file-name (user-error "Not visiting a file")))
-         (rev (or diff-hl-reference-revision "HEAD"))
-         (old (magit-find-file-noselect rev file t t)))
-    (dolist (buf (list old (current-buffer)))
-      (with-current-buffer buf (setq-local vdiff-disable-folding t)))
-    (vdiff-buffers old (current-buffer) nil
-                   (lambda (old new)
-                     (kill-buffer old)
-                     (with-current-buffer new
-                       (kill-local-variable 'vdiff-disable-folding)))
-                   t nil)))
+  (iuiw-diff-hl--vdiff (current-buffer) (current-window-configuration)))
+
+(defvar iuiw-diff-hl--vdiff-follow nil
+  "Plist of the following vdiff session: :buffers, :windows and :config.")
+
+(defun iuiw-diff-hl--vdiff (buf config)
+  "Start a vdiff session for BUF; quitting it restores window CONFIG."
+  (let* ((file (or (buffer-file-name buf) (user-error "Not visiting a file")))
+         (rev (or (buffer-local-value 'diff-hl-reference-revision buf) "HEAD"))
+         (old (with-current-buffer buf (magit-find-file-noselect rev file t t))))
+    (dolist (b (list old buf))
+      (with-current-buffer b (setq-local vdiff-disable-folding t)))
+    (with-current-buffer buf
+      (vdiff-buffers old buf nil #'iuiw-diff-hl--vdiff-on-quit nil nil))
+    (setf (vdiff-session-prior-window-config
+           (buffer-local-value 'vdiff--session buf))
+          config)
+    (setq iuiw-diff-hl--vdiff-follow
+          (list :buffers (list old buf)
+                :windows (list (get-buffer-window old) (get-buffer-window buf))
+                :config config))
+    (add-hook 'window-buffer-change-functions #'iuiw-diff-hl--vdiff-check)))
+
+(defun iuiw-diff-hl--vdiff-on-quit (old new)
+  "Kill the revision buffer OLD and restore folding in NEW."
+  (setq iuiw-diff-hl--vdiff-follow nil)
+  (remove-hook 'window-buffer-change-functions #'iuiw-diff-hl--vdiff-check)
+  (kill-buffer old)
+  (when (buffer-live-p new)
+    (with-current-buffer new (kill-local-variable 'vdiff-disable-folding))))
+
+(defun iuiw-diff-hl--vdiff-check (_frame)
+  "Follow when a session window now shows another file."
+  (when-let* ((state iuiw-diff-hl--vdiff-follow)
+              (win (seq-find
+                    (lambda (w)
+                      (and (window-live-p w)
+                           (let ((b (window-buffer w)))
+                             (and (buffer-file-name b)
+                                  (not (memq b (plist-get state :buffers)))))))
+                    (plist-get state :windows))))
+    (run-at-time 0 nil #'iuiw-diff-hl--vdiff-follow win)))
+
+(defun iuiw-diff-hl--vdiff-follow (win)
+  "End the session without touching windows and restart it on WIN's buffer."
+  (when-let* ((state iuiw-diff-hl--vdiff-follow)
+              ((window-live-p win))
+              (buf (window-buffer win))
+              (session-buf (cadr (plist-get state :buffers)))
+              ((buffer-live-p session-buf)))
+    (with-current-buffer session-buf
+      (setf (vdiff-session-prior-window-config vdiff--session) nil)
+      (vdiff-quit))
+    (select-window win)
+    (condition-case err
+        (iuiw-diff-hl--vdiff buf (plist-get state :config))
+      (error (message "vdiff: %s" (error-message-string err))))))
 
 ;;;###autoload
 (defun iuiw-diff-hl-show-hunk-vdiff ()
