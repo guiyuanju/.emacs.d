@@ -96,5 +96,17 @@
       (should (string-prefix-p "C  5h" (buffer-string)))
       (should (eq (get-text-property (point-min) 'overlook-action) #'ignore)))))
 
+(ert-deftest overlook-usage-wide-icon-keeps-columns ()
+  (with-temp-buffer
+    (let ((overlook-agent-icons '(("claude" . "C")))
+          (overlook-usage--rows
+           (list (cons "claude" (list (list "5h" 43 nil)))
+                 (cons "codex" (list (list "5h" 10 nil))))))
+      (cl-letf (((symbol-function 'overlook-pixel-width)
+                 (lambda (string) (if (equal string "C") 2 (string-width string)))))
+        (overlook-usage--insert))
+      (pcase-let ((`(,claude ,codex) (split-string (buffer-string) "\n" t)))
+        (should (= (1+ (string-search "5h" claude)) (string-search "5h" codex)))))))
+
 (provide 'overlook-usage-test)
 ;;; overlook-usage-test.el ends here

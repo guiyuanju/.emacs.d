@@ -227,6 +227,11 @@ It turns `warning' from `overlook-usage-warning'."
         icon)
     name))
 
+(defun overlook-usage--columns (string)
+  "Columns STRING takes as drawn; fonts draw icons wider than `string-width'."
+  (max (string-width string)
+       (ceiling (overlook-pixel-width string) (frame-char-width))))
+
 (defun overlook-usage--insert ()
   "Insert a row per agent in `overlook-usage--rows', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
@@ -261,7 +266,7 @@ window has left, so a row never wraps."
                                               (+ (string-width (car window)) 1
                                                  (string-width (nth 1 window))))
                                             texts)))
-         (name-width (apply #'max 0 (mapcar #'string-width shown)))
+         (name-width (apply #'max 0 (mapcar #'overlook-usage--columns shown)))
          (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
          (window (get-buffer-window (current-buffer) t))
          (columns (if window (window-body-width window) (overlook-columns)))
@@ -280,7 +285,7 @@ window has left, so a row never wraps."
          (if-let* ((action (get-text-property 0 'overlook-action name)))
              (propertize overlook-indent 'overlook-action action)
            overlook-indent)
-         icon (make-string (- (+ name-width 2) (string-width icon)) ?\s)
+         icon (make-string (- (+ name-width 2) (overlook-usage--columns icon)) ?\s)
          (mapconcat
           (pcase-lambda (`(,label ,percentage ,resets))
             (if (stringp percentage)
