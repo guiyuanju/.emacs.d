@@ -56,6 +56,12 @@ each environment gathered says how many were gathered so far."
       (overlook-agent-shell--track)
       (should (eq overlook-agent-identity identity)))))
 
+(ert-deftest overlook-agent-shell-leaves-ignored-shells-untracked ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (let ((overlook-agent-shell-ignore-function (lambda () (eq (current-buffer) buffer))))
+      (overlook-agent-shell--track)
+      (should-not (overlook-agent-p buffer)))))
+
 (ert-deftest overlook-agent-shell-names-unknown-agents-by-identifier ()
   (overlook-agent-shell-test-with-shell 'gemini-cli
     (overlook-agent-shell--track)

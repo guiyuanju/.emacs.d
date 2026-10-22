@@ -65,6 +65,12 @@ path of its transcript."
   :type 'string
   :group 'overlook)
 
+(defcustom overlook-agent-shell-ignore-function nil
+  "Function called in a new shell buffer; non-nil leaves that shell untracked.
+Untracked shells stay off the dashboard and send no notifications."
+  :type '(choice (const :tag "Track every shell" nil) function)
+  :group 'overlook)
+
 ;;; Brief
 
 (defvar-local overlook-agent-shell--asking nil
@@ -369,8 +375,10 @@ Nil until they are gathered, so that an empty environment is gathered once.")
                            (plist-get args :environment-variables)))))))
 
 (defun overlook-agent-shell--track ()
-  "Track this shell as an agent, unless it is already."
-  (unless overlook-agent-identity
+  "Track this shell as an agent, unless it is already or is ignored."
+  (unless (or overlook-agent-identity
+              (and overlook-agent-shell-ignore-function
+                   (funcall overlook-agent-shell-ignore-function)))
     (let ((origin (overlook-agent-shell--origin))
           (buffer (current-buffer)))
       (setq overlook-agent-identity
