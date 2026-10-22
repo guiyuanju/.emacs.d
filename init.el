@@ -683,13 +683,16 @@
   :custom
   (magit-ediff-dwim-show-on-hunks t)
   :config
-  (setq magit-display-buffer-function
-        #'magit-display-buffer-fullframe-status-topleft-v1
+  (setq magit-display-buffer-function #'iuiw-magit-display-buffer
         magit-bury-buffer-function #'magit-restore-window-configuration)
   (add-to-list 'magit-process-password-prompt-regexps
                "^.*Verification code: ?$")
   (magit-add-section-hook 'magit-status-sections-hook
                           #'magit-insert-worktrees nil t))
+
+(use-package iuiw-magit
+  :ensure nil
+  :commands iuiw-magit-display-buffer)
 
 (use-package git-link
   :commands (git-link git-link-homepage)
