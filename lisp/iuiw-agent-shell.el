@@ -11,10 +11,11 @@
 (declare-function overlook-agent-perspective "overlook-agent")
 (declare-function overlook-agent-show "overlook-agent")
 (declare-function overlook-current-perspective "overlook")
+(declare-function iuiw-assistant-shell-p "iuiw-assistant")
 
 (defun iuiw-agent-shell-toggle (&optional arg)
   "Show the most recently used agent in the current perspective.
-Inside an agent, with prefix ARG, or without a perspective agent,
+Assistant shells are skipped.  Inside an agent, with prefix ARG, or without a perspective agent,
 delegate to `agent-shell' to keep its toggle and startup behavior."
   (interactive "P")
   (require 'overlook-agent)
@@ -26,7 +27,9 @@ delegate to `agent-shell' to keep its toggle and startup behavior."
                                     'agent-shell-viewport-edit-mode))
                perspective
                (seq-find (lambda (buffer)
-                           (equal perspective (overlook-agent-perspective buffer)))
+                           (and (equal perspective (overlook-agent-perspective buffer))
+                                (not (with-current-buffer buffer
+                                       (iuiw-assistant-shell-p)))))
                          (agent-shell-buffers)))))
     (if buffer
         (overlook-agent-show buffer)
