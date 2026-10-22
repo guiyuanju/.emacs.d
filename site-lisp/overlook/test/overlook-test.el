@@ -696,6 +696,22 @@ Agents are listed; usage and repos are not."
     (should (equal (reverse opened)
                    '((visit "n") (visit "u") (diff "g") (ediff "m"))))))
 
+(ert-deftest overlook-project-compares-files-in-vdiff ()
+  (let ((overlook-project-diff-tool 'vdiff)
+        (stub (not (featurep 'vdiff-magit)))
+        calls)
+    (when stub (provide 'vdiff-magit))
+    (unwind-protect
+        (cl-letf (((symbol-function 'vdiff-magit-compare)
+                   (lambda (&rest args) (push (cons 'compare args) calls)))
+                  ((symbol-function 'vdiff-magit-show-working-tree)
+                   (lambda (path) (push (list 'worktree path) calls))))
+          (overlook-project-open-file temporary-file-directory '("new/a.el" " R" 2 1 "old/a.el"))
+          (overlook-project-open-file temporary-file-directory '("m" " M")))
+      (when stub (setq features (delq 'vdiff-magit features))))
+    (should (equal (reverse calls)
+                   '((compare "HEAD" nil "old/a.el" "new/a.el") (worktree "m"))))))
+
 (ert-deftest overlook-project-finds-root-and-nested-repos ()
   (let ((root (make-temp-file "overlook-project" t)))
     (unwind-protect
