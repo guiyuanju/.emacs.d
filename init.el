@@ -955,7 +955,8 @@
   (with-eval-after-load 'nerd-icons
     (setopt overlook-agent-icons
             `(("claude" . ,(nerd-icons-codicon "nf-cod-claude"))
-              ("codex" . ,(nerd-icons-codicon "nf-cod-openai")))))
+              ("codex" . ,(nerd-icons-codicon "nf-cod-openai"))
+              ("antigravity" . ,(nerd-icons-codicon "nf-cod-sparkle")))))
   (require 'iuiw-deepseek)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新。
   (with-eval-after-load 'evil
