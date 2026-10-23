@@ -29,7 +29,9 @@
 ;; `overlook-usage-file' so they survive a restart; Codex's from its newest
 ;; session log.  Both are undocumented and may stop working.  Add a row by
 ;; pushing onto `overlook-usage-functions'.  The rows are re-read on every
-;; `overlook-tick-hook'.
+;; `overlook-tick-hook'.  A row fetched over the network registers its
+;; request with `overlook-usage-add-poller' and calls `overlook-usage-scan'
+;; when the answer arrives.
 
 ;;; Code:
 
@@ -308,6 +310,30 @@ window has left, so a row never wraps."
          "\n")
         'overlook-item (cons 'usage (substring-no-properties name)))))))
 
+;;; Pollers
+
+(defvar overlook-usage--pollers nil
+  "Alist of (FUNCTION . INTERVAL) from `overlook-usage-add-poller'.")
+
+(defvar overlook-usage--polled (make-hash-table :test #'eq)
+  "Poller function to the time it last started a request.")
+
+(defun overlook-usage-add-poller (function &optional interval)
+  "Call FUNCTION while the dashboard is live, at most every INTERVAL seconds.
+INTERVAL defaults to 300.  FUNCTION starts a request and returns non-nil,
+or returns nil when it started none, such as while the last one is
+unanswered; it is then tried again on the next tick.  An error counts as
+a started request."
+  (setf (alist-get function overlook-usage--pollers) (or interval 300)))
+
+(defun overlook-usage--poll ()
+  "Call the pollers whose interval has passed."
+  (pcase-dolist (`(,function . ,interval) overlook-usage--pollers)
+    (when (and (>= (- (float-time) (gethash function overlook-usage--polled 0))
+                   interval)
+               (condition-case nil (funcall function) (error t)))
+      (puthash function (float-time) overlook-usage--polled))))
+
 ;;; Scan
 
 (defun overlook-usage-scan ()
@@ -333,6 +359,7 @@ window has left, so a row never wraps."
   (overlook-toggle-hooks
    overlook-usage-mode
    '((overlook-sections overlook-usage--section -50)
+     (overlook-tick-hook overlook-usage--poll)
      (overlook-tick-hook overlook-usage-scan)))
   (overlook-refresh))
 

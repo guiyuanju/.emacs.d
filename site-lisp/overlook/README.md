@@ -226,6 +226,7 @@ add to it:
   with its name.  Insert each row with `overlook-insert-row`, which can
   nest rows under it.
 - `overlook-usage-functions`: rows in the usage section.
+- `overlook-usage-add-poller`: refresh a row's data over the network, at most every few minutes while the dashboard is open.
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.
 - `overlook-tick-hook`: run every few seconds while the dashboard is live.
 

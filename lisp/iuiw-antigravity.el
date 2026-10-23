@@ -14,8 +14,6 @@
 
 (require 'overlook-usage)
 (require 'iuiw-agent-update)
-(require 'json)
-(require 'subr-x)
 
 (defconst iuiw-antigravity--script
   "c=
@@ -38,7 +36,6 @@ The line is \"ok JSON\" or \"err STEP\"; $1 is the user agent.")
 
 (defvar iuiw-antigravity--windows nil)
 (defvar iuiw-antigravity--error nil)
-(defvar iuiw-antigravity--requested 0)
 (defvar iuiw-antigravity--process nil)
 (defvar iuiw-antigravity--waiting nil
   "Non-nil while a quota request is unanswered.")
@@ -46,11 +43,7 @@ The line is \"ok JSON\" or \"err STEP\"; $1 is the user agent.")
 (defun iuiw-antigravity--user-agent ()
   "User agent naming the installed antigravity-acp version."
   (format "antigravity/%s darwin/arm64"
-          (or (ignore-errors
-                (with-temp-buffer
-                  (insert-file-contents
-                   (expand-file-name "antigravity-acp/agent.json" iuiw-agent-update-acp-directory))
-                  (alist-get 'version (json-parse-buffer :object-type 'alist))))
+          (or (alist-get 'version (iuiw-agent-update--acp-installed "antigravity-acp"))
               "1.4.1")))
 
 (defun iuiw-antigravity--parse (data)
@@ -110,12 +103,11 @@ A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
   iuiw-antigravity--process)
 
 (defun iuiw-antigravity--fetch ()
-  "Refresh the quota asynchronously, at most every five minutes."
-  (when (and (not iuiw-antigravity--waiting)
-             (>= (- (float-time) iuiw-antigravity--requested) 300))
-    (setq iuiw-antigravity--requested (float-time)
-          iuiw-antigravity--waiting t)
-    (process-send-string (iuiw-antigravity--process) "\n")))
+  "Ask for the quota unless a request is unanswered; non-nil when it asked."
+  (unless iuiw-antigravity--waiting
+    (setq iuiw-antigravity--waiting t)
+    (process-send-string (iuiw-antigravity--process) "\n")
+    t))
 
 (defun iuiw-antigravity-usage ()
   "Antigravity's Gemini usage, as last fetched.
@@ -128,13 +120,8 @@ A blank first window puts the weekly one under the other rows' 7d column."
                                    "Weekly limit shared by the Gemini models; refreshed every 5 minutes"))
           (cons '("" "" nil) iuiw-antigravity--windows))))
 
-(defun iuiw-antigravity--tick ()
-  "Refresh the quota while the dashboard is live."
-  (when (overlook-live-p)
-    (iuiw-antigravity--fetch)))
-
 (add-to-list 'overlook-usage-functions #'iuiw-antigravity-usage t)
-(add-hook 'overlook-tick-hook #'iuiw-antigravity--tick)
+(overlook-usage-add-poller #'iuiw-antigravity--fetch)
 
 (provide 'iuiw-antigravity)
 ;;; iuiw-antigravity.el ends here

@@ -8,13 +8,11 @@
 
 (require 'overlook-usage)
 (require 'json)
-(require 'subr-x)
 
 (defvar iuiw-deepseek-api-key nil
   "DeepSeek API key configured in local.el.")
 (defvar iuiw-deepseek--balance nil)
 (defvar iuiw-deepseek--error nil)
-(defvar iuiw-deepseek--requested 0)
 (defvar iuiw-deepseek--process nil)
 (defvar iuiw-deepseek-state-file
   (locate-user-emacs-file "var/deepseek-spending.json"))
@@ -119,11 +117,9 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                                 (alist-get 'total_balance row))) rows)))
 
 (defun iuiw-deepseek--fetch ()
-  "Refresh balance asynchronously, with a five-minute retry interval."
-  (when (and (bound-and-true-p iuiw-deepseek-api-key)
-             (not (process-live-p iuiw-deepseek--process))
-             (>= (- (float-time) iuiw-deepseek--requested) 300))
-    (setq iuiw-deepseek--requested (float-time))
+  "Start a balance request unless one is running; non-nil when it did."
+  (when (and iuiw-deepseek-api-key
+             (not (process-live-p iuiw-deepseek--process)))
     (let ((buffer (generate-new-buffer " *deepseek-balance*")))
       (condition-case nil
           (progn
@@ -161,11 +157,12 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
          (setq iuiw-deepseek--error t)
          (when (process-live-p iuiw-deepseek--process)
            (delete-process iuiw-deepseek--process))
-         (when (buffer-live-p buffer) (kill-buffer buffer)))))))
+         (when (buffer-live-p buffer) (kill-buffer buffer)))))
+    t))
 
 (defun iuiw-deepseek-usage ()
   "Return account balance and observed account spending."
-  (when (bound-and-true-p iuiw-deepseek-api-key)
+  (when iuiw-deepseek-api-key
     (list (propertize "deepseek"
                       'overlook-action #'iuiw-deepseek-open-usage
                       'help-echo "RET opens DeepSeek's usage page")
@@ -195,13 +192,8 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
                            "Waiting for today's first balance sample.")))
                 nil))))
 
-(defun iuiw-deepseek--tick ()
-  "Refresh the balance while the dashboard is live."
-  (when (overlook-live-p)
-    (iuiw-deepseek--fetch)))
-
 (add-to-list 'overlook-usage-functions #'iuiw-deepseek-usage t)
-(add-hook 'overlook-tick-hook #'iuiw-deepseek--tick)
+(overlook-usage-add-poller #'iuiw-deepseek--fetch)
 
 (provide 'iuiw-deepseek)
 ;;; iuiw-deepseek.el ends here

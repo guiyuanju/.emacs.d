@@ -109,4 +109,37 @@
         (should (= (1+ (string-search "5h" claude)) (string-search "5h" codex)))))))
 
 (provide 'overlook-usage-test)
+
+(ert-deftest overlook-usage-poller-waits-for-its-interval ()
+  (let ((overlook-usage--pollers nil)
+        (overlook-usage--polled (make-hash-table :test #'eq))
+        (calls 0)
+        (started nil))
+    (cl-letf (((symbol-function 'overlook-usage-test--fetch)
+               (lambda () (cl-incf calls) started)))
+      (overlook-usage-add-poller 'overlook-usage-test--fetch 60)
+      ;; A poller that started nothing is tried again on the next tick.
+      (overlook-usage--poll)
+      (overlook-usage--poll)
+      (should (= calls 2))
+      (setq started t)
+      (overlook-usage--poll)
+      (overlook-usage--poll)
+      (should (= calls 3))
+      ;; Once the interval has passed it runs again.
+      (puthash 'overlook-usage-test--fetch (- (float-time) 61) overlook-usage--polled)
+      (overlook-usage--poll)
+      (should (= calls 4)))))
+
+(ert-deftest overlook-usage-poller-error-counts-as-a-request ()
+  (let ((overlook-usage--pollers nil)
+        (overlook-usage--polled (make-hash-table :test #'eq))
+        (calls 0))
+    (cl-letf (((symbol-function 'overlook-usage-test--fetch)
+               (lambda () (cl-incf calls) (error "Offline"))))
+      (overlook-usage-add-poller 'overlook-usage-test--fetch)
+      (overlook-usage--poll)
+      (overlook-usage--poll)
+      (should (= calls 1)))))
+
 ;;; overlook-usage-test.el ends here
