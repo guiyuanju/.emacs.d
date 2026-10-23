@@ -12,6 +12,7 @@
 (declare-function overlook-agent-show "overlook-agent")
 (declare-function overlook-current-perspective "overlook")
 (declare-function iuiw-assistant-shell-p "iuiw-assistant")
+(declare-function modus-themes-get-color-value "modus-themes")
 
 (defun iuiw-agent-shell-toggle (&optional arg)
   "Show the most recently used agent in the current perspective.
@@ -102,6 +103,21 @@ multi-argument MCP call asked for permission showing only its tool name."
     (face-remap-add-relative 'header-line-inactive spec)))
 
 (add-hook 'agent-shell-mode-hook #'iuiw-agent-shell--quiet-header-line)
+
+;; agent-shell tints its header with font-lock colors; only the agent name stands out.
+(defun iuiw-agent-shell-flat-faces ()
+  "Match the agent-shell header faces to the flat mode line."
+  (let ((fg-main (modus-themes-get-color-value 'fg-main t))
+        (fg-dim (modus-themes-get-color-value 'fg-dim t)))
+    (set-face-attribute 'agent-shell-buffer-name nil
+                        :inherit 'bold :foreground fg-main)
+    (dolist (face '(agent-shell-model agent-shell-thought-level
+                    agent-shell-session-mode agent-shell-session-directory
+                    agent-shell-container-indicator))
+      (set-face-attribute face nil :inherit nil :foreground fg-dim))))
+
+(iuiw-agent-shell-flat-faces)
+(add-hook 'modus-themes-after-load-theme-hook #'iuiw-agent-shell-flat-faces)
 
 (defun iuiw-agent-shell-dot-subdir (subdir)
   "Return SUBDIR of this project's agent-shell data, kept out of the repository."

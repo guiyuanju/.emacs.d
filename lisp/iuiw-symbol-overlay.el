@@ -7,7 +7,6 @@
 ;;; Code:
 
 (require 'project)
-(require 'seq)
 (require 'symbol-overlay)
 
 (defun iuiw-symbol-overlay--project-buffers ()

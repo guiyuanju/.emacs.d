@@ -5,8 +5,6 @@
 
 ;;; Code:
 
-(require 'seq)
-
 (defun iuiw-gitlab--json (&rest args)
   "Return the parsed JSON output of glab ARGS."
   (with-temp-buffer
@@ -21,9 +19,9 @@ An open request wins over merged or closed ones; with none, offer the
 new merge request page."
   (interactive)
   (unless (executable-find "glab") (user-error "glab not found"))
-  (let* ((branch (car (ignore-errors
-                        (process-lines "git" "branch" "--show-current"))))
-         (_ (unless branch (user-error "Not on a Git branch")))
+  (let* ((branch (or (car (ignore-errors
+                            (process-lines "git" "branch" "--show-current")))
+                     (user-error "Not on a Git branch")))
          (mrs (iuiw-gitlab--json "mr" "list" "--source-branch" branch
                                       "--all" "-F" "json"))
          (mr (or (seq-find (lambda (mr) (equal (alist-get 'state mr) "opened"))

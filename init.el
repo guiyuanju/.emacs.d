@@ -99,7 +99,6 @@
   (iuiw-ensure-fonts))
 (iuiw-modus-flat-faces)
 (add-hook 'modus-themes-after-load-theme-hook #'iuiw-modus-flat-faces)
-(with-eval-after-load 'agent-shell (iuiw-modus-flat-faces))
 
 ;;; Package manager
 
@@ -254,14 +253,13 @@
 ;; 不属于任何项目的东西留在 main。退出时保存全部 perspective，启动后恢复。
 
 (use-package perspective
-  :demand t
   :custom
   (persp-suppress-no-prefix-key-warning t)
   (persp-state-default-file (expand-file-name "perspective.el" iuiw-state-directory))
   :config
   (persp-mode 1)
   (add-hook 'kill-emacs-hook #'persp-state-save)
-  (add-hook 'kill-emacs-hook #'iuiw-persp-kill-magit-status -10)
+  (add-hook 'persp-state-before-save-hook #'iuiw-persp-kill-magit-status)
   (add-hook 'persp-state-after-load-hook #'iuiw-persp-delete-stray-side-windows)
   (add-hook 'elpaca-after-init-hook
             (lambda ()
@@ -353,7 +351,6 @@
 (use-package nerd-icons)
 
 (use-package pulsar
-  :demand t
   :config
   (setq pulsar-pulse-functions
         (append pulsar-pulse-functions
@@ -387,8 +384,7 @@
 ;;; Commands
 
 (use-package iuiw-commands
-  :ensure nil
-  :demand t)
+  :ensure nil)
 
 ;;; Keybindings
 
@@ -640,7 +636,6 @@
 
 (use-package iuiw-workspace
   :ensure nil
-  :demand t
   :custom
   ;; 位置固定的 repo 不软链进项目文件夹，在这里指给项目。
   (iuiw-workspace-project-roots '(("emacs" . "~/.emacs.d/")))
@@ -651,7 +646,6 @@
 (use-package overlook-markers
   :ensure nil
   :load-path "site-lisp/overlook"
-  :demand t
   :config
   (overlook-markers-mode 1))
 
@@ -672,8 +666,7 @@
             "-l --almost-all --human-readable --group-directories-first --no-group")
     (setq dired-listing-switches "-alh")))
 
-(use-package transient
-  :demand t)
+(use-package transient)
 
 (use-package ediff
   :ensure nil
@@ -687,11 +680,15 @@
   (add-hook 'ediff-keymap-setup-hook #'iuiw-ediff-bind-recenter 90))
 
 (use-package magit
+  :defer t
+  :init
+  ;; iuiw-workspace 只加载 magit-process 来 clone 和 pull。
+  (with-eval-after-load 'magit-process
+    (add-to-list 'magit-process-password-prompt-regexps
+                 "^.*Verification code: ?$"))
   :config
   (setq magit-display-buffer-function #'iuiw-magit-display-buffer
         magit-bury-buffer-function #'magit-restore-window-configuration)
-  (add-to-list 'magit-process-password-prompt-regexps
-               "^.*Verification code: ?$")
   (magit-add-section-hook 'magit-status-sections-hook
                           #'magit-insert-worktrees nil t)
   ;; blob buffer 里 g 绑着 revert-buffer，挡住了 evil 的 gg。
@@ -709,14 +706,16 @@
   (vdiff-diff-algorithm 'difftastic)
   (vdiff-auto-refine t)
   (vdiff-only-highlight-refinements t)
+  (vdiff-2way-layout-function #'iuiw-vdiff-layout)
   :config
   (define-key vdiff-mode-map (kbd "C-c") vdiff-mode-prefix-map)
   (define-key vdiff-3way-mode-map (kbd "C-c") vdiff-mode-prefix-map)
-  (advice-add 'vdiff-2way-layout-function-default :after
-              (lambda (_buffer-a buffer-b &rest _)
-                (select-window (get-buffer-window buffer-b))))
   (general-def :states 'normal :keymaps '(vdiff-mode-map vdiff-3way-mode-map)
     "q" #'vdiff-quit))
+
+(use-package iuiw-vdiff
+  :ensure nil
+  :autoload iuiw-vdiff-layout)
 
 (use-package iuiw-vdiff-difftastic
   :ensure nil
@@ -756,10 +755,8 @@
   :custom
   (diff-hl-show-hunk-inline-hide-hunk t)
   (diff-hl-show-hunk-inline-smart-lines nil)
+  (diff-hl-update-async t)
   :config
-  ;; 恢复 perspective 时可能带回已被删除目录的 dired buffer。
-  (advice-add 'diff-hl-dired-update :before-while
-              (lambda () (file-directory-p default-directory)))
   (diff-hl-margin-mode 1)
   (diff-hl-flydiff-mode 1)
   (global-diff-hl-mode 1)
@@ -803,7 +800,6 @@
 
 (use-package eglot
   :ensure nil
-  :commands (eglot eglot-ensure)
   :hook ((go-ts-mode haskell-mode lua-mode lua-ts-mode rust-ts-mode
           swift-mode java-mode java-ts-mode python-mode python-ts-mode)
          . eglot-ensure)
@@ -831,7 +827,6 @@
       (kbd "gI") #'eglot-find-implementation)))
 
 (use-package apheleia
-  :demand t
   :config
   (setf (alist-get 'haskell-mode apheleia-mode-alist) 'ormolu)
   (setf (alist-get 'sqlfluff apheleia-formatters)
@@ -886,8 +881,7 @@
 (use-package edit-indirect)
 
 (use-package iuiw-markdown
-  :ensure nil
-  :demand t)
+  :ensure nil)
 
 ;; 博客生成器在博客仓库里，不在本仓库。
 (use-package blog

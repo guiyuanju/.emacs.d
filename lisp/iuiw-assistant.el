@@ -10,7 +10,6 @@
 (require 'agent-shell)
 (require 'agent-shell-antigravity)
 (require 'markdown-mode)
-(require 'subr-x)
 
 (defgroup iuiw-assistant nil
   "Project-independent assistant."

@@ -111,21 +111,27 @@ Other output goes to PARSE."
 (defun iuiw-vdiff-difftastic--highlight (session spans)
   "Color SPANS inside the change hunks of SESSION's buffers."
   (let ((buffers (vdiff-session-buffers session)))
-    (pcase-dolist (`(,side ,line ,start ,end) spans)
+    ;; Walk each buffer once, line by line, instead of from the top per span.
+    (dotimes (side 2)
       (with-current-buffer (nth side buffers)
         (save-excursion
           (save-restriction
             (widen)
             (goto-char (point-min))
-            (when (and (zerop (forward-line line))
-                       (seq-find (lambda (o) (eq (overlay-get o 'vdiff-type) 'change))
-                                 (overlays-at (point))))
-              (let* ((bytes (position-bytes (point)))
-                     (ovr (make-overlay (byte-to-position (+ bytes start))
-                                        (byte-to-position (+ bytes end)))))
-                (overlay-put ovr 'vdiff t)
-                (overlay-put ovr 'vdiff-refinement t)
-                (overlay-put ovr 'face 'vdiff-refine-changed)))))))
+            (let ((at 0))
+              (pcase-dolist (`(,_ ,line ,start ,end)
+                             (sort (seq-filter (lambda (span) (= (car span) side)) spans)
+                                   :key #'cadr))
+                (when (zerop (forward-line (- line at)))
+                  (setq at line)
+                  (when (seq-find (lambda (o) (eq (overlay-get o 'vdiff-type) 'change))
+                                  (overlays-at (point)))
+                    (let* ((bytes (position-bytes (point)))
+                           (ovr (make-overlay (byte-to-position (+ bytes start))
+                                              (byte-to-position (+ bytes end)))))
+                      (overlay-put ovr 'vdiff t)
+                      (overlay-put ovr 'vdiff-refinement t)
+                      (overlay-put ovr 'face 'vdiff-refine-changed))))))))))
     (when vdiff-only-highlight-refinements
       (dolist (buf buffers)
         (with-current-buffer buf

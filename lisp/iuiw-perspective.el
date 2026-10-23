@@ -6,7 +6,6 @@
 
 ;;; Code:
 
-(require 'seq)
 (require 'perspective)
 
 (defvar iuiw-persp-history (make-hash-table :test #'equal)

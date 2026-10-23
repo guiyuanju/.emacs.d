@@ -28,7 +28,7 @@
 
 (defun iuiw-java-indent-setup ()
   "Use four-space indentation in Java buffers."
-  (setq-local indent-tabs-mode nil tab-width 4)
+  (setq-local tab-width 4)
   (when (boundp 'c-basic-offset) (setq-local c-basic-offset 4))
   (when (boundp 'java-ts-mode-indent-offset)
     (setq-local java-ts-mode-indent-offset 4)))

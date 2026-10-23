@@ -12,8 +12,6 @@
 
 (require 'cl-lib)
 (require 'dom)
-(require 'seq)
-(require 'subr-x)
 (require 'elfeed)
 (require 'elfeed-show)
 (require 'elfeed-search)

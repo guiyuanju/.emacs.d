@@ -27,8 +27,6 @@
 (require 'crm)
 (require 'project)
 (require 'json)
-(require 'seq)
-(require 'subr-x)
 
 (declare-function magit-run-git-async "magit-process")
 (declare-function magit-process-sentinel "magit-process")
@@ -715,10 +713,14 @@ A todo moves with its subitems, ranked by the most urgent of them."
                          #'<
                          (nreverse siblings)))))
 
+(defun iuiw-workspace--todo-due (text)
+  "The [due:: DATE] date of todo TEXT, or nil."
+  (and (string-match "\\[due:: *\\([0-9-]+\\)\\]" text) (match-string 1 text)))
+
 (defun iuiw-workspace--todo-display (text)
   "Return TEXT without inline fields and tags, with its due date appended.
 #now shows plain, #waiting italic and the rest dimmed."
-  (let ((due (and (string-match "\\[due:: *\\([0-9-]+\\)\\]" text) (match-string 1 text)))
+  (let ((due (iuiw-workspace--todo-due text))
         (face (pcase (iuiw-workspace--todo-rank text)
                 (0 'default)
                 (1 'italic)
@@ -777,9 +779,7 @@ its parent todo, if any, before its text."
            (seq-sort-by (lambda (subtree)
                           (let ((text (car (car subtree))))
                             (concat (if (equal (nth 4 (car subtree)) current) "0" "1")
-                                    (if (string-match "\\[due:: *\\([0-9-]+\\)\\]" text)
-                                        (match-string 1 text)
-                                      "~"))))
+                                    (or (iuiw-workspace--todo-due text) "~"))))
                         #'string<
                         (nreverse subtrees)))))
 
@@ -857,10 +857,12 @@ them folded, leaving out #now todos.  A card without todos shows no count."
                     (when todos
                       (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
                              (rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
-                                                          todos))))
+                                                          todos)))
+                             (now (funcall rank 0))
+                             (waiting (funcall rank 1)))
                         (mapconcat #'identity
-                                   (delq nil (list (and (> (funcall rank 0) 0) (format "☐%d" (funcall rank 0)))
-                                                   (and (> (funcall rank 1) 0) (format "◷%d" (funcall rank 1)))
+                                   (delq nil (list (and (> now 0) (format "☐%d" now))
+                                                   (and (> waiting 0) (format "◷%d" waiting))
                                                    (number-to-string
                                                     (seq-count (lambda (todo) (= (nth 2 todo) top)) todos))))
                                    " ")))

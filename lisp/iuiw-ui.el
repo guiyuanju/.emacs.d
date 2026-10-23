@@ -6,7 +6,6 @@
 
 ;;; Code:
 
-(require 'subr-x)
 
 (declare-function modus-themes-get-color-value "modus-themes")
 
@@ -118,30 +117,19 @@
     (when (y-or-n-p (format "%s is not installed.  Download it? " iuiw-furigana-font-family))
       (iuiw-furigana--install-font (lambda () (iuiw-furigana-mode 1)))))))
 
-;; Modus draws window dividers gray and gives header lines their own strip, and
-;; agent-shell tints its header with font-lock colors.  Reuse the flat mode
-;; line's colors for all of them so the frame looks like one piece.
+;; Modus draws window dividers gray and gives header lines their own strip.
+;; Reuse the flat mode line's colors for them so the frame looks like one piece.
 (defun iuiw-modus-flat-faces ()
-  "Match dividers, header lines, and the agent-shell header to the flat mode line."
+  "Match dividers and header lines to the flat mode line."
   (let ((bg-inactive (modus-themes-get-color-value 'bg-inactive t))
         (bg-dim (modus-themes-get-color-value 'bg-dim t))
-        (bg-active (modus-themes-get-color-value 'bg-active t))
-        (fg-main (modus-themes-get-color-value 'fg-main t))
-        (fg-dim (modus-themes-get-color-value 'fg-dim t)))
-    (set-face-attribute 'vertical-border nil :foreground bg-inactive)
-    (set-face-attribute 'window-divider nil :foreground bg-inactive)
-    (set-face-attribute 'window-divider-first-pixel nil :foreground bg-inactive)
-    (set-face-attribute 'window-divider-last-pixel nil :foreground bg-inactive)
+        (bg-active (modus-themes-get-color-value 'bg-active t)))
+    (dolist (face '(vertical-border window-divider
+                    window-divider-first-pixel window-divider-last-pixel))
+      (set-face-attribute face nil :foreground bg-inactive))
     (set-face-attribute 'header-line nil :background bg-inactive)
     (set-face-attribute 'header-line-inactive nil
-                        :background bg-dim :foreground bg-active)
-    (when (facep 'agent-shell-model)
-      (set-face-attribute 'agent-shell-buffer-name nil
-                          :inherit 'bold :foreground fg-main)
-      (dolist (face '(agent-shell-model agent-shell-thought-level
-                      agent-shell-session-mode agent-shell-session-directory
-                      agent-shell-container-indicator))
-        (set-face-attribute face nil :inherit nil :foreground fg-dim)))))
+                        :background bg-dim :foreground bg-active)))
 
 (provide 'iuiw-ui)
 ;;; iuiw-ui.el ends here

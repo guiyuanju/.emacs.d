@@ -10,11 +10,11 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'subr-x)
 (require 'elfeed)
 (require 'elfeed-search)
 (require 'iuiw-elfeed-ai)
 
+(declare-function alert "alert")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-insert-section "overlook")
 (declare-function overlook-insert-row "overlook")
@@ -264,8 +264,7 @@ Then call CALLBACK with an error message, or nil on success."
                        (setq iuiw-elfeed-sync--callbacks nil))))
       (iuiw-elfeed-sync--git
        `(("add" "-A")
-         (:try "commit" "-q" "-m" ,(format "%s %s" iuiw-elfeed-sync--host
-                                            (format-time-string "%F %T")))
+         (:try "commit" "-q" "-m" ,(iuiw-elfeed-sync--commit-message))
          ("pull" "-q" "--no-rebase" "--no-edit" "-X" "theirs")
          ("push" "-q"))
        (lambda (err)
@@ -278,6 +277,10 @@ Then call CALLBACK with an error message, or nil on success."
            (message "elfeed sync: %s" err))
          (dolist (cb callbacks) (funcall cb err))
          (when iuiw-elfeed-sync--again (iuiw-elfeed-sync))))))))
+
+(defun iuiw-elfeed-sync--commit-message ()
+  "Message for a sync commit: this host and the time."
+  (format "%s %s" iuiw-elfeed-sync--host (format-time-string "%F %T")))
 
 (defun iuiw-elfeed-sync--clone ()
   "Clone the sync repository, then sync."
@@ -312,8 +315,7 @@ Then call CALLBACK with an error message, or nil on success."
     (let ((default-directory iuiw-elfeed-sync-directory)
           (process-environment (cons "GIT_TERMINAL_PROMPT=0" process-environment)))
       (call-process "git" nil nil nil "add" "-A")
-      (call-process "git" nil nil nil "commit" "-q" "-m"
-                    (format "%s %s" iuiw-elfeed-sync--host (format-time-string "%F %T")))
+      (call-process "git" nil nil nil "commit" "-q" "-m" (iuiw-elfeed-sync--commit-message))
       (when (string-match-p "ahead" (shell-command-to-string "git status -sb | head -1"))
         (let ((proc (start-process "iuiw-elfeed-sync-push" nil "git" "push" "-q")))
           (with-timeout (10 (delete-process proc))
@@ -329,7 +331,7 @@ Then call CALLBACK with an error message, or nil on success."
 
 (defun iuiw-elfeed-sync--announce-digest ()
   "Announce the latest digest if it is new, whichever machine wrote it."
-  (let ((file (car (last (iuiw-elfeed-sync--digests)))))
+  (let ((file (iuiw-elfeed-sync--latest-digest)))
     (when (and file (not (equal file iuiw-elfeed-sync--seen-digest)))
       (setq iuiw-elfeed-sync--seen-digest file)
       (let ((subtitle (with-temp-buffer
@@ -338,19 +340,24 @@ Then call CALLBACK with an error message, or nil on success."
                           (match-string 1))))
             (title (concat "Elfeed 摘要 " (file-name-base file))))
         (message "elfeed: %s 已生成（%s），在 elfeed 里按 gd 查看" title subtitle)
-        (when (fboundp 'ns-do-applescript)
-          (ns-do-applescript
-           (format "display notification %S with title %S"
-                   (concat subtitle " · 在 elfeed 里按 gd 查看") title))))
+        (alert (concat subtitle " · 在 elfeed 里按 gd 查看") :title title))
       (when (fboundp 'overlook-refresh) (overlook-refresh)))))
 
 (defun iuiw-elfeed-sync--digests ()
   "Return the digest files, oldest first."
   (ignore-errors (directory-files (iuiw-elfeed-sync--file "digest") t "\\.org\\'")))
 
+(defun iuiw-elfeed-sync--latest-digest ()
+  "Return the newest digest file, or nil."
+  (car (last (iuiw-elfeed-sync--digests))))
+
+(defun iuiw-elfeed-sync--today-digest ()
+  "Return today's digest file name."
+  (iuiw-elfeed-sync--file (format-time-string "digest/%F.org")))
+
 (defun iuiw-elfeed-sync--since ()
   "Return when the latest digest was written, or a day ago if none was."
-  (or (when-let* ((file (car (last (iuiw-elfeed-sync--digests)))))
+  (or (when-let* ((file (iuiw-elfeed-sync--latest-digest)))
         (with-temp-buffer
           (insert-file-contents file)
           (when (re-search-forward "^#\\+until: \\([0-9.]+\\)" nil t)
@@ -380,7 +387,7 @@ WAITED is the seconds waited so far."
 The digested entries are marked read."
   (let* ((until (float-time))
          (entries (iuiw-elfeed-sync--entries-since (iuiw-elfeed-sync--since)))
-         (file (iuiw-elfeed-sync--file (format-time-string "digest/%F.org")))
+         (file (iuiw-elfeed-sync--today-digest))
          (backend iuiw-elfeed-ai-backend))
     (cl-flet ((finish (body)
                 (make-directory (file-name-directory file) t)
@@ -416,7 +423,7 @@ The digested entries are marked read."
        (when err (message "elfeed sync: %s" err))
        (if (or err
                (< (decoded-time-hour (decode-time)) iuiw-elfeed-sync-digest-hour)
-               (file-exists-p (iuiw-elfeed-sync--file (format-time-string "digest/%F.org"))))
+               (file-exists-p (iuiw-elfeed-sync--today-digest)))
            (setq iuiw-elfeed-sync--digesting nil)
          (elfeed-update)
          (iuiw-elfeed-sync--after-update #'iuiw-elfeed-sync--write-digest 0))))))
@@ -425,7 +432,7 @@ The digested entries are marked read."
 (defun iuiw-elfeed-sync-open-digest ()
   "Show the latest digest in a side window."
   (interactive)
-  (let ((file (car (last (iuiw-elfeed-sync--digests))))
+  (let ((file (iuiw-elfeed-sync--latest-digest))
         (buf (get-buffer-create "*elfeed-digest*")))
     (unless file (user-error "No digest yet"))
     (with-current-buffer buf
@@ -451,7 +458,7 @@ The digested entries are marked read."
 
 (defun iuiw-elfeed-sync--digest-section ()
   "Insert a section with the points of the latest digest, for overlook."
-  (when-let* ((file (car (last (iuiw-elfeed-sync--digests)))))
+  (when-let* ((file (iuiw-elfeed-sync--latest-digest)))
     (overlook-insert-section
      (concat "Elfeed " (propertize (file-name-base file) 'face 'shadow))
      (lambda ()
@@ -472,25 +479,19 @@ The digested entries are marked read."
   (when (timerp iuiw-elfeed-sync--check-timer)
     (cancel-timer iuiw-elfeed-sync--check-timer))
   (setq iuiw-elfeed-sync--check-timer nil)
-  (if iuiw-elfeed-sync-mode
-      (progn
-        (add-hook 'elfeed-tag-hook #'iuiw-elfeed-sync--on-tag-add)
-        (add-hook 'elfeed-untag-hook #'iuiw-elfeed-sync--on-tag-remove)
-        (add-hook 'elfeed-new-entry-hook #'iuiw-elfeed-sync--apply 90)
-        (add-hook 'iuiw-elfeed-ai-summary-functions #'iuiw-elfeed-sync--on-summary)
-        (add-hook 'elfeed-update-init-hook #'iuiw-elfeed-sync-soon)
-        (add-hook 'elfeed-search-mode-hook #'iuiw-elfeed-sync-soon)
-        (add-hook 'kill-emacs-hook #'iuiw-elfeed-sync--on-kill)
-        (setq iuiw-elfeed-sync--seen-digest (car (last (iuiw-elfeed-sync--digests))))
-        (setq iuiw-elfeed-sync--check-timer
-              (run-at-time 30 iuiw-elfeed-sync-check-interval #'iuiw-elfeed-sync-check)))
-    (remove-hook 'elfeed-tag-hook #'iuiw-elfeed-sync--on-tag-add)
-    (remove-hook 'elfeed-untag-hook #'iuiw-elfeed-sync--on-tag-remove)
-    (remove-hook 'elfeed-new-entry-hook #'iuiw-elfeed-sync--apply)
-    (remove-hook 'iuiw-elfeed-ai-summary-functions #'iuiw-elfeed-sync--on-summary)
-    (remove-hook 'elfeed-update-init-hook #'iuiw-elfeed-sync-soon)
-    (remove-hook 'elfeed-search-mode-hook #'iuiw-elfeed-sync-soon)
-    (remove-hook 'kill-emacs-hook #'iuiw-elfeed-sync--on-kill)))
+  (pcase-dolist (`(,hook ,fn ,depth)
+                 '((elfeed-tag-hook iuiw-elfeed-sync--on-tag-add)
+                   (elfeed-untag-hook iuiw-elfeed-sync--on-tag-remove)
+                   (elfeed-new-entry-hook iuiw-elfeed-sync--apply 90)
+                   (iuiw-elfeed-ai-summary-functions iuiw-elfeed-sync--on-summary)
+                   (elfeed-update-init-hook iuiw-elfeed-sync-soon)
+                   (elfeed-search-mode-hook iuiw-elfeed-sync-soon)
+                   (kill-emacs-hook iuiw-elfeed-sync--on-kill)))
+    (if iuiw-elfeed-sync-mode (add-hook hook fn depth) (remove-hook hook fn)))
+  (when iuiw-elfeed-sync-mode
+    (setq iuiw-elfeed-sync--seen-digest (iuiw-elfeed-sync--latest-digest)
+          iuiw-elfeed-sync--check-timer
+          (run-at-time 30 iuiw-elfeed-sync-check-interval #'iuiw-elfeed-sync-check))))
 
 (provide 'iuiw-elfeed-sync)
 ;;; iuiw-elfeed-sync.el ends here

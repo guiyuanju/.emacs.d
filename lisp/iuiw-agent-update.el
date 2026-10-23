@@ -11,7 +11,6 @@
 
 ;;; Code:
 
-(require 'seq)
 
 (declare-function elpaca-get "elpaca")
 (declare-function elpaca-pull "elpaca")
