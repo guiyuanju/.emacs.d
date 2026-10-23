@@ -59,6 +59,14 @@ Without `persp-mode', switch to the other buffer of the frame."
     (when (eq (buffer-local-value 'major-mode buffer) 'magit-status-mode)
       (kill-buffer buffer))))
 
+;; `persp-state-load' 为保存的每个额外 frame 新建一个 frame，屏幕外的 frame 会因此代代相传，
+;; perspective 可能恢复进去；多 frame 时它的临时 perspective 也删不掉。所以只存当前 frame。
+(defun iuiw-persp-save-selected-frame (save &rest args)
+  "Call SAVE with ARGS, saving only the selected frame's perspectives."
+  (let ((frame (selected-frame)))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (list frame))))
+      (apply save args))))
+
 ;; `persp-state-load' 依次恢复各 perspective，看板的 side window 会在之后的布局里
 ;; 变成普通窗口，显示 *scratch*。
 (defun iuiw-persp-delete-stray-side-windows ()

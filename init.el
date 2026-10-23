@@ -260,6 +260,7 @@
   (persp-mode 1)
   (add-hook 'kill-emacs-hook #'persp-state-save)
   (add-hook 'persp-state-before-save-hook #'iuiw-persp-kill-magit-status)
+  (advice-add 'persp-state-save :around #'iuiw-persp-save-selected-frame)
   (add-hook 'persp-state-after-load-hook #'iuiw-persp-delete-stray-side-windows)
   (add-hook 'elpaca-after-init-hook
             (lambda ()
