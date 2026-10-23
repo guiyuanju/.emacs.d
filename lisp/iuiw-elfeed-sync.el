@@ -5,7 +5,7 @@
 ;; git 仓库的 jsonl，同一条目以时间最晚的记录为准；.gitattributes 的 merge=union 让
 ;; 两台机器同时追加也不冲突。改动后空闲时 push；启动、打开 elfeed、更新订阅时 pull。
 ;; 每小时检查一次今天的摘要，没有就更新订阅、生成并推上去，先推上去的机器为准。
-;; gd 在侧边打开最新一份摘要。
+;; gd 在侧边打开最新一份摘要；摘要的要点也列在 overlook 看板上。
 
 ;;; Code:
 
@@ -14,6 +14,10 @@
 (require 'elfeed)
 (require 'elfeed-search)
 (require 'iuiw-elfeed-ai)
+
+(declare-function overlook-refresh "overlook")
+(declare-function overlook-insert-section "overlook")
+(declare-function overlook-insert-row "overlook")
 
 (defgroup iuiw-elfeed-sync nil
   "Sync elfeed state across machines through git."
@@ -337,7 +341,8 @@ Then call CALLBACK with an error message, or nil on success."
         (when (fboundp 'ns-do-applescript)
           (ns-do-applescript
            (format "display notification %S with title %S"
-                   (concat subtitle " · 在 elfeed 里按 gd 查看") title)))))))
+                   (concat subtitle " · 在 elfeed 里按 gd 查看") title))))
+      (when (fboundp 'overlook-refresh) (overlook-refresh)))))
 
 (defun iuiw-elfeed-sync--digests ()
   "Return the digest files, oldest first."
@@ -430,6 +435,31 @@ The digested entries are marked read."
         (iuiw-elfeed-ai-digest-mode)))
     (select-window (display-buffer buf '(display-buffer-in-side-window
                                          (side . right) (window-width . 0.4))))))
+
+;;; Dashboard
+
+(defun iuiw-elfeed-sync--digest-points (file)
+  "Return the items under \"* 要点\" in digest FILE."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (when (re-search-forward "^\\* 要点[ \t]*$" nil t)
+      (let ((end (save-excursion (if (re-search-forward "^\\* " nil t) (match-beginning 0) (point-max))))
+            points)
+        (while (re-search-forward "^- \\(.+\\)" end t)
+          (push (match-string 1) points))
+        (nreverse points)))))
+
+(defun iuiw-elfeed-sync--digest-section ()
+  "Insert a section with the points of the latest digest, for overlook."
+  (when-let* ((file (car (last (iuiw-elfeed-sync--digests)))))
+    (overlook-insert-section
+     (concat "Elfeed " (propertize (file-name-base file) 'face 'shadow))
+     (lambda ()
+       (dolist (point (iuiw-elfeed-sync--digest-points file))
+         (overlook-insert-row
+          (propertize (concat (propertize "•" 'face 'shadow) " " point "\n")
+                      'overlook-action #'iuiw-elfeed-sync-open-digest
+                      'wrap-prefix "  ")))))))
 
 ;;; Mode
 

@@ -1087,7 +1087,9 @@
   :after iuiw-elfeed-ai
   :demand t
   :config
-  (iuiw-elfeed-sync-mode 1))
+  (iuiw-elfeed-sync-mode 1)
+  (with-eval-after-load 'overlook
+    (add-hook 'overlook-sections #'iuiw-elfeed-sync--digest-section 70)))
 
 (use-package iuiw-log
   :ensure nil
