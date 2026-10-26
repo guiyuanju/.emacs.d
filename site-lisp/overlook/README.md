@@ -134,7 +134,7 @@ On the dashboard:
 
 | Key | |
 |---|---|
-| `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, compare a changed file in Ediff or vdiff (a renamed one with its old path; a new one is visited), show an agent |
+| `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, show a changed file's diff in Magit (a renamed one with its old path; a new one is visited), show an agent |
 | `TAB` | fold or unfold the rows under a row, or a changed file's diff; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
@@ -201,8 +201,6 @@ Evil users can bind the same keys in normal state:
 - `overlook-project-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-project-folders`, as a `*` after its
   perspective's heading while it has changes, instead of listing them.
-- `overlook-project-diff-tool`: `vdiff` to compare a changed file in
-  vdiff instead of Ediff; needs the vdiff-magit package.
 - `overlook-orphan-perspective`: a perspective, such as perspective.el's
   `"main"`, to list agents of no perspective under; opening one there
   moves it in, and it is left out while empty unless current.  By default

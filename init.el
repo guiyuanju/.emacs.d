@@ -1007,7 +1007,6 @@
   (overlook-perspective-root #'iuiw-workspace-perspective-root)
   (overlook-project-folders #'iuiw-workspace-perspective-folders)
   (overlook-project-folder-display 'mark)
-  (overlook-project-diff-tool 'vdiff)
   (overlook-perspective-annotation #'iuiw-workspace-perspective-workspace)
   (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")

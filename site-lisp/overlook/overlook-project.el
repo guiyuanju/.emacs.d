@@ -30,9 +30,8 @@
 ;; its branch and the lines changed since its last commit, and under it
 ;; the changed files, read asynchronously and at most every
 ;; `overlook-project-status-interval' seconds.  RET on a repo shows its
-;; diff in Magit, or its status when clean; RET on a file compares it with
-;; its last commit in Ediff, or vdiff per `overlook-project-diff-tool'.
-;; Without Magit, VC does both.
+;; diff in Magit, or its status when clean; RET on a file shows its diff
+;; since the last commit in Magit.  Without Magit, VC does both.
 ;;
 ;; `overlook-project-folders' adds folders lying inside a larger repo, such
 ;; as a project's notes kept in a shared one; such a folder's row lists
@@ -48,23 +47,13 @@
 
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
-(declare-function magit-ediff-show-working-tree "magit-ediff")
-(declare-function magit-ediff-compare "magit-ediff")
 (declare-function magit--git-wash "magit-git")
 (declare-function magit-diff-wash-diffs "magit-diff")
-(declare-function vc-version-ediff "vc")
-(declare-function vdiff-magit-compare "vdiff-magit")
-(declare-function vdiff-magit-show-working-tree "vdiff-magit")
+(declare-function vc-version-diff "vc")
 
 (defcustom overlook-project-status-interval 10
   "Seconds before a repo's branch and changes are read again."
   :type 'number
-  :group 'overlook)
-
-(defcustom overlook-project-diff-tool 'ediff
-  "Tool comparing a changed file with its last commit.
-`vdiff' needs the vdiff-magit package; without it Ediff is used."
-  :type '(choice (const :tag "Ediff" ediff) (const :tag "vdiff" vdiff))
   :group 'overlook)
 
 (defcustom overlook-project-files 5
@@ -241,35 +230,18 @@ without it."
 That is an untracked or added one, intent-to-add included."
   (or (equal code "??") (string-search "A" code)))
 
-(defun overlook-project--compare (path &optional from)
-  "Compare PATH with its last commit, as FROM there when renamed.
-Use `overlook-project-diff-tool'; return nil when Magit is missing."
-  (cond ((and (eq overlook-project-diff-tool 'vdiff)
-              (require 'vdiff-magit nil t))
-         (if from
-             (vdiff-magit-compare "HEAD" nil from path)
-           (vdiff-magit-show-working-tree path))
-         t)
-        ((require 'magit-ediff nil t)
-         (if from
-             (magit-ediff-compare "HEAD" "{worktree}" from path)
-           (magit-ediff-show-working-tree path))
-         t)))
-
 (defun overlook-project-open-file (dir file)
-  "Compare FILE of repo DIR with its last commit.
-FILE is an entry of DIR's status; a renamed one is compared with its old
-path, a deleted one shown as a diff, and a new one visited instead."
+  "Show the diff of FILE of repo DIR since the last commit.
+FILE is an entry of DIR's status; a renamed one is shown with its old
+path, and a new one visited instead.  Uses Magit, or VC without it."
   (pcase-let ((default-directory (or (overlook-project--top dir) dir))
               (`(,path ,code ,_ ,_ ,from) file))
-    (cond ((and from (overlook-project--compare path from)))
-          ((string-search "D" code)
-           (if (fboundp 'magit-diff-working-tree)
-               (magit-diff-working-tree "HEAD" nil (list path))
-             (vc-root-diff nil)))
-          ((overlook-project--new-p code) (find-file path))
-          ((overlook-project--compare path))
-          (t (vc-version-ediff (list (expand-file-name path)) "HEAD" nil)))))
+    (cond ((and (not from) (overlook-project--new-p code) (not (string-search "D" code)))
+           (find-file path))
+          ((fboundp 'magit-diff-working-tree)
+           (magit-diff-working-tree "HEAD" nil (if from (list from path) (list path))))
+          (t (vc-version-diff (mapcar #'expand-file-name (if from (list from path) (list path)))
+                              "HEAD" nil)))))
 
 (defun overlook-project--counts (added removed)
   "\" +ADDED −REMOVED\" in diff colors, leaving out a zero."
