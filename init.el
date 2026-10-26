@@ -824,10 +824,8 @@
                  . ("uv" "run" "--with" "pygls<2" "sqlmesh_lsp")))
   (add-to-list 'eglot-server-programs
                '(swift-mode . ("xcrun" "sourcekit-lsp")))
-  ;; jdtls 要 Java 21+，sdkman 的 JAVA_HOME 可能是项目用的旧版本。
   (add-to-list 'eglot-server-programs
-               '((java-mode java-ts-mode)
-                 . ("jdtls" "--java-executable" "/opt/homebrew/opt/openjdk/bin/java")))
+               '((java-mode java-ts-mode) . iuiw-eglot-jdtls-contact))
   (with-eval-after-load 'evil
     (evil-define-minor-mode-key 'normal 'eglot--managed-mode
       (kbd "K") #'eldoc-doc-buffer

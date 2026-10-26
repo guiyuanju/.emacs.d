@@ -26,6 +26,17 @@
                       :diagnosticSeverityOverrides
                       (:reportPrivateImportUsage "none"))))))
 
+(defun iuiw-eglot-jdtls-contact (_interactive project)
+  "Return the jdtls command for PROJECT with a workspace of its own.
+The jdtls script names its default workspace after the root's base name,
+so two clones of one repository would share an Eclipse workspace and
+jump into each other's files."
+  (let ((root (expand-file-name (project-root project))))
+    ;; jdtls 要 Java 21+，sdkman 的 JAVA_HOME 可能是项目用的旧版本。
+    (list "jdtls" "--java-executable" "/opt/homebrew/opt/openjdk/bin/java"
+          "-data" (expand-file-name (concat "jdtls-" (sha1 (directory-file-name root)))
+                                    "~/Library/Caches/jdtls/"))))
+
 (defun iuiw-java-indent-setup ()
   "Use four-space indentation in Java buffers."
   (setq-local tab-width 4)
