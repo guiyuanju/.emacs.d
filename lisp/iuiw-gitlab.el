@@ -5,6 +5,8 @@
 
 ;;; Code:
 
+(declare-function iuiw-workspace-repo-directory "iuiw-workspace")
+
 (defun iuiw-gitlab--json (&rest args)
   "Return the parsed JSON output of glab ARGS."
   (with-temp-buffer
@@ -19,7 +21,8 @@ An open request wins over merged or closed ones; with none, offer the
 new merge request page."
   (interactive)
   (unless (executable-find "glab") (user-error "glab not found"))
-  (let* ((branch (or (car (ignore-errors
+  (let* ((default-directory (iuiw-workspace-repo-directory))
+         (branch (or (car (ignore-errors
                             (process-lines "git" "branch" "--show-current")))
                      (user-error "Not on a Git branch")))
          (mrs (iuiw-gitlab--json "mr" "list" "--source-branch" branch

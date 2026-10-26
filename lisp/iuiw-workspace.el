@@ -29,6 +29,7 @@
 (require 'json)
 
 (declare-function magit-run-git-async "magit-process")
+(declare-function magit-status "magit-status")
 (declare-function magit-process-sentinel "magit-process")
 (declare-function persp-current-name "perspective")
 (declare-function persp-names "perspective")
@@ -608,6 +609,47 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
   (interactive)
   (require 'magit-process)
   (iuiw-workspace--pull iuiw-workspace-pull-repos))
+
+;;; Repository commands
+
+(defun iuiw-workspace-repo-directory (&optional notes)
+  "Repository for Git commands run from `default-directory'.
+In a project folder outside its clones, the folder's own Git root is the
+workspace repository, so pick one of the clones or the root mapped in
+`iuiw-workspace-project-roots'; with NOTES, also offer the workspace
+repository.  Elsewhere return `default-directory'."
+  (if-let* ((folder (iuiw-workspace-project-root)))
+      (let* ((here (file-truename default-directory))
+             (clones (seq-filter
+                      (lambda (dir) (file-exists-p (expand-file-name ".git" dir)))
+                      (directory-files folder t directory-files-no-dot-files-regexp)))
+             (candidates
+              (append (mapcar (lambda (dir) (cons (file-name-nondirectory dir) dir)) clones)
+                      (when-let* ((root (iuiw-workspace--root (iuiw-workspace--file-id
+                                                                (expand-file-name "project.md" folder)))))
+                        (list (cons (abbreviate-file-name root) root)))
+                      (when-let* ((workspace (and notes (locate-dominating-file folder ".git"))))
+                        (list (cons "project.md" workspace))))))
+        (file-name-as-directory
+         (or (seq-find (lambda (dir) (file-in-directory-p here dir)) clones)
+             (pcase candidates
+               ('() (user-error "No Git repository in %s" (abbreviate-file-name folder)))
+               (`((,_ . ,dir)) dir)
+               (_ (cdr (assoc (completing-read "Repository: " candidates nil t)
+                              candidates)))))))
+    default-directory))
+
+(defun iuiw-workspace-call-in-repo (command &optional notes)
+  "Call COMMAND interactively in `iuiw-workspace-repo-directory'.
+NOTES is passed on.  A transient prefix opened from a project folder is
+opened from the repository's Magit status buffer, where its suffixes run."
+  (let ((repo (iuiw-workspace-repo-directory notes)))
+    (if (and (get command 'transient--prefix)
+             (not (file-in-directory-p default-directory repo)))
+        (progn (magit-status repo)
+               (call-interactively command))
+      (let ((default-directory repo))
+        (call-interactively command)))))
 
 ;;; Overlook
 
