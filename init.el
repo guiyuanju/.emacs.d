@@ -177,6 +177,18 @@
   (unless (server-running-p)
     (server-start)))
 
+(use-package browse-url
+  :ensure nil
+  :custom
+  (browse-url-browser-function #'xwidget-webkit-browse-url)
+  (browse-url-secondary-browser-function #'browse-url-default-browser))
+
+(use-package xwwp
+  :after xwidget
+  :config
+  (evil-define-key* 'normal xwidget-webkit-mode-map
+    "f" #'xwwp-follow-link))
+
 ;;; Completion
 
 (use-package vertico
