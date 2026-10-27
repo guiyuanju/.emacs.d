@@ -545,6 +545,8 @@
     "od" '(overlook :which-key "agent dashboard")
     "oe" '(iuiw-eshell-toggle :which-key "Eshell")
     "of" '(iuiw-reveal-in-finder :which-key "reveal in Finder")
+    "ok" '(iuiw-auth-copy-password :which-key "copy password")
+    "oo" '(totp-auth :which-key "OTP")
     "op" '(popper-toggle :which-key "popup")
     "or" '(elfeed :which-key "RSS (elfeed)")
     "oR" '(elfeed-update :which-key "update RSS")
@@ -639,6 +641,40 @@
   :defer t
   :custom
   (alert-default-style 'notifier))
+
+;;; Passwords
+
+;; 密钥在 Secure Enclave 里，每次解密要 Touch ID；没有备份，换机或抹掉芯片后文件解不开。
+(use-package age
+  :demand t
+  :custom
+  (age-program (executable-find "age"))
+  (age-default-identity (expand-file-name "~/.config/age/se-identity.txt"))
+  (age-default-recipient
+   "age1se1qgvy8802j4yssp3ese5l7845yv8jx9lve8gspgnftz4sn552y8lzz9nlqrg")
+  :config
+  (age-file-enable))
+
+(use-package auth-source
+  :ensure nil
+  :custom
+  (auth-sources '("~/.authinfo.age"))
+  (auth-source-cache-expiry 900))
+
+(use-package iuiw-auth
+  :ensure nil
+  :demand t
+  :config
+  ;; 解密后 15 分钟内不再要 Touch ID。
+  (advice-add 'auth-source-search-backends :after #'iuiw-auth-schedule-forget)
+  (with-eval-after-load 'evil
+    (evil-define-key* 'normal iuiw-auth-totp-mode-map "q" #'iuiw-auth-totp-quit)))
+
+(use-package totp-auth
+  :commands (totp-auth totp-auth-add-secret totp-auth-import-file)
+  :config
+  (advice-add 'totp-auth-storage-backends :around #'iuiw-auth-totp-storage-backends)
+  (advice-add 'totp-auth-display-token-buffer :after #'iuiw-auth-totp-setup))
 
 ;;; Workspace
 
