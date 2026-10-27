@@ -963,7 +963,9 @@
 
 (use-package markdown-mode
   :mode "\\.md\\'"
+  :hook (markdown-mode . markdown-display-inline-images)
   :custom
+  (markdown-max-image-size '(800 . 800))
   (markdown-fontify-code-blocks-natively t)
   (markdown-enable-wiki-links t)
   ;; 递归搜子目录会扫遍项目里的代码仓库。
