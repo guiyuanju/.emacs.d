@@ -120,13 +120,10 @@
 ;; Modus draws window dividers gray and gives header lines their own strip.
 ;; Reuse the flat mode line's colors for them so the frame looks like one piece.
 (defun iuiw-modus-flat-faces ()
-  "Match dividers and header lines to the flat mode line."
+  "Match header lines to the flat mode line."
   (let ((bg-inactive (modus-themes-get-color-value 'bg-inactive t))
         (bg-dim (modus-themes-get-color-value 'bg-dim t))
         (bg-active (modus-themes-get-color-value 'bg-active t)))
-    (dolist (face '(vertical-border window-divider
-                    window-divider-first-pixel window-divider-last-pixel))
-      (set-face-attribute face nil :foreground bg-inactive))
     (set-face-attribute 'header-line nil :background bg-inactive)
     (set-face-attribute 'header-line-inactive nil
                         :background bg-dim :foreground bg-active)))

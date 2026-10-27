@@ -58,6 +58,8 @@
 (add-to-list 'default-frame-alist '(undecorated-round . t))
 ;; macOS native fullscreen exits on any Escape a focused xwidget leaves unhandled.
 (setq ns-use-native-fullscreen nil)
+;; Wrapped lines carry no curly arrows in the fringe.
+(setf (alist-get 'continuation (default-value 'fringe-indicator-alist)) '(nil nil))
 
 ;; Keep generated state out of the configuration root without another package.
 (defconst iuiw-state-directory (locate-user-emacs-file "var/"))
@@ -188,6 +190,17 @@
   :config
   (evil-define-key* 'normal xwidget-webkit-mode-map
     "f" #'xwwp-follow-link))
+
+;; Separate windows with background-colored space instead of lines.
+(use-package spacious-padding
+  :demand t
+  :custom
+  (spacious-padding-widths
+   '(:internal-border-width 8 :header-line-width 2 :mode-line-width 2
+     :custom-button-width 3 :tab-width 4 :right-divider-width 12
+     :scroll-bar-width 8 :fringe-width 8))
+  :config
+  (spacious-padding-mode 1))
 
 ;;; Completion
 
