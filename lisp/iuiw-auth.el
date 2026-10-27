@@ -64,6 +64,41 @@ With ENCRYPTED, return only encrypted backends."
   (when (fboundp 'evil-normalize-keymaps)
     (evil-normalize-keymaps)))
 
+(defconst iuiw-auth-otp-prompt-regexp
+  "^(\\(?:\\(?1:[^@)]+\\)@\\)?\\(?2:[^)]+\\)) Verification code: ?$"
+  "SSH keyboard-interactive OTP prompt; group 1 is the user, group 2 the host.")
+
+(declare-function totp-auth-generate-otp "totp-auth")
+(declare-function totp-auth-unwrap-otp-blob "totp-auth")
+
+(defun iuiw-auth-totp-token (host &optional user)
+  "Return the current TOTP token stored for USER at HOST, or nil."
+  (require 'totp-auth)
+  (when-let* ((entry (seq-find (lambda (entry) (equal (plist-get entry :port) "totp"))
+                               (auth-source-search :host host :user user :max 50)))
+              (secret (cdr (assq :secret (totp-auth-unwrap-otp-blob
+                                          (auth-info-password entry))))))
+    (let ((otp (totp-auth-generate-otp secret)))
+      ;; 快过期的码可能到服务器时已失效，等下一个。
+      (when (< (nth 1 otp) 3)
+        (sleep-for (1+ (nth 1 otp)))
+        (setq otp (totp-auth-generate-otp secret)))
+      (car otp))))
+
+(defun iuiw-auth-magit-otp-prompt (orig process string)
+  "Answer an SSH OTP prompt in STRING from `auth-sources'.
+Only the first prompt of PROCESS is answered; otherwise call ORIG, which
+asks the user."
+  (if-let* (((not (process-get process 'iuiw-auth-otp-sent)))
+            ((string-match iuiw-auth-otp-prompt-regexp string))
+            (token (ignore-errors
+                     (iuiw-auth-totp-token (match-string 2 string)
+                                           (match-string 1 string)))))
+      (progn
+        (process-put process 'iuiw-auth-otp-sent t)
+        (process-send-string process (concat token "\n")))
+    (funcall orig process string)))
+
 (defun iuiw-auth--label (entry)
   "Return a completion label for auth-source ENTRY."
   (let ((user (plist-get entry :user))

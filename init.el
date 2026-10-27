@@ -729,7 +729,9 @@
   ;; iuiw-workspace 只加载 magit-process 来 clone 和 pull。
   (with-eval-after-load 'magit-process
     (add-to-list 'magit-process-password-prompt-regexps
-                 "^.*Verification code: ?$"))
+                 "^.*Verification code: ?$")
+    ;; 跳板机的 OTP 先从 authinfo 取，取不到再问。
+    (advice-add 'magit-process-password-prompt :around #'iuiw-auth-magit-otp-prompt))
   :config
   (setq magit-display-buffer-function #'iuiw-magit-display-buffer
         magit-bury-buffer-function #'magit-restore-window-configuration)
