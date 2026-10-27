@@ -56,6 +56,8 @@
 (load (locate-user-emacs-file "local.el") 'noerror 'nomessage)
 
 (add-to-list 'default-frame-alist '(undecorated-round . t))
+;; macOS native fullscreen exits on any Escape a focused xwidget leaves unhandled.
+(setq ns-use-native-fullscreen nil)
 
 ;; Keep generated state out of the configuration root without another package.
 (defconst iuiw-state-directory (locate-user-emacs-file "var/"))
