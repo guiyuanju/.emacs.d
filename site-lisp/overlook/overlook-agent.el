@@ -322,11 +322,14 @@ without terminal-notifier it falls back to osascript."
          (notifications-notify :title title :body body))
         (t (message "%s: %s" title body))))
 
+(defvar overlook-agent--focused-function
+  (lambda () (seq-some (lambda (frame) (eq (frame-focus-state frame) t)) (frame-list)))
+  "Function returning non-nil while an Emacs frame has focus.")
+
 (defun overlook-agent--notify (buffer)
   "Notify about agent BUFFER, per `overlook-agent-notify'."
   (when (pcase overlook-agent-notify
-          ('unfocused (not (seq-some (lambda (frame) (eq (frame-focus-state frame) t))
-                                     (frame-list))))
+          ('unfocused (not (funcall overlook-agent--focused-function)))
           (option option))
     (let ((perspective (overlook-agent-perspective buffer))
           (title (overlook-agent--title buffer))
@@ -341,8 +344,9 @@ without terminal-notifier it falls back to osascript."
                buffer))))
 
 (defun overlook-agent--seen-p ()
-  "Non-nil when this agent is shown in the selected window."
-  (eq (window-buffer (selected-window)) (current-buffer)))
+  "Non-nil when this agent is shown in the selected window of a focused Emacs."
+  (and (eq (window-buffer (selected-window)) (current-buffer))
+       (funcall overlook-agent--focused-function)))
 
 (defun overlook-agent-report (event)
   "Update the current agent buffer's status for EVENT.
@@ -378,12 +382,16 @@ of a resumed session's history, which reads as work but was none."
        (unless (and (eq overlook-agent-status 'waiting) (not started))
          (overlook-agent--set-status 'working)))
       ('attention (unless (overlook-agent--seen-p)
-                    (overlook-agent--set-status 'waiting))))))
+                    ;; Each new request notifies, even while one is still waiting.
+                    (if (eq overlook-agent-status 'waiting)
+                        (overlook-agent--notify (current-buffer))
+                      (overlook-agent--set-status 'waiting)))))))
 
 (defun overlook-agent--acknowledge (&rest _)
   "Reset `done' and `waiting' once the agent is shown in the selected window."
   (let ((buffer (window-buffer (selected-window))))
     (when (and (overlook-agent-p buffer)
+               (funcall overlook-agent--focused-function)
                (memq (buffer-local-value 'overlook-agent-status buffer) '(done waiting)))
       (with-current-buffer buffer (overlook-agent--set-status 'idle)))))
 
@@ -919,6 +927,9 @@ too.  A nil PERSPECTIVE inserts those in none."
   :global t
   :group 'overlook
   (when overlook-agent-mode (overlook-agent--load-saved))
+  (if overlook-agent-mode
+      (add-function :after after-focus-change-function #'overlook-agent--acknowledge)
+    (remove-function after-focus-change-function #'overlook-agent--acknowledge))
   (overlook-toggle-hooks
    overlook-agent-mode
    '((overlook-perspective-functions overlook-agent--insert)

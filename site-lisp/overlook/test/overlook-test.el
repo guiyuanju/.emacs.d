@@ -492,6 +492,33 @@ Agents are listed; usage and repos are not."
           (should (= (length sent) 1)))
       (kill-buffer agent))))
 
+(ert-deftest overlook-agent-notifies-each-request-and-while-unfocused ()
+  (let* ((agent (overlook-test--agent "claude"))
+         (sent 0)
+         (overlook-agent-notify 'unfocused)
+         (overlook-agent--focused-function #'ignore)
+         (overlook-agent-notify-function (lambda (&rest _) (setq sent (1+ sent))))
+         (overlook-perspectives-function #'ignore)
+         (overlook-current-perspective-function #'ignore))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer agent)
+          (with-current-buffer agent
+            (overlook-agent-report 'working)
+            (overlook-agent-report 'attention)
+            (should (eq overlook-agent-status 'waiting))
+            (should (= sent 1))
+            (overlook-agent-report 'working)
+            (overlook-agent-report 'attention)
+            (should (= sent 2))
+            (let ((overlook-agent--focused-function #'always))
+              (overlook-agent--acknowledge)
+              (should (eq overlook-agent-status 'idle))
+              (overlook-agent-report 'attention)
+              (should (eq overlook-agent-status 'idle)))
+            (should (= sent 2))))
+      (kill-buffer agent))))
+
 (ert-deftest overlook-agent-saved-survive-a-restart ()
   (let* ((overlook-agent-saved-file (make-temp-file "overlook-agents"))
          (agent (overlook-test--agent "claude"))

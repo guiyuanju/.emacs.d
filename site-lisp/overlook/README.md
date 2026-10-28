@@ -167,7 +167,9 @@ Evil users can bind the same keys in normal state:
   otherwise marked `fork`.  Which session each fork came from is kept in
   `overlook-agent-forks-file`, so the tree survives restarts.
 - When an agent turns `▲`, `✖` or `●` while no Emacs frame has focus, a
-  desktop notification says so (D-Bus outside macOS).  On macOS it uses
+  desktop notification says so (D-Bus outside macOS), and again for each
+  further permission request or question while it waits.  An agent shown in
+  the selected window counts as seen only while Emacs has focus.  On macOS it uses
   `terminal-notifier` when installed: clicking the notification raises
   Emacs and, while Emacs runs a server, visits that agent; otherwise it
   falls back to `osascript`.  Set `overlook-agent-notify` to `t` to be told
