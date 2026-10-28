@@ -58,6 +58,14 @@
   "Names of all perspectives, or nil without `persp-mode'."
   (and (bound-and-true-p persp-mode) (persp-names)))
 
+(defun overlook-perspective--buffers (name)
+  "Buffers of perspective NAME.
+Read without switching to it, as `persp-get-buffers' does: switching
+rebuilds the frame's windows, which hides and refocuses xwidgets."
+  (when-let* ((persp (and (bound-and-true-p persp-mode)
+                          (gethash name (perspectives-hash)))))
+    (persp-buffers persp)))
+
 (defun overlook-perspective--root (name)
   "Project root of perspective NAME, per `overlook-perspective-root'."
   (funcall overlook-perspective-root name))
@@ -89,7 +97,7 @@ A new perspective opens the project's root in Dired."
                  '((overlook-perspectives-function . overlook-perspective--names)
                    (overlook-current-perspective-function . overlook-perspective--current)
                    (overlook-switch-perspective-function . persp-switch)
-                   (overlook-perspective-buffers-function . persp-get-buffers)
+                   (overlook-perspective-buffers-function . overlook-perspective--buffers)
                    (overlook-add-to-perspective-function . overlook-perspective--add-buffer)
                    (overlook-perspective-root-function . overlook-perspective--root)))
     (set variable (if overlook-perspective-mode function #'ignore)))
