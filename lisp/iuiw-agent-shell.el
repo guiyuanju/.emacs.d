@@ -71,14 +71,15 @@ so copy it to `face' for the agent name to stand out over dimmed fields."
             '((name . iuiw-agent-shell-minimal-header)))
 
 (defun iuiw-agent-shell--permission-arguments (orig &rest args)
-  "Call ORIG with ARGS, then append every argument of a multi-argument tool call.
-agent-shell shows `rawInput' only when it has a single field, so a
-multi-argument MCP call asked for permission showing only its tool name."
+  "Call ORIG with ARGS, then append every argument of the tool call.
+agent-shell shows `rawInput' only when it is a single string field, so
+other MCP calls asked for permission showing only their tool name."
   (let* ((title (apply orig args))
          (tool-call (plist-get args :tool-call))
          (raw-input (map-elt tool-call :raw-input)))
     (if (and (member (map-elt tool-call :kind) '(nil "other"))
-             (> (length raw-input) 1)
+             raw-input
+             (not (and (= (length raw-input) 1) (stringp (cdar raw-input))))
              (not (map-elt raw-input 'command)))
         (concat title "\n\n"
                 (mapconcat
