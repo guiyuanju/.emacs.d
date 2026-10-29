@@ -83,13 +83,13 @@
   "Tell courier this agent finished a turn."
   (courier-turn-finished overlook-courier-id))
 
-(defun overlook-courier--spawn (name directory parent)
+(defun overlook-courier--spawn (name directory parent &optional effort)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
-It opens in PARENT's perspective."
+It opens in PARENT's perspective, at reasoning EFFORT if non-nil."
   (let* ((parent-buffer (when-let* ((agent (courier-agent parent))) (courier-agent-buffer agent)))
          (perspective (and (buffer-live-p parent-buffer) (overlook-agent-perspective parent-buffer)))
          (buffer (let ((overlook-courier--parent parent))
-                   (overlook-agent--launch name directory nil t))))
+                   (overlook-agent--launch name directory nil t effort))))
     (when perspective (overlook-add-to-perspective perspective buffer))
     (let ((overlook-courier--parent parent)) (overlook-courier--register buffer))
     (buffer-local-value 'overlook-courier-id buffer)))

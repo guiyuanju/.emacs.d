@@ -64,8 +64,10 @@ A message an agent sends while handling one is a hop further along."
   :group 'courier)
 
 (defvar courier-spawn-function nil
-  "Function of NAME, DIRECTORY and parent ID starting agent NAME, returning its id.
-Set by a frontend; the parent ID is nil when no agent asked.")
+  "Function of NAME, DIRECTORY, parent ID and EFFORT starting agent NAME.
+It returns the new agent's id.  Set by a frontend; the parent ID is nil
+when no agent asked, and EFFORT, a reasoning effort level like
+\"high\", is nil unless one was asked for.")
 
 (defvar courier-changed-hook nil
   "Hook run when an agent's mailbox, monitors or registration changed.")
@@ -171,11 +173,12 @@ or nil.  PARENT is the id of the agent that spawned it."
     (run-hooks 'courier-changed-hook)
     t))
 
-(defun courier-spawn (name directory prompt &optional from)
+(defun courier-spawn (name directory prompt &optional from effort)
   "Start agent NAME in DIRECTORY on PROMPT for agent FROM, which it monitors.
-Returns the new agent's id."
+EFFORT is the reasoning effort level to start it with, or nil for its
+default.  Returns the new agent's id."
   (unless courier-spawn-function (user-error "No frontend can spawn agents"))
-  (let ((id (funcall courier-spawn-function name (expand-file-name directory) from)))
+  (let ((id (funcall courier-spawn-function name (expand-file-name directory) from effort)))
     (when-let* ((agent (courier-agent id)))
       (setf (courier-agent-parent agent) from))
     (when (courier-agent from)
@@ -310,8 +313,9 @@ Called by bin/courier, which encodes every argument but OUTPUT with base64."
                      (`("send" ,to ,body)
                       (courier-send to body from)
                       (format "Sent to %s; it arrives when %s is between turns." to to))
-                     (`("spawn" ,name ,directory ,prompt)
-                      (let ((id (courier-spawn name directory prompt from)))
+                     ((or `("spawn" ,name ,directory ,prompt)
+                          `("spawn" "--effort" ,effort ,name ,directory ,prompt))
+                      (let ((id (courier-spawn name directory prompt from effort)))
                         (format "Started %s.%s" id
                                 (if (courier-agent from)
                                     "  You will get its reply when it finishes; end your turn now."
@@ -322,8 +326,8 @@ Called by bin/courier, which encodes every argument but OUTPUT with base64."
                      (`("list")
                       (mapconcat #'courier--describe (courier-agents) "\n"))
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
-                     (_ (user-error "Usage: courier send ID MESSAGE | spawn AGENT DIR PROMPT \
-| monitor ID | list | whoami")))
+                     (_ (user-error "Usage: courier send ID MESSAGE \
+| spawn [--effort LEVEL] AGENT DIR PROMPT | monitor ID | list | whoami")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)

@@ -2,6 +2,7 @@
 # Message other AI agents through courier in the running Emacs.
 #   courier send ID MESSAGE        message agent ID; it gets it between turns
 #   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; its reply comes back
+#     --effort LEVEL               right after spawn: start it at that reasoning effort
 #   courier monitor ID             be told when agent ID next finishes a turn
 #   courier list                   list the agents
 #   courier whoami                 print your own id
@@ -9,11 +10,13 @@
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
-if [ "$1" = "spawn" ] && [ $# -ge 3 ]; then
+if [ "$1" = "spawn" ] && [ "${2:-}" = "--effort" ] && [ $# -ge 5 ]; then
+  set -- "$1" "$2" "$3" "$4" "$(cd "$5" && pwd)" "${@:6}"
+elif [ "$1" = "spawn" ] && [ $# -ge 3 ]; then
   set -- "$1" "$2" "$(cd "$3" && pwd)" "${@:4}"
 fi
 

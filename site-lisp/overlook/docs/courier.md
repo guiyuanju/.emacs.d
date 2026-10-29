@@ -25,6 +25,7 @@ An agent started through a frontend finds the `courier` script on its
 ```sh
 courier list                                  # the agents, who spawned them, unread mail
 courier spawn codex . 'Review the diff of foo.go'  # then end your turn; its reply comes back
+courier spawn --effort high claude . 'Find why the build fails'  # at that reasoning effort
 courier send claude@shop 'Tests pass on my side'
 courier monitor codex@shop                    # be told when it next finishes
 courier whoami
@@ -59,8 +60,9 @@ reports its turns:
 
 It starts each agent with `(courier-environment id)` in its environment,
 from an id of `courier-new-id`, and sets `courier-spawn-function` to start
-agents for `courier spawn`.  overlook's `overlook-courier-mode` does all
-this for the agents on its dashboard.
+agents for `courier spawn`, at the effort level asked for if it can.
+overlook's `overlook-courier-mode` does all this for the agents on its
+dashboard.
 
 ## Safety
 

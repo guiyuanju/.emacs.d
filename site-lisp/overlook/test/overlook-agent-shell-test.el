@@ -302,4 +302,17 @@ each environment gathered says how many were gathered so far."
         (should (equal (overlook-agent--brief buffer) "? Two things?"))
         (should-not (overlook-agent--choices buffer))))))
 
+(ert-deftest overlook-agent-shell-sets-effort-last ()
+  (let* ((config `((:identifier . claude-code)
+                   (:default-config-options . ,(lambda () '(("model" . "opus") ("effort" . "low"))))))
+         (with-effort (overlook-agent-shell--with-effort config "claude" "high")))
+    (should (equal (funcall (alist-get :default-config-options with-effort))
+                   '(("model" . "opus") ("effort" . "high"))))
+    (should (eq (overlook-agent-shell--with-effort config "claude" nil) config))
+    (should (eq (overlook-agent-shell--with-effort config "pi" "high") config))
+    (should (equal (funcall (alist-get :default-config-options
+                                       (overlook-agent-shell--with-effort
+                                        '((:default-config-options)) "codex" "low")))
+                   '(("reasoning_effort" . "low"))))))
+
 ;;; overlook-agent-shell-test.el ends here

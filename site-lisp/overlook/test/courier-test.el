@@ -105,12 +105,15 @@
 
 (ert-deftest courier-spawn-briefs-the-child-and-reports-back ()
   (courier-test-with-agents '("a@p")
-    (let ((courier-spawn-function
-           (lambda (name directory parent)
-             (let ((id (courier-new-id name directory)))
-               (courier-test--register id parent)
-               id))))
-      (should (equal (courier-spawn "codex" "/work/p/" "review foo.go" "a@p") "codex@p"))
+    (let* ((efforts nil)
+           (courier-spawn-function
+            (lambda (name directory parent effort)
+              (push effort efforts)
+              (let ((id (courier-new-id name directory)))
+                (courier-test--register id parent)
+                id))))
+      (should (equal (courier-spawn "codex" "/work/p/" "review foo.go" "a@p" "high") "codex@p"))
+      (should (equal efforts '("high")))
       (courier-deliver)
       (let ((brief (car (courier-test--received "codex@p"))))
         (should (string-match-p "You are codex@p" brief))

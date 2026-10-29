@@ -57,6 +57,11 @@ it returns has been registered with `overlook-agent-register'."
   :type 'function
   :group 'overlook)
 
+(defvar overlook-agent-effort nil
+  "Reasoning effort level, like \"high\", for the agent being started, or nil.
+Bound around `overlook-agent-start-function', which applies it if its
+frontend can.")
+
 (defcustom overlook-agent-saved-file (locate-user-emacs-file "overlook-agents.eld")
   "File keeping the agents to offer for resuming after a restart."
   :type 'file
@@ -422,13 +427,14 @@ An unknown context value keeps the last one."
   (setq overlook-agent--last name)
   (overlook-agent-changed))
 
-(defun overlook-agent--launch (name root &optional session fresh)
+(defun overlook-agent--launch (name root &optional session fresh effort)
   "Start agent NAME in ROOT and return its buffer.
 SESSION resumes that session; FRESH starts a new conversation without
-asking."
+asking.  EFFORT is its reasoning effort level, or nil for its default."
   (unless overlook-agent-start-function
     (user-error "Set `overlook-agent-start-function' first"))
-  (let ((default-directory root))
+  (let ((default-directory root)
+        (overlook-agent-effort effort))
     (apply overlook-agent-start-function name root
            (cond (session (list nil session))
                  (fresh (list t))))))
