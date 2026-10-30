@@ -706,6 +706,10 @@ Agents are listed; usage and repos are not."
               (courier-room-post "ops" "a@p" "@user done")
               (should (string-match-p "user: hi @a@p\\(.\\|\n\\)*a@p: @user done" (buffer-string))))
             (should (= (courier-room-unread (courier-room "ops") courier-room-user) 0))
+            (let ((long (string-join (make-list 40 "word") " ")))
+              (courier-room-post "ops" "a@p" long)
+              ;; The window wraps it; lui leaves it one line.
+              (should (string-search (concat "a@p: " long "\n") (with-current-buffer buffer (buffer-string)))))
             (kill-buffer buffer)))
       (delete-directory courier-room-directory t))))
 

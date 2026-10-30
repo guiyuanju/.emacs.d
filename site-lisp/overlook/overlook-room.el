@@ -62,6 +62,12 @@
 
 \\{overlook-room-mode-map}"
   (setq-local lui-input-function #'overlook-room--input)
+  ;; Wrap to the window as it resizes, instead of lui's fill at insertion.
+  (setq-local lui-fill-type nil
+              lui-time-stamp-position 'right-margin
+              right-margin-width (string-width (format-time-string lui-time-stamp-format))
+              wrap-prefix "    ")
+  (visual-line-mode 1)
   (add-hook 'completion-at-point-functions #'overlook-room--complete-mention nil t)
   (lui-set-prompt (propertize "> " 'face 'minibuffer-prompt)))
 
