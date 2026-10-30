@@ -325,10 +325,20 @@ Marks every post read."
                            (if (eq wake 'mention) member (format "%s (%s)" member wake))))
                        (reverse (courier-room-members room)) ", "))))
 
+(defun courier-room--unheard (room id)
+  "How many of ROOM's posts member ID has neither read nor been woken by."
+  (if-let* ((member (courier-room-member room id)))
+      (cl-loop for post in (courier-room-posts room)
+               while (> (plist-get post :n) (plist-get member :read))
+               count (not (or (equal (plist-get post :from) id)
+                              (courier-room--wake-p member id (plist-get post :body)))))
+    0))
+
 (defun courier-room-note (id)
-  "A line for agent ID's next prompt naming the rooms it has unread posts in."
+  "A line for agent ID's next prompt naming the rooms with posts it has not seen.
+Posts that woke it came in its prompts, so they are not counted."
   (when-let* ((unread (delq nil (mapcar (pcase-lambda (`(,name . ,room))
-                                          (let ((n (courier-room-unread room id)))
+                                          (let ((n (courier-room--unheard room id)))
                                             (and (> n 0) (format "#%s %d" name n))))
                                         courier-room--rooms))))
     (format "[courier] Unread in rooms: %s.  Read with `courier room read NAME`."

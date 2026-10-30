@@ -381,4 +381,14 @@
         (should (string-match-p "kept" (with-temp-buffer (insert-file-contents (car archived))
                                                         (buffer-string))))))))
 
+(ert-deftest courier-room-note-leaves-out-the-posts-that-woke-the-member ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-join "ops" "b@p")
+    (courier-room-post "ops" "a@p" "@b@p look")
+    (courier-room-post "ops" "b@p" "mine")
+    (should-not (courier-room-note "b@p"))
+    (courier-room-post "ops" "a@p" "aside")
+    (should (equal (courier-room-note "b@p")
+                   "[courier] Unread in rooms: #ops 1.  Read with `courier room read NAME`."))))
+
 ;;; courier-test.el ends here
