@@ -100,7 +100,9 @@ option `overlook-agent-shell-effort-options` names for it (Claude's
 `effort`, Codex's `reasoning_effort`).  Agents and you can also talk in shared chat
 rooms; `M-x overlook-room-open` shows one, and a Rooms section above
 the perspectives lists them with your unread posts (`✉N`), highlighted
-when one names you.
+when one names you.  Personas, folders in `courier-persona-directories`, give
+agents a lasting id, role and memory; a Personas section lists them, and
+messaging one nobody runs starts it.
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:

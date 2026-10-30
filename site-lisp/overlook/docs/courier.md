@@ -100,6 +100,54 @@ prefix argument, at an effort you give) and `C-c C-k` closes the room.  A
 post naming `@user` while the room is not shown is announced in the echo
 area.
 
+## Personas
+
+A persona is an identity that outlives the agents running it: a folder in
+one of `courier-persona-directories`, say
+`~/workspace/me/personas/reviewer/`, holding `persona.md` and `memory/`.
+An agent started as `reviewer` gets the courier id `reviewer`, whatever
+engine runs it and however often it restarts, and one agent at most runs
+it.  Messaging a persona nobody runs, with `courier send` or `@reviewer`
+in a room, starts it on its own engine; `@all` does not.
+
+```markdown
+---
+engine: claude          # the agent to run it, required
+effort: medium          # its reasoning effort
+directory: ~/src/shop   # where it starts, else the folder above the personas
+description: Reviews diffs; never edits
+avatar: 🦉              # shown beside its name; the rest are optional too
+personality: calm, exacting
+tone: terse
+---
+Its role, its rules, and any background story.
+```
+
+A `#` after a space starts a comment.  Names are lowercase letters,
+digits, `-` and `_`; `all` and `user` mean other things in rooms, so no
+persona has them.
+
+Starting, the agent is told the body, the personality and tone, and the
+index of its memory, `memory/MEMORY.md` (up to
+`courier-persona-index-lines`, 200).  It keeps that memory itself, a
+file per fact as in Claude's own memory; courier only tells it where.
+Started with no task, it says in one line that it is ready; started by a
+message, it learns who it is with that message, in the same turn.
+
+```sh
+courier persona list
+courier persona start reviewer                       # in its own directory, on its own engine
+courier persona start --engine codex --effort high reviewer ~/repo 'Review the diff'
+```
+
+On the dashboard a Personas section lists them: RET starts one or shows
+the agent running it, `e` opens its `persona.md`, and RET on the heading,
+or on its only row while there are none, makes a new one.  An agent's row says `as reviewer`, and its avatar
+heads its posts in rooms.  overlook keeps every agent's courier id when it
+resumes the agent in a later Emacs, and refuses to resume a persona's
+session while another agent runs that persona.  A persona named in a
+post that fails to start is left out; the others still get the post.
+
 ## For frontends
 
 Courier knows no agent program.  A frontend registers each agent and
@@ -122,7 +170,8 @@ prompts courier delivers.
 
 It starts each agent with `(courier-environment id)` in its environment,
 from an id of `courier-new-id`, and sets `courier-spawn-function` to start
-agents for `courier spawn`, at the effort level asked for if it can.
+agents for `courier spawn`, at the effort level asked for if it can, and
+with the id asked for, a persona's.
 overlook's `overlook-courier-mode` does all this for the agents on its
 dashboard.
 

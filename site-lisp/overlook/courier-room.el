@@ -27,7 +27,8 @@
 ;; Emacs.  Posting wakes only the members it names, `@ID' or `@all',
 ;; through their courier mailbox: waking every member on every post would
 ;; cost each a turn and let agents answer each other until the hop limit.
-;; Naming an agent that is not a member adds it.  A member may instead
+;; Naming an agent that is not a member adds it, and naming an offline
+;; persona with @ID starts it.  A member may instead
 ;; ask to be woken by every post, or by none.  Other posts wait, and the
 ;; next prompt courier delivers to a member says how many are unread; a
 ;; post waking a member brings its latest unread posts along.
@@ -205,12 +206,15 @@ MESSAGE`; leave with `courier room leave %s`."
             (when recent (concat "  " recent)))))
 
 (defun courier-room-invite (name id &optional from)
-  "Make agent ID a member of room NAME for member FROM, and tell it so."
-  (let* ((agent (or (courier-agent id) (user-error "No agent %s" id)))
-         (room (courier-room-join name id)))
-    (courier--enqueue agent from (courier-room--invitation (courier-room-name room) from)
-                      (courier--hops from) t)
-    room))
+  "Make agent ID a member of room NAME for member FROM, and tell it so.
+An offline agent is not started; it learns of the room once named."
+  (let ((agent (courier-agent id)))
+    (unless (or agent (member id (courier-offline))) (user-error "No agent %s" id))
+    (let ((room (courier-room-join name id)))
+      (when agent
+        (courier--enqueue agent from (courier-room--invitation (courier-room-name room) from)
+                          (courier--hops from) t))
+      room)))
 
 (defun courier-room-spawn (name agent directory &optional from effort task)
   "Start AGENT in DIRECTORY as a member of room NAME, for member FROM.
@@ -311,8 +315,8 @@ for."
          (name (courier-room-name room)))
     (unless (courier-room-member room from)
       (courier-room-join name from))
-    (let ((added (cl-loop for agent in (courier-agents)
-                          for id = (courier-agent-id agent)
+    (let ((added (cl-loop for id in (append (mapcar #'courier-agent-id (courier-agents))
+                                            (courier-offline))
                           unless (or (equal id from) (courier-room-member room id))
                           when (courier-room--names-p body id)
                           collect id)))
@@ -333,7 +337,14 @@ for."
         (pcase-dolist (`(,id . ,member) (courier-room-members room))
           (when-let* (((not (equal id from)))
                       ((courier-room--wake-p member id body))
-                      (agent (courier-agent id)))
+                      (agent (if (courier-room--names-p body id)
+                                 (condition-case err
+                                     (courier-reach id from)
+                                   (error
+                                    (message "courier: could not start %s: %s"
+                                             id (error-message-string err))
+                                    nil))
+                               (courier-agent id))))
             (courier--enqueue agent from
                               (concat (courier-room--wake-text
                                        name from body
@@ -378,22 +389,34 @@ Marks every post read."
             (courier-room-name room) (courier-room-count room)
             (if (> unread 0) (format ", %d unread" unread) "")
             (mapconcat (pcase-lambda (`(,member . ,props))
-                         (let ((tags (delq nil (list (unless (courier-room-present-p member) "gone")
+                         (let ((tags (delq nil (list (cond ((courier-agent member) nil)
+                                                           ((member member (courier-offline)) "offline")
+                                                           ((not (equal member courier-room-user)) "gone"))
                                                      (let ((wake (plist-get props :wake)))
                                                        (unless (eq wake 'mention) (symbol-name wake)))))))
                            (if tags (format "%s (%s)" member (string-join tags ", ")) member)))
                        (reverse (courier-room-members room)) ", "))))
 
 (defun courier-room-present-p (id)
-  "Non-nil when member ID can be woken: the user, or a registered agent."
-  (or (equal id courier-room-user) (courier-agent id)))
+  "Non-nil when member ID can be woken: the user, a registered agent or a persona."
+  (or (equal id courier-room-user) (courier-agent id) (member id (courier-offline))))
 
-(defun courier-room-gone-named (name body)
-  "Members of room NAME that BODY names with @ID but are gone."
+(defun courier-room-missed (name body)
+  "What says which members of room NAME that BODY names it did not reach, or nil.
+Those are the gone ones, and the personas that could not be started."
   (when-let* ((room (courier-room name)))
-    (cl-loop for (id . _) in (courier-room-members room)
-             when (and (not (courier-room-present-p id)) (courier-room--names-p body id))
-             collect id)))
+    (let (gone offline)
+      (pcase-dolist (`(,id . ,_) (courier-room-members room))
+        (when (courier-room--names-p body id)
+          (cond ((member id (courier-offline)) (push id offline))
+                ((not (courier-room-present-p id)) (push id gone)))))
+      (when-let* ((lines (delq nil (list (when gone
+                                           (format "Not delivered to %s: gone."
+                                                   (string-join (nreverse gone) ", ")))
+                                         (when offline
+                                           (format "Not delivered to %s: could not start; \
+see *Messages*." (string-join (nreverse offline) ", ")))))))
+        (string-join lines "  ")))))
 
 (defun courier-room--unheard (room id)
   "How many of ROOM's posts member ID has neither read nor been woken by."
@@ -419,11 +442,10 @@ Posts that woke it came in its prompts, so they are not counted."
   (let ((me (lambda () (or from (user-error "No COURIER_ID")))))
     (pcase args
       (`("post" ,name ,body)
-       (let ((post (courier-room-post name (funcall me) body))
-             (gone (courier-room-gone-named name body)))
+       (let* ((post (courier-room-post name (funcall me) body))
+              (missed (courier-room-missed name body)))
          (concat (format "Posted #%d in #%s." (plist-get post :n) (courier-room--check-name name))
-                 (when gone
-                   (format "  Not delivered to %s: gone." (string-join gone ", "))))))
+                 (when missed (concat "  " missed)))))
       (`("read" ,name) (courier-room-read name (funcall me)))
       (`("read" ,name "--last" ,n) (courier-room-read name from (string-to-number n)))
       ((or `("join" ,name) `("join" ,name "--wake" ,wake))

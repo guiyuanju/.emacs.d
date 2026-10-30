@@ -684,6 +684,32 @@ Agents are listed; usage and repos are not."
       (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer))
       (delete-directory (file-name-directory (directory-file-name root)) t))))
 
+(ert-deftest overlook-courier-gives-a-resumed-agent-its-id-back ()
+  (require 'overlook-courier)
+  (let ((courier--agents (make-hash-table :test #'equal))
+        (overlook-agent-resuming '((courier . "claude@p-2"))))
+    (should (member "COURIER_ID=claude@p-2" (overlook-courier--environment "claude" "/w/p/")))
+    (courier-register "claude@p-2")
+    (should (member "COURIER_ID=claude@p" (overlook-courier--environment "claude" "/w/p/")))
+    (let ((overlook-courier--as "reviewer"))
+      (should (member "COURIER_ID=reviewer" (overlook-courier--environment "claude" "/w/p/"))))))
+
+(ert-deftest overlook-courier-refuses-to-resume-a-running-persona ()
+  (require 'overlook-courier)
+  (let* ((root (make-temp-file "personas" t))
+         (courier-persona-directories (list root))
+         (courier--agents (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "reviewer" root))
+          (write-region "---\nengine: codex\n---\n" nil (expand-file-name "reviewer/persona.md" root))
+          (overlook-courier--check-resume '((courier . "reviewer")))
+          (courier-register "reviewer")
+          (should-error (overlook-courier--check-resume '((courier . "reviewer"))) :type 'user-error)
+          (courier-register "claude@p")
+          (overlook-courier--check-resume '((courier . "claude@p"))))
+      (delete-directory root t))))
+
 (ert-deftest overlook-room-shows-posts-and-posts-as-the-user ()
   (require 'overlook-room)
   (let ((courier-room-directory (make-temp-file "courier-rooms" t))
@@ -695,7 +721,7 @@ Agents are listed; usage and repos are not."
           (courier-room-post "ops" "a@p" "earlier")
           (let ((buffer (overlook-room-open "#ops")))
             (with-current-buffer buffer
-              (should (string-search "a@p: earlier" (buffer-string)))
+              (should (string-search "a@p\nearlier\n" (buffer-string)))
               (goto-char (point-max))
               (insert "hi @a")
               (let ((capf (overlook-room--complete-mention)))
@@ -704,12 +730,19 @@ Agents are listed; usage and repos are not."
               (delete-region lui-input-marker (point-max))
               (overlook-room--input "hi @a@p")
               (courier-room-post "ops" "a@p" "@user done")
-              (should (string-match-p "user: hi @a@p\\(.\\|\n\\)*a@p: @user done" (buffer-string))))
+              (should (string-search "\n\n user\nhi @a@p\n\n a@p\n@user done\n" (buffer-string)))
+              ;; Each author's header carries the time, even within a minute.
+              (should (= (let ((n 0) (pos (point-min)))
+                           (while (setq pos (text-property-any pos (point-max) 'lui-time-stamp t))
+                             (cl-incf n)
+                             (setq pos (next-single-property-change pos 'lui-time-stamp nil (point-max))))
+                           n)
+                         3)))
             (should (= (courier-room-unread (courier-room "ops") courier-room-user) 0))
             (let ((long (string-join (make-list 40 "word") " ")))
               (courier-room-post "ops" "a@p" long)
               ;; The window wraps it; lui leaves it one line.
-              (should (string-search (concat "a@p: " long "\n") (with-current-buffer buffer (buffer-string)))))
+              (should (string-search (concat "@user done\n" long "\n") (with-current-buffer buffer (buffer-string)))))
             (kill-buffer buffer)))
       (delete-directory courier-room-directory t))))
 

@@ -85,6 +85,22 @@ Name only the members who must act, since each one you wake spends a
 turn.  Do not answer a post that needs no answer, and close or leave rooms
 you no longer need.
 
+## Personas
+
+A persona is a lasting identity, like `reviewer`, with a role and its own
+memory; any engine may run it, and its id stays the same.  `courier list`
+names the offline ones.  Messaging one, or naming it in a room, starts it,
+which costs a startup; prefer a running agent when one fits.
+
+```sh
+courier persona list
+courier persona start reviewer . 'Review the diff of src/x.rs'
+```
+
+If you are a persona, your first prompt says so and where your memory is.
+Keep it as it asks: short files about your role and your user's wishes,
+not project knowledge.
+
 ## Keep it cheap
 
 Every prompt you cause costs the other agent a whole turn, and every new

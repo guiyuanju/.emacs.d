@@ -201,6 +201,16 @@ Each is an alist with keys `agent', `root', `session' and `perspective'.")
 (defvar overlook-agent-attention-hook nil
   "Hook run in an agent's buffer when it asks the user for permission or an answer.")
 
+(defvar overlook-agent-save-functions nil
+  "Functions of an agent buffer returning entries to keep in its saved alist.")
+
+(defvar overlook-agent-resume-functions nil
+  "Functions of a saved alist called before it is resumed.
+One may refuse by signaling an error.")
+
+(defvar overlook-agent-resuming nil
+  "The saved alist of the agent being resumed, while it starts.")
+
 (defvar overlook-agent-environment-functions nil
   "Functions of an agent's NAME and ROOT returning entries for its environment.
 Each returns a list of \"VAR=value\" strings, gathered by
@@ -458,7 +468,9 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                 `((agent . ,(overlook-agent-get buffer 'agent))
                                   (root . ,(overlook-agent-get buffer 'root))
                                   (session . ,session)
-                                  (perspective . ,(overlook-agent-perspective buffer)))))
+                                  (perspective . ,(overlook-agent-perspective buffer))
+                                  ,@(seq-mapcat (lambda (fn) (funcall fn buffer))
+                                                overlook-agent-save-functions))))
                             (overlook-agent-buffers)))
           overlook-agent-saved))
 
@@ -524,12 +536,14 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
 
 (defun overlook-agent--resume (saved)
   "Resume SAVED agent from `overlook-agent-saved' and return its buffer."
+  (run-hook-with-args 'overlook-agent-resume-functions saved)
   (setq overlook-agent-saved (delq saved overlook-agent-saved))
   (let ((root (alist-get 'root saved)))
     (unless (file-directory-p root)
       (overlook-agent-changed)
       (user-error "%s is gone; forgot its agent" root))
-    (overlook-agent--launch (alist-get 'agent saved) root (alist-get 'session saved))))
+    (let ((overlook-agent-resuming saved))
+      (overlook-agent--launch (alist-get 'agent saved) root (alist-get 'session saved)))))
 
 (defun overlook-agent--saved-perspective (saved)
   "The perspective SAVED agent was in, when it still exists."

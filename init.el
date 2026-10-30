@@ -1057,7 +1057,9 @@
   :load-path "site-lisp/overlook"
   :commands courier-cli
   :custom
-  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory)))
+  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory))
+  ;; 人设随所属 workspace 走：me 的推到 GitHub，okj 的只在本机。
+  (courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/")))
 
 ;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
 (use-package circe :defer t)

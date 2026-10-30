@@ -30,10 +30,17 @@
 ;;; Code:
 
 (require 'lui)
+(require 'circe-color-nicks)
 (require 'courier-room)
+(require 'courier-persona)
 
 (defcustom overlook-room-history 200
   "How many earlier posts a room's buffer shows when opened."
+  :type 'natnum
+  :group 'overlook)
+
+(defcustom overlook-room-group-seconds 300
+  "Posts by one author this many seconds apart or less share one header."
   :type 'natnum
   :group 'overlook)
 
@@ -41,16 +48,19 @@
   "Face of the user's name in a room."
   :group 'overlook)
 
-(defface overlook-room-agent '((t :inherit font-lock-function-name-face))
-  "Face of an agent's name in a room."
+(defface overlook-room-agent '((t :weight bold))
+  "Face of an agent's name in a room, under a color of its own."
   :group 'overlook)
 
 (defface overlook-room-mention '((t :inherit warning))
-  "Face of a post that names the user."
+  "Face of the bar beside a post that names the user."
   :group 'overlook)
 
 (defvar-local overlook-room--name nil
   "Name of the room this buffer shows.")
+
+(defvar-local overlook-room--last nil
+  "Author and time of the last post shown, as (FROM . TIME).")
 
 (defvar-keymap overlook-room-mode-map
   "C-c C-i" #'overlook-room-invite
@@ -64,9 +74,9 @@
   (setq-local lui-input-function #'overlook-room--input)
   ;; Wrap to the window as it resizes, instead of lui's fill at insertion.
   (setq-local lui-fill-type nil
+              lui-time-stamp-only-when-changed-p nil
               lui-time-stamp-position 'right-margin
-              right-margin-width (string-width (format-time-string lui-time-stamp-format))
-              wrap-prefix "    ")
+              right-margin-width (string-width (format-time-string lui-time-stamp-format)))
   (visual-line-mode 1)
   (add-hook 'completion-at-point-functions #'overlook-room--complete-mention nil t)
   (lui-set-prompt (propertize "> " 'face 'minibuffer-prompt)))
@@ -75,17 +85,47 @@
   "The live buffer showing room NAME, or nil."
   (get-buffer (format "#%s" name)))
 
+(defun overlook-room--face (id)
+  "Face of ID: the user's, or a color of its own for each agent."
+  (cond ((equal id courier-room-user) 'overlook-room-user)
+        ((equal id "all") 'bold)
+        (t `(:foreground ,(circe-nick-color-for-nick id) :inherit overlook-room-agent))))
+
+(defun overlook-room--highlight (body)
+  "BODY with each @ID in the face of ID."
+  (let ((body (copy-sequence body))
+        (start 0))
+    (while (string-match "@\\([[:alnum:]_@.-]*[[:alnum:]_]\\)" body start)
+      (put-text-property (match-beginning 0) (match-end 0)
+                         'face (overlook-room--face (match-string 1 body)) body)
+      (setq start (match-end 0)))
+    body))
+
 (defun overlook-room--insert (post)
-  "Insert POST into the current room buffer, stamped with its time."
+  "Insert POST into the current room buffer.
+A post opens with its author and time unless it follows the same
+author's within `overlook-room-group-seconds'."
   (let* ((from (plist-get post :from))
+         (time (plist-get post :time))
          (body (plist-get post :body))
-         (user (equal from courier-room-user))
-         (lui-time-stamp-time (seconds-to-time (plist-get post :time))))
-    (lui-insert (concat (propertize from 'face (if user 'overlook-room-user 'overlook-room-agent))
-                        ": "
-                        (if (and (not user) (courier-room-mentions-p body courier-room-user))
-                            (propertize body 'face 'overlook-room-mention)
-                          body)))))
+         (prefix (if (and (not (equal from courier-room-user))
+                          (courier-room-mentions-p body courier-room-user))
+                     (propertize "▎ " 'face 'overlook-room-mention)
+                   "  "))
+         (lui-time-stamp-time (seconds-to-time time)))
+    (unless (and (equal from (car overlook-room--last))
+                 (<= (- time (cdr overlook-room--last)) overlook-room-group-seconds))
+      (when (> lui-output-marker (point-min))
+        (let ((lui-time-stamp-position nil))
+          (lui-insert "" t)))
+      (lui-insert (concat (when-let* ((avatar (plist-get (courier-persona from) :avatar)))
+                            (concat avatar " "))
+                          (propertize from 'face (overlook-room--face from)))
+                  t))
+    (setq overlook-room--last (cons from time))
+    (let ((lui-time-stamp-position nil))
+      (lui-insert (propertize (overlook-room--highlight body)
+                              'line-prefix prefix 'wrap-prefix prefix)))))
 
 (defun overlook-room--complete-mention ()
   "Complete the id after @ in the input: the room's members, then the other agents."
@@ -95,7 +135,7 @@
                        (and (eq (char-after) ?@) (1+ (point))))))
     (let* ((room (courier-room overlook-room--name))
            (members (and room (mapcar #'car (courier-room-members room))))
-           (agents (mapcar #'courier-agent-id (courier-agents)))
+           (agents (append (mapcar #'courier-agent-id (courier-agents)) (courier-offline)))
            (ids (delete-dups (append (remove courier-room-user members) agents
                                      (list "all" courier-room-user)))))
       (list start (point)
@@ -110,14 +150,15 @@
               (cond ((equal id "all") " every member")
                     ((equal id courier-room-user) " you")
                     ((not (courier-room-present-p id)) " gone")
+                    ((not (courier-agent id)) " offline persona; naming starts it")
                     ((member id members) " member")
                     (t " joins when named")))))))
 
 (defun overlook-room--input (text)
   "Post TEXT to this buffer's room as the user."
   (courier-room-post overlook-room--name courier-room-user text)
-  (when-let* ((gone (courier-room-gone-named overlook-room--name text)))
-    (message "Not delivered to %s: gone" (string-join gone ", "))))
+  (when-let* ((missed (courier-room-missed overlook-room--name text)))
+    (message "%s" missed)))
 
 (defun overlook-room--on-post (name post)
   "Show POST in room NAME's buffer, and tell the user of posts naming them."
@@ -153,7 +194,7 @@
    (list (completing-read
           "Invite agent: "
           (seq-remove (lambda (id) (courier-room-member (courier-room overlook-room--name) id))
-                      (mapcar #'courier-agent-id (courier-agents)))
+                      (append (mapcar #'courier-agent-id (courier-agents)) (courier-offline)))
           nil t))
    overlook-room-mode)
   (courier-room-invite overlook-room--name id courier-room-user)

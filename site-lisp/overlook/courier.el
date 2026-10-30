@@ -80,16 +80,25 @@ spends one turn on them."
   :group 'courier)
 
 (defvar courier-spawn-function nil
-  "Function of NAME, DIRECTORY, parent ID and EFFORT starting agent NAME.
+  "Function of NAME, DIRECTORY, parent ID, EFFORT and AS starting agent NAME.
 It returns the new agent's id.  Set by a frontend; the parent ID is nil
 when no agent asked, and EFFORT, a reasoning effort level like
-\"high\", is nil unless one was asked for.")
+\"high\", is nil unless one was asked for.  AS is the id the agent must
+get, or nil for a new one.")
+
+(defvar courier-offline-functions nil
+  "Functions returning ids of agents that are not running but start on demand.")
+
+(defvar courier-start-functions nil
+  "Functions of an id and the id of the agent asking, starting that offline agent.
+The first to start it returns its id; the others return nil.")
 
 (defvar courier-prompt-functions nil
   "Functions of an agent's id returning a note for the prompt delivered to it.
 A function returns nil to add nothing.")
 
 (autoload 'courier-room-cli "courier-room")
+(autoload 'courier-persona-cli "courier-persona")
 
 (defvar courier-changed-hook nil
   "Hook run when an agent's mailbox, monitors or registration changed.")
@@ -129,6 +138,18 @@ A function returns nil to add nothing.")
   "All registered agents, sorted by id."
   (sort (hash-table-values courier--agents)
         (lambda (a b) (string< (courier-agent-id a) (courier-agent-id b)))))
+
+(defun courier-offline ()
+  "Ids of the agents `courier-reach' would start, sorted."
+  (sort (seq-remove #'courier-agent
+                    (delete-dups (apply #'append (mapcar #'funcall courier-offline-functions))))
+        #'string<))
+
+(defun courier-reach (id &optional from)
+  "The agent ID, started for agent FROM if it is offline, or nil."
+  (or (courier-agent id)
+      (and (member id (courier-offline))
+           (courier-agent (run-hook-with-args-until-success 'courier-start-functions id from)))))
 
 (defun courier-new-id (name directory)
   "A free id for agent NAME in DIRECTORY, like \"claude@shop\"."
@@ -202,8 +223,9 @@ ASIDE non-nil marks a message that asks TO for no report, like a room's."
   (if-let* ((sender (courier-agent from))) (1+ (courier-agent-hops sender)) 0))
 
 (defun courier-send (to body &optional from)
-  "Send BODY to agent TO from agent FROM, delivered once TO is ready."
-  (let ((agent (or (courier-agent to) (user-error "No agent %s" to))))
+  "Send BODY to agent TO from agent FROM, delivered once TO is ready.
+An offline TO is started first."
+  (let ((agent (or (courier-reach to from) (user-error "No agent %s" to))))
     (when-let* ((sender (courier-agent from)))
       (cl-pushnew to (courier-agent-told sender) :test #'equal)
       (when (equal to (courier-agent-parent sender))
@@ -225,13 +247,15 @@ ASIDE non-nil marks a message that asks TO for no report, like a room's."
     (run-hooks 'courier-changed-hook)
     t))
 
-(defun courier-spawn (name directory prompt &optional from effort)
+(defun courier-spawn (name directory prompt &optional from effort as)
   "Start agent NAME in DIRECTORY on PROMPT for agent FROM, its parent.
 EFFORT is the reasoning effort level to start it with, or nil for its
-default.  With PROMPT nil the agent idles, and its briefing comes with
-the first message it gets.  Returns the new agent's id."
+default; AS the id to give it, or nil for a new one.  With PROMPT nil the
+agent idles, and its briefing comes with the first message it gets.
+Returns the new agent's id."
   (unless courier-spawn-function (user-error "No frontend can spawn agents"))
-  (let ((id (funcall courier-spawn-function name (expand-file-name directory) from effort)))
+  (when (and as (courier-agent as)) (user-error "%s is running already" as))
+  (let ((id (funcall courier-spawn-function name (expand-file-name directory) from effort as)))
     (when-let* ((agent (courier-agent id)))
       (setf (courier-agent-parent agent) from))
     (if prompt
@@ -427,14 +451,17 @@ It goes on once they answer in its buffer." id what)))))
 
 (defun courier-cli (output from command &rest args)
   "Run COMMAND with ARGS for agent FROM and write the result to file OUTPUT.
-Called by bin/courier, which encodes every argument but OUTPUT with base64."
+Called by bin/courier, which encodes every argument but OUTPUT with base64,
+in the agent's working directory."
   (let* ((from (let ((id (courier--decode from))) (and (not (string-empty-p id)) id)))
          (args (mapcar #'courier--decode args))
          (text (condition-case err
                    (pcase (cons (courier--decode command) args)
                      (`("send" ,to ,body)
-                      (courier-send to body from)
-                      (format "Sent to %s; it arrives when %s is between turns." to to))
+                      (let ((offline (not (courier-agent to))))
+                        (courier-send to body from)
+                        (format "Sent to %s; it arrives when %s is between turns.%s" to to
+                                (if offline (format "  %s was offline, so it was started." to) ""))))
                      ((or `("spawn" ,name ,directory ,prompt)
                           `("spawn" "--effort" ,effort ,name ,directory ,prompt))
                       (let ((id (courier-spawn name directory prompt from effort)))
@@ -448,12 +475,16 @@ gone.  End your turn now."
                       (courier-monitor (or from (user-error "No COURIER_ID")) target)
                       (format "You will be told when %s next finishes a turn." target))
                      (`("list")
-                      (mapconcat #'courier--describe (courier-agents) "\n"))
+                      (concat (mapconcat #'courier--describe (courier-agents) "\n")
+                              (when-let* ((offline (courier-offline)))
+                                (format "\nOffline, started by a message: %s"
+                                        (string-join offline ", ")))))
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
                      (`("room" . ,rest) (courier-room-cli from rest))
+                     (`("persona" . ,rest) (courier-persona-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
 | spawn [--effort LEVEL] AGENT DIR PROMPT | monitor ID | list | whoami \
-| room COMMAND")))
+| room COMMAND | persona COMMAND")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)
