@@ -9,17 +9,29 @@
 #   courier room post ROOM MESSAGE post in a chat room; @ID or @all wakes those agents
 #   courier room read ROOM         its posts you have not read (--last N: the last N)
 #   courier room join ROOM         join it (--wake mention|all|none); room leave ROOM
-#   courier room invite ROOM ID    add agent ID to the room and tell it
+#   courier room invite ROOM ID    add agent ID to the room and tell it; @ID in a post does too
+#   courier room spawn ROOM AGENT DIR [TASK]  start AGENT in DIR as a member (--effort LEVEL first)
+#   courier room close ROOM        close the room; its posts are archived
 #   courier room list              list the rooms
+#   courier skill                  print the guide to courier for agents
 # Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
-if [ "$1" = "spawn" ] && [ "${2:-}" = "--effort" ] && [ $# -ge 5 ]; then
+if [ "$1" = "skill" ]; then
+  cat "$(dirname "$(readlink -f "$0")")/../skills/courier/SKILL.md"
+  exit 0
+fi
+
+if [ "$1" = "room" ] && [ "${2:-}" = "spawn" ] && [ "${3:-}" = "--effort" ] && [ $# -ge 7 ]; then
+  set -- "${@:1:6}" "$(cd "$7" && pwd)" "${@:8}"
+elif [ "$1" = "room" ] && [ "${2:-}" = "spawn" ] && [ $# -ge 5 ]; then
+  set -- "${@:1:4}" "$(cd "$5" && pwd)" "${@:6}"
+elif [ "$1" = "spawn" ] && [ "${2:-}" = "--effort" ] && [ $# -ge 5 ]; then
   set -- "$1" "$2" "$3" "$4" "$(cd "$5" && pwd)" "${@:6}"
 elif [ "$1" = "spawn" ] && [ $# -ge 3 ]; then
   set -- "$1" "$2" "$(cd "$3" && pwd)" "${@:4}"

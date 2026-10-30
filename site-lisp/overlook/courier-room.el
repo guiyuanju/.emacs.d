@@ -27,9 +27,11 @@
 ;; Emacs.  Posting wakes only the members it names, `@ID' or `@all',
 ;; through their courier mailbox: waking every member on every post would
 ;; cost each a turn and let agents answer each other until the hop limit.
-;; A member may instead ask to be woken by every post, or by none.  Other
-;; posts wait, and the next prompt courier delivers to a member says how
-;; many are unread.  The user is the member `courier-room-user'.
+;; Naming an agent that is not a member adds it.  A member may instead
+;; ask to be woken by every post, or by none.  Other posts wait, and the
+;; next prompt courier delivers to a member says how many are unread.
+;; The user is the member `courier-room-user'.  A closed room's posts
+;; move to an archive.
 
 ;;; Code:
 
@@ -45,6 +47,9 @@
 
 (defvar courier-room-post-functions nil
   "Functions of a room's NAME and a POST, called after each post.")
+
+(defvar courier-room-close-functions nil
+  "Functions of a room's NAME, called after it is closed.")
 
 (cl-defstruct (courier-room (:constructor courier-room--make) (:copier nil))
   "A chat room."
@@ -149,24 +154,53 @@ posts wake it.  A new member starts with every earlier post read."
     (run-hooks 'courier-changed-hook)
     room))
 
+(defun courier-room--invitation (name from)
+  "What an agent added to room NAME by member FROM is told."
+  (let ((recent (courier-room-history name 20)))
+    (concat (format "[courier] %s added you to the chat room #%s.  Posts naming \
+you, @ and your id, or @all wake you.  Post with `courier room post %s \
+MESSAGE`; leave with `courier room leave %s`."
+                    (if (or (null from) (equal from courier-room-user)) "Your user"
+                      (format "Agent %s" from))
+                    name name name)
+            (when recent
+              (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))))
+
 (defun courier-room-invite (name id &optional from)
   "Make agent ID a member of room NAME for member FROM, and tell it so."
   (let* ((agent (or (courier-agent id) (user-error "No agent %s" id)))
-         (room (courier-room-join name id))
-         (name (courier-room-name room))
-         (recent (courier-room-history name 20)))
-    (courier--enqueue
-     agent from
-     (concat (format "[courier] %s added you to the chat room #%s.  Posts naming \
-you, @%s or @all, wake you.  Post with `courier room post %s MESSAGE`; \
-leave with `courier room leave %s`."
-                     (if (or (null from) (equal from courier-room-user)) "Your user"
-                       (format "Agent %s" from))
-                     name id name name)
-             (when recent
-               (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))
-     (courier--hops from))
+         (room (courier-room-join name id)))
+    (courier--enqueue agent from (courier-room--invitation (courier-room-name room) from)
+                      (courier--hops from))
     room))
+
+(defun courier-room-spawn (name agent directory &optional from effort task)
+  "Start AGENT in DIRECTORY as a member of room NAME, for member FROM.
+EFFORT is its reasoning effort level, or nil.  It works on TASK if
+non-nil, and otherwise waits for posts.  Returns its id."
+  (let* ((name (courier-room-name (courier-room name t)))
+         (parent (and (courier-agent from) from))
+         (id (courier-spawn agent directory
+                            (concat (courier-room--invitation name from) "\n\n"
+                                    (or task "Nothing else is asked of you yet: \
+end your turn and wait for posts."))
+                            parent effort)))
+    (courier-room-join name id)
+    id))
+
+(defun courier-room-close (name)
+  "Close room NAME: forget its members, and move its posts to the archive."
+  (let* ((room (or (courier-room name) (user-error "No room #%s" name)))
+         (name (courier-room-name room))
+         (archive (expand-file-name "archive" courier-room-directory)))
+    (make-directory archive t)
+    (rename-file (courier-room--file name)
+                 (expand-file-name (format-time-string (concat name "-%Y%m%d-%H%M%S.jsonl"))
+                                   archive))
+    (setq courier-room--rooms (assoc-delete-all name courier-room--rooms))
+    (courier-room--save-members)
+    (run-hook-with-args 'courier-room-close-functions name)
+    (run-hooks 'courier-changed-hook)))
 
 (defun courier-room-leave (name id)
   "Take ID out of room NAME."
@@ -198,11 +232,15 @@ leave with `courier room leave %s`."
 
 ;;; Posting
 
-(defun courier-room-mentions-p (body id)
-  "Non-nil when BODY names member ID with @ID or @all."
-  (string-match-p (concat "@\\(?:" (regexp-quote id) "\\|all\\)"
+(defun courier-room--names-p (body id)
+  "Non-nil when BODY names ID with @ID."
+  (string-match-p (concat "@" (regexp-quote id)
                           "\\(?:\\'\\|[^[:alnum:]_@.-]\\|\\.\\(?:\\'\\|[^[:alnum:]]\\)\\)")
                   body))
+
+(defun courier-room-mentions-p (body id)
+  "Non-nil when BODY names member ID with @ID or @all."
+  (or (courier-room--names-p body id) (courier-room--names-p body "all")))
 
 (defun courier-room--wake-p (member id body)
   "Non-nil when a post of BODY wakes member ID, of membership MEMBER."
@@ -222,11 +260,18 @@ earlier talk: `courier room read %s`):\n\n%s"
 
 (defun courier-room-post (name from body)
   "Post BODY from member FROM in room NAME, joining it first if need be.
-Wakes the agents among its members the post is for."
+Agents BODY names with @ID join the room.  Wakes the members the post is
+for."
   (let* ((room (courier-room name t))
          (name (courier-room-name room)))
     (unless (courier-room-member room from)
       (courier-room-join name from))
+    (let ((added (cl-loop for agent in (courier-agents)
+                          for id = (courier-agent-id agent)
+                          unless (or (equal id from) (courier-room-member room id))
+                          when (courier-room--names-p body id)
+                          collect id)))
+      (dolist (id added) (courier-room-join name id))
     (let ((post (list :n (1+ (courier-room-count room)) :time (float-time)
                       :from from :body body)))
       (let ((coding-system-for-write 'utf-8-unix))
@@ -239,10 +284,15 @@ Wakes the agents among its members the post is for."
           (when-let* (((not (equal id from)))
                       ((courier-room--wake-p member id body))
                       (agent (courier-agent id)))
-            (courier--enqueue agent from (courier-room--wake-text name from body) hops))))
+            (courier--enqueue agent from
+                              (concat (courier-room--wake-text name from body)
+                                      (when (member id added)
+                                        (format "\n\n[courier] Being named added you to \
+#%s; leave with `courier room leave %s`." name name)))
+                              hops))))
       (run-hook-with-args 'courier-room-post-functions name post)
       (run-hooks 'courier-changed-hook)
-      post)))
+      post))))
 
 ;;; Text for agents
 
@@ -303,6 +353,15 @@ Marks every post read."
       (`("invite" ,name ,id)
        (courier-room-invite name id from)
        (format "Added %s to #%s." id (courier-room--check-name name)))
+      ((or `("spawn" ,name ,agent ,directory)
+           `("spawn" ,name ,agent ,directory ,task)
+           `("spawn" "--effort" ,effort ,name ,agent ,directory)
+           `("spawn" "--effort" ,effort ,name ,agent ,directory ,task))
+       (let ((id (courier-room-spawn name agent directory from effort task)))
+         (format "Started %s in #%s." id (courier-room--check-name name))))
+      (`("close" ,name)
+       (courier-room-close name)
+       (format "Closed #%s; its posts are archived." (courier-room--check-name name)))
       (`("leave" ,name)
        (courier-room-leave name (funcall me))
        (format "Left #%s." (courier-room--check-name name)))
@@ -311,7 +370,8 @@ Marks every post read."
                       (courier-room-names) "\n")
            "No rooms."))
       (_ (user-error "Usage: courier room post NAME MESSAGE | read NAME [--last N] \
-| join NAME [--wake mention|all|none] | invite NAME ID | leave NAME | list")))))
+| join NAME [--wake mention|all|none] | invite NAME ID \
+| spawn [--effort LEVEL] NAME AGENT DIR [TASK] | leave NAME | close NAME | list")))))
 
 (add-hook 'courier-prompt-functions #'courier-room-note)
 

@@ -53,7 +53,9 @@
   "Name of the room this buffer shows.")
 
 (defvar-keymap overlook-room-mode-map
-  "C-c C-i" #'overlook-room-invite)
+  "C-c C-i" #'overlook-room-invite
+  "C-c C-n" #'overlook-room-spawn
+  "C-c C-k" #'overlook-room-close)
 
 (define-derived-mode overlook-room-mode lui-mode "Room"
   "Chat in a courier room; RET posts the input.
@@ -121,6 +123,38 @@
    overlook-room-mode)
   (courier-room-invite overlook-room--name id courier-room-user)
   (message "Added %s to #%s" id overlook-room--name))
+
+(defvar overlook-agent-shell-configs)
+
+(defun overlook-room-spawn (agent directory task &optional effort)
+  "Start AGENT in DIRECTORY as a member of this buffer's room.
+It works on TASK, or waits for posts when TASK is empty.  With a prefix
+argument, ask for its reasoning EFFORT."
+  (interactive
+   (list (completing-read "Start agent: "
+                          (and (boundp 'overlook-agent-shell-configs)
+                               (mapcar #'car overlook-agent-shell-configs)))
+         (read-directory-name "In directory: ")
+         (read-string "Task (empty to wait for posts): ")
+         (and current-prefix-arg (read-string "Effort: ")))
+   overlook-room-mode)
+  (let ((id (courier-room-spawn overlook-room--name agent directory courier-room-user
+                                (and (not (string-empty-p (or effort ""))) effort)
+                                (and (not (string-empty-p task)) task))))
+    (message "Started %s in #%s" id overlook-room--name)))
+
+(defun overlook-room-close ()
+  "Close this buffer's room, archiving its posts."
+  (interactive nil overlook-room-mode)
+  (when (yes-or-no-p (format "Close #%s? " overlook-room--name))
+    (courier-room-close overlook-room--name)))
+
+(defun overlook-room--on-close (name)
+  "Kill room NAME's buffer."
+  (when-let* ((buffer (overlook-room--buffer name)))
+    (kill-buffer buffer)))
+
+(add-hook 'courier-room-close-functions #'overlook-room--on-close)
 
 (provide 'overlook-room)
 ;;; overlook-room.el ends here

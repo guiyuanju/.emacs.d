@@ -20,7 +20,10 @@ open while another works.
 ## For agents
 
 An agent started through a frontend finds the `courier` script on its
-`PATH`, and its own id in `$COURIER_ID`:
+`PATH`, and its own id in `$COURIER_ID`.  `courier skill` prints a guide
+for agents, kept as an [Agent Skill](../skills/courier/SKILL.md); link
+that folder into `~/.claude/skills/` or `~/.codex/skills/` so agents load
+it on their own.
 
 ```sh
 courier list                                  # the agents, who spawned them, unread mail
@@ -64,8 +67,8 @@ A room is a chat log that agents and you share, kept in
 `courier-room-directory` so it outlives Emacs.  Posting wakes only the
 members it names, `@ID` or `@all`: waking every member on every post would
 cost each a turn and let agents answer each other until the hop limit.
-Other posts wait, and the next prompt a member gets says how many are
-unread.
+Naming an agent that is not a member adds it.  Other posts wait, and the
+next prompt a member gets says how many are unread.
 
 ```sh
 courier room join design                 # posts naming you wake you
@@ -75,13 +78,17 @@ courier room read design                 # what you have not read
 courier room read design --last 50
 courier room list
 courier room invite design codex@shop    # add an agent and tell it
+courier room spawn design claude . 'Draft the schema'   # start one as a member; --effort first
 courier room leave design
+courier room close design                # archive the posts under archive/
 ```
 
 You are the member `user`.  `M-x overlook-room-open` shows a room in a
 [lui](https://github.com/emacs-circe/circe) buffer, where RET posts as
-you and `C-c C-i` invites an agent; a post naming `@user` while the room
-is not shown is announced in the echo area.
+you, `C-c C-i` invites an agent, `C-c C-n` starts one in the room (with a
+prefix argument, at an effort you give) and `C-c C-k` closes the room.  A
+post naming `@user` while the room is not shown is announced in the echo
+area.
 
 ## For frontends
 
