@@ -406,7 +406,20 @@ Agents are listed; usage and repos are not."
     (overlook-next-heading)
     (should (equal (overlook-item-at-point) '(perspective . "two")))
     (overlook-next-heading)
-    (should (equal (overlook-item-at-point) '(perspective . "one")))))
+    (should (looking-at-p "Perspectives$"))
+    (overlook-previous-heading)
+    (should (equal (overlook-item-at-point) '(perspective . "two")))))
+
+(ert-deftest overlook-heading-navigation-stops-at-section-titles ()
+  (overlook-test-with-dashboard '(("one")) "one"
+    (add-hook 'overlook-sections
+              (lambda () (overlook-insert-section "Extra" (lambda () (insert "row\n"))))
+              10)
+    (overlook--render)
+    (goto-char (point-min))
+    (overlook-next-heading)
+    (overlook-next-heading)
+    (should (looking-at-p "Extra$"))))
 
 (ert-deftest overlook-attention-stops-at-waiting-agents ()
   (let ((alpha (overlook-test--agent "alpha"))

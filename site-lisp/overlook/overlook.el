@@ -45,8 +45,8 @@
 ;; Rows are plain text with properties the core understands:
 ;; `overlook-item' identifies a row so point stays on it across redraws,
 ;; `overlook-action' is called by RET, `overlook-heading' marks lines that
-;; \\[overlook-next-heading] stops at, and `overlook-attention' those that
-;; \\[overlook-next-attention] stops at.
+;; \\[overlook-next-heading] stops at, section titles among them, and
+;; `overlook-attention' those that \\[overlook-next-attention] stops at.
 ;;
 ;; The dashboard is a `magit-section-mode' buffer: each section and row is
 ;; a section, so \\[magit-section-toggle] folds the rows under one and
@@ -427,10 +427,11 @@ Like Magit's, it highlights and folds with SECTION."
 (defun overlook-insert-section (title body)
   "Insert section TITLE, then call BODY, a function, to fill it.
 The title is dropped when BODY inserts nothing.  TITLE's text properties,
-like `overlook-action', cover its whole line.  A blank line ends the
-section, folded with it."
+like `overlook-action', cover its whole line, which is a heading for
+\\[overlook-next-heading].  A blank line ends the section, folded with it."
   (let ((line (concat title "\n")))
     (add-face-text-property 0 (length title) 'overlook-section t line)
+    (put-text-property 0 (length line) 'overlook-heading t line)
     (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
              unless (eq prop 'face)
              do (put-text-property 0 (length line) prop value line))
