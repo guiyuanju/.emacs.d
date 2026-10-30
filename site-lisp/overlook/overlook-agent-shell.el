@@ -59,7 +59,8 @@ A shell running none of these is named after its config's identifier."
 
 (defcustom overlook-agent-shell-effort-options
   '(("claude" . "effort")
-    ("codex" . "reasoning_effort"))
+    ("codex" . "reasoning_effort")
+    ("antigravity" . "thinking_level"))
   "Agent names and the session config option setting their reasoning effort.
 `overlook-agent-shell-start' sets it to `overlook-agent-effort' when that
 is non-nil."

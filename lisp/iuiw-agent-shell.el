@@ -96,6 +96,32 @@ other MCP calls asked for permission showing only their tool name."
             #'iuiw-agent-shell--permission-arguments
             '((name . iuiw-agent-shell-permission-arguments)))
 
+(defcustom iuiw-agent-shell-antigravity-session-mode "yolo"
+  "Session mode a new Antigravity shell starts in, or nil for its default.
+Antigravity offers \"default\", \"auto_edit\" (auto-approve file edits) and
+\"yolo\" (auto-approve every tool)."
+  :type '(choice (const :tag "Antigravity default" nil) string)
+  :group 'agent-shell)
+
+(defcustom iuiw-agent-shell-antigravity-config-options '(("thinking_level" . "low"))
+  "Session config options a new Antigravity shell starts with, as (OPTION . VALUE).
+Antigravity's \"thinking_level\" is \"low\", \"medium\" or \"high\"."
+  :type '(alist :key-type string :value-type string)
+  :group 'agent-shell)
+
+(defun iuiw-agent-shell--antigravity-defaults (config)
+  "Return Antigravity CONFIG starting in `iuiw-agent-shell-antigravity-session-mode'.
+It also sets `iuiw-agent-shell-antigravity-config-options'."
+  (setf (map-elt config :default-session-mode-id)
+        (lambda () iuiw-agent-shell-antigravity-session-mode))
+  (setf (map-elt config :default-config-options)
+        (lambda () iuiw-agent-shell-antigravity-config-options))
+  config)
+
+(advice-add 'agent-shell-antigravity-make-agent-config :filter-return
+            #'iuiw-agent-shell--antigravity-defaults
+            '((name . iuiw-agent-shell-antigravity-defaults)))
+
 (defun iuiw-agent-shell--quiet-header-line ()
   "Draw this buffer's header line on the buffer background, with breathing room."
   (let* ((bg (face-background 'default nil t))
