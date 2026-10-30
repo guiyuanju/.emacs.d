@@ -76,7 +76,7 @@ courier room join design                 # --wake all: every post wakes you
 courier room read design                 # posts you have not read; --last 50
 courier room post design '@codex@shop the API is v2 now'
 courier room invite design codex@shop
-courier room spawn design claude . 'Draft the schema'   # a new agent as a member
+courier room spawn design claude . 'Draft the schema'   # a new member; without a task it idles until named
 courier room leave design
 courier room close design                # archives the posts
 ```
@@ -84,6 +84,21 @@ courier room close design                # archives the posts
 Name only the members who must act, since each one you wake spends a
 turn.  Do not answer a post that needs no answer, and close or leave rooms
 you no longer need.
+
+## Keep it cheap
+
+Every prompt you cause costs the other agent a whole turn, and every new
+agent costs a startup of tens of thousands of tokens.
+
+- Give a follow-up to an agent that already has the context (`courier
+  list` shows who is idle) instead of starting another.
+- Start agents on simple, well-scoped work with `--effort low`.
+- Send one message with everything rather than several small ones, and
+  report once, at the end or when stuck.
+- Keep messages and posts short; put long material in a file and send the
+  path.
+- You need not answer notes that only inform you, such as an agent
+  waiting for the user or gone.
 
 ## Limits
 

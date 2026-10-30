@@ -44,7 +44,12 @@
   :group 'courier)
 
 (defcustom courier-room-wake-context 20
-  "Most unread posts that come along with a post waking a member."
+  "Most earlier posts that come along with a post waking or adding a member."
+  :type 'natnum
+  :group 'courier)
+
+(defcustom courier-room-context-chars 6000
+  "Most characters of the earlier posts that come along with one post."
   :type 'natnum
   :group 'courier)
 
@@ -160,38 +165,67 @@ posts wake it.  A new member starts with every earlier post read."
     (run-hooks 'courier-changed-hook)
     room))
 
+(defun courier-room--fit (posts)
+  "The latest of POSTS, newest first, that fit as context, oldest first.
+Returns (SHOWN . HIDDEN): the posts within `courier-room-wake-context'
+and `courier-room-context-chars', and how many of POSTS are left out."
+  (let ((room courier-room-context-chars) shown)
+    (cl-loop for post in posts
+             for text = (courier-room-format post)
+             while (and (< (length shown) courier-room-wake-context)
+                        (<= (length text) room))
+             do (setq room (- room (length text)))
+             (push post shown))
+    (cons shown (- (length posts) (length shown)))))
+
+(defun courier-room--context (name posts heading)
+  "POSTS of room NAME, newest first, as context under HEADING, or nil."
+  (pcase-let ((`(,shown . ,hidden) (courier-room--fit posts)))
+    (when shown
+      (format "%s%s:\n%s"
+              heading
+              (if (> hidden 0)
+                  (format " (%d earlier: `courier room read %s --last %d`)"
+                          hidden name
+                          (1+ (- (courier-room-count (courier-room name))
+                                 (plist-get (car (last posts)) :n))))
+                "")
+              (mapconcat #'courier-room-format shown "\n")))))
+
 (defun courier-room--invitation (name from)
   "What an agent added to room NAME by member FROM is told."
-  (let ((recent (courier-room-history name 20)))
+  (let ((recent (courier-room--context name (courier-room-posts (courier-room name))
+                                       "Recent posts")))
     (concat (format "[courier] %s added you to the chat room #%s.  Posts naming \
 you, @ and your id, or @all wake you.  Post with `courier room post %s \
 MESSAGE`; leave with `courier room leave %s`."
                     (if (or (null from) (equal from courier-room-user)) "Your user"
                       (format "Agent %s" from))
                     name name name)
-            (when recent
-              (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))))
+            (when recent (concat "  " recent)))))
 
 (defun courier-room-invite (name id &optional from)
   "Make agent ID a member of room NAME for member FROM, and tell it so."
   (let* ((agent (or (courier-agent id) (user-error "No agent %s" id)))
          (room (courier-room-join name id)))
     (courier--enqueue agent from (courier-room--invitation (courier-room-name room) from)
-                      (courier--hops from))
+                      (courier--hops from) t)
     room))
 
 (defun courier-room-spawn (name agent directory &optional from effort task)
   "Start AGENT in DIRECTORY as a member of room NAME, for member FROM.
 EFFORT is its reasoning effort level, or nil.  It works on TASK if
-non-nil, and otherwise waits for posts.  Returns its id."
+non-nil; otherwise it idles, and learns of the room with the first post
+that wakes it.  Returns its id."
   (let* ((name (courier-room-name (courier-room name t)))
          (parent (and (courier-agent from) from))
          (id (courier-spawn agent directory
-                            (concat (courier-room--invitation name from) "\n\n"
-                                    (or task "Nothing else is asked of you yet: \
-end your turn and wait for posts."))
+                            (and task (concat (courier-room--invitation name from)
+                                              "\n\n" task))
                             parent effort)))
     (courier-room-join name id)
+    (unless task
+      (courier-note id (courier-room--invitation name from)))
     id))
 
 (defun courier-room-close (name)
@@ -257,19 +291,12 @@ end your turn and wait for posts."))
 
 (defun courier-room--wake-text (name from body unread)
   "The prompt waking a member with BODY, posted by FROM in room NAME.
-UNREAD are the member's unread posts before it, newest first; the latest
-`courier-room-wake-context' of them come along."
-  (let ((shown (reverse (take courier-room-wake-context unread)))
-        (hidden (max 0 (- (length unread) courier-room-wake-context))))
+UNREAD are the member's unread posts before it, newest first; those
+`courier-room--fit' allows come along."
+  (let ((context (courier-room--context
+                  name unread (format "[courier] Unread in #%s before the post for you" name))))
     (concat
-     (when shown
-       (format "[courier] Unread in #%s before the post for you%s:\n%s\n\n"
-               name
-               (if (> hidden 0)
-                   (format " (%d earlier: `courier room read %s --last %d`)"
-                           hidden name (+ hidden (length shown) 1))
-                 "")
-               (mapconcat #'courier-room-format shown "\n")))
+     (when context (concat context "\n\n"))
      (format "[courier] #%s, from %s (answer with `courier room post %s MESSAGE`):\n\n%s"
              name
              (if (equal from courier-room-user) "your user"
@@ -317,7 +344,7 @@ for."
                                       (when (member id added)
                                         (format "\n\n[courier] Being named added you to \
 #%s; leave with `courier room leave %s`." name name)))
-                              hops)
+                              hops t)
             (setf (plist-get member :read) (courier-room-count room))))
         (courier-room--save-members))
       (run-hook-with-args 'courier-room-post-functions name post)

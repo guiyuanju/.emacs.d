@@ -136,7 +136,8 @@ what it is doing, or nil; `title' a function returning its session's
 title, or nil; `session' a function returning its session id,
 or nil; `submit' a function submitting a prompt to it; `ready' a function
 telling whether it can take a prompt now; `reply' a function returning
-its last reply, or nil; `choices' a function returning the answers it
+its last reply, or nil; `transcript' a function returning the file
+recording its session, or nil; `choices' a function returning the answers it
 offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
 in its buffer, or nil; `forked-from' a function returning the session id
 its session was forked from, or nil; `environment' the entries of

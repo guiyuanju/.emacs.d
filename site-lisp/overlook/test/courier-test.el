@@ -18,6 +18,7 @@
   (declare (indent 1))
   `(let ((courier--agents (make-hash-table :test #'equal))
          (courier--retry-timer nil)
+         (courier--delivery-timer nil)
          (courier-test--inbox nil)
          (courier-test--busy nil)
          (courier-test--replies nil))
@@ -25,7 +26,8 @@
          (progn
            (mapc #'courier-test--register ,ids)
            ,@body)
-       (when (timerp courier--retry-timer) (cancel-timer courier--retry-timer)))))
+       (when (timerp courier--retry-timer) (cancel-timer courier--retry-timer))
+       (when (timerp courier--delivery-timer) (cancel-timer courier--delivery-timer)))))
 
 (defun courier-test--register (id &optional parent)
   "Register fake agent ID, spawned by PARENT."
@@ -84,15 +86,6 @@
     (courier-turn-finished "b@p")
     (courier-deliver)
     (should (= (length (courier-test--received "a@p")) 1))))
-
-(ert-deftest courier-monitor-passes-a-long-reply-whole ()
-  (courier-test-with-agents '("a@p" "b@p")
-    (courier-monitor "a@p" "b@p")
-    (let ((reply (concat (make-string 10000 ?x) "end")))
-      (setf (alist-get "b@p" courier-test--replies nil nil #'equal) reply)
-      (courier-turn-finished "b@p")
-      (courier-deliver)
-      (should (string-suffix-p reply (car (courier-test--received "a@p")))))))
 
 (ert-deftest courier-monitor-hears-when-the-agent-is-gone ()
   (courier-test-with-agents '("a@p")
@@ -238,7 +231,11 @@
     (courier-turn-started "c@p")
     (courier-blocked "c@p" "? Which branch")
     (courier-deliver)
-    (should (string-match-p "Which branch" (car (last (courier-test--received "a@p")))))))
+    ;; Only the user can answer, so the parent is not woken for it.
+    (should (= (length (courier-test--received "a@p")) 1))
+    (courier-send "a@p" "next" "c@p")
+    (courier-deliver)
+    (should (string-match-p "Which branch\\(.\\|\n\\)*next" (cadr (courier-test--received "a@p"))))))
 
 (ert-deftest courier-parent-hears-when-its-child-is-gone ()
   (courier-test-with-agents '("a@p")
@@ -246,7 +243,54 @@
       (courier-register "c@p" :buffer buffer :deliver #'ignore :parent "a@p")
       (kill-buffer buffer)
       (courier-deliver)
+      ;; It owed no report, so the parent learns of it with its next prompt.
+      (should-not (courier-test--received "a@p"))
+      (courier-send "a@p" "hi")
+      (courier-deliver)
+      (should (string-match-p "c@p is gone\\(.\\|\n\\)*hi" (car (courier-test--received "a@p")))))))
+
+(ert-deftest courier-child-gone-before-reporting-wakes-the-parent ()
+  (courier-test-with-agents '("a@p")
+    (let ((buffer (generate-new-buffer "c")))
+      (courier-register "c@p" :buffer buffer :deliver #'ignore :parent "a@p")
+      (courier-send "c@p" "the task" "a@p")
+      (courier-deliver)
+      (kill-buffer buffer)
+      (courier-deliver)
       (should (string-match-p "c@p is gone" (car (courier-test--received "a@p")))))))
+
+(ert-deftest courier-cuts-a-long-reply-from-its-start ()
+  (courier-test-with-child
+    (let ((courier-reply-max 10))
+      (setf (alist-get "c@p" courier-test--replies nil nil #'equal) "0123456789abcdefghij")
+      (courier-turn-finished "c@p")
+      (courier-deliver)
+      (should (string-match-p "\\[… 10 characters cut\\]\nabcdefghij\\'"
+                              (car (courier-test--received "a@p")))))))
+
+(ert-deftest courier-spawn-without-a-prompt-waits-to-brief ()
+  (courier-test-with-agents '("a@p")
+    (let ((courier-spawn-function
+           (lambda (name directory parent _effort)
+             (let ((id (courier-new-id name directory)))
+               (courier-test--register id parent)
+               id))))
+      (courier-spawn "codex" "/work/p/" nil "a@p")
+      (courier-deliver)
+      (should-not (courier-test--received "codex@p"))
+      (courier-send "codex@p" "now this" "a@p")
+      (courier-deliver)
+      (should (string-match-p "You are codex@p\\(.\\|\n\\)*now this"
+                              (car (courier-test--received "codex@p")))))))
+
+(ert-deftest courier-gathers-mail-before-delivering ()
+  (courier-test-with-agents '("a@p" "b@p")
+    (let ((courier-delivery-delay 0.05))
+      (courier-send "b@p" "one" "a@p")
+      (courier-send "b@p" "two" "a@p")
+      (should-not (courier-test--received "b@p"))
+      (sleep-for 0.2)
+      (should (= (length (courier-test--received "b@p")) 1)))))
 
 (defmacro courier-test-with-rooms (ids &rest body)
   "Run BODY with fake agents IDS and no rooms, kept in a fresh directory."
@@ -361,8 +405,17 @@
       (should (equal spawned '(("codex" nil "low"))))
       (should (courier-room-member (courier-room "ops") "codex@p"))
       (courier-deliver)
-      (should (string-match-p "Your user added you to the chat room #ops\\(.\\|\n\\)*wait for posts"
+      (should-not (courier-test--received "codex@p"))
+      (courier-room-post "ops" courier-room-user "@codex@p hello")
+      (courier-deliver)
+      (should (string-match-p "Your user added you to the chat room #ops\\(.\\|\n\\)*hello"
                               (car (courier-test--received "codex@p"))))
+      (courier-room-post "ops" "a@p" "@codex@p fine")
+      (courier-turn-started "codex@p")
+      (courier-turn-finished "codex@p")
+      (courier-deliver)
+      ;; A room post asks for no report, so the spawning agent hears nothing.
+      (should-not (courier-test--received "a@p"))
       (courier-room-spawn "ops" "claude" "/work/p/" "a@p" nil "Draft it")
       (should (equal (car spawned) '("claude" "a@p" nil)))
       (courier-deliver)
@@ -410,7 +463,7 @@
       (courier-room-post "ops" "a@p" "@b@p now")
       (courier-deliver)
       (let ((prompt (car (courier-test--received "b@p"))))
-        (should (string-match-p "(1 earlier: `courier room read ops --last 4`)" prompt))
+        (should (string-match-p "(1 earlier: `courier room read ops --last 5`)" prompt))
         (should (string-match-p "post 1\n.*post 2\n\n\\[courier\\] #ops, from agent a@p" prompt))
         (should-not (string-match-p "post 0\\|mine" prompt)))
       (should (= (courier-room-unread (courier-room "ops") "b@p") 0))
@@ -419,5 +472,16 @@
       (courier-turn-finished "b@p")
       (courier-deliver)
       (should-not (string-match-p "Unread" (cadr (courier-test--received "b@p")))))))
+
+(ert-deftest courier-room-post-asks-no-report ()
+  (courier-test-with-rooms '("a@p")
+    (courier-test--register "c@p" "a@p")
+    (courier-room-post "ops" "a@p" "@c@p thoughts?")
+    (courier-deliver)
+    (courier-turn-started "c@p")
+    (courier-room-post "ops" "c@p" "fine")
+    (courier-turn-finished "c@p")
+    (courier-deliver)
+    (should-not (courier-test--received "a@p"))))
 
 ;;; courier-test.el ends here

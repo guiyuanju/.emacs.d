@@ -383,6 +383,10 @@ Nil until they are gathered, so that an empty environment is gathered once.")
                    (append (car overlook-agent-shell--environment)
                            (plist-get args :environment-variables)))))))
 
+(defun overlook-agent-shell--transcript ()
+  "The file recording this shell's session, or nil."
+  (and agent-shell--transcript-file (expand-file-name agent-shell--transcript-file)))
+
 (defun overlook-agent-shell--track ()
   "Track this shell as an agent, unless it is already or is ignored."
   (unless (or overlook-agent-identity
@@ -402,7 +406,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (forked-from . overlook-agent-shell--forked-from)
               (submit . overlook-agent-shell--submit)
               (ready . overlook-agent-shell--ready)
-              (reply . overlook-agent-shell--last-reply)))
+              (reply . overlook-agent-shell--last-reply)
+              (transcript . overlook-agent-shell--transcript)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
       (when-let* ((client (map-elt agent-shell--state :client)))
         (acp-subscribe-to-notifications :client client :buffer buffer

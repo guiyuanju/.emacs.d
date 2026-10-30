@@ -67,6 +67,18 @@ A message an agent sends while handling one is a hop further along."
   :type 'number
   :group 'courier)
 
+(defcustom courier-delivery-delay 2
+  "Seconds courier gathers mail before delivering it.
+Messages arriving within this time reach an agent as one prompt, so it
+spends one turn on them."
+  :type 'number
+  :group 'courier)
+
+(defcustom courier-reply-max 4000
+  "Most characters of a reply courier passes on; the rest is cut from its start."
+  :type 'natnum
+  :group 'courier)
+
 (defvar courier-spawn-function nil
   "Function of NAME, DIRECTORY, parent ID and EFFORT starting agent NAME.
 It returns the new agent's id.  Set by a frontend; the parent ID is nil
@@ -98,12 +110,16 @@ A function returns nil to add nothing.")
   (askers nil :documentation "Senders of the messages this agent's turn handles.")
   (told nil :documentation "Agents this one sent to in its current turn.")
   (blocked nil :documentation "Non-nil once its parent heard it waits for the user this turn.")
-  parent)
+  (owes nil :documentation "Non-nil while it has not reported on a message from its parent.")
+  (notes nil :documentation "Notes for its next prompt, oldest first; they wake nobody.")
+  transcript parent)
 
 (defvar courier--agents (make-hash-table :test #'equal)
   "Registered agents by id.")
 
 (defvar courier--retry-timer nil)
+
+(defvar courier--delivery-timer nil)
 
 (defun courier-agent (id)
   "The agent registered as ID, or nil."
@@ -133,14 +149,16 @@ A function returns nil to add nothing.")
                         (expand-file-name (bound-and-true-p server-name)
                                           (bound-and-true-p server-socket-dir)))))))
 
-(cl-defun courier-register (id &key buffer deliver ready reply parent)
+(cl-defun courier-register (id &key buffer deliver ready reply transcript parent)
   "Register agent ID and return it.
 BUFFER is the agent's buffer, unregistered when killed.  DELIVER is a
 function of a prompt submitting it to the agent; READY a function telling
 whether it can take one now; REPLY a function returning its last reply,
-or nil.  PARENT is the id of the agent that spawned it."
+or nil; TRANSCRIPT a function returning the file of its whole session, or
+nil.  PARENT is the id of the agent that spawned it."
   (let ((agent (courier-agent--make :id id :buffer buffer :deliver deliver
-                                    :ready ready :reply reply :parent parent)))
+                                    :ready ready :reply reply :transcript transcript
+                                    :parent parent)))
     (puthash id agent courier--agents)
     (when (buffer-live-p buffer)
       (with-current-buffer buffer
@@ -149,23 +167,33 @@ or nil.  PARENT is the id of the agent that spawned it."
     agent))
 
 (defun courier-unregister (id)
-  "Forget agent ID, telling its parent and monitors that it is gone."
+  "Forget agent ID, telling its parent and monitors that it is gone.
+A parent it already reported to only finds that in its next prompt."
   (when-let* ((agent (courier-agent id)))
     (remhash id courier--agents)
-    (courier--tell agent (courier--watchers agent t) (format "[courier] %s is gone." id))
+    (let ((text (format "[courier] %s is gone." id))
+          (parent (courier-agent-parent agent)))
+      (courier--tell agent (if (courier-agent-owes agent)
+                               (courier--watchers agent t)
+                             (remove parent (courier-agent-monitors agent)))
+                     text)
+      (unless (courier-agent-owes agent)
+        (courier-note parent text)))
     (setf (courier-agent-monitors agent) nil)
     (run-hooks 'courier-changed-hook)))
 
 ;;; Messages
 
-(defun courier--enqueue (to from body hops)
-  "Put BODY from FROM in TO's mailbox, HOPS from a human prompt."
+(defun courier--enqueue (to from body hops &optional aside)
+  "Put BODY from FROM in TO's mailbox, HOPS from a human prompt.
+ASIDE non-nil marks a message that asks TO for no report, like a room's."
   (if (> hops courier-max-hops)
       (message "courier: dropped a message from %s to %s after %d hops"
                (or from "?") (courier-agent-id to) courier-max-hops)
     (setf (courier-agent-mailbox to)
           (append (courier-agent-mailbox to)
-                  (list (list :from from :body body :hops hops :time (float-time)))))
+                  (list (list :from from :body body :hops hops :time (float-time)
+                              :aside aside))))
     (run-hooks 'courier-changed-hook)
     (courier--schedule)))
 
@@ -177,9 +205,17 @@ or nil.  PARENT is the id of the agent that spawned it."
   "Send BODY to agent TO from agent FROM, delivered once TO is ready."
   (let ((agent (or (courier-agent to) (user-error "No agent %s" to))))
     (when-let* ((sender (courier-agent from)))
-      (cl-pushnew to (courier-agent-told sender) :test #'equal))
+      (cl-pushnew to (courier-agent-told sender) :test #'equal)
+      (when (equal to (courier-agent-parent sender))
+        (setf (courier-agent-owes sender) nil)))
     (courier--enqueue agent from body (courier--hops from))
     t))
+
+(defun courier-note (id text)
+  "Add TEXT to the next prompt agent ID gets, without waking it."
+  (when-let* ((agent (courier-agent id)))
+    (setf (courier-agent-notes agent) (append (courier-agent-notes agent) (list text)))
+    (run-hooks 'courier-changed-hook)))
 
 (defun courier-monitor (watcher target)
   "Tell agent WATCHER, with its reply, the next time agent TARGET finishes a turn."
@@ -190,28 +226,30 @@ or nil.  PARENT is the id of the agent that spawned it."
     t))
 
 (defun courier-spawn (name directory prompt &optional from effort)
-  "Start agent NAME in DIRECTORY on PROMPT for agent FROM, which it monitors.
+  "Start agent NAME in DIRECTORY on PROMPT for agent FROM, its parent.
 EFFORT is the reasoning effort level to start it with, or nil for its
-default.  Returns the new agent's id."
+default.  With PROMPT nil the agent idles, and its briefing comes with
+the first message it gets.  Returns the new agent's id."
   (unless courier-spawn-function (user-error "No frontend can spawn agents"))
   (let ((id (funcall courier-spawn-function name (expand-file-name directory) from effort)))
     (when-let* ((agent (courier-agent id)))
       (setf (courier-agent-parent agent) from))
-    (when (courier-agent from)
-      (courier-monitor from id))
-    (courier--enqueue (courier-agent id) from
-                      (concat (courier--briefing id from) "\n\n" prompt)
-                      (courier--hops from))
+    (if prompt
+        (courier--enqueue (courier-agent id) from
+                          (concat (courier--briefing id from t) "\n\n" prompt)
+                          (courier--hops from))
+      (courier-note id (courier--briefing id from nil)))
     id))
 
-(defun courier--briefing (id from)
-  "What agent ID is told when spawned for agent FROM."
+(defun courier--briefing (id from task)
+  "What agent ID is told when spawned for agent FROM, with a TASK or not."
   (concat (format "You are %s, an agent reachable through courier." id)
           (when from
-            (format "  %s started you for the task below.  When you finish it \
-or get stuck, report to %s with `courier send %s MESSAGE`; put a long \
-result in a file and send its path.  If you end a turn on its task without \
-reporting, your final reply is sent to it instead." from from from))
+            (format "  %s started you%s.  When you finish what it asks or get \
+stuck, report to %s with `courier send %s MESSAGE`; put a long result in a \
+file and send its path.  If you end a turn on its message without \
+reporting, your final reply is sent to it instead."
+                    from (if task " for the task below" "") from from))
           "  Message another agent with `courier send ID MESSAGE`; `courier list` \
 shows them."))
 
@@ -220,6 +258,18 @@ shows them."))
   (let ((watchers (courier-agent-monitors agent))
         (parent (and parent (courier-agent-parent agent))))
     (if parent (cl-adjoin parent watchers :test #'equal) watchers)))
+
+(defun courier--cut (text agent)
+  "TEXT of AGENT's, cut from its start to `courier-reply-max' characters."
+  (if (<= (length text) courier-reply-max)
+      text
+    (concat (format "[… %d characters cut%s]\n"
+                    (- (length text) courier-reply-max)
+                    (if-let* ((transcript (courier-agent-transcript agent))
+                              (file (ignore-errors (funcall transcript))))
+                        (format "; all of it is in %s" file)
+                      ""))
+            (substring text (- courier-reply-max)))))
 
 (defun courier--tell (agent watchers text)
   "Send TEXT from AGENT to the agents of ids WATCHERS."
@@ -255,25 +305,29 @@ reported to it, unless the turn failed."
       (setf (courier-agent-delivered agent) nil
             (courier-agent-askers agent) nil
             (courier-agent-monitors agent) nil)
+      (when (member (courier-agent-parent agent) watchers)
+        (setf (courier-agent-owes agent) nil))
       (when watchers
         (let ((reply (courier--reply agent)))
           (courier--tell agent watchers
                          (concat (if error
                                      (format "[courier] %s hit an error: %s" id error)
                                    (format "[courier] %s finished its turn" id))
-                                 (if reply (format ".  Its reply:\n\n%s" reply) "."))))))
+                                 (if reply
+                                     (format ".  Its reply:\n\n%s" (courier--cut reply agent))
+                                   "."))))))
     (courier--schedule)))
 
 (defun courier-blocked (id what)
-  "Tell agent ID's parent and monitors that it waits for the user on WHAT.
-They hear it once per turn."
+  "Note for agent ID's parent and monitors that it waits for the user on WHAT.
+Only the user can answer, so they are not woken; they find it in their
+next prompt, once per turn."
   (when-let* ((agent (courier-agent id))
-              ((not (courier-agent-blocked agent)))
-              (watchers (courier--watchers agent t)))
+              ((not (courier-agent-blocked agent))))
     (setf (courier-agent-blocked agent) t)
-    (courier--tell agent watchers
-                   (format "[courier] %s is waiting for the user: %s.  It goes on \
-once they answer in its buffer." id what))))
+    (dolist (watcher (courier--watchers agent t))
+      (courier-note watcher (format "[courier] %s is waiting for the user: %s.  \
+It goes on once they answer in its buffer." id what)))))
 
 (defun courier--reply (agent)
   "AGENT's last reply, or nil."
@@ -299,9 +353,10 @@ once they answer in its buffer." id what))))
 
 (defun courier--prompt (agent messages)
   "The prompt delivering MESSAGES to AGENT, with the notes for it."
-  (string-join (cons (courier--format messages)
-                     (delq nil (mapcar (lambda (fn) (funcall fn (courier-agent-id agent)))
-                                       courier-prompt-functions)))
+  (string-join (append (courier-agent-notes agent)
+                       (list (courier--format messages))
+                       (delq nil (mapcar (lambda (fn) (funcall fn (courier-agent-id agent)))
+                                         courier-prompt-functions)))
                "\n\n---\n\n"))
 
 (defun courier--ready-p (agent)
@@ -322,11 +377,18 @@ once they answer in its buffer." id what))))
           (setf (courier-agent-mailbox agent) nil
                 (courier-agent-delivered agent) t
                 (courier-agent-askers agent)
-                (delete-dups (delq nil (mapcar (lambda (m) (plist-get m :from)) messages)))
+                (delete-dups (delq nil (mapcar (lambda (m) (and (not (plist-get m :aside))
+                                                                (plist-get m :from)))
+                                               messages)))
+                (courier-agent-owes agent)
+                (or (courier-agent-owes agent)
+                    (and (member (courier-agent-parent agent) (courier-agent-askers agent)) t))
                 (courier-agent-hops agent)
                 (apply #'max (mapcar (lambda (m) (plist-get m :hops)) messages)))
           (condition-case err
-              (funcall (courier-agent-deliver agent) (courier--prompt agent messages))
+              (progn
+                (funcall (courier-agent-deliver agent) (courier--prompt agent messages))
+                (setf (courier-agent-notes agent) nil))
             (error
              (setf (courier-agent-mailbox agent) messages
                    (courier-agent-delivered agent) nil
@@ -338,8 +400,13 @@ once they answer in its buffer." id what))))
           (and waiting (run-at-time courier-retry-interval nil #'courier-deliver)))))
 
 (defun courier--schedule ()
-  "Deliver soon, outside whatever process filter or hook is running."
-  (run-at-time 0 nil #'courier-deliver))
+  "Deliver after `courier-delivery-delay', gathering the mail that comes meanwhile."
+  (unless (timerp courier--delivery-timer)
+    (setq courier--delivery-timer
+          (run-at-time courier-delivery-delay nil
+                       (lambda ()
+                         (setq courier--delivery-timer nil)
+                         (courier-deliver))))))
 
 ;;; Calls from agents
 

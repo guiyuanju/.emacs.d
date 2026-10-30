@@ -60,7 +60,8 @@
                      (courier-new-id (or (overlook-agent-get buffer 'agent) "agent")
                                      (or (overlook-agent-get buffer 'root) default-directory))))
             (ready (overlook-agent-get buffer 'ready))
-            (reply (overlook-agent-get buffer 'reply)))
+            (reply (overlook-agent-get buffer 'reply))
+            (transcript (overlook-agent-get buffer 'transcript)))
         (setq overlook-courier-id id)
         (courier-register
          id
@@ -71,7 +72,9 @@
                   (with-current-buffer buffer
                     (if ready (funcall ready)
                       (not (memq overlook-agent-status '(working waiting))))))
-         :reply (and reply (lambda () (with-current-buffer buffer (funcall reply)))))))))
+         :reply (and reply (lambda () (with-current-buffer buffer (funcall reply))))
+         :transcript (and transcript
+                          (lambda () (with-current-buffer buffer (funcall transcript)))))))))
 
 (defun overlook-courier--sync ()
   "Register the agents courier does not know yet."

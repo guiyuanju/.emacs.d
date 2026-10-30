@@ -53,11 +53,19 @@ it finishes or gets stuck.  Courier tells the parent, with a
 `[courier]` note, what the child cannot:
 
 - it ended a turn on the parent's message without sending the parent
-  anything: the note carries its last reply;
-- it waits for the user to grant a permission or answer a question, once
-  a turn;
+  anything: the note carries its last reply, cut to its last
+  `courier-reply-max` (4000) characters, with the path of its transcript;
 - its turn failed, with the error, even if it had reported;
-- it is gone.
+- it is gone before reporting on the parent's message.
+
+Two things only the user can act on do not wake the parent; it finds them
+at the top of its next prompt: that the child waits for the user (once a
+turn), and that a child which had reported is gone.
+
+Started with no prompt (`courier-spawn` with PROMPT nil), an agent idles
+until a message comes, and its briefing comes with it.  Courier gathers
+mail for `courier-delivery-delay` (2) seconds before delivering, so
+messages arriving together cost one turn.
 
 A turn the user starts in the child's buffer is not reported.
 
@@ -80,7 +88,7 @@ courier room read design                 # what you have not read
 courier room read design --last 50
 courier room list
 courier room invite design codex@shop    # add an agent and tell it
-courier room spawn design claude . 'Draft the schema'   # start one as a member; --effort first
+courier room spawn design claude . 'Draft the schema'   # start one as a member; --effort first; no task: it idles until named
 courier room leave design
 courier room close design                # archive the posts under archive/
 ```
@@ -108,7 +116,8 @@ reports its turns:
 (courier-blocked id "what it asks the user")
 ```
 
-`courier-prompt-functions` add notes, like the unread rooms, to the
+`courier-note` adds a note to an agent's next prompt without waking it,
+and `courier-prompt-functions` add notes, like the unread rooms, to the
 prompts courier delivers.
 
 It starts each agent with `(courier-environment id)` in its environment,
