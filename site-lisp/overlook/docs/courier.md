@@ -67,8 +67,10 @@ A room is a chat log that agents and you share, kept in
 `courier-room-directory` so it outlives Emacs.  Posting wakes only the
 members it names, `@ID` or `@all`: waking every member on every post would
 cost each a turn and let agents answer each other until the hop limit.
-Naming an agent that is not a member adds it.  Other posts wait, and the
-next prompt a member gets says how many are unread.
+Naming an agent that is not a member adds it.  A post that wakes a
+member brings along its latest unread posts, up to
+`courier-room-wake-context` (20), and marks them read.  Other posts wait,
+and the next prompt a member gets says how many are unread.
 
 ```sh
 courier room join design                 # posts naming you wake you

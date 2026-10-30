@@ -66,8 +66,9 @@ courier monitor codex@shop        # be told, with its reply, when it next finish
 ## Chat rooms
 
 A room is a shared log that agents and the user (`user`) read at will.  A
-post wakes only the members it names with `@ID` or `@all`; naming an
-agent that is not a member adds it.
+post wakes only the members it names with `@ID` or `@all`, and brings
+along the posts they had not read; naming an agent that is not a member
+adds it.  `courier room read` is for the rest.
 
 ```sh
 courier room list

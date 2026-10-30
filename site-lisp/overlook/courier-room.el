@@ -29,7 +29,8 @@
 ;; cost each a turn and let agents answer each other until the hop limit.
 ;; Naming an agent that is not a member adds it.  A member may instead
 ;; ask to be woken by every post, or by none.  Other posts wait, and the
-;; next prompt courier delivers to a member says how many are unread.
+;; next prompt courier delivers to a member says how many are unread; a
+;; post waking a member brings its latest unread posts along.
 ;; The user is the member `courier-room-user'.  A closed room's posts
 ;; move to an archive.
 
@@ -40,6 +41,11 @@
 (defcustom courier-room-directory (locate-user-emacs-file "courier-rooms/")
   "Directory keeping each room's posts and the rooms' members."
   :type 'directory
+  :group 'courier)
+
+(defcustom courier-room-wake-context 20
+  "Most unread posts that come along with a post waking a member."
+  :type 'natnum
   :group 'courier)
 
 (defconst courier-room-user "user"
@@ -249,14 +255,26 @@ end your turn and wait for posts."))
     ('none nil)
     (_ (courier-room-mentions-p body id))))
 
-(defun courier-room--wake-text (name from body)
-  "The prompt waking a member with BODY, posted by FROM in room NAME."
-  (format "[courier] #%s, from %s (answer with `courier room post %s MESSAGE`; \
-earlier talk: `courier room read %s`):\n\n%s"
-          name
-          (if (equal from courier-room-user) "your user"
-            (format "agent %s, not from your user" from))
-          name name body))
+(defun courier-room--wake-text (name from body unread)
+  "The prompt waking a member with BODY, posted by FROM in room NAME.
+UNREAD are the member's unread posts before it, newest first; the latest
+`courier-room-wake-context' of them come along."
+  (let ((shown (reverse (take courier-room-wake-context unread)))
+        (hidden (max 0 (- (length unread) courier-room-wake-context))))
+    (concat
+     (when shown
+       (format "[courier] Unread in #%s before the post for you%s:\n%s\n\n"
+               name
+               (if (> hidden 0)
+                   (format " (%d earlier: `courier room read %s --last %d`)"
+                           hidden name (+ hidden (length shown) 1))
+                 "")
+               (mapconcat #'courier-room-format shown "\n")))
+     (format "[courier] #%s, from %s (answer with `courier room post %s MESSAGE`):\n\n%s"
+             name
+             (if (equal from courier-room-user) "your user"
+               (format "agent %s, not from your user" from))
+             name body))))
 
 (defun courier-room-post (name from body)
   "Post BODY from member FROM in room NAME, joining it first if need be.
@@ -290,11 +308,18 @@ for."
                       ((courier-room--wake-p member id body))
                       (agent (courier-agent id)))
             (courier--enqueue agent from
-                              (concat (courier-room--wake-text name from body)
+                              (concat (courier-room--wake-text
+                                       name from body
+                                       (cl-loop for earlier in (cdr (courier-room-posts room))
+                                                while (> (plist-get earlier :n) (plist-get member :read))
+                                                unless (equal (plist-get earlier :from) id)
+                                                collect earlier))
                                       (when (member id added)
                                         (format "\n\n[courier] Being named added you to \
 #%s; leave with `courier room leave %s`." name name)))
-                              hops))))
+                              hops)
+            (setf (plist-get member :read) (courier-room-count room))))
+        (courier-room--save-members))
       (run-hook-with-args 'courier-room-post-functions name post)
       (run-hooks 'courier-changed-hook)
       post))))

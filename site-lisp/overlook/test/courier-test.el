@@ -278,7 +278,8 @@
     (should-not (courier-test--received "a@p"))
     (should (string-match-p "#design, from agent a@p, not from your user\\(.\\|\n\\)*your turn"
                             (car (courier-test--received "b@p"))))
-    (should-not (string-match-p "plain talk" (car (courier-test--received "b@p"))))
+    (should (string-match-p "Unread in #design before the post for you:\n.*a@p: plain talk\n\n"
+                            (car (courier-test--received "b@p"))))
     (should (string-match-p "plain talk\\(.\\|\n\\)*your turn" (car (courier-test--received "c@p"))))
     (should-not (courier-test--received "d@p"))
     (courier-room-post "design" courier-room-user "@all stop")
@@ -316,9 +317,10 @@
   (courier-test-with-rooms '("a@p" "b@p")
     (should (string-match-p "Joined #x" (courier-room-cli "b@p" '("join" "x"))))
     (should (equal (courier-room-cli "a@p" '("post" "#x" "hello @b@p")) "Posted #1 in #x."))
-    (should (string-match-p "#x  1 posts, 1 unread  members: b@p, a@p"
+    (should (string-match-p "#x  1 posts  members: b@p, a@p"
                             (courier-room-cli "b@p" '("list"))))
-    (should (string-match-p "hello" (courier-room-cli "b@p" '("read" "x"))))
+    (should (string-match-p "No unread" (courier-room-cli "b@p" '("read" "x"))))
+    (should (string-match-p "hello" (courier-room-cli "b@p" '("read" "x" "--last" "1"))))
     (should-error (courier-room-cli "a@p" '("post" "Bad Name" "x")) :type 'user-error)))
 
 (ert-deftest courier-room-invite-adds-and-tells-the-agent ()
@@ -344,7 +346,7 @@
     (should-not (courier-room-member (courier-room "ops") "c@p"))
     (let ((prompt (car (courier-test--received "b@p"))))
       (should (string-match-p "please look\n\n\\[courier\\] Being named added you to #ops" prompt)))
-    (should (= (courier-room-unread (courier-room "ops") "b@p") 1))))
+    (should (= (courier-room-unread (courier-room "ops") "b@p") 0))))
 
 (ert-deftest courier-room-spawn-starts-a-member ()
   (courier-test-with-rooms '("a@p")
@@ -398,5 +400,24 @@
     (courier-room-post "ops" "a@p" "theirs")
     (courier-room-post "ops" "b@p" "mine again")
     (should (= (courier-room-unread (courier-room "ops") "b@p") 2))))
+
+(ert-deftest courier-room-wake-brings-the-latest-unread ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (let ((courier-room-wake-context 2))
+      (courier-room-join "ops" "b@p")
+      (dotimes (i 3) (courier-room-post "ops" "a@p" (format "post %d" i)))
+      (courier-room-post "ops" "b@p" "mine")
+      (courier-room-post "ops" "a@p" "@b@p now")
+      (courier-deliver)
+      (let ((prompt (car (courier-test--received "b@p"))))
+        (should (string-match-p "(1 earlier: `courier room read ops --last 4`)" prompt))
+        (should (string-match-p "post 1\n.*post 2\n\n\\[courier\\] #ops, from agent a@p" prompt))
+        (should-not (string-match-p "post 0\\|mine" prompt)))
+      (should (= (courier-room-unread (courier-room "ops") "b@p") 0))
+      (courier-room-post "ops" "a@p" "@b@p again")
+      (courier-turn-started "b@p")
+      (courier-turn-finished "b@p")
+      (courier-deliver)
+      (should-not (string-match-p "Unread" (cadr (courier-test--received "b@p")))))))
 
 ;;; courier-test.el ends here
