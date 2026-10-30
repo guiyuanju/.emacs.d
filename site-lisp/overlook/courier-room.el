@@ -130,7 +130,7 @@
   (courier-room--load)
   (sort (mapcar #'car courier-room--rooms) #'string<))
 
-(defun courier-room--member (room id)
+(defun courier-room-member (room id)
   "ID's membership plist in ROOM, or nil."
   (alist-get id (courier-room-members room) nil nil #'equal))
 
@@ -141,12 +141,31 @@ posts wake it.  A new member starts with every earlier post read."
   (let ((room (courier-room name t)))
     (unless (memq wake '(nil mention all none))
       (user-error "Wake is mention, all or none, not %s" wake))
-    (if-let* ((member (courier-room--member room id)))
+    (if-let* ((member (courier-room-member room id)))
         (when wake (setf (plist-get member :wake) wake))
       (push (cons id (list :read (courier-room-count room) :wake (or wake 'mention)))
             (courier-room-members room)))
     (courier-room--save-members)
     (run-hooks 'courier-changed-hook)
+    room))
+
+(defun courier-room-invite (name id &optional from)
+  "Make agent ID a member of room NAME for member FROM, and tell it so."
+  (let* ((agent (or (courier-agent id) (user-error "No agent %s" id)))
+         (room (courier-room-join name id))
+         (name (courier-room-name room))
+         (recent (courier-room-history name 20)))
+    (courier--enqueue
+     agent from
+     (concat (format "[courier] %s added you to the chat room #%s.  Posts naming \
+you, @%s or @all, wake you.  Post with `courier room post %s MESSAGE`; \
+leave with `courier room leave %s`."
+                     (if (or (null from) (equal from courier-room-user)) "Your user"
+                       (format "Agent %s" from))
+                     name id name name)
+             (when recent
+               (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))
+     (courier--hops from))
     room))
 
 (defun courier-room-leave (name id)
@@ -159,14 +178,14 @@ posts wake it.  A new member starts with every earlier post read."
 
 (defun courier-room-unread (room id)
   "How many posts in ROOM member ID has not read."
-  (if-let* ((member (courier-room--member room id)))
+  (if-let* ((member (courier-room-member room id)))
       (- (courier-room-count room) (plist-get member :read))
     0))
 
 (defun courier-room-mark-read (name id)
   "Mark every post in room NAME read by member ID."
   (when-let* ((room (courier-room name))
-              (member (courier-room--member room id))
+              (member (courier-room-member room id))
               ((< (plist-get member :read) (courier-room-count room))))
     (setf (plist-get member :read) (courier-room-count room))
     (courier-room--save-members)
@@ -206,7 +225,7 @@ earlier talk: `courier room read %s`):\n\n%s"
 Wakes the agents among its members the post is for."
   (let* ((room (courier-room name t))
          (name (courier-room-name room)))
-    (unless (courier-room--member room from)
+    (unless (courier-room-member room from)
       (courier-room-join name from))
     (let ((post (list :n (1+ (courier-room-count room)) :time (float-time)
                       :from from :body body)))
@@ -239,7 +258,7 @@ Wakes the agents among its members the post is for."
 Marks every post read."
   (let* ((room (or (courier-room name) (user-error "No room #%s" name)))
          (unread (courier-room-unread room id))
-         (posts (courier-room-history name (or last (and (courier-room--member room id) unread)))))
+         (posts (courier-room-history name (or last (and (courier-room-member room id) unread)))))
     (courier-room-mark-read name id)
     (if posts
         (mapconcat #'courier-room-format posts "\n")
@@ -281,6 +300,9 @@ Marks every post read."
                          (courier-room-name room) (funcall me))
                  (when recent
                    (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))))
+      (`("invite" ,name ,id)
+       (courier-room-invite name id from)
+       (format "Added %s to #%s." id (courier-room--check-name name)))
       (`("leave" ,name)
        (courier-room-leave name (funcall me))
        (format "Left #%s." (courier-room--check-name name)))
@@ -289,7 +311,7 @@ Marks every post read."
                       (courier-room-names) "\n")
            "No rooms."))
       (_ (user-error "Usage: courier room post NAME MESSAGE | read NAME [--last N] \
-| join NAME [--wake mention|all|none] | leave NAME | list")))))
+| join NAME [--wake mention|all|none] | invite NAME ID | leave NAME | list")))))
 
 (add-hook 'courier-prompt-functions #'courier-room-note)
 

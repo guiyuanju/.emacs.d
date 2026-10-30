@@ -52,8 +52,13 @@
 (defvar-local overlook-room--name nil
   "Name of the room this buffer shows.")
 
+(defvar-keymap overlook-room-mode-map
+  "C-c C-i" #'overlook-room-invite)
+
 (define-derived-mode overlook-room-mode lui-mode "Room"
-  "Chat in a courier room; RET posts the input."
+  "Chat in a courier room; RET posts the input.
+
+\\{overlook-room-mode-map}"
   (setq-local lui-input-function #'overlook-room--input)
   (lui-set-prompt (propertize "> " 'face 'minibuffer-prompt)))
 
@@ -104,6 +109,18 @@
         (mapc #'overlook-room--insert (courier-room-history name overlook-room-history))))
     (courier-room-mark-read name courier-room-user)
     (pop-to-buffer buffer)))
+
+(defun overlook-room-invite (id)
+  "Add agent ID to this buffer's room, and tell it so."
+  (interactive
+   (list (completing-read
+          "Invite agent: "
+          (seq-remove (lambda (id) (courier-room-member (courier-room overlook-room--name) id))
+                      (mapcar #'courier-agent-id (courier-agents)))
+          nil t))
+   overlook-room-mode)
+  (courier-room-invite overlook-room--name id courier-room-user)
+  (message "Added %s to #%s" id overlook-room--name))
 
 (provide 'overlook-room)
 ;;; overlook-room.el ends here

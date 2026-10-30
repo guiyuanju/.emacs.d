@@ -9,12 +9,13 @@
 #   courier room post ROOM MESSAGE post in a chat room; @ID or @all wakes those agents
 #   courier room read ROOM         its posts you have not read (--last N: the last N)
 #   courier room join ROOM         join it (--wake mention|all|none); room leave ROOM
+#   courier room invite ROOM ID    add agent ID to the room and tell it
 #   courier room list              list the rooms
 # Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 

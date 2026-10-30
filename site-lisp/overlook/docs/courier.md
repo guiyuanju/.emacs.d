@@ -74,13 +74,14 @@ courier room post design '@codex@shop the API is v2 now'
 courier room read design                 # what you have not read
 courier room read design --last 50
 courier room list
+courier room invite design codex@shop    # add an agent and tell it
 courier room leave design
 ```
 
 You are the member `user`.  `M-x overlook-room-open` shows a room in a
 [lui](https://github.com/emacs-circe/circe) buffer, where RET posts as
-you; a post naming `@user` while the room is not shown is announced in the
-echo area.
+you and `C-c C-i` invites an agent; a post naming `@user` while the room
+is not shown is announced in the echo area.
 
 ## For frontends
 

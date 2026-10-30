@@ -308,7 +308,7 @@
     (should (equal (courier-room-names) '("ops")))
     (let ((room (courier-room "ops")))
       (should (= (courier-room-count room) 1))
-      (should (eq (plist-get (courier-room--member room "b@p") :wake) 'all))
+      (should (eq (plist-get (courier-room-member room "b@p") :wake) 'all))
       (should (equal (plist-get (car (courier-room-history "ops")) :body) "kept")))))
 
 (ert-deftest courier-room-cli-posts-reads-and-lists ()
@@ -319,5 +319,18 @@
                             (courier-room-cli "b@p" '("list"))))
     (should (string-match-p "hello" (courier-room-cli "b@p" '("read" "x"))))
     (should-error (courier-room-cli "a@p" '("post" "Bad Name" "x")) :type 'user-error)))
+
+(ert-deftest courier-room-invite-adds-and-tells-the-agent ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-post "ops" "a@p" "context")
+    (should (equal (courier-room-cli "a@p" '("invite" "ops" "b@p")) "Added b@p to #ops."))
+    (courier-room-invite "ops" "b@p" courier-room-user)
+    (courier-deliver)
+    (let ((prompt (car (courier-test--received "b@p"))))
+      (should (string-match-p "Agent a@p added you to the chat room #ops" prompt))
+      (should (string-match-p "Your user added you" prompt))
+      (should (string-match-p "a@p: context" prompt)))
+    (should (courier-room-member (courier-room "ops") "b@p"))
+    (should-error (courier-room-invite "ops" "nobody@p") :type 'user-error)))
 
 ;;; courier-test.el ends here
