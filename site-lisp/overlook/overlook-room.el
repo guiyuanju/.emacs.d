@@ -62,6 +62,7 @@
 
 \\{overlook-room-mode-map}"
   (setq-local lui-input-function #'overlook-room--input)
+  (add-hook 'completion-at-point-functions #'overlook-room--complete-mention nil t)
   (lui-set-prompt (propertize "> " 'face 'minibuffer-prompt)))
 
 (defun overlook-room--buffer (name)
@@ -79,6 +80,31 @@
                         (if (and (not user) (courier-room-mentions-p body courier-room-user))
                             (propertize body 'face 'overlook-room-mention)
                           body)))))
+
+(defun overlook-room--complete-mention ()
+  "Complete the id after @ in the input: the room's members, then the other agents."
+  (when-let* (((>= (point) lui-input-marker))
+              (start (save-excursion
+                       (skip-chars-backward "^[:space:]" lui-input-marker)
+                       (and (eq (char-after) ?@) (1+ (point))))))
+    (let* ((room (courier-room overlook-room--name))
+           (members (and room (mapcar #'car (courier-room-members room))))
+           (agents (mapcar #'courier-agent-id (courier-agents)))
+           (ids (delete-dups (append (remove courier-room-user members) agents
+                                     (list "all" courier-room-user)))))
+      (list start (point)
+            (lambda (string predicate action)
+              (if (eq action 'metadata)
+                  '(metadata (display-sort-function . identity))
+                (complete-with-action action ids string predicate)))
+            :exclusive 'no
+            :company-prefix-length t
+            :annotation-function
+            (lambda (id)
+              (cond ((equal id "all") " every member")
+                    ((equal id courier-room-user) " you")
+                    ((member id members) " member")
+                    (t " joins when named")))))))
 
 (defun overlook-room--input (text)
   "Post TEXT to this buffer's room as the user."

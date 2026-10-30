@@ -696,6 +696,12 @@ Agents are listed; usage and repos are not."
           (let ((buffer (overlook-room-open "#ops")))
             (with-current-buffer buffer
               (should (string-search "a@p: earlier" (buffer-string)))
+              (goto-char (point-max))
+              (insert "hi @a")
+              (let ((capf (overlook-room--complete-mention)))
+                (should (equal (buffer-substring (nth 0 capf) (nth 1 capf)) "a"))
+                (should (equal (all-completions "a" (nth 2 capf)) '("a@p" "all"))))
+              (delete-region lui-input-marker (point-max))
               (overlook-room--input "hi @a@p")
               (courier-room-post "ops" "a@p" "@user done")
               (should (string-match-p "user: hi @a@p\\(.\\|\n\\)*a@p: @user done" (buffer-string))))
