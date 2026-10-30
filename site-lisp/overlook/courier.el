@@ -73,6 +73,12 @@ It returns the new agent's id.  Set by a frontend; the parent ID is nil
 when no agent asked, and EFFORT, a reasoning effort level like
 \"high\", is nil unless one was asked for.")
 
+(defvar courier-prompt-functions nil
+  "Functions of an agent's id returning a note for the prompt delivered to it.
+A function returns nil to add nothing.")
+
+(autoload 'courier-room-cli "courier-room")
+
 (defvar courier-changed-hook nil
   "Hook run when an agent's mailbox, monitors or registration changed.")
 
@@ -291,6 +297,13 @@ once they answer in its buffer." id what))))
                            from from body))))
              messages "\n\n---\n\n"))
 
+(defun courier--prompt (agent messages)
+  "The prompt delivering MESSAGES to AGENT, with the notes for it."
+  (string-join (cons (courier--format messages)
+                     (delq nil (mapcar (lambda (fn) (funcall fn (courier-agent-id agent)))
+                                       courier-prompt-functions)))
+               "\n\n---\n\n"))
+
 (defun courier--ready-p (agent)
   "Non-nil when AGENT can take a prompt now."
   (and (or (null (courier-agent-buffer agent)) (buffer-live-p (courier-agent-buffer agent)))
@@ -313,7 +326,7 @@ once they answer in its buffer." id what))))
                 (courier-agent-hops agent)
                 (apply #'max (mapcar (lambda (m) (plist-get m :hops)) messages)))
           (condition-case err
-              (funcall (courier-agent-deliver agent) (courier--format messages))
+              (funcall (courier-agent-deliver agent) (courier--prompt agent messages))
             (error
              (setf (courier-agent-mailbox agent) messages
                    (courier-agent-delivered agent) nil
@@ -370,8 +383,10 @@ gone.  End your turn now."
                      (`("list")
                       (mapconcat #'courier--describe (courier-agents) "\n"))
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
+                     (`("room" . ,rest) (courier-room-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
-| spawn [--effort LEVEL] AGENT DIR PROMPT | monitor ID | list | whoami")))
+| spawn [--effort LEVEL] AGENT DIR PROMPT | monitor ID | list | whoami \
+| room COMMAND")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)

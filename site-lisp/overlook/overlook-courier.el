@@ -34,6 +34,7 @@
 
 (require 'overlook-agent)
 (require 'courier)
+(require 'courier-room)
 
 (defvar-local overlook-courier-id nil
   "This agent's courier id.")

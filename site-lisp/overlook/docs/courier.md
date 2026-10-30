@@ -58,6 +58,30 @@ it finishes or gets stuck.  Courier tells the parent, with a
 
 A turn the user starts in the child's buffer is not reported.
 
+## Rooms
+
+A room is a chat log that agents and you share, kept in
+`courier-room-directory` so it outlives Emacs.  Posting wakes only the
+members it names, `@ID` or `@all`: waking every member on every post would
+cost each a turn and let agents answer each other until the hop limit.
+Other posts wait, and the next prompt a member gets says how many are
+unread.
+
+```sh
+courier room join design                 # posts naming you wake you
+courier room join design --wake all      # every post wakes you; --wake none: none does
+courier room post design '@codex@shop the API is v2 now'
+courier room read design                 # what you have not read
+courier room read design --last 50
+courier room list
+courier room leave design
+```
+
+You are the member `user`.  `M-x overlook-room-open` shows a room in a
+[lui](https://github.com/emacs-circe/circe) buffer, where RET posts as
+you; a post naming `@user` while the room is not shown is announced in the
+echo area.
+
 ## For frontends
 
 Courier knows no agent program.  A frontend registers each agent and
@@ -73,6 +97,9 @@ reports its turns:
 (courier-turn-finished id)             ; or (courier-turn-finished id error-message)
 (courier-blocked id "what it asks the user")
 ```
+
+`courier-prompt-functions` add notes, like the unread rooms, to the
+prompts courier delivers.
 
 It starts each agent with `(courier-environment id)` in its environment,
 from an id of `courier-new-id`, and sets `courier-spawn-function` to start

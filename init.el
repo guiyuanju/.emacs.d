@@ -1055,7 +1055,18 @@
 (use-package courier
   :ensure nil
   :load-path "site-lisp/overlook"
-  :commands courier-cli)
+  :commands courier-cli
+  :custom
+  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory)))
+
+;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
+(use-package circe :defer t)
+
+;; courier 聊天室的 buffer。
+(use-package overlook-room
+  :ensure nil
+  :load-path "site-lisp/overlook"
+  :commands overlook-room-open)
 
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook

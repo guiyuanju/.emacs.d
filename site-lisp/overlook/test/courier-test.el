@@ -2,6 +2,7 @@
 
 (require 'ert)
 (require 'courier)
+(require 'courier-room)
 
 (defvar courier-test--inbox nil
   "Alist of agent id to the prompts delivered to it, newest first.")
@@ -246,5 +247,77 @@
       (kill-buffer buffer)
       (courier-deliver)
       (should (string-match-p "c@p is gone" (car (courier-test--received "a@p")))))))
+
+(defmacro courier-test-with-rooms (ids &rest body)
+  "Run BODY with fake agents IDS and no rooms, kept in a fresh directory."
+  (declare (indent 1))
+  `(let ((courier-room-directory (make-temp-file "courier-rooms" t))
+         (courier-room--rooms nil)
+         (courier-room--loaded nil)
+         (courier-room-post-functions nil))
+     (unwind-protect
+         (courier-test-with-agents ,ids ,@body)
+       (delete-directory courier-room-directory t))))
+
+(ert-deftest courier-room-mentions-match-whole-ids ()
+  (should (courier-room-mentions-p "@a@p." "a@p"))
+  (should (courier-room-mentions-p "cc @a@p, please" "a@p"))
+  (should (courier-room-mentions-p "@all look" "a@p"))
+  (should-not (courier-room-mentions-p "@a@p-2 look" "a@p"))
+  (should-not (courier-room-mentions-p "mail a@p" "a@p")))
+
+(ert-deftest courier-room-post-wakes-only-who-it-is-for ()
+  (courier-test-with-rooms '("a@p" "b@p" "c@p" "d@p")
+    (courier-room-join "design" "b@p")
+    (courier-room-join "#design" "c@p" 'all)
+    (courier-room-join "design" "d@p" 'none)
+    (courier-room-post "design" "a@p" "plain talk")
+    (courier-room-post "design" "a@p" "@b@p your turn")
+    (courier-deliver)
+    (should-not (courier-test--received "a@p"))
+    (should (string-match-p "#design, from agent a@p, not from your user\\(.\\|\n\\)*your turn"
+                            (car (courier-test--received "b@p"))))
+    (should-not (string-match-p "plain talk" (car (courier-test--received "b@p"))))
+    (should (string-match-p "plain talk\\(.\\|\n\\)*your turn" (car (courier-test--received "c@p"))))
+    (should-not (courier-test--received "d@p"))
+    (courier-room-post "design" courier-room-user "@all stop")
+    (courier-turn-started "b@p")
+    (courier-turn-finished "b@p")
+    (courier-deliver)
+    (should (string-match-p "from your user" (cadr (courier-test--received "b@p"))))
+    (should-not (courier-test--received "d@p"))))
+
+(ert-deftest courier-room-read-returns-the-unread-and-notes-them-in-prompts ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-join "ops" "b@p")
+    (courier-room-post "ops" "a@p" "one")
+    (courier-room-post "ops" "a@p" "two\nlines")
+    (courier-send "b@p" "hi" "a@p")
+    (courier-deliver)
+    (should (string-match-p "Unread in rooms: #ops 2" (car (courier-test--received "b@p"))))
+    (should (string-match-p "a@p: one\n.*a@p: two\n    lines" (courier-room-read "ops" "b@p")))
+    (should (equal (courier-room-read "ops" "b@p") "No unread posts in #ops."))
+    (should (string-match-p "two" (courier-room-read "ops" "b@p" 1)))
+    (should-not (courier-room-note "b@p"))))
+
+(ert-deftest courier-room-outlives-emacs ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-join "ops" "b@p" 'all)
+    (courier-room-post "ops" "a@p" "kept")
+    (setq courier-room--rooms nil courier-room--loaded nil)
+    (should (equal (courier-room-names) '("ops")))
+    (let ((room (courier-room "ops")))
+      (should (= (courier-room-count room) 1))
+      (should (eq (plist-get (courier-room--member room "b@p") :wake) 'all))
+      (should (equal (plist-get (car (courier-room-history "ops")) :body) "kept")))))
+
+(ert-deftest courier-room-cli-posts-reads-and-lists ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (should (string-match-p "Joined #x" (courier-room-cli "b@p" '("join" "x"))))
+    (should (equal (courier-room-cli "a@p" '("post" "#x" "hello @b@p")) "Posted #1 in #x."))
+    (should (string-match-p "#x  1 posts, 1 unread  members: b@p, a@p"
+                            (courier-room-cli "b@p" '("list"))))
+    (should (string-match-p "hello" (courier-room-cli "b@p" '("read" "x"))))
+    (should-error (courier-room-cli "a@p" '("post" "Bad Name" "x")) :type 'user-error)))
 
 ;;; courier-test.el ends here

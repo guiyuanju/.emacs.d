@@ -684,6 +684,25 @@ Agents are listed; usage and repos are not."
       (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer))
       (delete-directory (file-name-directory (directory-file-name root)) t))))
 
+(ert-deftest overlook-room-shows-posts-and-posts-as-the-user ()
+  (require 'overlook-room)
+  (let ((courier-room-directory (make-temp-file "courier-rooms" t))
+        (courier-room--rooms nil)
+        (courier-room--loaded nil)
+        (courier--agents (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (courier-room-post "ops" "a@p" "earlier")
+          (let ((buffer (overlook-room-open "#ops")))
+            (with-current-buffer buffer
+              (should (string-search "a@p: earlier" (buffer-string)))
+              (overlook-room--input "hi @a@p")
+              (courier-room-post "ops" "a@p" "@user done")
+              (should (string-match-p "user: hi @a@p\\(.\\|\n\\)*a@p: @user done" (buffer-string))))
+            (should (= (courier-room-unread (courier-room "ops") courier-room-user) 0))
+            (kill-buffer buffer)))
+      (delete-directory courier-room-directory t))))
+
 (ert-deftest overlook-project-parses-git-status ()
   (should (equal (overlook-project--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"

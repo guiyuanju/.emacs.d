@@ -5,7 +5,7 @@
 ;; Author: guiyuanju <guiyuanjune@outlook.com>
 ;; Maintainer: guiyuanju <guiyuanjune@outlook.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "4.0") (perspective "2.22") (agent-shell "0.87.3"))
+;; Package-Requires: ((emacs "29.1") (magit-section "4.0") (perspective "2.22") (agent-shell "0.87.3") (circe "2.14"))
 ;; Keywords: tools, convenience
 ;; URL: https://github.com/guiyuanju/overlook
 ;; SPDX-License-Identifier: GPL-3.0-or-later

@@ -97,7 +97,8 @@ A spawned agent opens in its parent's perspective, and its row shows
 `← parent`, and `✉N` while messages wait for it.  `courier spawn --effort
 LEVEL` starts it at that reasoning effort, through the session config
 option `overlook-agent-shell-effort-options` names for it (Claude's
-`effort`, Codex's `reasoning_effort`).
+`effort`, Codex's `reasoning_effort`).  Agents and you can also talk in shared chat
+rooms; `M-x overlook-room-open` shows one.
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:
