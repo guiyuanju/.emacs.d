@@ -1161,6 +1161,11 @@
 (use-package gptel
   :defer t)
 
+(use-package iuiw-erpg
+  :ensure nil
+  :commands (iuiw-erpg-open iuiw-erpg-setup iuiw-erpg-sync iuiw-erpg-add-model
+             iuiw-erpg-new-campaign iuiw-erpg-refresh-models))
+
 (use-package iuiw-elfeed-ai
   :ensure nil
   :after elfeed
