@@ -51,9 +51,14 @@
 (declare-function magit-diff-wash-diffs "magit-diff")
 (declare-function vc-version-diff "vc")
 
-(defcustom overlook-project-status-interval 10
+(defcustom overlook-project-status-interval 30
   "Seconds before a repo's branch and changes are read again."
   :type 'number
+  :group 'overlook)
+
+(defcustom overlook-project-parallel-reads 2
+  "Most repos whose status is read at once; the others wait their turn."
+  :type 'natnum
   :group 'overlook)
 
 (defcustom overlook-project-files 5
@@ -171,7 +176,9 @@ old path's deletion into the new path's entry."
         (default-directory dir))
     (make-process
      :name "overlook-git" :buffer output :noquery t
-     :command (append '("git" "-c" "core.quotePath=false") args)
+     :command (append (list (or (bound-and-true-p vc-git-program) "git")
+                            "-c" "core.quotePath=false")
+                      args)
      :connection-type 'pipe
      :sentinel
      (lambda (process _event)
@@ -183,8 +190,11 @@ old path's deletion into the new path's entry."
              (funcall then text))))))))
 
 (defun overlook-project--read (dir)
-  "Read DIR's status in the background, redrawing when it changed."
-  (unless (gethash dir overlook-project--reading)
+  "Read DIR's status in the background, redrawing when it changed.
+Does nothing while `overlook-project-parallel-reads' repos are being read."
+  (unless (or (not (file-directory-p dir))
+              (gethash dir overlook-project--reading)
+              (>= (hash-table-count overlook-project--reading) overlook-project-parallel-reads))
     (puthash dir t overlook-project--reading)
     (let ((top (or (overlook-project--top dir) dir))
           (paths (when-let* ((prefix (overlook-project--prefix dir)))
@@ -193,16 +203,24 @@ old path's deletion into the new path's entry."
        top `("status" "--porcelain" "--branch" "--no-renames" "-z" ,@paths)
        (lambda (status)
          (if (null status)
-             (remhash dir overlook-project--reading)
+             (progn
+               (puthash dir (cons (float-time) (cdr (gethash dir overlook-project--status)))
+                        overlook-project--status)
+               (overlook-project--done dir))
            ;; Fails before the first commit, leaving the counts unknown.
            (overlook-project--git
             top `("diff" "HEAD" "--numstat" "-M" "-z" ,@paths)
             (lambda (numstat)
-              (remhash dir overlook-project--reading)
               (let ((old (cdr (gethash dir overlook-project--status)))
                     (new (overlook-project--parse status numstat)))
                 (puthash dir (cons (float-time) new) overlook-project--status)
+                (overlook-project--done dir)
                 (unless (equal old new) (overlook-refresh)))))))))))
+
+(defun overlook-project--done (dir)
+  "Note that DIR's status is read, and start reading the next stale repo shown."
+  (remhash dir overlook-project--reading)
+  (overlook-project--tick))
 
 (defun overlook-project--status (dir)
   "DIR's last known (BRANCH . FILES), reading it again when stale."

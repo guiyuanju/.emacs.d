@@ -96,6 +96,18 @@ rows and is not current.  Without it, they are listed under the current
 perspective."
   :type '(choice (const :tag "The current perspective" nil) string))
 
+(defcustom overlook-refresh-idle 0.5
+  "Seconds input must pause before the dashboard redraws."
+  :type 'number)
+
+(defcustom overlook-refresh-gap 1
+  "Fewest seconds between two redraws the dashboard asks for itself."
+  :type 'number)
+
+(defcustom overlook-refresh-max-wait 10
+  "Most seconds a redraw waits for input to pause."
+  :type 'number)
+
 (defcustom overlook-tick-interval 5
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
@@ -146,9 +158,15 @@ perspective."
         (with-memoization (gethash name overlook--buffers-cache) (funcall lookup))
       (funcall lookup))))
 
+(defvar overlook--roots-cache nil
+  "Perspective roots looked up during one render, keyed by name, each in a list.")
+
 (defun overlook-perspective-root (name)
   "Project root of perspective NAME, or nil."
-  (funcall overlook-perspective-root-function name))
+  (if overlook--roots-cache
+      (car (with-memoization (gethash name overlook--roots-cache)
+             (list (funcall overlook-perspective-root-function name))))
+    (funcall overlook-perspective-root-function name)))
 
 (defun overlook-orphan-perspective ()
   "Name of `overlook-orphan-perspective' when it exists, else nil."
@@ -257,13 +275,27 @@ Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
   "Non-nil when the dashboard buffer exists."
   (and (get-buffer overlook-buffer-name) t))
 
+(defvar overlook--rendered 0
+  "When the dashboard was last redrawn.")
+
 (defun overlook-refresh ()
-  "Redraw the dashboard soon, at most once per burst."
+  "Redraw the dashboard soon, at most once per burst, and not while the user types.
+Redraws are `overlook-refresh-gap' seconds apart at least."
   (when (and (overlook-live-p) (not (timerp overlook--timer)))
     (setq overlook--timer
-          (run-with-timer 0.1 nil (lambda ()
-                                    (setq overlook--timer nil)
-                                    (overlook--render))))))
+          (run-with-timer (max 0.1 (- (+ overlook--rendered overlook-refresh-gap) (float-time)))
+                          nil #'overlook--render-when-idle (float-time)))))
+
+(defun overlook--render-when-idle (asked)
+  "Redraw once input has paused for `overlook-refresh-idle' seconds.
+Waits no longer than `overlook-refresh-max-wait' seconds after time ASKED."
+  (let ((idle (current-idle-time)))
+    (if (and (or (null idle) (< (float-time idle) overlook-refresh-idle))
+             (< (- (float-time) asked) overlook-refresh-max-wait))
+        (setq overlook--timer (run-with-timer 0.2 nil #'overlook--render-when-idle asked))
+      (setq overlook--timer nil
+            overlook--rendered (float-time))
+      (overlook--render))))
 
 (defun overlook--tick ()
   "Run `overlook-tick-hook', or stop ticking once the dashboard is gone."
@@ -552,8 +584,8 @@ otherwise, or with no section left at all, PLACE's line number is used."
       (point))))
 
 (defun overlook--redrawn-point (place)
-  "Where point at PLACE goes after a redraw, or the current perspective's
-heading after a perspective switch."
+  "Where point at PLACE goes after a redraw.
+After a perspective switch, it goes to the current perspective's heading."
   (save-excursion
     (unless (and overlook--to-current (overlook--goto-current))
       (goto-char (overlook--find-place place t)))
@@ -576,6 +608,7 @@ After a perspective switch, point goes to the current perspective instead."
                                  (reverse windows))
                        (list (list nil (overlook--place (point)) nil))))
              (overlook--buffers-cache (make-hash-table :test #'equal))
+             (overlook--roots-cache (make-hash-table :test #'equal))
              (inhibit-read-only t))
         (erase-buffer)
         (run-hooks 'overlook-before-render-hook)

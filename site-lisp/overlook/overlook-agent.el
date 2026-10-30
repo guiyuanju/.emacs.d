@@ -303,7 +303,7 @@ A buffer shown in several perspectives belongs to the one of its project."
     (overlook-agent-changed)))
 
 (defun overlook-agent--notify-click (buffer)
-  "terminal-notifier arguments making a click raise Emacs and visit agent BUFFER.
+  "Arguments for terminal-notifier making a click visit agent BUFFER.
 Nil unless this Emacs runs a server on a local socket.  terminal-notifier
 runs only one click action, so the command raises Emacs itself."
   (when-let* ((process (bound-and-true-p server-process))

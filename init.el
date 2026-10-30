@@ -173,6 +173,12 @@
       (setq vc-git-program git
             magit-git-executable git))))
 
+;; 平时把 GC 阈值调高，空闲时再 GC，打字时少被 GC 卡住。
+(use-package gcmh
+  :hook (emacs-startup . gcmh-mode)
+  :custom
+  (gcmh-high-cons-threshold (* 64 1024 1024)))
+
 (use-package server
   :ensure nil
   :config
