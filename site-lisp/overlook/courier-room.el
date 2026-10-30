@@ -378,9 +378,22 @@ Marks every post read."
             (courier-room-name room) (courier-room-count room)
             (if (> unread 0) (format ", %d unread" unread) "")
             (mapconcat (pcase-lambda (`(,member . ,props))
-                         (let ((wake (plist-get props :wake)))
-                           (if (eq wake 'mention) member (format "%s (%s)" member wake))))
+                         (let ((tags (delq nil (list (unless (courier-room-present-p member) "gone")
+                                                     (let ((wake (plist-get props :wake)))
+                                                       (unless (eq wake 'mention) (symbol-name wake)))))))
+                           (if tags (format "%s (%s)" member (string-join tags ", ")) member)))
                        (reverse (courier-room-members room)) ", "))))
+
+(defun courier-room-present-p (id)
+  "Non-nil when member ID can be woken: the user, or a registered agent."
+  (or (equal id courier-room-user) (courier-agent id)))
+
+(defun courier-room-gone-named (name body)
+  "Members of room NAME that BODY names with @ID but are gone."
+  (when-let* ((room (courier-room name)))
+    (cl-loop for (id . _) in (courier-room-members room)
+             when (and (not (courier-room-present-p id)) (courier-room--names-p body id))
+             collect id)))
 
 (defun courier-room--unheard (room id)
   "How many of ROOM's posts member ID has neither read nor been woken by."
@@ -406,8 +419,11 @@ Posts that woke it came in its prompts, so they are not counted."
   (let ((me (lambda () (or from (user-error "No COURIER_ID")))))
     (pcase args
       (`("post" ,name ,body)
-       (let ((post (courier-room-post name (funcall me) body)))
-         (format "Posted #%d in #%s." (plist-get post :n) (courier-room--check-name name))))
+       (let ((post (courier-room-post name (funcall me) body))
+             (gone (courier-room-gone-named name body)))
+         (concat (format "Posted #%d in #%s." (plist-get post :n) (courier-room--check-name name))
+                 (when gone
+                   (format "  Not delivered to %s: gone." (string-join gone ", "))))))
       (`("read" ,name) (courier-room-read name (funcall me)))
       (`("read" ,name "--last" ,n) (courier-room-read name from (string-to-number n)))
       ((or `("join" ,name) `("join" ,name "--wake" ,wake))

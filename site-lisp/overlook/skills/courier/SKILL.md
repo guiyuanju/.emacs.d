@@ -71,7 +71,7 @@ along the posts they had not read; naming an agent that is not a member
 adds it.  `courier room read` is for the rest.
 
 ```sh
-courier room list
+courier room list                        # rooms and members; (gone) ones get nothing
 courier room join design                 # --wake all: every post wakes you
 courier room read design                 # posts you have not read; --last 50
 courier room post design '@codex@shop the API is v2 now'

@@ -109,12 +109,15 @@
             (lambda (id)
               (cond ((equal id "all") " every member")
                     ((equal id courier-room-user) " you")
+                    ((not (courier-room-present-p id)) " gone")
                     ((member id members) " member")
                     (t " joins when named")))))))
 
 (defun overlook-room--input (text)
   "Post TEXT to this buffer's room as the user."
-  (courier-room-post overlook-room--name courier-room-user text))
+  (courier-room-post overlook-room--name courier-room-user text)
+  (when-let* ((gone (courier-room-gone-named overlook-room--name text)))
+    (message "Not delivered to %s: gone" (string-join gone ", "))))
 
 (defun overlook-room--on-post (name post)
   "Show POST in room NAME's buffer, and tell the user of posts naming them."

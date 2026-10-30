@@ -484,4 +484,14 @@
     (courier-deliver)
     (should-not (courier-test--received "a@p"))))
 
+(ert-deftest courier-room-marks-gone-members ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-join "ops" "b@p")
+    (courier-room-join "ops" "old@p" 'all)
+    (should (string-match-p "members: b@p, old@p (gone, all)"
+                            (courier-room-cli "a@p" '("list"))))
+    (should (equal (courier-room-cli "a@p" '("post" "ops" "@old@p @b@p hi"))
+                   "Posted #1 in #ops.  Not delivered to old@p: gone."))
+    (should (equal (courier-room-cli "a@p" '("post" "ops" "@b@p hi")) "Posted #2 in #ops."))))
+
 ;;; courier-test.el ends here
