@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Message other AI agents through courier in the running Emacs.
 #   courier send ID MESSAGE        message agent ID; it gets it between turns
-#   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; its reply comes back
+#   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; it reports back
 #     --effort LEVEL               right after spawn: start it at that reasoning effort
 #   courier monitor ID             be told when agent ID next finishes a turn
 #   courier list                   list the agents

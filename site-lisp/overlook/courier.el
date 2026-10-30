@@ -31,15 +31,19 @@
 ;; `courier-send' drops a message in a mailbox and returns at once; the
 ;; message reaches the agent as a new prompt once it is ready for one,
 ;; between its turns.  `courier-monitor' asks to be told the next time an
-;; agent finishes a turn, with its reply; `courier-spawn' starts an agent
-;; on a task and monitors it.  Nothing here waits, so Emacs never blocks:
-;; an agent sends, ends its turn, and is woken by the reply.
+;; agent finishes a turn, with its reply.  `courier-spawn' starts an agent
+;; on a task; the child reports back with `courier-send', and courier
+;; tells the parent what the child cannot: that it ended a turn on the
+;; parent's message without reporting, waits for the user, hit an error,
+;; or is gone.  Nothing here waits, so Emacs never blocks: an agent sends,
+;; ends its turn, and is woken by the reply.
 ;;
 ;; Courier knows no agent program.  A frontend registers each agent with
 ;; functions delivering a prompt, telling whether it is ready and
 ;; returning its last reply, and reports its turns through
-;; `courier-turn-started' and `courier-turn-finished'.  Agents call in
-;; through the bin/courier script, which finds them by $COURIER_ID.
+;; `courier-turn-started' and `courier-turn-finished', and requests for
+;; the user through `courier-blocked'.  Agents call in through the
+;; bin/courier script, which finds them by $COURIER_ID.
 
 ;;; Code:
 
@@ -85,6 +89,9 @@ when no agent asked, and EFFORT, a reasoning effort level like
   (monitors nil :documentation "Ids of agents to tell when this one next stops.")
   (hops 0 :documentation "Hops of the messages this agent's turn handles.")
   (delivered nil :documentation "Non-nil while a delivery has not started a turn yet.")
+  (askers nil :documentation "Senders of the messages this agent's turn handles.")
+  (told nil :documentation "Agents this one sent to in its current turn.")
+  (blocked nil :documentation "Non-nil once its parent heard it waits for the user this turn.")
   parent)
 
 (defvar courier--agents (make-hash-table :test #'equal)
@@ -136,10 +143,11 @@ or nil.  PARENT is the id of the agent that spawned it."
     agent))
 
 (defun courier-unregister (id)
-  "Forget agent ID, telling the agents monitoring it that it is gone."
+  "Forget agent ID, telling its parent and monitors that it is gone."
   (when-let* ((agent (courier-agent id)))
     (remhash id courier--agents)
-    (courier--notify-monitors agent (format "[courier] %s is gone." id))
+    (courier--tell agent (courier--watchers agent t) (format "[courier] %s is gone." id))
+    (setf (courier-agent-monitors agent) nil)
     (run-hooks 'courier-changed-hook)))
 
 ;;; Messages
@@ -162,6 +170,8 @@ or nil.  PARENT is the id of the agent that spawned it."
 (defun courier-send (to body &optional from)
   "Send BODY to agent TO from agent FROM, delivered once TO is ready."
   (let ((agent (or (courier-agent to) (user-error "No agent %s" to))))
+    (when-let* ((sender (courier-agent from)))
+      (cl-pushnew to (courier-agent-told sender) :test #'equal))
     (courier--enqueue agent from body (courier--hops from))
     t))
 
@@ -192,17 +202,22 @@ default.  Returns the new agent's id."
   "What agent ID is told when spawned for agent FROM."
   (concat (format "You are %s, an agent reachable through courier." id)
           (when from
-            (format "  %s started you for the task below and is told your final \
-reply when you finish your turn, so end with what it needs to know, and \
-call no tools after that reply." from))
+            (format "  %s started you for the task below.  When you finish it \
+or get stuck, report to %s with `courier send %s MESSAGE`; put a long \
+result in a file and send its path.  If you end a turn on its task without \
+reporting, your final reply is sent to it instead." from from from))
           "  Message another agent with `courier send ID MESSAGE`; `courier list` \
 shows them."))
 
-(defun courier--notify-monitors (agent text)
-  "Send TEXT from AGENT to the agents monitoring it, and stop monitoring."
+(defun courier--watchers (agent &optional parent)
+  "Ids of the agents monitoring AGENT, and its parent too if PARENT is non-nil."
   (let ((watchers (courier-agent-monitors agent))
-        (hops (1+ (courier-agent-hops agent))))
-    (setf (courier-agent-monitors agent) nil)
+        (parent (and parent (courier-agent-parent agent))))
+    (if parent (cl-adjoin parent watchers :test #'equal) watchers)))
+
+(defun courier--tell (agent watchers text)
+  "Send TEXT from AGENT to the agents of ids WATCHERS."
+  (let ((hops (1+ (courier-agent-hops agent))))
     (dolist (watcher watchers)
       (when-let* ((to (courier-agent watcher)))
         (courier--enqueue to (courier-agent-id agent) text hops)))))
@@ -215,20 +230,44 @@ A turn courier did not deliver comes from a human, so its hops restart."
   (when-let* ((agent (courier-agent id)))
     (if (courier-agent-delivered agent)
         (setf (courier-agent-delivered agent) nil)
-      (setf (courier-agent-hops agent) 0))))
+      (setf (courier-agent-hops agent) 0
+            (courier-agent-askers agent) nil))
+    (setf (courier-agent-told agent) nil
+          (courier-agent-blocked agent) nil)))
 
-(defun courier-turn-finished (id)
-  "Note that agent ID finished a turn: tell its monitors and deliver its mail."
+(defun courier-turn-finished (id &optional error)
+  "Note that agent ID finished a turn, failing with message ERROR if non-nil.
+Tell its monitors, and its parent if the turn failed or handled a message
+from it, then deliver the mail.  An agent hears no more of a turn that
+reported to it, unless the turn failed."
   (when-let* ((agent (courier-agent id)))
-    (setf (courier-agent-delivered agent) nil)
-    (when (courier-agent-monitors agent)
-      (let ((reply (courier--reply agent)))
-        (courier--notify-monitors
-         agent
-         (if reply
-             (format "[courier] %s finished its turn.  Its reply:\n\n%s" id reply)
-           (format "[courier] %s finished its turn." id)))))
+    (let ((watchers (courier--watchers
+                     agent (or error (member (courier-agent-parent agent)
+                                             (courier-agent-askers agent))))))
+      (unless error
+        (setq watchers (cl-set-difference watchers (courier-agent-told agent) :test #'equal)))
+      (setf (courier-agent-delivered agent) nil
+            (courier-agent-askers agent) nil
+            (courier-agent-monitors agent) nil)
+      (when watchers
+        (let ((reply (courier--reply agent)))
+          (courier--tell agent watchers
+                         (concat (if error
+                                     (format "[courier] %s hit an error: %s" id error)
+                                   (format "[courier] %s finished its turn" id))
+                                 (if reply (format ".  Its reply:\n\n%s" reply) "."))))))
     (courier--schedule)))
+
+(defun courier-blocked (id what)
+  "Tell agent ID's parent and monitors that it waits for the user on WHAT.
+They hear it once per turn."
+  (when-let* ((agent (courier-agent id))
+              ((not (courier-agent-blocked agent)))
+              (watchers (courier--watchers agent t)))
+    (setf (courier-agent-blocked agent) t)
+    (courier--tell agent watchers
+                   (format "[courier] %s is waiting for the user: %s.  It goes on \
+once they answer in its buffer." id what))))
 
 (defun courier--reply (agent)
   "AGENT's last reply, or nil."
@@ -247,7 +286,8 @@ A turn courier did not deliver comes from a human, so its hops restart."
                      (body (plist-get message :body)))
                  (if (or (null from) (string-prefix-p "[courier]" body))
                      body
-                   (format "[courier] From %s (answer with `courier send %s MESSAGE`):\n\n%s"
+                   (format "[courier] From agent %s, not from your user \
+(answer with `courier send %s MESSAGE`):\n\n%s"
                            from from body))))
              messages "\n\n---\n\n"))
 
@@ -268,6 +308,8 @@ A turn courier did not deliver comes from a human, so its hops restart."
             (setq waiting t)
           (setf (courier-agent-mailbox agent) nil
                 (courier-agent-delivered agent) t
+                (courier-agent-askers agent)
+                (delete-dups (delq nil (mapcar (lambda (m) (plist-get m :from)) messages)))
                 (courier-agent-hops agent)
                 (apply #'max (mapcar (lambda (m) (plist-get m :hops)) messages)))
           (condition-case err
@@ -318,7 +360,9 @@ Called by bin/courier, which encodes every argument but OUTPUT with base64."
                       (let ((id (courier-spawn name directory prompt from effort)))
                         (format "Started %s.%s" id
                                 (if (courier-agent from)
-                                    "  You will get its reply when it finishes; end your turn now."
+                                    "  It reports when done or stuck, and courier tells you \
+if it stops without reporting, waits for the user, hits an error or is \
+gone.  End your turn now."
                                   ""))))
                      (`("monitor" ,target)
                       (courier-monitor (or from (user-error "No COURIER_ID")) target)

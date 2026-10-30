@@ -197,6 +197,9 @@ Each is an alist with keys `agent', `root', `session' and `perspective'.")
 (defvar overlook-agent-turn-end-hook nil
   "Hook run in an agent's buffer when it finishes a turn.")
 
+(defvar overlook-agent-attention-hook nil
+  "Hook run in an agent's buffer when it asks the user for permission or an answer.")
+
 (defvar overlook-agent-environment-functions nil
   "Functions of an agent's NAME and ROOT returning entries for its environment.
 Each returns a list of \"VAR=value\" strings, gathered by
@@ -386,7 +389,8 @@ of a resumed session's history, which reads as work but was none."
        ;; A question the last turn ended on is answered by the next one.
        (unless (and (eq overlook-agent-status 'waiting) (not started))
          (overlook-agent--set-status 'working)))
-      ('attention (unless (overlook-agent--seen-p)
+      ('attention (run-hooks 'overlook-agent-attention-hook)
+                  (unless (overlook-agent--seen-p)
                     ;; Each new request notifies, even while one is still waiting.
                     (if (eq overlook-agent-status 'waiting)
                         (overlook-agent--notify (current-buffer))

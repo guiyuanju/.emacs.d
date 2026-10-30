@@ -26,7 +26,8 @@
 ;; Registers each agent overlook runs with courier, so agents can message,
 ;; spawn and monitor each other.  An agent started while the mode is on
 ;; learns its courier id from $COURIER_ID and finds the courier script on
-;; its PATH.  A spawned agent opens in its parent's perspective; the
+;; its PATH.  Its errors and requests for the user reach the agent that
+;; spawned it.  A spawned agent opens in its parent's perspective; the
 ;; dashboard marks who spawned it, and the messages waiting for it.
 
 ;;; Code:
@@ -80,8 +81,13 @@
   (courier-turn-started overlook-courier-id))
 
 (defun overlook-courier--turn-finished ()
-  "Tell courier this agent finished a turn."
-  (courier-turn-finished overlook-courier-id))
+  "Tell courier this agent finished a turn, and the error it failed with."
+  (courier-turn-finished overlook-courier-id overlook-agent-error))
+
+(defun overlook-courier--blocked ()
+  "Tell courier this agent waits for the user, and on what."
+  (courier-blocked overlook-courier-id
+                   (or (overlook-agent--brief (current-buffer)) "a request")))
 
 (defun overlook-courier--spawn (name directory parent &optional effort)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
@@ -113,6 +119,7 @@ It opens in PARENT's perspective, at reasoning EFFORT if non-nil."
      (overlook-agent-changed-hook overlook-courier--sync)
      (overlook-agent-turn-start-hook overlook-courier--turn-started)
      (overlook-agent-turn-end-hook overlook-courier--turn-finished)
+     (overlook-agent-attention-hook overlook-courier--blocked)
      (overlook-agent-row-marks overlook-courier--mark)
      (courier-changed-hook overlook-refresh)))
   (setq courier-spawn-function (and overlook-courier-mode #'overlook-courier--spawn))

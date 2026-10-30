@@ -50,7 +50,7 @@
     (courier-deliver)
     (let ((prompts (courier-test--received "b@p")))
       (should (= (length prompts) 1))
-      (should (string-match-p "From a@p.*courier send a@p" (car prompts)))
+      (should (string-match-p "From agent a@p.*courier send a@p" (car prompts)))
       (should (string-match-p "one\\(.\\|\n\\)*two" (car prompts))))
     (should-not courier--retry-timer)))
 
@@ -178,5 +178,73 @@
                                      (with-temp-buffer (insert-file-contents output)
                                                        (buffer-string)))))
         (delete-file output)))))
+
+(defmacro courier-test-with-child (&rest body)
+  "Run BODY with agent a@p and its child c@p, which got a task from it."
+  (declare (indent 0))
+  `(courier-test-with-agents '("a@p")
+     (courier-test--register "c@p" "a@p")
+     (courier-send "c@p" "the task" "a@p")
+     (courier-deliver)
+     (courier-turn-started "c@p")
+     (setf (alist-get "c@p" courier-test--replies nil nil #'equal) "my reply")
+     ,@body))
+
+(ert-deftest courier-child-report-replaces-its-reply ()
+  (courier-test-with-child
+    (courier-send "a@p" "found two bugs" "c@p")
+    (courier-turn-finished "c@p")
+    (courier-deliver)
+    (let ((prompts (courier-test--received "a@p")))
+      (should (= (length prompts) 1))
+      (should (string-match-p "From agent c@p, not from your user" (car prompts)))
+      (should (string-suffix-p "found two bugs" (car prompts))))))
+
+(ert-deftest courier-child-that-does-not-report-sends-its-reply ()
+  (courier-test-with-child
+    (courier-turn-finished "c@p")
+    (courier-deliver)
+    (should (string-match-p "c@p finished its turn.*\n\nmy reply"
+                            (car (courier-test--received "a@p"))))
+    ;; A turn the user started is not the parent's business.
+    (courier-turn-started "a@p")
+    (courier-turn-finished "a@p")
+    (courier-turn-started "c@p")
+    (courier-turn-finished "c@p")
+    (courier-deliver)
+    (should (= (length (courier-test--received "a@p")) 1))))
+
+(ert-deftest courier-child-error-reaches-the-parent-even-after-a-report ()
+  (courier-test-with-child
+    (courier-send "a@p" "half done" "c@p")
+    (courier-turn-finished "c@p" "Overloaded")
+    (courier-deliver)
+    (should (string-match-p "half done\\(.\\|\n\\)*c@p hit an error: Overloaded"
+                            (car (courier-test--received "a@p"))))))
+
+(ert-deftest courier-child-waiting-for-the-user-tells-the-parent-once-a-turn ()
+  (courier-test-with-child
+    (courier-blocked "c@p" "⚠ Bash rm -rf build")
+    (courier-blocked "c@p" "⚠ Bash rm -rf dist")
+    (courier-send "a@p" "done" "c@p")
+    (courier-turn-finished "c@p")
+    (courier-deliver)
+    (let ((prompt (car (courier-test--received "a@p"))))
+      (should (string-match-p "c@p is waiting for the user: ⚠ Bash rm -rf build" prompt))
+      (should-not (string-match-p "dist" prompt)))
+    (courier-turn-started "a@p")
+    (courier-turn-finished "a@p")
+    (courier-turn-started "c@p")
+    (courier-blocked "c@p" "? Which branch")
+    (courier-deliver)
+    (should (string-match-p "Which branch" (car (last (courier-test--received "a@p")))))))
+
+(ert-deftest courier-parent-hears-when-its-child-is-gone ()
+  (courier-test-with-agents '("a@p")
+    (let ((buffer (generate-new-buffer "c")))
+      (courier-register "c@p" :buffer buffer :deliver #'ignore :parent "a@p")
+      (kill-buffer buffer)
+      (courier-deliver)
+      (should (string-match-p "c@p is gone" (car (courier-test--received "a@p")))))))
 
 ;;; courier-test.el ends here

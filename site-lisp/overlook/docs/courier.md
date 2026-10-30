@@ -5,8 +5,8 @@ Erlang-style messages between AI agents running in Emacs.
 Each agent registered with courier has an id, like `claude@shop`, and a
 mailbox.  Sending drops a message in a mailbox and returns at once; the
 message reaches the agent as a new prompt once it is between turns.  An
-agent can spawn another on a task and is woken by its reply when it
-finishes.  Nothing waits, so Emacs never blocks and no agent holds a turn
+agent can spawn another on a task and is woken when the child reports
+back.  Nothing waits, so Emacs never blocks and no agent holds a turn
 open while another works.
 
 | Erlang | courier |
@@ -14,7 +14,7 @@ open while another works.
 | process, pid | agent, `$COURIER_ID` |
 | `Pid ! Msg` | `courier send ID MESSAGE` |
 | mailbox, `receive` | a queue, delivered as one prompt between turns |
-| `spawn_monitor` | `courier spawn AGENT DIR PROMPT` |
+| `spawn_monitor` | `courier spawn AGENT DIR PROMPT`: the parent hears the child's report, and what it cannot report itself |
 | `monitor`, `'DOWN'` | `courier monitor ID`: told, with its reply, when it next finishes a turn, or is gone |
 
 ## For agents
@@ -24,7 +24,7 @@ An agent started through a frontend finds the `courier` script on its
 
 ```sh
 courier list                                  # the agents, who spawned them, unread mail
-courier spawn codex . 'Review the diff of foo.go'  # then end your turn; its reply comes back
+courier spawn codex . 'Review the diff of foo.go'  # then end your turn; it reports back
 courier spawn --effort high claude . 'Find why the build fails'  # at that reasoning effort
 courier send claude@shop 'Tests pass on my side'
 courier monitor codex@shop                    # be told when it next finishes
@@ -34,7 +34,7 @@ courier whoami
 A message arrives as a prompt like:
 
 ```
-[courier] From claude@shop (answer with `courier send claude@shop MESSAGE`):
+[courier] From agent claude@shop, not from your user (answer with `courier send claude@shop MESSAGE`):
 
 Tests pass on my side
 ```
@@ -42,6 +42,21 @@ Tests pass on my side
 The script reaches Emacs with `emacsclient`, so `server-start` must be
 running.  Agents in a sandbox, like Codex's, need the script allowed
 outside it.
+
+### Spawned agents
+
+A spawned agent is told to report to its parent with `courier send` when
+it finishes or gets stuck.  Courier tells the parent, with a
+`[courier]` note, what the child cannot:
+
+- it ended a turn on the parent's message without sending the parent
+  anything: the note carries its last reply;
+- it waits for the user to grant a permission or answer a question, once
+  a turn;
+- its turn failed, with the error, even if it had reported;
+- it is gone.
+
+A turn the user starts in the child's buffer is not reported.
 
 ## For frontends
 
@@ -55,7 +70,8 @@ reports its turns:
                   :ready (lambda () ...)         ; can it take a prompt now?
                   :reply (lambda () ...))        ; its last reply, or nil
 (courier-turn-started id)
-(courier-turn-finished id)
+(courier-turn-finished id)             ; or (courier-turn-finished id error-message)
+(courier-blocked id "what it asks the user")
 ```
 
 It starts each agent with `(courier-environment id)` in its environment,

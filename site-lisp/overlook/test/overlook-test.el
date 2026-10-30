@@ -674,9 +674,12 @@ Agents are listed; usage and repos are not."
             (should (string-suffix-p "review it" (alist-get "codex" prompts nil nil #'equal)))
             (with-current-buffer child
               (overlook-agent-report 'working)
+              (overlook-agent-report 'attention)
               (overlook-agent-report 'finished))
             (courier-deliver)
-            (should (string-search "codex says done" (alist-get "claude" prompts nil nil #'equal)))))
+            (let ((prompt (alist-get "claude" prompts nil nil #'equal)))
+              (should (string-search "codex@shop is waiting for the user" prompt))
+              (should (string-search "codex says done" prompt)))))
       (overlook-courier-mode -1)
       (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer))
       (delete-directory (file-name-directory (directory-file-name root)) t))))
