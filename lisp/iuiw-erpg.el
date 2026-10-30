@@ -13,7 +13,7 @@
 (require 'crm)
 
 (defcustom iuiw-erpg-show-voices t
-  "Whether characters' intents are shown in the story buffer."
+  "Whether characters' intents and the recorder's changes are shown."
   :type 'boolean
   :group 'iuiw-erpg)
 
@@ -56,8 +56,10 @@
   "C-c C-g" #'iuiw-erpg-continue
   "C-c C-e" #'iuiw-erpg-edit
   "C-c C-d" #'iuiw-erpg-delete
+  "C-c C-t" #'iuiw-erpg-edit-state
   "C-c C-v" #'iuiw-erpg-present
   "C-c C-m" #'iuiw-erpg-narrators
+  "C-c C-l" #'iuiw-erpg-set-combo
   "C-c C-k" #'iuiw-erpg-stop
   "C-c C-h" #'iuiw-erpg-toggle-hidden
   "C-c C-s" #'iuiw-erpg-sync)
@@ -89,6 +91,7 @@
        ("narrator" (propertize "旁白" 'face 'iuiw-erpg-narrator))
        ("director" (funcall aside "导演"))
        ("voice" (funcall aside (format "· %s的意图" (plist-get entry :name))))
+       ("record" (funcall aside "· 记录"))
        (_ (propertize (iuiw-erpg-player iuiw-erpg--campaign) 'face 'iuiw-erpg-player)))
      (when-let* ((model (plist-get entry :model)))
        (funcall aside (concat "  " model)))
@@ -100,7 +103,7 @@
 (defun iuiw-erpg--insert-entry (entry index)
   "Insert ENTRY, the INDEXth of the log or nil while pending."
   (let ((start (point))
-        (dim (member (plist-get entry :role) '("voice" "director"))))
+        (dim (member (plist-get entry :role) '("voice" "director" "record"))))
     (insert (iuiw-erpg--header entry) "\n")
     (let ((body (point)))
       (insert (iuiw-erpg-entry-text entry))
@@ -113,7 +116,7 @@
 (defun iuiw-erpg--shown-p (entry)
   "Non-nil when ENTRY is to be shown."
   (and (or iuiw-erpg--show-hidden (not (plist-get entry :hidden)))
-       (or iuiw-erpg-show-voices (not (equal (plist-get entry :role) "voice")))))
+       (or iuiw-erpg-show-voices (not (member (plist-get entry :role) '("voice" "record"))))))
 
 (defun iuiw-erpg--render ()
   "Redraw the story, keeping the input."
@@ -170,10 +173,16 @@
 
 ;;; Turns
 
+(defun iuiw-erpg--combo-aliases (role)
+  "Models the campaign's combo gives ROLE, or nil."
+  (when-let* ((name (plist-get iuiw-erpg--campaign :combo)))
+    (plist-get (iuiw-erpg-combo name) role)))
+
 (defun iuiw-erpg--narrator-aliases ()
   "Narrator models in fallback order."
   (or iuiw-erpg--narrators
       (plist-get iuiw-erpg--campaign :narrator)
+      (iuiw-erpg--combo-aliases :narrator)
       (when-let* ((first (car (iuiw-erpg-models)))) (list (car first)))
       (user-error "No models: add one with M-x iuiw-erpg-add-model")))
 
@@ -181,7 +190,59 @@
   "Models CARD forms its intent with, in fallback order."
   (or (iuiw-erpg-split (plist-get card :model))
       (plist-get iuiw-erpg--campaign :voice)
+      (iuiw-erpg--combo-aliases :voice)
       (iuiw-erpg--narrator-aliases)))
+
+(defun iuiw-erpg--recorder-aliases ()
+  "Models the recorder uses, in fallback order."
+  (or (plist-get iuiw-erpg--campaign :recorder)
+      (iuiw-erpg--combo-aliases :recorder)
+      (plist-get iuiw-erpg--campaign :voice)
+      (iuiw-erpg--combo-aliases :voice)
+      (iuiw-erpg--narrator-aliases)))
+
+(defun iuiw-erpg--record (ctx)
+  "Have the recorder update state.md from replies the user has moved on from.
+It runs beside the turn; facts land a turn late, while the story they come
+from is still in every prompt."
+  (let* ((entries iuiw-erpg--entries)
+         (narrator-p (lambda (e) (and (equal (plist-get e :role) "narrator") (not (plist-get e :hidden)))))
+         (done (or (cl-position-if (lambda (e) (and (funcall narrator-p e) (plist-get e :recorded)))
+                                   entries :from-end t)
+                   -1))
+         (last (cl-position-if narrator-p entries :from-end t))
+         (campaign (plist-get ctx :campaign))
+         (buffer (current-buffer)))
+    (when (and last (> last done))
+      (let ((story (iuiw-erpg--story (seq-subseq entries (1+ done) (1+ last))))
+            (replies (seq-filter narrator-p (seq-subseq entries (1+ done) (1+ last))))
+            (file (iuiw-erpg-state-file campaign)))
+        (iuiw-erpg-request-chain
+         (iuiw-erpg--recorder-aliases)
+         (iuiw-erpg-recorder-system (plist-get ctx :preset))
+         (list (iuiw-erpg-recorder-message campaign (plist-get ctx :state) story))
+         :buffer buffer
+         :callback
+         (lambda (text alias)
+           (let ((record (iuiw-erpg-parse-record text))
+                 (visiting (find-buffer-visiting file)))
+             (cond ((not (buffer-live-p buffer)))
+                   ((null record) (message "erpg: the recorder gave no usable answer; it tries again next turn"))
+                   ((and visiting (buffer-modified-p visiting))
+                    (message "erpg: state.md has unsaved edits; the recorder tries again next turn"))
+                   (t
+                    ;; Reread: the user may have edited state.md since the turn began.
+                    (pcase-let ((`(,state . ,changes)
+                                 (iuiw-erpg-apply-record campaign (iuiw-erpg-state campaign) record)))
+                      (iuiw-erpg-write-state campaign state)
+                      (when visiting
+                        (with-current-buffer visiting (revert-buffer t t t)))
+                      (with-current-buffer buffer
+                        (dolist (e replies) (plist-put e :recorded t))
+                        (when changes
+                          (iuiw-erpg--add (iuiw-erpg-entry "record" (string-join changes "\n")
+                                                           :model alias)))
+                        (iuiw-erpg--save))))))))))))
 
 (defun iuiw-erpg--context ()
   "The campaign reread from disk, with its preset, state and cards, as a plist."
@@ -326,6 +387,7 @@ The input is an action, a // director note, or empty to let the story go on."
                   ((not (string-empty-p text))
                    (iuiw-erpg--add (iuiw-erpg-entry "user" text))))
             (iuiw-erpg--save)
+            (iuiw-erpg--record ctx)
             (let ((buffer (current-buffer)))
               (iuiw-erpg--voices ctx (lambda ()
                                        (with-current-buffer buffer
@@ -405,6 +467,11 @@ Earlier versions stay as swipes."
   (iuiw-erpg-set-present iuiw-erpg--campaign names)
   (message "Present: %s" (string-join names "、")))
 
+(defun iuiw-erpg-edit-state ()
+  "Open the campaign's state.md, which every model reads each turn."
+  (interactive nil iuiw-erpg-mode)
+  (find-file-other-window (expand-file-name "state.md" (plist-get iuiw-erpg--campaign :dir))))
+
 (defun iuiw-erpg-narrators (aliases)
   "Use model ALIASES, in fallback order, as narrators in this buffer.
 No aliases restore the campaign's."
@@ -414,6 +481,24 @@ No aliases restore the campaign's."
    iuiw-erpg-mode)
   (setq iuiw-erpg--narrators aliases)
   (message "Narrators: %s" (string-join (iuiw-erpg--narrator-aliases) " → ")))
+
+(defun iuiw-erpg-set-combo (name)
+  "Use model combination NAME in this campaign, writing it to campaign.md."
+  (interactive
+   (list (completing-read "Combo: " (mapcar #'car (iuiw-erpg-combos)) nil t nil nil
+                          (plist-get iuiw-erpg--campaign :combo)))
+   iuiw-erpg-mode)
+  (iuiw-erpg-combo name)
+  (let ((file (expand-file-name "campaign.md" (plist-get iuiw-erpg--campaign :dir))))
+    (iuiw-erpg-with-file file
+      (insert-file-contents file)
+      (goto-char (point-min))
+      (if (re-search-forward "^combo:.*$" nil t)
+          (replace-match (concat "combo: " name) t t)
+        (forward-line 1)
+        (insert "combo: " name "\n")))
+    (setq iuiw-erpg--campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id)))
+    (message "Combo %s; narrators: %s" name (string-join (iuiw-erpg--narrator-aliases) " → "))))
 
 (defun iuiw-erpg-stop ()
   "Stop the running turn."
@@ -463,8 +548,10 @@ No aliases restore the campaign's."
               "player: " player "\n"
               "cast: " (string-join cast ", ") "\n"
               "preset: default\n"
-              "narrator:          # 模型别名，逗号分隔即 fallback 顺序；空则用 models.eld 的第一个\n"
-              "voice:             # 生成角色意图用的模型；空则同 narrator\n"
+              "combo: value       # combos.eld 里的模型组合：budget、value、premium\n"
+              "narrator:          # 模型别名，逗号分隔即 fallback 顺序；空则用 combo 的\n"
+              "voice:             # 生成角色意图用的模型；空则用 combo 的\n"
+              "recorder:          # 自动维护 state.md 的模型；空则用 combo 的\n"
               "intensity:         # 尺度，自由描述\n"
               "length: 200-400\n"
               "depth: 4\n"
@@ -532,6 +619,12 @@ No aliases restore the campaign's."
                      :data)
           nil))
 
+(defun iuiw-erpg--free-p (model)
+  "Non-nil when OpenRouter charges nothing for MODEL, a plist from its list."
+  (let ((pricing (plist-get model :pricing)))
+    (and (zerop (string-to-number (or (plist-get pricing :prompt) "1")))
+         (zerop (string-to-number (or (plist-get pricing :completion) "1"))))))
+
 (defun iuiw-erpg--price (pricing key)
   "PRICING's KEY in dollars per million tokens, as text."
   (let ((value (plist-get pricing key)))
@@ -540,23 +633,30 @@ No aliases restore the campaign's."
 ;;;###autoload
 (defun iuiw-erpg-add-model (&optional all)
   "Pick an OpenRouter model and add it to models.eld under an alias.
-Models OpenRouter moderates are left out unless ALL, the prefix argument."
+Free models come first.  Models OpenRouter moderates are left out unless
+ALL, the prefix argument."
   (interactive "P")
   (let* ((models (seq-filter (lambda (m)
                                (or all (not (plist-get (plist-get m :top_provider) :is_moderated))))
                              (iuiw-erpg--openrouter-models)))
-         (table (mapcar (lambda (m) (cons (plist-get m :id) m)) models))
+         (table (mapcar (lambda (m) (cons (plist-get m :id) m))
+                        (append (seq-filter #'iuiw-erpg--free-p models)
+                                (seq-remove #'iuiw-erpg--free-p models))))
          (id (completing-read
               "Model: "
               (lambda (string pred action)
                 (if (eq action 'metadata)
                     `(metadata
+                      (display-sort-function . identity)
                       (annotation-function
                        . ,(lambda (id)
                             (let ((m (cdr (assoc id table))))
-                              (format "  in $%s  out $%s /M  %sk ctx%s"
-                                      (iuiw-erpg--price (plist-get m :pricing) :prompt)
-                                      (iuiw-erpg--price (plist-get m :pricing) :completion)
+                              (format "  %s  %sk ctx%s"
+                                      (if (iuiw-erpg--free-p m)
+                                          (propertize "FREE" 'face 'success)
+                                        (format "in $%s  out $%s /M"
+                                                (iuiw-erpg--price (plist-get m :pricing) :prompt)
+                                                (iuiw-erpg--price (plist-get m :pricing) :completion)))
                                       (/ (or (plist-get m :context_length) 0) 1000)
                                       (if (plist-get (plist-get m :top_provider) :is_moderated)
                                           "  moderated" ""))))))
@@ -564,10 +664,15 @@ Models OpenRouter moderates are left out unless ALL, the prefix argument."
               nil t))
          (alias (read-string "Alias: " (car (last (split-string id "/")))))
          (prefill (y-or-n-p "Send the preset's prefill to this model? "))
+         (free (iuiw-erpg--free-p (cdr (assoc id table))))
          (existing (assoc-delete-all alias (iuiw-erpg-models))))
     (iuiw-erpg-save-models
-     (append existing (list (cons alias (append (list :id id) (and prefill '(:prefill t)))))))
-    (message "Added %s as %s" id alias)))
+     (append existing
+             (list (cons alias (append (list :id id)
+                                       (and prefill '(:prefill t))
+                                       ;; Free endpoints mostly keep prompts.
+                                       (and free '(:provider (:data_collection "allow"))))))))
+    (message "Added %s as %s%s" id alias (if free ", allowing data retention" ""))))
 
 ;;;###autoload
 (defun iuiw-erpg-setup ()

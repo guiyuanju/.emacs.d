@@ -14,7 +14,7 @@
 (require 'gptel-openai)
 
 (defcustom iuiw-erpg-provider '(:data_collection "deny")
-  "OpenRouter provider preferences sent with every request."
+  "OpenRouter provider preferences, unless a model in models.eld sets :provider."
   :type 'plist
   :group 'iuiw-erpg)
 
@@ -90,7 +90,8 @@ ON-CHUNK, stream and call it with each piece of text.  Call CALLBACK with
          (gptel-use-context nil)
          (gptel-include-reasoning nil)
          (gptel--request-params (append (plist-get model :params)
-                                        (list :provider iuiw-erpg-provider)))
+                                        (list :provider (or (plist-get model :provider)
+                                                            iuiw-erpg-provider))))
          (parts nil))
     ;; gptel replaces a model its backend does not list.
     (cl-pushnew gptel-model (gptel-backend-models gptel-backend))
@@ -166,7 +167,10 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
   "STATE as a prompt section."
   (concat "# 当前状态\n在场：" (string-join (plist-get state :present) "、")
           (unless (string-empty-p (plist-get state :body))
-            (concat "\n" (plist-get state :body)))))
+            (concat "\n" (plist-get state :body)))
+          (when (plist-get state :facts)
+            (concat "\n已经发生、仍然成立的事：\n"
+                    (mapconcat (lambda (f) (concat "- " f)) (plist-get state :facts) "\n")))))
 
 (defun iuiw-erpg--join (&rest parts)
   "PARTS that are non-empty, separated by blank lines."
@@ -198,10 +202,11 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
      (iuiw-erpg--state-text state))))
 
 (defun iuiw-erpg--story (entries)
-  "ENTRIES that belong in the story: shown, and not characters' intents.
+  "ENTRIES that belong in the story: shown, and from the user or the narrator.
 A director's note only counts until the narrator next speaks."
-  (let* ((shown (seq-remove (lambda (e) (or (plist-get e :hidden)
-                                            (equal (plist-get e :role) "voice")))
+  (let* ((shown (seq-filter (lambda (e) (and (not (plist-get e :hidden))
+                                             (member (plist-get e :role)
+                                                     '("user" "director" "narrator"))))
                             entries))
          (last-narrator (cl-position "narrator" shown
                                      :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)))
@@ -306,6 +311,77 @@ PREFILL the reply opens with the preset's prefill."
      (concat "最近的剧情：\n" (if lines (string-join lines "\n\n") "（刚开场）"))
      (format "写出%s此刻的意图。" (plist-get card :name))
      (alist-get "post-history" preset nil nil #'equal))))
+
+(defcustom iuiw-erpg-facts-chars 1500
+  "Recorded facts longer than this many characters in all get condensed."
+  :type 'natnum
+  :group 'iuiw-erpg)
+
+(defun iuiw-erpg-recorder-system (preset)
+  "System prompt of the recorder, which keeps state.md's facts, with PRESET."
+  (iuiw-erpg--join
+   (alist-get "system" preset nil nil #'equal)
+   (concat "# 规则\n"
+           "- 你是这场互动小说的记录员，不写剧情。读新发生的剧情，维护一份事实清单，供角色以后回忆。\n"
+           "- 只记以后还用得上的事：关系和态度的变化、承诺和交易、暴露的秘密、得到或失去的东西、伤势、去过的地方、做出的决定。\n"
+           "- 不记一时的动作、对白原文和气氛描写；已有清单里有的不重复记。\n"
+           "- 每条一句，不超过 40 字，写明是谁；玩家写作「你」。\n"
+           "- 只输出一个 JSON 对象，不要别的文字。")))
+
+(defun iuiw-erpg-recorder-message (campaign state entries)
+  "Ask the recorder to update STATE of CAMPAIGN from the story in ENTRIES."
+  (let* ((player (iuiw-erpg-player campaign))
+         (facts (plist-get state :facts))
+         (condense (> (apply #'+ (mapcar #'length facts)) iuiw-erpg-facts-chars)))
+    (iuiw-erpg--join
+     (concat "已有清单：\n"
+             (if facts
+                 (string-join (cl-loop for f in facts for i from 1 collect (format "%d. %s" i f)) "\n")
+               "（空）"))
+     (format "角色：%s\n现在在场：%s"
+             (string-join (plist-get campaign :cast) "、")
+             (string-join (plist-get state :present) "、"))
+     (concat "新发生的剧情：\n"
+             (mapconcat (lambda (e)
+                          (format "%s：%s" (if (equal (plist-get e :role) "narrator") "旁白" player)
+                                  (iuiw-erpg-entry-text e)))
+                        entries "\n\n"))
+     (if condense
+         (format "清单太长了。输出 {\"present\": [此刻在场的角色], \"facts\": [合并精简后的完整清单]}，清单总长不超过 %d 字，去掉不再重要的。"
+                 (/ iuiw-erpg-facts-chars 2))
+       "输出 {\"present\": [此刻在场的角色], \"add\": [新增的条目], \"remove\": [不再成立的已有条目的编号]}；没有就给空数组。"))))
+
+(defun iuiw-erpg-parse-record (text)
+  "The JSON object in the recorder's TEXT as a plist, or nil."
+  (when (and text (string-match "{\\(?:.\\|\n\\)*}" text))
+    (let ((value (ignore-errors
+                   (json-parse-string (match-string 0 text) :object-type 'plist
+                                      :array-type 'list :null-object nil :false-object nil))))
+      (and (plistp value) (cl-evenp (length value)) value))))
+
+(defun iuiw-erpg-apply-record (campaign state record)
+  "STATE of CAMPAIGN with RECORD applied, and what changed.
+Returns (NEW-STATE . CHANGES), CHANGES being lines to show."
+  (let* ((cast (plist-get campaign :cast))
+         (old (plist-get state :facts))
+         (strings (lambda (list) (seq-filter (lambda (x) (and (stringp x) (not (string-blank-p x)))) list)))
+         (present (if (plist-member record :present)
+                      (seq-filter (lambda (n) (member n cast)) (funcall strings (plist-get record :present)))
+                    (plist-get state :present)))
+         (facts (if (plist-member record :facts)
+                    (funcall strings (plist-get record :facts))
+                  (let ((gone (seq-filter #'integerp (plist-get record :remove))))
+                    (append (cl-loop for f in old for i from 1 unless (memq i gone) collect f)
+                            (funcall strings (plist-get record :add))))))
+         changes)
+    (unless (equal present (plist-get state :present))
+      (push (concat "在场：" (if present (string-join present "、") "无")) changes))
+    (if (plist-member record :facts)
+        (push (format "清单精简为 %d 条" (length facts)) changes)
+      (dolist (f (seq-difference old facts)) (push (concat "- " f) changes))
+      (dolist (f (seq-difference facts old)) (push (concat "+ " f) changes)))
+    (cons (list :present present :body (plist-get state :body) :facts facts)
+          (nreverse changes))))
 
 (provide 'iuiw-erpg-llm)
 ;;; iuiw-erpg-llm.el ends here

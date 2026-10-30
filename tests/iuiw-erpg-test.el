@@ -98,6 +98,35 @@
       (should-error (iuiw-erpg-narrator-messages campaign nil (list (car entries)) nil t)
                     :type 'user-error))))
 
+(ert-deftest iuiw-erpg-model-provider-overrides-default ()
+  (let (params)
+    (cl-letf (((symbol-function 'iuiw-erpg-model)
+               (lambda (alias) (if (equal alias "free")
+                                   '(:id "x/free" :provider (:data_collection "allow"))
+                                 '(:id "x/paid"))))
+              ((symbol-function 'gptel-request)
+               (lambda (&rest _) (push gptel--request-params params))))
+      (iuiw-erpg-request "free" "s" '("u") :callback #'ignore)
+      (iuiw-erpg-request "paid" "s" '("u") :callback #'ignore))
+    (should (equal (plist-get (nth 1 params) :provider) '(:data_collection "allow")))
+    (should (equal (plist-get (nth 0 params) :provider) '(:data_collection "deny")))))
+
+(ert-deftest iuiw-erpg-combo-fills-unset-roles ()
+  (iuiw-erpg-test--with-repo
+    (iuiw-erpg-test--write "combos.eld" "((cheap :narrator (\"b\") :voice (\"a\") :recorder (\"b\" \"a\")))")
+    (iuiw-erpg-test--write "campaigns/c/campaign.md" "---\ntitle: T\ncast: 甲\ncombo: cheap\nvoice: b\n---\n世界")
+    (with-temp-buffer
+      (setq iuiw-erpg--campaign (iuiw-erpg-campaign "c"))
+      (should (equal (iuiw-erpg--narrator-aliases) '("b")))
+      (should (equal (iuiw-erpg--voice-aliases '(:model nil)) '("b")))
+      (should (equal (iuiw-erpg--voice-aliases '(:model "a")) '("a")))
+      (should (equal (iuiw-erpg--recorder-aliases) '("b" "a")))
+      (setq iuiw-erpg--narrators '("a"))
+      (should (equal (iuiw-erpg--narrator-aliases) '("a"))))
+    (with-temp-buffer
+      (setq iuiw-erpg--campaign (list :combo "nope"))
+      (should-error (iuiw-erpg--narrator-aliases) :type 'user-error))))
+
 (ert-deftest iuiw-erpg-refusals ()
   (should (iuiw-erpg-refusal-p "  "))
   (should (iuiw-erpg-refusal-p "抱歉，我无法继续这个故事。"))
@@ -128,7 +157,10 @@
                  (cl-function
                   (lambda (alias system messages &key on-chunk callback &allow-other-keys)
                     (push (list alias system messages) calls)
-                    (cond ((string-match-p "你只扮演甲" system)
+                    (cond ((string-match-p "记录员" system)
+                           (should (string-match-p "旁白：门开了" (car messages)))
+                           (funcall callback "{\"present\": [\"甲\"], \"add\": [\"你进了门\"], \"remove\": []}" nil))
+                          ((string-match-p "你只扮演甲" system)
                            (funcall callback "行动：起身" nil))
                           (on-chunk
                            (funcall on-chunk "门")
@@ -150,7 +182,45 @@
               (should (equal (iuiw-erpg--input) ""))
               (iuiw-erpg-regenerate)
               (should (equal (plist-get (nth 2 iuiw-erpg--entries) :swipes) ["门开了" "门开了"]))
-              (should (= (length (iuiw-erpg-log-read iuiw-erpg--campaign)) 3)))
+              (should (= (length (iuiw-erpg-log-read iuiw-erpg--campaign)) 3))
+              ;; 发下一句时，记录员读上一段旁白，写进 state.md。
+              (goto-char (point-max))
+              (insert "我坐下")
+              (iuiw-erpg-send)
+              (should (equal (iuiw-erpg-state iuiw-erpg--campaign)
+                             '(:present ("甲") :body "" :facts ("你进了门"))))
+              (should (plist-get (nth 2 iuiw-erpg--entries) :recorded))
+              (should (seq-find (lambda (e) (and (equal (plist-get e :role) "record")
+                                                 (equal (iuiw-erpg-entry-text e) "在场：甲\n+ 你进了门")))
+                                iuiw-erpg--entries))
+              (should (string-match-p "· 记录" (buffer-string))))
           (kill-buffer))))))
+
+(ert-deftest iuiw-erpg-state-keeps-notes-apart-from-facts ()
+  (iuiw-erpg-test--with-repo
+    (let ((campaign (iuiw-erpg-campaign "c")))
+      (should (equal (iuiw-erpg-state campaign) '(:present ("甲" "乙") :body "" :facts nil)))
+      (iuiw-erpg-write-state campaign '(:present ("甲") :body "手写" :facts ("事一" "事二")))
+      (should (equal (iuiw-erpg-state campaign) '(:present ("甲") :body "手写" :facts ("事一" "事二"))))
+      (iuiw-erpg-set-present campaign '("乙"))
+      (should (equal (plist-get (iuiw-erpg-state campaign) :facts) '("事一" "事二")))
+      (should (string-match-p "已经发生、仍然成立的事：\n- 事一\n- 事二"
+                              (iuiw-erpg--state-text (iuiw-erpg-state campaign)))))))
+
+(ert-deftest iuiw-erpg-record-applies ()
+  (let ((campaign '(:cast ("甲" "乙")))
+        (state '(:present ("甲") :body "B" :facts ("一" "二" "三"))))
+    (should (equal (iuiw-erpg-parse-record "```json\n{\"add\": [\"四\"], \"remove\": [2]}\n```")
+                   '(:add ("四") :remove (2))))
+    (should-not (iuiw-erpg-parse-record "抱歉"))
+    (pcase-let ((`(,new . ,changes)
+                 (iuiw-erpg-apply-record campaign state
+                                         '(:present ("甲" "乙" "路人") :add ("四" "") :remove (2)))))
+      (should (equal new '(:present ("甲" "乙") :body "B" :facts ("一" "三" "四"))))
+      (should (equal changes '("在场：甲、乙" "- 二" "+ 四"))))
+    (pcase-let ((`(,new . ,changes) (iuiw-erpg-apply-record campaign state '(:facts ("合并")))))
+      (should (equal (plist-get new :facts) '("合并")))
+      (should (equal (plist-get new :present) '("甲")))
+      (should (equal changes '("清单精简为 1 条"))))))
 
 ;;; iuiw-erpg-test.el ends here

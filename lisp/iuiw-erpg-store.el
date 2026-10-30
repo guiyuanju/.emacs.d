@@ -74,10 +74,23 @@
   (or (alist-get alias (iuiw-erpg-models) nil nil #'equal)
       (user-error "No model %s in models.eld; add one with M-x iuiw-erpg-add-model" alias)))
 
+(defun iuiw-erpg-combos ()
+  "The model combinations in combos.eld, as ((NAME . PLIST) ...).
+PLIST maps :narrator, :voice and :recorder to lists of model aliases."
+  (when-let* ((text (iuiw-erpg--read (iuiw-erpg-file "combos.eld"))))
+    (mapcar (lambda (entry) (cons (symbol-name (car entry)) (cdr entry)))
+            (car (read-from-string text)))))
+
+(defun iuiw-erpg-combo (name)
+  "Combination NAME, an error when unknown."
+  (or (alist-get name (iuiw-erpg-combos) nil nil #'equal)
+      (user-error "No combo %s in combos.eld" name)))
+
 (defun iuiw-erpg-save-models (models)
   "Write MODELS, as ((ALIAS . PLIST) ...), to models.eld."
   (iuiw-erpg-with-file (iuiw-erpg-file "models.eld")
-    (insert ";; 模型档案：(别名 :id \"OpenRouter 模型 id\" [:prefill t] [:params (:temperature 1.0 :max_tokens 1500)])\n"
+    (insert ";; 模型档案：(别名 :id \"OpenRouter 模型 id\" [:prefill t] [:params (:temperature 1.0 :max_tokens 1500)]\n"
+            ";;          [:provider (:data_collection \"allow\")])，:provider 代替默认的不留存数据\n"
             ";; 用 M-x iuiw-erpg-add-model 从 OpenRouter 的模型列表挑选加入。\n")
     (let ((print-length nil) (print-level nil))
       (pp (mapcar (lambda (m) (cons (intern (car m)) (cdr m))) models) (current-buffer)))))
@@ -145,30 +158,54 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
                   :cast (iuiw-erpg-split (plist-get fields :cast))
                   :narrator (iuiw-erpg-split (plist-get fields :narrator))
                   :voice (iuiw-erpg-split (plist-get fields :voice))
+                  :recorder (iuiw-erpg-split (plist-get fields :recorder))
                   :depth (iuiw-erpg--number (plist-get fields :depth) 4))
             fields)))
 
+(defconst iuiw-erpg-facts-heading "## 自动记录"
+  "Heading in state.md above the facts the recorder keeps.")
+
+(defun iuiw-erpg-state-file (campaign)
+  "CAMPAIGN's state.md."
+  (expand-file-name "state.md" (plist-get campaign :dir)))
+
 (defun iuiw-erpg-state (campaign)
-  "CAMPAIGN's state: :present, a list of names, and :body."
-  (let ((state (iuiw-erpg-parse (or (iuiw-erpg--read (expand-file-name "state.md" (plist-get campaign :dir)))
-                                    ""))))
+  "CAMPAIGN's state as a plist.
+:present and :facts are lists of strings, :body the user's notes."
+  (let* ((state (iuiw-erpg-parse (or (iuiw-erpg--read (iuiw-erpg-state-file campaign)) "")))
+         (body (plist-get state :body))
+         (split (string-match (concat "^" (regexp-quote iuiw-erpg-facts-heading) "[ \t]*$") body))
+         (facts (and split (substring body (match-end 0)))))
     (list :present (if (plist-member state :present)
                        (iuiw-erpg-split (plist-get state :present))
                      (plist-get campaign :cast))
-          :body (plist-get state :body))))
+          :body (string-trim (substring body 0 split))
+          :facts (and facts
+                      (cl-loop for line in (split-string facts "\n" t)
+                               when (string-match "\\`- +\\(.+\\)" line)
+                               collect (string-trim (match-string 1 line)))))))
+
+(defun iuiw-erpg-write-state (campaign state)
+  "Write STATE, a plist as `iuiw-erpg-state' returns, as CAMPAIGN's state.md."
+  (iuiw-erpg-with-file (iuiw-erpg-state-file campaign)
+    (insert "---\npresent: " (string-join (plist-get state :present) ", ") "\n---\n")
+    (unless (string-empty-p (plist-get state :body))
+      (insert (plist-get state :body) "\n"))
+    (when (plist-get state :facts)
+      (insert "\n" iuiw-erpg-facts-heading "\n")
+      (dolist (fact (plist-get state :facts))
+        (insert "- " fact "\n")))))
 
 (defun iuiw-erpg-set-present (campaign names)
-  "Record NAMES as who is present in CAMPAIGN, keeping the state's body."
-  (let ((body (plist-get (iuiw-erpg-state campaign) :body)))
-    (iuiw-erpg-with-file (expand-file-name "state.md" (plist-get campaign :dir))
-      (insert "---\npresent: " (string-join names ", ") "\n---\n")
-      (unless (string-empty-p body) (insert body "\n")))))
+  "Record NAMES as who is present in CAMPAIGN, keeping the rest of the state."
+  (iuiw-erpg-write-state campaign (plist-put (iuiw-erpg-state campaign) :present names)))
 
 ;;; Log
 
-;; An entry is a plist: :role is "user", "director", "narrator" or "voice";
-;; :swipes a vector of texts with :index the one shown; optional :name,
-;; :model, :time, and :hidden for replies that are kept but never sent.
+;; An entry is a plist: :role is "user", "director", "narrator", "voice" or
+;; "record"; :swipes a vector of texts with :index the one shown; optional
+;; :name, :model, :time, :hidden for replies that are kept but never sent,
+;; and :recorded on narrator replies the recorder has read.
 
 (defun iuiw-erpg-log-file (campaign)
   "CAMPAIGN's log file."
