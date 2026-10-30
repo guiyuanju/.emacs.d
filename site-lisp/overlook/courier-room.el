@@ -279,6 +279,11 @@ for."
                       (courier-room--file name) t 'silent))
       (push post (courier-room-posts room))
       (cl-incf (courier-room-count room))
+      ;; Someone who had read everything has read their own post too.
+      (let ((author (courier-room-member room from)))
+        (when (= (plist-get author :read) (1- (courier-room-count room)))
+          (setf (plist-get author :read) (courier-room-count room))
+          (courier-room--save-members)))
       (let ((hops (courier--hops from)))
         (pcase-dolist (`(,id . ,member) (courier-room-members room))
           (when-let* (((not (equal id from)))

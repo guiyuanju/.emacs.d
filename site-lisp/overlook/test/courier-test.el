@@ -391,4 +391,12 @@
     (should (equal (courier-room-note "b@p")
                    "[courier] Unread in rooms: #ops 1.  Read with `courier room read NAME`."))))
 
+(ert-deftest courier-room-own-posts-are-read ()
+  (courier-test-with-rooms '("a@p" "b@p")
+    (courier-room-post "ops" "b@p" "mine")
+    (should (= (courier-room-unread (courier-room "ops") "b@p") 0))
+    (courier-room-post "ops" "a@p" "theirs")
+    (courier-room-post "ops" "b@p" "mine again")
+    (should (= (courier-room-unread (courier-room "ops") "b@p") 2))))
+
 ;;; courier-test.el ends here
