@@ -29,12 +29,16 @@
 ;; its PATH.  Its errors and requests for the user reach the agent that
 ;; spawned it.  A spawned agent opens in its parent's perspective; the
 ;; dashboard marks who spawned it, and the messages waiting for it.
+;; Above the perspectives, a Rooms section lists courier's chat rooms with
+;; the posts the user has not read; RET opens one.
 
 ;;; Code:
 
 (require 'overlook-agent)
 (require 'courier)
 (require 'courier-room)
+
+(declare-function overlook-room-open "overlook-room")
 
 (defvar-local overlook-courier-id nil
   "This agent's courier id.")
@@ -112,6 +116,43 @@ It opens in PARENT's perspective, at reasoning EFFORT if non-nil."
       (concat (if parent (propertize (concat " ← " parent) 'face 'shadow) "")
               (if (> pending 0) (propertize (format " ✉%d" pending) 'face 'warning) "")))))
 
+(defun overlook-courier--room-row (name)
+  "Insert the row of room NAME: its unread posts, and whether one names the user."
+  (let* ((room (courier-room name))
+         (read (plist-get (courier-room-member room courier-room-user) :read))
+         (unread (if read
+                     (cl-loop for post in (courier-room-posts room)
+                              while (> (plist-get post :n) read)
+                              collect post)
+                   '()))
+         (named (seq-some (lambda (post)
+                            (and (not (equal (plist-get post :from) courier-room-user))
+                                 (courier-room-mentions-p (plist-get post :body) courier-room-user)))
+                          unread))
+         (members (length (courier-room-members room)))
+         (last (car (courier-room-posts room)))
+         (meta (propertize (format "%d member%s" members (if (= members 1) "" "s"))
+                           'face 'shadow))
+         (line (concat overlook-indent "#" name
+                       (if unread (propertize (format " ✉%d" (length unread)) 'face 'warning) "")
+                       (overlook-align-right meta 1)
+                       "\n")))
+    (when named
+      (add-face-text-property (length overlook-indent) (length line) 'overlook-agent-waiting t line))
+    (add-text-properties 0 (length line)
+                         `( overlook-item (room . ,name)
+                            overlook-action ,(lambda () (overlook-room-open name))
+                            overlook-attention ,named
+                            help-echo ,(if last (courier-room-format last) "No posts yet"))
+                         line)
+    (overlook-insert-row line)))
+
+(defun overlook-courier--rooms-section ()
+  "Insert the Rooms section: a row per courier room."
+  (overlook-insert-section
+   (propertize "Rooms" 'overlook-action (lambda () (call-interactively #'overlook-room-open)))
+   (lambda () (mapc #'overlook-courier--room-row (courier-room-names)))))
+
 ;;;###autoload
 (define-minor-mode overlook-courier-mode
   "Let overlook's agents message, spawn and monitor each other through courier."
@@ -125,6 +166,7 @@ It opens in PARENT's perspective, at reasoning EFFORT if non-nil."
      (overlook-agent-turn-end-hook overlook-courier--turn-finished)
      (overlook-agent-attention-hook overlook-courier--blocked)
      (overlook-agent-row-marks overlook-courier--mark)
+     (overlook-sections overlook-courier--rooms-section -10)
      (courier-changed-hook overlook-refresh)))
   (setq courier-spawn-function (and overlook-courier-mode #'overlook-courier--spawn))
   (when overlook-courier-mode (overlook-courier--sync))

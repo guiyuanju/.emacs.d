@@ -98,7 +98,9 @@ A spawned agent opens in its parent's perspective, and its row shows
 LEVEL` starts it at that reasoning effort, through the session config
 option `overlook-agent-shell-effort-options` names for it (Claude's
 `effort`, Codex's `reasoning_effort`).  Agents and you can also talk in shared chat
-rooms; `M-x overlook-room-open` shows one.
+rooms; `M-x overlook-room-open` shows one, and a Rooms section above
+the perspectives lists them with your unread posts (`✉N`), highlighted
+when one names you.
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:

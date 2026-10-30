@@ -709,6 +709,34 @@ Agents are listed; usage and repos are not."
             (kill-buffer buffer)))
       (delete-directory courier-room-directory t))))
 
+(ert-deftest overlook-courier-lists-rooms-above-perspectives ()
+  (let ((courier-room-directory (make-temp-file "courier-rooms" t))
+        (courier-room--rooms nil)
+        (courier-room--loaded nil)
+        (courier-room-post-functions nil)
+        (courier--agents (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (courier-room-join "ops" courier-room-user)
+          (courier-room-post "ops" "a@p" "plain")
+          (courier-room-post "ops" "a@p" "@user look")
+          (courier-room-post "quiet" "a@p" "hello")
+          (overlook-test-with-dashboard '(("main")) "main"
+            (setq-local overlook-sections (list #'overlook-courier--rooms-section
+                                                #'overlook--perspectives-section))
+            (overlook--render)
+            (let ((text (buffer-string)))
+              (should (string-match-p "\\`Rooms\n#ops ✉2.*\n#quiet.*\n\nPerspectives" text)))
+            (goto-char (point-min))
+            (search-forward "#ops")
+            (should (get-text-property (point) 'overlook-attention))
+            (search-forward "#quiet")
+            (should-not (get-text-property (point) 'overlook-attention))
+            (courier-room-mark-read "ops" courier-room-user)
+            (overlook--render)
+            (should-not (string-search "✉" (buffer-string)))))
+      (delete-directory courier-room-directory t))))
+
 (ert-deftest overlook-project-parses-git-status ()
   (should (equal (overlook-project--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"
