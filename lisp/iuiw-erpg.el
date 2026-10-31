@@ -61,6 +61,8 @@
   "C-c C-g" #'iuiw-erpg-continue
   "C-c C-e" #'iuiw-erpg-edit
   "C-c C-d" #'iuiw-erpg-delete
+  "C-c C-u" #'iuiw-erpg-rewind
+  "C-c C-a" #'iuiw-erpg-retry
   "C-c C-t" #'iuiw-erpg-edit-state
   "C-c C-v" #'iuiw-erpg-present
   "C-c C-m" #'iuiw-erpg-narrators
@@ -266,8 +268,8 @@ from is still in every prompt."
                     (message "erpg: state.md has unsaved edits; the recorder tries again next turn"))
                    (t
                     ;; Reread: the user may have edited state.md since the turn began.
-                    (pcase-let ((`(,state . ,changes)
-                                 (iuiw-erpg-apply-record campaign (iuiw-erpg-state campaign) record)))
+                    (pcase-let* ((before (iuiw-erpg-state campaign))
+                                 (`(,state . ,changes) (iuiw-erpg-apply-record campaign before record)))
                       (iuiw-erpg-write-state campaign state)
                       (when visiting
                         (with-current-buffer visiting (revert-buffer t t t)))
@@ -275,7 +277,9 @@ from is still in every prompt."
                         (dolist (e replies) (plist-put e :recorded t))
                         (when changes
                           (iuiw-erpg--add (iuiw-erpg-entry "record" (string-join changes "\n")
-                                                           :model alias)))
+                                                           :model alias
+                                                           :before-present (vconcat (plist-get before :present))
+                                                           :before-facts (vconcat (plist-get before :facts)))))
                         (iuiw-erpg--save))))))))))))
 
 (defun iuiw-erpg--context ()
@@ -405,29 +409,103 @@ TARGET, or `continue' to extend TARGET."
 
 ;;; Commands
 
+(defun iuiw-erpg--play (text)
+  "Log TEXT, as `iuiw-erpg-send' reads input, and play a turn."
+  (iuiw-erpg--start)
+  (condition-case err
+      (let ((ctx (iuiw-erpg--context)))
+        (cond ((string-prefix-p "//" text)
+               (iuiw-erpg--add (iuiw-erpg-entry "director" (string-trim (substring text 2)))))
+              ((not (string-empty-p text))
+               (iuiw-erpg--add (iuiw-erpg-entry "user" text))))
+        (iuiw-erpg--save)
+        (iuiw-erpg--record ctx)
+        (let ((buffer (current-buffer)))
+          (iuiw-erpg--voices ctx (lambda ()
+                                   (with-current-buffer buffer
+                                     (iuiw-erpg--narrate ctx 'new))))))
+    (error (setq iuiw-erpg--busy nil)
+           (signal (car err) (cdr err)))))
+
 (defun iuiw-erpg-send ()
   "Send the input and play a turn.
 The input is an action, a // director note, or empty to let the story go on."
   (interactive nil iuiw-erpg-mode)
-  (if (< (point) iuiw-erpg--input-marker)
-      (user-error "Type after the > prompt")
-    (let ((text (string-trim (iuiw-erpg--input))))
-      (iuiw-erpg--start)
-      (condition-case err
-          (let ((ctx (iuiw-erpg--context)))
-            (let ((inhibit-read-only t)) (delete-region iuiw-erpg--input-marker (point-max)))
-            (cond ((string-prefix-p "//" text)
-                   (iuiw-erpg--add (iuiw-erpg-entry "director" (string-trim (substring text 2)))))
-                  ((not (string-empty-p text))
-                   (iuiw-erpg--add (iuiw-erpg-entry "user" text))))
-            (iuiw-erpg--save)
-            (iuiw-erpg--record ctx)
-            (let ((buffer (current-buffer)))
-              (iuiw-erpg--voices ctx (lambda ()
-                                       (with-current-buffer buffer
-                                         (iuiw-erpg--narrate ctx 'new))))))
-        (error (setq iuiw-erpg--busy nil)
-               (signal (car err) (cdr err)))))))
+  (when (< (point) iuiw-erpg--input-marker)
+    (user-error "Type after the > prompt"))
+  (when iuiw-erpg--busy
+    (user-error "A turn is running; C-c C-k stops it"))
+  (let ((text (string-trim (iuiw-erpg--input))))
+    (let ((inhibit-read-only t)) (delete-region iuiw-erpg--input-marker (point-max)))
+    (iuiw-erpg--play text)))
+
+(defun iuiw-erpg--rewind (index)
+  "Drop the log entries from INDEX on and undo what the recorder wrote from them.
+Returns the last dropped player line or director note as input, or nil."
+  (when iuiw-erpg--busy
+    (user-error "A turn is running; C-c C-k stops it"))
+  (let* ((campaign iuiw-erpg--campaign)
+         (dropped (nthcdr index iuiw-erpg--entries))
+         (record (seq-find (lambda (e) (equal (plist-get e :role) "record")) dropped))
+         (said (seq-find (lambda (e) (member (plist-get e :role) '("user" "director"))) dropped))
+         (visiting (find-buffer-visiting (iuiw-erpg-state-file campaign))))
+    ;; A recorder still reading the dropped story must not write it down.
+    (iuiw-erpg-abort (current-buffer))
+    (setq iuiw-erpg--entries (seq-take iuiw-erpg--entries index))
+    (when record
+      (cond ((not (plist-member record :before-facts))
+             (message "erpg: that record predates rewinding, so state.md is left as is; check it with C-c C-t"))
+            ((and visiting (buffer-modified-p visiting))
+             (message "erpg: state.md has unsaved edits, so its facts were not rewound"))
+            (t
+             (iuiw-erpg-write-state campaign
+                                    (list :present (append (plist-get record :before-present) nil)
+                                          :body (plist-get (iuiw-erpg-state campaign) :body)
+                                          :facts (append (plist-get record :before-facts) nil)))
+             (when visiting
+               (with-current-buffer visiting (revert-buffer t t t)))))
+      ;; Replies only the dropped records read are read again.
+      (let ((kept (cl-position "record" iuiw-erpg--entries :from-end t :test #'equal
+                               :key (lambda (e) (plist-get e :role)))))
+        (dolist (e (nthcdr (if kept (1+ kept) 0) iuiw-erpg--entries))
+          (plist-put e :recorded nil))))
+    (iuiw-erpg--save)
+    (when said
+      (concat (if (equal (plist-get said :role) "director") "// " "")
+              (iuiw-erpg-entry-text said)))))
+
+(defun iuiw-erpg-rewind ()
+  "Go back to before the entry at point, dropping it and everything after.
+A dropped player line or director note comes back as input to edit and send."
+  (interactive nil iuiw-erpg-mode)
+  (let* ((index (iuiw-erpg--entry-at-point))
+         (count (- (length iuiw-erpg--entries) index)))
+    (when (y-or-n-p (format "Drop this and the %d entries after it? " (1- count)))
+      (when-let* ((input (iuiw-erpg--rewind index)))
+        (let ((inhibit-read-only t))
+          (delete-region iuiw-erpg--input-marker (point-max))
+          (goto-char (point-max))
+          (insert input)))
+      (goto-char (point-max)))))
+
+(defun iuiw-erpg-retry ()
+  "Play the last turn again: the characters' intents and the narrator's reply
+since the last player line or director note are dropped and written anew."
+  (interactive nil iuiw-erpg-mode)
+  (let ((since (1+ (or (cl-position-if (lambda (e) (member (plist-get e :role) '("user" "director")))
+                                       iuiw-erpg--entries :from-end t)
+                       -1))))
+    (when (= since (length iuiw-erpg--entries))
+      (user-error "Nothing since the last input; RET plays a turn"))
+    (iuiw-erpg--rewind since)
+    (iuiw-erpg--play "")))
+
+(defun iuiw-erpg-restart ()
+  "Start the campaign over: empty the log and rewind state.md's facts."
+  (interactive nil iuiw-erpg-mode)
+  (when (y-or-n-p (format "Drop all %d entries and start over? " (length iuiw-erpg--entries)))
+    (iuiw-erpg--rewind 0)
+    (goto-char (point-max))))
 
 (defun iuiw-erpg-regenerate ()
   "Write another version of the narrator's last reply.

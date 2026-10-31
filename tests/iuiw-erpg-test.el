@@ -177,6 +177,46 @@
               (should (string-match-p "· 记录" (buffer-string))))
           (kill-buffer))))))
 
+(ert-deftest iuiw-erpg-rewind-undoes-the-recorder ()
+  (iuiw-erpg-test--with-repo
+    (cl-letf (((symbol-function 'iuiw-erpg-request)
+               (cl-function
+                (lambda (_alias system _messages &key callback &allow-other-keys)
+                  (funcall callback
+                           (cond ((string-match-p "记录员" system)
+                                  "{\"present\": [\"甲\"], \"add\": [\"你进了门\"], \"remove\": []}")
+                                 ((string-match-p "你只扮演甲" system) "行动：起身")
+                                 (t "门开了"))
+                           nil))))
+              ((symbol-function 'y-or-n-p) #'always))
+      (iuiw-erpg-open "c")
+      (unwind-protect
+          (let ((roles (lambda () (mapcar (lambda (e) (plist-get e :role)) iuiw-erpg--entries)))
+                (start '(:present ("甲" "乙") :body "" :facts nil))
+                (after '(:present ("甲") :body "" :facts ("你进了门"))))
+            (dolist (text '("我进门" "// 天黑了"))
+              (goto-char (point-max))
+              (insert text)
+              (iuiw-erpg-send))
+            (should (equal (funcall roles) '("user" "voice" "narrator" "director" "record" "voice" "narrator")))
+            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) after))
+            ;; 重试这一轮：记录被撤销后，上一段旁白重新记一次。
+            (iuiw-erpg-retry)
+            (should (equal (funcall roles) '("user" "voice" "narrator" "director" "record" "voice" "narrator")))
+            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) after))
+            (goto-char (text-property-any (point-min) (point-max) 'iuiw-erpg-index 3))
+            (iuiw-erpg-rewind)
+            (should (equal (funcall roles) '("user" "voice" "narrator")))
+            (should-not (plist-get (nth 2 iuiw-erpg--entries) :recorded))
+            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) start))
+            (should (equal (iuiw-erpg--input) "// 天黑了"))
+            (iuiw-erpg-send)
+            (iuiw-erpg-restart)
+            (should-not iuiw-erpg--entries)
+            (should-not (iuiw-erpg-log-read iuiw-erpg--campaign))
+            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) start)))
+        (kill-buffer)))))
+
 (ert-deftest iuiw-erpg-state-keeps-notes-apart-from-facts ()
   (iuiw-erpg-test--with-repo
     (let ((campaign (iuiw-erpg-campaign "c")))
