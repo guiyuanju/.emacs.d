@@ -226,7 +226,8 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
 ;; for the narrator, 导演 for a director's note and anything else for the
 ;; player.  HTML comments in a section are never sent; three kinds mean
 ;; something: "意图 NAME" a character's intent, "记录" facts the recorder
-;; noted and "在场：…" who is present.
+;; noted, "在场：…" who is present and "叙事者：…" a director's note only
+;; the narrator is shown.
 
 (defconst iuiw-erpg-heading-regexp "^### +\\(.+?\\)[ \t]*$"
   "Matches the heading opening a section of a story.")
@@ -267,14 +268,16 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
     (car (split-string rel "/"))))
 
 (defun iuiw-erpg--comment-entry (text)
-  "The entry a comment saying TEXT makes, or nil when it is only a note."
+  "The entry a comment saying TEXT makes, or nil when it is only the user's."
   (setq text (string-trim text))
   (cond ((string-match "\\`意图[ \t]+\\([^ \t\n]+\\)" text)
          (list :role "voice" :name (match-string 1 text) :text (string-trim (substring text (match-end 0)))))
         ((string-match "\\`记录" text)
          (list :role "record" :text (string-trim (substring text (match-end 0)))))
         ((string-prefix-p "在场" text)
-         (list :role "present" :text text))))
+         (list :role "present" :text text))
+        ((string-match "\\`叙事者[：:]" text)
+         (list :role "note" :text (string-trim (substring text (match-end 0)))))))
 
 (defun iuiw-erpg-story-entries ()
   "The story in the current buffer as entries, in order.
@@ -336,8 +339,8 @@ whole new list and \"在场：…\" for who is present."
           (when whole (setq facts (nreverse whole))))))
     (list :present present :body (plist-get state :body) :facts facts)))
 
-;; An entry is a plist: :role is "user", "director", "narrator", "voice",
-;; "record" or "present"; :text what it says; :name the heading or who intends.
+;; An entry is a plist: :role is "user", "director", "note", "narrator",
+;; "voice", "record" or "present"; :text what it says; :name the heading or who intends.
 
 (defun iuiw-erpg-entry (role text &rest props)
   "A new entry of ROLE saying TEXT, with extra PROPS."

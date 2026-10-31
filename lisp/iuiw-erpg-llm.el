@@ -226,14 +226,15 @@ It leaves out what changes from turn to turn, so providers can cache it."
 
 (defun iuiw-erpg--story (entries)
   "ENTRIES that belong in the story: written by the user or the narrator.
-A director's note only counts until the narrator next speaks."
-  (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role) '("user" "director" "narrator"))
+A director's note, and a note for the narrator only, counts until the
+narrator next speaks."
+  (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role) '("user" "director" "note" "narrator"))
                                              (not (string-empty-p (iuiw-erpg-entry-text e)))))
                             entries))
          (last-narrator (cl-position "narrator" shown
                                      :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)))
     (cl-loop for e in shown for i from 0
-             unless (and (equal (plist-get e :role) "director")
+             unless (and (member (plist-get e :role) '("director" "note"))
                          last-narrator (< i last-narrator))
              collect e)))
 
@@ -242,7 +243,7 @@ A director's note only counts until the narrator next speaks."
   (let ((text (iuiw-erpg-entry-text entry)))
     (pcase (plist-get entry :role)
       ("narrator" (cons 'assistant text))
-      ("director" (cons 'user (concat "【导演指令】" text)))
+      ((or "director" "note") (cons 'user (concat "【导演指令】" text)))
       (_ (cons 'user text)))))
 
 (defun iuiw-erpg--alternate (messages)
@@ -324,7 +325,9 @@ extend; else with PREFILL the reply opens with the preset's prefill."
 
 (defun iuiw-erpg-voice-message (campaign preset state entries card)
   "The one message asking CARD for its intent, from STATE and the story in ENTRIES."
-  (let* ((story (last (iuiw-erpg--story entries) iuiw-erpg-voice-history))
+  (let* ((story (last (seq-remove (lambda (e) (equal (plist-get e :role) "note"))
+                                  (iuiw-erpg--story entries))
+                      iuiw-erpg-voice-history))
          (player (iuiw-erpg-player-alias campaign))
          (lines (mapcar (lambda (e)
                           (format "%s：%s"

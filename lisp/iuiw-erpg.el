@@ -37,6 +37,8 @@
   "C-c C-g" '("续写旁白" . iuiw-erpg-continue)
   "C-c C-b" '("从这段分支" . iuiw-erpg-branch)
   "C-c C-o" '("切换分支" . iuiw-erpg-switch-branch)
+  "C-c C-d" '("导演段" . iuiw-erpg-director)
+  "C-c C-n" '("只给叙事者" . iuiw-erpg-narrator-note)
   "C-c C-v" '("在场角色" . iuiw-erpg-present)
   "C-c C-t" '("state.md" . iuiw-erpg-edit-state)
   "C-c C-m" '("换叙事模型" . iuiw-erpg-narrators)
@@ -52,8 +54,9 @@
     (if iuiw-erpg--busy
         (concat " 生成中…  " (funcall key "C-c C-k") " 停止")
       (concat " " (funcall key "C-c C-c") " 发送  " (funcall key "C-c C-r") " 重写  "
-              (funcall key "C-c C-g") " 续写  " (funcall key "C-c C-b") " 分支  "
-              (funcall key "C-c C-o") " 切换分支  " (funcall key "C-c C-v") " 在场  " (funcall key "C-c C-p") " 预览  "
+              (funcall key "C-c C-g") " 续写  " (funcall key "C-c C-d") " 导演  "
+              (funcall key "C-c C-n") " 只给叙事者  " (funcall key "C-c C-b") " 分支  "
+              (funcall key "C-c C-v") " 在场  " (funcall key "C-c C-p") " 预览  "
               (funcall key "C-c") " 更多"))))
 
 ;;;###autoload
@@ -477,6 +480,20 @@ Write what you do in the section under your name at the end, or under a
   "Go to BRANCH of this campaign."
   (interactive (list (iuiw-erpg--read-branch iuiw-erpg--campaign)) iuiw-erpg-mode)
   (iuiw-erpg--visit (iuiw-erpg-story-file iuiw-erpg--campaign branch)))
+
+(defun iuiw-erpg-director ()
+  "Start a ### 导演 section at the end, a note the characters see too.
+It takes the place of an empty section left for the player."
+  (interactive nil iuiw-erpg-mode)
+  (iuiw-erpg--drop-empty-tail)
+  (iuiw-erpg--open-section "导演")
+  (goto-char (point-max)))
+
+(defun iuiw-erpg-narrator-note (text)
+  "Tell the narrator TEXT for its next section, keeping it from the characters."
+  (interactive (list (read-string "只给叙事者: ")) iuiw-erpg-mode)
+  (iuiw-erpg--comment-at (point-max) (concat "叙事者：" text))
+  (iuiw-erpg--save))
 
 (defun iuiw-erpg-present (names)
   "Set who of the cast is present to NAMES, noted in the story."
