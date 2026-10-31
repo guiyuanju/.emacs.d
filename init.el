@@ -699,8 +699,11 @@
   :custom
   (age-program (executable-find "age"))
   (age-default-identity (expand-file-name "~/.config/age/se-identity.txt"))
+  ;; 公钥取自 identity 文件里的注释，每台机器的密钥不同。
   (age-default-recipient
-   "age1se1qgvy8802j4yssp3ese5l7845yv8jx9lve8gspgnftz4sn552y8lzz9nlqrg")
+   (with-temp-buffer
+     (ignore-errors (insert-file-contents "~/.config/age/se-identity.txt"))
+     (and (re-search-forward "^# public key: \\(.+\\)$" nil t) (match-string 1))))
   :config
   (age-file-enable))
 
