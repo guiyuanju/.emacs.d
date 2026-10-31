@@ -278,4 +278,21 @@
                               (iuiw-erpg-voice-system campaign nil (iuiw-erpg-state campaign)
                                                       card (list card)))))))
 
+(ert-deftest iuiw-erpg-preview-shows-every-request ()
+  (iuiw-erpg-test--with-repo
+    (iuiw-erpg-test--write "campaigns/c/story.md" "### 旁白\n\n门开了\n\n### 你\n\n我进门\n")
+    (iuiw-erpg-open "c")
+    (unwind-protect
+        (progn
+          (iuiw-erpg-set-length "800-1200")
+          (iuiw-erpg-preview)
+          (with-current-buffer "*erpg preview c*"
+            (let ((text (buffer-string)))
+              (should (string-prefix-p "本轮共 3 次请求" text))
+              (dolist (part '("━━━━ 甲的意图" "━━━━ 叙事者  a → b" "━━━━ 记录员" "每次 800-1200 字"
+                              "我进门\n\n【角色意图】\n甲：（这一轮生成的意图）"))
+                (should (string-search part text))))
+            (kill-buffer)))
+      (kill-buffer "erpg:c"))))
+
 ;;; iuiw-erpg-test.el ends here

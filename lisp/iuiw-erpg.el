@@ -41,6 +41,8 @@
   "C-c C-t" '("state.md" . iuiw-erpg-edit-state)
   "C-c C-m" '("换叙事模型" . iuiw-erpg-narrators)
   "C-c C-l" '("换模型组合" . iuiw-erpg-set-combo)
+  "C-c C-p" '("预览本轮发送的内容" . iuiw-erpg-preview)
+  "C-c C-w" '("旁白字数" . iuiw-erpg-set-length)
   "C-c C-k" '("停止" . iuiw-erpg-stop)
   "C-c C-s" '("同步仓库" . iuiw-erpg-sync))
 
@@ -51,7 +53,7 @@
         (concat " 生成中…  " (funcall key "C-c C-k") " 停止")
       (concat " " (funcall key "C-c C-c") " 发送  " (funcall key "C-c C-r") " 重写  "
               (funcall key "C-c C-g") " 续写  " (funcall key "C-c C-b") " 分支  "
-              (funcall key "C-c C-o") " 切换分支  " (funcall key "C-c C-v") " 在场  "
+              (funcall key "C-c C-o") " 切换分支  " (funcall key "C-c C-v") " 在场  " (funcall key "C-c C-p") " 预览  "
               (funcall key "C-c") " 更多"))))
 
 ;;;###autoload
@@ -203,26 +205,39 @@ Returns a marker where its text goes."
                   nil file t 'silent)
     (message "%s %s; trying the next model (M-x iuiw-erpg-rejected)" alias (if error "failed" "refused"))))
 
+(defun iuiw-erpg--recorded (entries)
+  "Index in ENTRIES of the last 记录 comment, or -1."
+  (or (cl-position "record" entries :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)
+      -1))
+
+(defun iuiw-erpg--unrecorded (entries)
+  "Index of the narrator's last section in ENTRIES if the recorder has not read it."
+  (let ((last (iuiw-erpg--last-narrator entries)))
+    (and last (> last (iuiw-erpg--recorded entries)) last)))
+
+(defun iuiw-erpg--recorder-messages (ctx last)
+  "What the recorder is sent for the story in CTX up to entry LAST."
+  (let ((entries (plist-get ctx :entries)))
+    (list (iuiw-erpg-recorder-message
+           (plist-get ctx :campaign) (plist-get ctx :state)
+           (iuiw-erpg--story (seq-subseq entries (1+ (iuiw-erpg--recorded entries)) (1+ last)))))))
+
 (defun iuiw-erpg--record (ctx)
   "Have the recorder note facts from replies the user has moved on from.
 Its notes go in a 记录 comment after the last of them.  It runs beside the
 turn; facts land a turn late, while the story they come from is still in
 every prompt."
   (let* ((entries (plist-get ctx :entries))
-         (done (or (cl-position "record" entries :key (lambda (e) (plist-get e :role))
-                                :test #'equal :from-end t)
-                   -1))
-         (last (iuiw-erpg--last-narrator entries))
+         (last (iuiw-erpg--unrecorded entries))
          (campaign (plist-get ctx :campaign))
          (state (plist-get ctx :state))
          (buffer (current-buffer)))
-    (when (and last (> last done))
-      (let ((story (iuiw-erpg--story (seq-subseq entries (1+ done) (1+ last))))
-            (at (copy-marker (plist-get (nth last entries) :end))))
+    (when last
+      (let ((at (copy-marker (plist-get (nth last entries) :end))))
         (iuiw-erpg-request-chain
          (iuiw-erpg--recorder-aliases)
          (iuiw-erpg-recorder-system (plist-get ctx :preset))
-         (list (iuiw-erpg-recorder-message campaign state story))
+         (iuiw-erpg--recorder-messages ctx last)
          :buffer buffer
          :callback
          (lambda (text _alias)
@@ -257,17 +272,22 @@ every prompt."
   (iuiw-erpg--save)
   (when message (message "%s" message)))
 
+(defun iuiw-erpg--voice-cards (ctx)
+  "Cards of the characters in CTX who form an intent this turn."
+  (let ((campaign (plist-get ctx :campaign))
+        (present (plist-get (plist-get ctx :state) :present)))
+    (seq-filter (lambda (c)
+                  (and (plist-get c :voice)
+                       (member (plist-get c :name) present)
+                       (member (plist-get c :name) (plist-get campaign :cast))
+                       (not (equal (plist-get c :name) (plist-get campaign :player)))))
+                (plist-get ctx :cards))))
+
 (defun iuiw-erpg--voices (ctx done)
   "Ask each present character with a voice for its intent, then call DONE.
 Intents go in 意图 comments at the end of the story."
   (let* ((campaign (plist-get ctx :campaign))
-         (present (plist-get (plist-get ctx :state) :present))
-         (cards (seq-filter (lambda (c)
-                              (and (plist-get c :voice)
-                                   (member (plist-get c :name) present)
-                                   (member (plist-get c :name) (plist-get campaign :cast))
-                                   (not (equal (plist-get c :name) (plist-get campaign :player)))))
-                            (plist-get ctx :cards)))
+         (cards (iuiw-erpg--voice-cards ctx))
          (left (length cards))
          (buffer (current-buffer)))
     (if (zerop left)
@@ -493,16 +513,8 @@ No aliases restore the campaign's."
                           (plist-get iuiw-erpg--campaign :combo)))
    iuiw-erpg-mode)
   (iuiw-erpg-combo name)
-  (let ((file (expand-file-name "campaign.md" (plist-get iuiw-erpg--campaign :dir))))
-    (iuiw-erpg-with-file file
-      (insert-file-contents file)
-      (goto-char (point-min))
-      (if (re-search-forward "^combo:.*$" nil t)
-          (replace-match (concat "combo: " name) t t)
-        (forward-line 1)
-        (insert "combo: " name "\n")))
-    (setq iuiw-erpg--campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id)))
-    (message "Combo %s; narrators: %s" name (string-join (iuiw-erpg--narrator-aliases) " → "))))
+  (iuiw-erpg--set-field "combo" name)
+  (message "Combo %s; narrators: %s" name (string-join (iuiw-erpg--narrator-aliases) " → ")))
 
 (defun iuiw-erpg-stop ()
   "Stop the running turn, keeping what was written."
@@ -528,6 +540,79 @@ No aliases restore the campaign's."
                              '(metadata (display-sort-function . identity))
                            (complete-with-action action branches string pred)))
                        nil t))))
+
+(defun iuiw-erpg--preview-part (title aliases system messages)
+  "Insert what model ALIASES are sent as TITLE: SYSTEM, then MESSAGES.
+Returns how many characters that is."
+  (let ((size (+ (length system) (apply #'+ (mapcar #'length messages)))))
+    (insert (propertize (format "━━━━ %s  %s  约 %d 字 ━━━━" title (string-join aliases " → ") size)
+                        'face 'bold)
+            "\n\n" (propertize "[system]" 'face 'font-lock-keyword-face) "\n" system "\n")
+    (cl-loop for m in messages for i from 0
+             do (insert "\n" (propertize (if (cl-evenp i) "[user]" "[assistant]") 'face 'font-lock-keyword-face)
+                        "\n" m "\n"))
+    (insert "\n")
+    size))
+
+(defun iuiw-erpg-preview ()
+  "Show everything the next C-c C-c would send to the models."
+  (interactive nil iuiw-erpg-mode)
+  (let* ((ctx (iuiw-erpg--context))
+         (campaign (plist-get ctx :campaign))
+         (preset (plist-get ctx :preset))
+         (state (plist-get ctx :state))
+         (entries (plist-get ctx :entries))
+         (cards (iuiw-erpg--voice-cards ctx))
+         (narrators (iuiw-erpg--narrator-aliases))
+         (prefill (alist-get "prefill" preset nil nil #'equal))
+         (narrator (iuiw-erpg-narrator-messages
+                    campaign preset entries
+                    (mapcar (lambda (c) (cons (plist-get c :name) "（这一轮生成的意图）")) cards)
+                    nil (and (plist-get (iuiw-erpg-model (car narrators)) :prefill) prefill)))
+         (last (iuiw-erpg--unrecorded entries))
+         (total 0))
+    (with-current-buffer (get-buffer-create (format "*erpg preview %s*" (plist-get campaign :id)))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (dolist (c cards)
+          (cl-incf total (iuiw-erpg--preview-part
+                          (concat (plist-get c :name) "的意图") (iuiw-erpg--voice-aliases c)
+                          (iuiw-erpg-voice-system campaign preset state c (plist-get ctx :cards))
+                          (list (iuiw-erpg-voice-message campaign preset entries c)))))
+        (cl-incf total (iuiw-erpg--preview-part
+                        "叙事者" narrators
+                        (iuiw-erpg-narrator-system campaign preset state (plist-get ctx :cards))
+                        narrator))
+        (when last
+          (cl-incf total (iuiw-erpg--preview-part "记录员" (iuiw-erpg--recorder-aliases)
+                                                  (iuiw-erpg-recorder-system preset)
+                                                  (iuiw-erpg--recorder-messages ctx last))))
+        (goto-char (point-min))
+        (insert (format "本轮共 %d 次请求，约 %d 字；模型只列 fallback 顺序，实际发给第一个答得上的。\n\n"
+                        (+ (length cards) 1 (if last 1 0)) total)))
+      (special-mode)
+      (goto-char (point-min))
+      (pop-to-buffer (current-buffer)))))
+
+(defun iuiw-erpg--set-field (field value)
+  "Write FIELD as VALUE into the campaign's front matter."
+  (let ((file (expand-file-name "campaign.md" (plist-get iuiw-erpg--campaign :dir))))
+    (iuiw-erpg-with-file file
+      (insert-file-contents file)
+      (goto-char (point-min))
+      (if (re-search-forward (concat "^" field ":.*$") nil t)
+          (replace-match (concat field ": " value) t t)
+        (forward-line 1)
+        (insert field ": " value "\n")))
+    (setq iuiw-erpg--campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id)))))
+
+(defun iuiw-erpg-set-length (length)
+  "Have the narrator write LENGTH characters a section, writing it to campaign.md."
+  (interactive
+   (list (read-string "Characters per section (e.g. 600-1000): " (plist-get iuiw-erpg--campaign :length)))
+   iuiw-erpg-mode)
+  (iuiw-erpg--set-field "length" length)
+  (message "The narrator now writes %s characters a section" length))
 
 ;;;###autoload
 (defun iuiw-erpg-open (id &optional branch)

@@ -199,7 +199,8 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
                (format "- 其他角色只知道%s叫「%s」；旁白里也这样称呼，除非剧情里身份已经揭开。\n" player alias))
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
-             (format "- 用中文写，每次 %s 字。\n" (or (plist-get campaign :length) "200-400"))
+             (format "- 用中文写，每次 %s 字；写到下限再停，篇幅用在细节上，不要靠推进更多剧情凑字数。\n"
+                     (or (plist-get campaign :length) "200-400"))
              (when-let* ((intensity (plist-get campaign :intensity)))
                (format "- 尺度：%s\n" intensity))
              (iuiw-erpg--age-rules cards))
