@@ -32,17 +32,27 @@
 (defvar-local iuiw-erpg--follow nil "Non-nil when point follows the narrator's writing.")
 
 (defvar-keymap iuiw-erpg-mode-map
-  "C-c C-c" #'iuiw-erpg-send
-  "C-c C-r" #'iuiw-erpg-regenerate
-  "C-c C-g" #'iuiw-erpg-continue
-  "C-c C-b" #'iuiw-erpg-branch
-  "C-c C-o" #'iuiw-erpg-switch-branch
-  "C-c C-v" #'iuiw-erpg-present
-  "C-c C-t" #'iuiw-erpg-edit-state
-  "C-c C-m" #'iuiw-erpg-narrators
-  "C-c C-l" #'iuiw-erpg-set-combo
-  "C-c C-k" #'iuiw-erpg-stop
-  "C-c C-s" #'iuiw-erpg-sync)
+  "C-c C-c" '("发送" . iuiw-erpg-send)
+  "C-c C-r" '("重写旁白" . iuiw-erpg-regenerate)
+  "C-c C-g" '("续写旁白" . iuiw-erpg-continue)
+  "C-c C-b" '("从这段分支" . iuiw-erpg-branch)
+  "C-c C-o" '("切换分支" . iuiw-erpg-switch-branch)
+  "C-c C-v" '("在场角色" . iuiw-erpg-present)
+  "C-c C-t" '("state.md" . iuiw-erpg-edit-state)
+  "C-c C-m" '("换叙事模型" . iuiw-erpg-narrators)
+  "C-c C-l" '("换模型组合" . iuiw-erpg-set-combo)
+  "C-c C-k" '("停止" . iuiw-erpg-stop)
+  "C-c C-s" '("同步仓库" . iuiw-erpg-sync))
+
+(defun iuiw-erpg--header-line ()
+  "Keys worth knowing now."
+  (let ((key (lambda (k) (propertize k 'face 'help-key-binding))))
+    (if iuiw-erpg--busy
+        (concat " 生成中…  " (funcall key "C-c C-k") " 停止")
+      (concat " " (funcall key "C-c C-c") " 发送  " (funcall key "C-c C-r") " 重写  "
+              (funcall key "C-c C-g") " 续写  " (funcall key "C-c C-b") " 分支  "
+              (funcall key "C-c C-o") " 切换分支  " (funcall key "C-c C-v") " 在场  "
+              (funcall key "C-c") " 更多"))))
 
 ;;;###autoload
 (define-derived-mode iuiw-erpg-mode markdown-mode "erpg"
@@ -51,6 +61,7 @@
 \\{iuiw-erpg-mode-map}"
   (setq-local iuiw-erpg--campaign (iuiw-erpg-campaign (iuiw-erpg-file-campaign buffer-file-name)))
   (setq-local word-wrap-by-category t)
+  (setq-local header-line-format '(:eval (iuiw-erpg--header-line)))
   (visual-line-mode 1)
   (rename-buffer (format "erpg:%s%s" (plist-get iuiw-erpg--campaign :id)
                          (if-let* ((branch (iuiw-erpg-file-branch buffer-file-name))) (concat "/" branch) ""))
@@ -238,6 +249,7 @@ every prompt."
 (defun iuiw-erpg--finish (&optional message)
   "End the turn, showing MESSAGE when given."
   (setq iuiw-erpg--busy nil)
+  (force-mode-line-update)
   (when iuiw-erpg--changes
     (accept-change-group iuiw-erpg--changes)
     (undo-amalgamate-change-group iuiw-erpg--changes)
@@ -374,7 +386,8 @@ section, or `continue' to extend it."
   "Mark a turn as running, an error when one already is."
   (when iuiw-erpg--busy
     (user-error "A turn is running; C-c C-k stops it"))
-  (setq iuiw-erpg--busy t))
+  (setq iuiw-erpg--busy t)
+  (force-mode-line-update))
 
 (defmacro iuiw-erpg--turn (&rest body)
   "Run BODY as a turn, ending it when BODY signals."
