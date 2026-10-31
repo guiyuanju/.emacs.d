@@ -223,4 +223,34 @@
       (should (equal (plist-get new :present) '("甲")))
       (should (equal changes '("清单精简为 1 条"))))))
 
+(ert-deftest iuiw-erpg-secret-goes-only-to-the-narrator ()
+  (iuiw-erpg-test--with-repo
+    (iuiw-erpg-test--write "cards/韩立.md" "---\nage: 200\n---\n玩家")
+    (iuiw-erpg-test--write "campaigns/c/campaign.md"
+                           "---\ntitle: T\nplayer: 韩立\nalias: 厉\ncast: 甲\n---\n世界\n\n## 只给叙事者\n厉就是韩立")
+    (let* ((campaign (iuiw-erpg-campaign "c"))
+           (state (iuiw-erpg-state campaign))
+           (cards (iuiw-erpg-cast campaign)))
+      (should (equal (plist-get campaign :body) "世界"))
+      (should (string-match-p "厉就是韩立" (iuiw-erpg-narrator-system campaign nil state cards)))
+      (should-not (string-match-p "厉就是韩立"
+                                  (iuiw-erpg-voice-system campaign nil state (car cards) cards)))
+      (should (string-match-p "厉：来了"
+                              (iuiw-erpg-voice-message campaign nil (list (iuiw-erpg-entry "user" "来了"))
+                                                       (car cards)))))))
+
+(ert-deftest iuiw-erpg-campaign-card-and-prior ()
+  (iuiw-erpg-test--with-repo
+    (make-directory (iuiw-erpg-file "campaigns/d/cards") t)
+    (iuiw-erpg-test--write "campaigns/d/cards/甲.md" "---\nage: 37\n---\n后来的甲")
+    (iuiw-erpg-test--write "campaigns/d/campaign.md" "---\ntitle: D\ncast: 甲\nfollows: c\n---\n续")
+    (iuiw-erpg-write-state (iuiw-erpg-campaign "c") '(:present ("甲") :body "" :facts ("甲救了你")))
+    (let* ((campaign (iuiw-erpg-campaign "d"))
+           (card (car (iuiw-erpg-cast campaign))))
+      (should (equal (plist-get card :age) 37))
+      (should (equal (plist-get (iuiw-erpg-card "甲") :age) 30))
+      (should (string-match-p "甲救了你"
+                              (iuiw-erpg-voice-system campaign nil (iuiw-erpg-state campaign)
+                                                      card (list card)))))))
+
 ;;; iuiw-erpg-test.el ends here

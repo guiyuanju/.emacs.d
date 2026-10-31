@@ -121,10 +121,13 @@ PLIST maps :narrator, :voice and :recorder to lists of model aliases."
   "Names of all character cards."
   (mapcar #'file-name-base (directory-files (iuiw-erpg-file "cards") nil "\\.md\\'")))
 
-(defun iuiw-erpg-card (name)
-  "Card NAME as a plist.
+(defun iuiw-erpg-card (name &optional campaign)
+  "Card NAME as a plist, CAMPAIGN's own version when it has one.
 Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
-  (let* ((text (or (iuiw-erpg--read (iuiw-erpg-file "cards" (concat name ".md")))
+  (let* ((text (or (and campaign
+                        (iuiw-erpg--read (expand-file-name (concat "cards/" name ".md")
+                                                           (plist-get campaign :dir))))
+                   (iuiw-erpg--read (iuiw-erpg-file "cards" (concat name ".md")))
                    (user-error "No card %s" name)))
          (card (iuiw-erpg-parse text))
          (age (iuiw-erpg--number (plist-get card :age) nil)))
@@ -149,12 +152,27 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
                 (and (file-directory-p root)
                      (directory-files root nil "\\`[^.]")))))
 
+(defconst iuiw-erpg-secret-heading "## 只给叙事者"
+  "Heading in campaign.md above what only the narrator is told.")
+
 (defun iuiw-erpg-campaign (id)
-  "Campaign ID as a plist: its fields, :id, :dir and :body."
+  "Campaign ID as a plist: its fields, :id, :dir, :body and :secret.
+:prior holds the facts recorded in the campaign it follows."
   (let* ((dir (iuiw-erpg-file "campaigns" id))
          (fields (iuiw-erpg-parse (or (iuiw-erpg--read (expand-file-name "campaign.md" dir))
-                                      (user-error "No campaign %s" id)))))
+                                      (user-error "No campaign %s" id))))
+         (body (plist-get fields :body))
+         (split (string-match (concat "^" (regexp-quote iuiw-erpg-secret-heading) "[ \t]*$") body))
+         (secret (and split (string-trim (substring body (match-end 0)))))
+         (follows (plist-get fields :follows)))
     (append (list :id id :dir (file-name-as-directory dir)
+                  :body (string-trim (substring body 0 split))
+                  :secret secret
+                  :prior (and follows
+                              (plist-get (iuiw-erpg-state
+                                          (list :dir (file-name-as-directory
+                                                      (iuiw-erpg-file "campaigns" follows))))
+                                         :facts))
                   :cast (iuiw-erpg-split (plist-get fields :cast))
                   :narrator (iuiw-erpg-split (plist-get fields :narrator))
                   :voice (iuiw-erpg-split (plist-get fields :voice))

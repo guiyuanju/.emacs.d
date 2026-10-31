@@ -144,9 +144,13 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
   "Name of the player's character in CAMPAIGN."
   (or (plist-get campaign :player) "你"))
 
+(defun iuiw-erpg-player-alias (campaign)
+  "The name other characters know CAMPAIGN's player by."
+  (or (plist-get campaign :alias) (iuiw-erpg-player campaign)))
+
 (defun iuiw-erpg-cast (campaign)
   "Cards of CAMPAIGN's cast and its player's card."
-  (mapcar #'iuiw-erpg-card
+  (mapcar (lambda (name) (iuiw-erpg-card name campaign))
           (delete-dups (append (plist-get campaign :cast)
                                (and (plist-get campaign :player)
                                     (list (plist-get campaign :player)))))))
@@ -172,6 +176,12 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
             (concat "\n已经发生、仍然成立的事：\n"
                     (mapconcat (lambda (f) (concat "- " f)) (plist-get state :facts) "\n")))))
 
+(defun iuiw-erpg--prior-text (campaign)
+  "What happened in the campaign CAMPAIGN follows, as a prompt section."
+  (when (plist-get campaign :prior)
+    (concat "# 前情\n上一段故事里已经发生、仍然成立的事：\n"
+            (mapconcat (lambda (f) (concat "- " f)) (plist-get campaign :prior) "\n"))))
+
 (defun iuiw-erpg--join (&rest parts)
   "PARTS that are non-empty, separated by blank lines."
   (string-join (seq-remove (lambda (p) (or (null p) (string-empty-p p))) parts) "\n\n"))
@@ -186,6 +196,8 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
      (concat "# 规则\n"
              (format "- 你是这场互动小说的叙事者：写旁白，以及除%s以外所有角色的言行。\n" player)
              (format "- 不替%s说话、行动或做决定，写到需要%s回应时停下。\n" player player)
+             (when-let* ((alias (plist-get campaign :alias)))
+               (format "- 其他角色只知道%s叫「%s」；旁白里也这样称呼，除非剧情里身份已经揭开。\n" player alias))
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
              (format "- 用中文写，每次 %s 字。\n" (or (plist-get campaign :length) "200-400"))
@@ -193,6 +205,9 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
                (format "- 尺度：%s\n" intensity))
              (iuiw-erpg--age-rules cards))
      (concat "# 世界与开场\n" (plist-get campaign :body))
+     (when-let* ((secret (plist-get campaign :secret)))
+       (concat "# 只有你知道\n角色们不知道下面的事，除非剧情里让他们知道了。\n" secret))
+     (iuiw-erpg--prior-text campaign)
      (if player-card
          (concat "# 玩家角色\n" (iuiw-erpg--card-text player-card))
        "# 玩家角色\n玩家就是「你」，用第二人称写。")
@@ -292,13 +307,14 @@ PREFILL the reply opens with the preset's prefill."
              (format "- 照%s的性格和欲望行事，可以拒绝、隐瞒、主动或算计，不必迎合任何人。\n" name)
              (iuiw-erpg--age-rules cards))
      (concat "# 世界\n" (plist-get campaign :body))
+     (iuiw-erpg--prior-text campaign)
      (concat "# 你的角色\n" (iuiw-erpg--card-text card))
      (iuiw-erpg--state-text state))))
 
 (defun iuiw-erpg-voice-message (campaign preset entries card)
   "The one message asking CARD for its intent, from the story in ENTRIES."
   (let* ((story (last (iuiw-erpg--story entries) iuiw-erpg-voice-history))
-         (player (iuiw-erpg-player campaign))
+         (player (iuiw-erpg-player-alias campaign))
          (lines (mapcar (lambda (e)
                           (format "%s：%s"
                                   (pcase (plist-get e :role)
