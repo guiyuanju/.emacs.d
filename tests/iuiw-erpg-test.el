@@ -36,17 +36,26 @@
     (iuiw-erpg-test--write "presets/p.md" "head\n## system\nS\n## depth\n\n## prefill\nP\n")
     (should (equal (iuiw-erpg-preset "p") '(("system" . "S") ("prefill" . "P"))))))
 
-(ert-deftest iuiw-erpg-log-round-trip ()
-  (iuiw-erpg-test--with-repo
-    (let* ((campaign (iuiw-erpg-campaign "c"))
-           (entry (iuiw-erpg-entry-add-swipe (iuiw-erpg-entry "narrator" "一" :hidden t :model nil) "二")))
-      (iuiw-erpg-log-write campaign (list entry))
-      (let ((read (car (iuiw-erpg-log-read campaign))))
-        (should (equal (plist-get read :swipes) ["一" "二"]))
-        (should (equal (iuiw-erpg-entry-text read) "二"))
-        (should (eq (plist-get read :hidden) t))
-        (should-not (plist-member read :model))))))
-
+(ert-deftest iuiw-erpg-story-parses-and-replays ()
+  (with-temp-buffer
+    (insert "### 你\n\n我进门\n\n<!-- 意图 甲\n行动：起身\n-->\n<!-- 随手记的 -->\n\n"
+            "### 旁白\n\n门开了\n\n<!-- 记录\n在场：甲\n+ 一\n+ 二\n-->\n\n"
+            "### 导演\n天黑了\n<!-- 记录\n- 一\n-->\n<!-- 在场：无 -->\n\n### 你\n")
+    (let ((entries (iuiw-erpg-story-entries)))
+      (should (equal (mapcar (lambda (e) (plist-get e :role)) entries)
+                     '("user" "voice" "narrator" "record" "director" "record" "present" "user")))
+      (should (equal (mapcar #'iuiw-erpg-entry-text entries)
+                     '("我进门" "行动：起身" "门开了" "在场：甲\n+ 一\n+ 二" "天黑了" "- 一" "在场：无" "")))
+      (should (equal (plist-get (nth 1 entries) :name) "甲"))
+      (should (equal (buffer-substring (plist-get (nth 2 entries) :start) (plist-get (nth 2 entries) :body))
+                     "### 旁白\n"))
+      (should (equal (iuiw-erpg-replay '(:present ("甲" "乙") :body "B" :facts ("零")) entries)
+                     '(:present nil :body "B" :facts ("零" "二"))))
+      (should (equal (plist-get (iuiw-erpg-replay nil (append entries (list (iuiw-erpg-entry "record" "= 合并"))))
+                                :facts)
+                     '("合并")))
+      ;; 空的段落不发给模型。
+      (should (equal (mapcar #'iuiw-erpg-entry-text (iuiw-erpg--story entries)) '("我进门" "门开了" "天黑了"))))))
 (ert-deftest iuiw-erpg-narrator-messages-slots ()
   (iuiw-erpg-test--with-repo
     (let* ((campaign (iuiw-erpg-campaign "c"))
@@ -54,16 +63,15 @@
            (entries (list (iuiw-erpg-entry "narrator" "开场")
                           (iuiw-erpg-entry "user" "u1")
                           (iuiw-erpg-entry "narrator" "n1")
-                          (iuiw-erpg-entry "narrator" "被拒" :hidden t)
                           (iuiw-erpg-entry "director" "旧指令")
                           (iuiw-erpg-entry "narrator" "n2")
                           (iuiw-erpg-entry "user" "u2")
                           (iuiw-erpg-entry "voice" "VOICE" :name "甲")))
            (messages (iuiw-erpg-narrator-messages campaign preset entries '(("甲" . "想走")) nil "PRE")))
-      ;; 开场前补一条用户消息；隐藏的、意图和已经过去的导演指令都不发。
+      ;; 开场前补一条用户消息；意图和已经过去的导演指令都不发。
       (should (equal (car messages) "（开始）"))
       (should (equal (nth 1 messages) "开场"))
-      (should-not (cl-some (lambda (m) (string-match-p "被拒\\|旧指令\\|VOICE" m)) messages))
+      (should-not (cl-some (lambda (m) (string-match-p "旧指令\\|VOICE" m)) messages))
       (should (string-match-p "\\`u2\n\n【角色意图】\n甲：想走\n\nPOST\\'" (nth 4 messages)))
       ;; depth 2：落在倒数第 2 条之前最近的用户消息上。
       (should (string-match-p "u1\n\nDEPTH" (nth 2 messages)))
@@ -131,92 +139,87 @@
     (should (equal (mapcar #'car failed) '("b" "a")))
     (should (equal (cdr (assoc "c" tried)) '("c")))))
 
+(defmacro iuiw-erpg-test--with-models (&rest body)
+  "Run BODY with the models answering without the network."
+  (declare (indent 0))
+  `(cl-letf (((symbol-function 'iuiw-erpg-request)
+              (cl-function
+               (lambda (_alias system messages &key on-chunk callback &allow-other-keys)
+                 (push (list system messages) calls)
+                 (cond ((string-match-p "记录员" system)
+                        (funcall callback "{\"present\": [\"甲\"], \"add\": [\"你进了门\"], \"remove\": []}" nil))
+                       ((string-match-p "你只扮演甲" system)
+                        (funcall callback "行动：起身" nil))
+                       (on-chunk
+                        (funcall on-chunk "\n门")
+                        (funcall on-chunk "开了")
+                        (funcall callback "\n门开了" nil)))))))
+     ,@body))
+
 (ert-deftest iuiw-erpg-turn-runs-voices-then-narrator ()
   (iuiw-erpg-test--with-repo
     (let (calls)
-      (cl-letf (((symbol-function 'iuiw-erpg-request)
-                 (cl-function
-                  (lambda (alias system messages &key on-chunk callback &allow-other-keys)
-                    (push (list alias system messages) calls)
-                    (cond ((string-match-p "记录员" system)
-                           (should (string-match-p "旁白：门开了" (car messages)))
-                           (funcall callback "{\"present\": [\"甲\"], \"add\": [\"你进了门\"], \"remove\": []}" nil))
-                          ((string-match-p "你只扮演甲" system)
-                           (funcall callback "行动：起身" nil))
-                          (on-chunk
-                           (funcall on-chunk "门")
-                           (funcall on-chunk "开了")
-                           (funcall callback "门开了" nil)))))))
+      (iuiw-erpg-test--with-models
         (iuiw-erpg-open "c")
         (unwind-protect
-            (progn
+            (let ((turn "### 你\n\n我进门\n\n<!-- 意图 甲\n行动：起身\n-->\n\n### 旁白\n\n门开了"))
+              (should (equal (buffer-string) "### 你\n\n"))
               (goto-char (point-max))
               (insert "我进门")
               (iuiw-erpg-send)
               (should-not iuiw-erpg--busy)
-              (should (equal (mapcar (lambda (e) (plist-get e :role)) iuiw-erpg--entries)
-                             '("user" "voice" "narrator")))
+              (should (equal (buffer-string) (concat turn "\n\n### 你\n\n")))
+              (should (= (point) (point-max)))
+              (should-not (buffer-modified-p))
               ;; 乙 voice: false，不单独问意图。
               (should (= (length calls) 2))
-              (should (string-match-p "甲：行动：起身" (car (last (nth 2 (car calls))))))
-              (should (string-match-p "旁白  a\n门开了\n\n> \\'" (buffer-string)))
-              (should (equal (iuiw-erpg--input) ""))
+              (should (string-match-p "甲：行动：起身" (car (last (nth 1 (car calls))))))
               (iuiw-erpg-regenerate)
-              (should (equal (plist-get (nth 2 iuiw-erpg--entries) :swipes) ["门开了" "门开了"]))
-              (should (= (length (iuiw-erpg-log-read iuiw-erpg--campaign)) 3))
-              ;; 发下一句时，记录员读上一段旁白，写进 state.md。
-              (goto-char (point-max))
+              (should (equal (buffer-string) (concat turn "\n\n### 你\n\n")))
+              ;; 发下一句时，记录员读上一段旁白，记在它后面。
               (insert "我坐下")
               (iuiw-erpg-send)
-              (should (equal (iuiw-erpg-state iuiw-erpg--campaign)
-                             '(:present ("甲") :body "" :facts ("你进了门"))))
-              (should (plist-get (nth 2 iuiw-erpg--entries) :recorded))
-              (should (seq-find (lambda (e) (and (equal (plist-get e :role) "record")
-                                                 (equal (iuiw-erpg-entry-text e) "在场：甲\n+ 你进了门")))
-                                iuiw-erpg--entries))
-              (should (string-match-p "· 记录" (buffer-string))))
+              (should (string-prefix-p (concat turn "\n\n<!-- 记录\n在场：甲\n+ 你进了门\n-->\n\n### 你\n\n我坐下\n\n")
+                                       (buffer-string)))
+              (should (equal (iuiw-erpg--state) '(:present ("甲") :body "" :facts ("你进了门"))))
+              (should (equal (iuiw-erpg-story-read (iuiw-erpg-story-file iuiw-erpg--campaign))
+                             (iuiw-erpg-story-entries)))
+              ;; 删掉剧情，记下的事实一起没了。
+              (goto-char (point-min))
+              (search-forward "<!-- 记录")
+              (delete-region (match-beginning 0) (point-max))
+              (should (equal (iuiw-erpg--state) '(:present ("甲" "乙") :body "" :facts nil))))
+          (set-buffer-modified-p nil)
           (kill-buffer))))))
-
-(ert-deftest iuiw-erpg-rewind-undoes-the-recorder ()
+(ert-deftest iuiw-erpg-branch-copies-the-story-so-far ()
   (iuiw-erpg-test--with-repo
-    (cl-letf (((symbol-function 'iuiw-erpg-request)
-               (cl-function
-                (lambda (_alias system _messages &key callback &allow-other-keys)
-                  (funcall callback
-                           (cond ((string-match-p "记录员" system)
-                                  "{\"present\": [\"甲\"], \"add\": [\"你进了门\"], \"remove\": []}")
-                                 ((string-match-p "你只扮演甲" system) "行动：起身")
-                                 (t "门开了"))
-                           nil))))
-              ((symbol-function 'y-or-n-p) #'always))
-      (iuiw-erpg-open "c")
-      (unwind-protect
-          (let ((roles (lambda () (mapcar (lambda (e) (plist-get e :role)) iuiw-erpg--entries)))
-                (start '(:present ("甲" "乙") :body "" :facts nil))
-                (after '(:present ("甲") :body "" :facts ("你进了门"))))
-            (dolist (text '("我进门" "// 天黑了"))
-              (goto-char (point-max))
-              (insert text)
-              (iuiw-erpg-send))
-            (should (equal (funcall roles) '("user" "voice" "narrator" "director" "record" "voice" "narrator")))
-            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) after))
-            ;; 重试这一轮：记录被撤销后，上一段旁白重新记一次。
-            (iuiw-erpg-retry)
-            (should (equal (funcall roles) '("user" "voice" "narrator" "director" "record" "voice" "narrator")))
-            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) after))
-            (goto-char (text-property-any (point-min) (point-max) 'iuiw-erpg-index 3))
-            (iuiw-erpg-rewind)
-            (should (equal (funcall roles) '("user" "voice" "narrator")))
-            (should-not (plist-get (nth 2 iuiw-erpg--entries) :recorded))
-            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) start))
-            (should (equal (iuiw-erpg--input) "// 天黑了"))
-            (iuiw-erpg-send)
-            (iuiw-erpg-restart)
-            (should-not iuiw-erpg--entries)
-            (should-not (iuiw-erpg-log-read iuiw-erpg--campaign))
-            (should (equal (iuiw-erpg-state iuiw-erpg--campaign) start)))
-        (kill-buffer)))))
-
+    (let (calls)
+      (iuiw-erpg-test--with-models
+        (iuiw-erpg-open "c")
+        (let ((main (current-buffer)))
+          (unwind-protect
+              (progn
+                (goto-char (point-max))
+                (insert "我进门")
+                (iuiw-erpg-send)
+                (insert "我坐下")
+                (iuiw-erpg-send)
+                (goto-char (point-min))
+                (search-forward "门开了")
+                (iuiw-erpg-branch "b")
+                (should (equal (iuiw-erpg-file-branch buffer-file-name) "b"))
+                (should (equal (iuiw-erpg-branches iuiw-erpg--campaign) '("b" "主线")))
+                (should (string-suffix-p "门开了\n\n<!-- 记录\n在场：甲\n+ 你进了门\n-->\n\n### 你\n\n"
+                                         (buffer-string)))
+                ;; 什么都不写就发送：空段落去掉，剧情接着往下走。
+                (iuiw-erpg-send)
+                (should (equal (last (mapcar (lambda (e) (plist-get e :role)) (iuiw-erpg-story-entries)) 4)
+                               '("record" "voice" "narrator" "user")))
+                (should (string-match-p "主线\\|· b" (overlay-get iuiw-erpg--header 'before-string)))
+                (with-current-buffer main
+                  (should (string-match-p "我坐下" (buffer-string)))))
+            (kill-buffer)
+            (kill-buffer main)))))))
 (ert-deftest iuiw-erpg-state-keeps-notes-apart-from-facts ()
   (iuiw-erpg-test--with-repo
     (let ((campaign (iuiw-erpg-campaign "c")))
@@ -242,7 +245,7 @@
     (pcase-let ((`(,new . ,changes) (iuiw-erpg-apply-record campaign state '(:facts ("合并")))))
       (should (equal (plist-get new :facts) '("合并")))
       (should (equal (plist-get new :present) '("甲")))
-      (should (equal changes '("清单精简为 1 条"))))))
+      (should (equal changes '("= 合并"))))))
 
 (ert-deftest iuiw-erpg-secret-goes-only-to-the-narrator ()
   (iuiw-erpg-test--with-repo
@@ -266,11 +269,12 @@
     (iuiw-erpg-test--write "campaigns/d/cards/甲.md" "---\nage: 37\n---\n后来的甲")
     (iuiw-erpg-test--write "campaigns/d/campaign.md" "---\ntitle: D\ncast: 甲\nfollows: c\n---\n续")
     (iuiw-erpg-write-state (iuiw-erpg-campaign "c") '(:present ("甲") :body "" :facts ("甲救了你")))
+    (iuiw-erpg-test--write "campaigns/c/story.md" "### 旁白\n\n开场\n\n<!-- 记录\n+ 你欠甲一命\n-->\n")
     (let* ((campaign (iuiw-erpg-campaign "d"))
            (card (car (iuiw-erpg-cast campaign))))
       (should (equal (plist-get card :age) 37))
       (should (equal (plist-get (iuiw-erpg-card "甲") :age) 30))
-      (should (string-match-p "甲救了你"
+      (should (string-match-p "甲救了你\n- 你欠甲一命"
                               (iuiw-erpg-voice-system campaign nil (iuiw-erpg-state campaign)
                                                       card (list card)))))))
 

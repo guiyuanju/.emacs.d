@@ -1,9 +1,10 @@
 ;;; iuiw-erpg.el --- Role-play with LLMs through OpenRouter -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; `iuiw-erpg-open' 打开一个战役：上面是对白，末尾 > 后输入。
-;; 输入直接发送是玩家的行动或对白；以 // 开头是导演指令；空输入让剧情自己往下走。
-;; 每一轮先让在场角色各自写意图，再由叙事者流式写正文；被拒绝的回复隐藏起来不再发送。
+;; 战役的剧情是一个 markdown 文件（主线 story.md，分支在 branches/），每段以「### 名字」开头：
+;; 「旁白」是叙事者，「导演」是给叙事者的指令，其余是玩家。直接编辑就是改写历史；
+;; C-c C-c 按文件现在的样子跑一轮：在场角色先各自写意图，叙事者再流式写正文。
+;; 角色意图和记录员记下的事实是 HTML 注释，不发给叙事者；事实清单由注释依次算出，删掉剧情就一起删掉。
 ;; 数据在 `iuiw-erpg-directory'，新电脑上 `iuiw-erpg-setup' 一次装好。
 
 ;;; Code:
@@ -11,11 +12,7 @@
 (require 'iuiw-erpg-store)
 (require 'iuiw-erpg-llm)
 (require 'crm)
-
-(defcustom iuiw-erpg-show-voices t
-  "Whether characters' intents and the recorder's changes are shown."
-  :type 'boolean
-  :group 'iuiw-erpg)
+(require 'markdown-mode)
 
 (defcustom iuiw-erpg-models-url "https://openrouter.ai/api/v1/models"
   "Where OpenRouter lists its models."
@@ -27,66 +24,46 @@
   :type 'natnum
   :group 'iuiw-erpg)
 
-(defface iuiw-erpg-narrator '((t :inherit font-lock-keyword-face :weight bold))
-  "Face of the narrator's header."
-  :group 'iuiw-erpg)
-
-(defface iuiw-erpg-player '((t :inherit font-lock-function-name-face :weight bold))
-  "Face of the player's header."
-  :group 'iuiw-erpg)
-
-(defface iuiw-erpg-dim '((t :inherit shadow))
-  "Face of intents, director notes and other asides."
-  :group 'iuiw-erpg)
-
-(defface iuiw-erpg-refused '((t :inherit warning))
-  "Face of the mark on refused or failed replies."
-  :group 'iuiw-erpg)
-
 (defvar-local iuiw-erpg--campaign nil "The campaign this buffer plays.")
-(defvar-local iuiw-erpg--entries nil "The campaign's log entries.")
-(defvar-local iuiw-erpg--pending nil "Entry being written by a model, shown but not yet logged.")
 (defvar-local iuiw-erpg--busy nil "Non-nil while a turn is running.")
 (defvar-local iuiw-erpg--narrators nil "Narrator models chosen for this buffer, overriding the campaign's.")
-(defvar-local iuiw-erpg--show-hidden nil "Whether refused and failed replies are shown.")
-(defvar-local iuiw-erpg--input-marker nil "Start of the input after the prompt.")
-(defvar-local iuiw-erpg--stream-marker nil "Where streamed text goes.")
+(defvar-local iuiw-erpg--header nil "Overlay showing the title and who is present.")
+(defvar-local iuiw-erpg--changes nil "Change group of the narrator's writing, undone as one.")
+(defvar-local iuiw-erpg--follow nil "Non-nil when point follows the narrator's writing.")
 
 (defvar-keymap iuiw-erpg-mode-map
-  "RET" #'iuiw-erpg-send
   "C-c C-c" #'iuiw-erpg-send
   "C-c C-r" #'iuiw-erpg-regenerate
-  "C-c C-p" #'iuiw-erpg-swipe-previous
-  "C-c C-n" #'iuiw-erpg-swipe-next
   "C-c C-g" #'iuiw-erpg-continue
-  "C-c C-e" #'iuiw-erpg-edit
-  "C-c C-d" #'iuiw-erpg-delete
-  "C-c C-u" #'iuiw-erpg-rewind
-  "C-c C-a" #'iuiw-erpg-retry
-  "C-c C-t" #'iuiw-erpg-edit-state
+  "C-c C-b" #'iuiw-erpg-branch
+  "C-c C-o" #'iuiw-erpg-switch-branch
   "C-c C-v" #'iuiw-erpg-present
+  "C-c C-t" #'iuiw-erpg-edit-state
   "C-c C-m" #'iuiw-erpg-narrators
   "C-c C-l" #'iuiw-erpg-set-combo
   "C-c C-k" #'iuiw-erpg-stop
-  "C-c C-h" #'iuiw-erpg-toggle-hidden
   "C-c C-s" #'iuiw-erpg-sync)
 
-(define-derived-mode iuiw-erpg-mode text-mode "erpg"
-  "Play an erpg campaign.
+;;;###autoload
+(define-derived-mode iuiw-erpg-mode markdown-mode "erpg"
+  "Play an erpg campaign by editing its story.
 
 \\{iuiw-erpg-mode-map}"
-  (setq-local iuiw-erpg--input-marker (make-marker))
-  (setq-local iuiw-erpg--stream-marker (make-marker))
+  (setq-local iuiw-erpg--campaign (iuiw-erpg-campaign (iuiw-erpg-file-campaign buffer-file-name)))
   (setq-local word-wrap-by-category t)
-  (visual-line-mode 1))
+  (visual-line-mode 1)
+  (rename-buffer (format "erpg:%s%s" (plist-get iuiw-erpg--campaign :id)
+                         (if-let* ((branch (iuiw-erpg-file-branch buffer-file-name))) (concat "/" branch) ""))
+                 t)
+  (when (= (point-min) (point-max))
+    (insert "### " (iuiw-erpg-player iuiw-erpg--campaign) "\n\n"))
+  (iuiw-erpg--show-header))
 
-;;; Rendering
+;;;###autoload
+(add-to-list 'auto-mode-alist
+             '("/campaigns/[^/]+/\\(?:story\\|branches/[^/]+\\)\\.md\\'" . iuiw-erpg-mode))
 
-(defun iuiw-erpg--input ()
-  "The text typed after the prompt."
-  (if (marker-position iuiw-erpg--input-marker)
-      (buffer-substring-no-properties iuiw-erpg--input-marker (point-max))
-    ""))
+;;; Header
 
 (defun iuiw-erpg--avatar (card height)
   "CARD's avatar at most HEIGHT pixels high, or nil.
@@ -100,112 +77,76 @@ where images can be shown; any other avatar is shown as text."
           (propertize "*" 'display (create-image file nil nil :max-height height :ascent 'center)
                       'help-echo file))))))
 
-(defun iuiw-erpg--cast-line ()
-  "Who is present, with their avatars, or nil when no one is."
+(defun iuiw-erpg--cast-line (state)
+  "Who is present in STATE, with their avatars, or nil when no one is."
   (let* ((campaign iuiw-erpg--campaign)
          (cards (delq nil (mapcar (lambda (name) (ignore-errors (iuiw-erpg-card name campaign)))
-                                  (plist-get (iuiw-erpg-state campaign) :present)))))
+                                  (plist-get state :present)))))
     (when cards
       (mapconcat (lambda (card)
                    (concat (or (iuiw-erpg--avatar card iuiw-erpg-avatar-height) "")
                            " " (plist-get card :name)))
                  cards "   "))))
 
-(defun iuiw-erpg--header (entry)
-  "Header line of ENTRY."
-  (let* ((role (plist-get entry :role))
-         (swipes (length (plist-get entry :swipes)))
-         (aside (lambda (s) (propertize s 'face 'iuiw-erpg-dim))))
-    (concat
-     (pcase role
-       ("narrator" (propertize "旁白" 'face 'iuiw-erpg-narrator))
-       ("director" (funcall aside "导演"))
-       ("voice" (concat (or (ignore-errors
-                              (iuiw-erpg--avatar (iuiw-erpg-card (plist-get entry :name) iuiw-erpg--campaign)
-                                                 (round (* 1.5 (frame-char-height)))))
-                            "")
-                        (funcall aside (format "· %s的意图" (plist-get entry :name)))))
-       ("record" (funcall aside "· 记录"))
-       (_ (propertize (iuiw-erpg-player iuiw-erpg--campaign) 'face 'iuiw-erpg-player)))
-     (when-let* ((model (plist-get entry :model)))
-       (funcall aside (concat "  " model)))
-     (when (> swipes 1)
-       (funcall aside (format "  [%d/%d]" (1+ (plist-get entry :index)) swipes)))
-     (when (plist-get entry :hidden)
-       (propertize "  未采用" 'face 'iuiw-erpg-refused)))))
+(defun iuiw-erpg--show-header ()
+  "Show the title, the branch and who is present above the story."
+  (unless (and iuiw-erpg--header (overlay-buffer iuiw-erpg--header))
+    (setq iuiw-erpg--header (make-overlay (point-min) (point-min))))
+  (let ((branch (iuiw-erpg-file-branch buffer-file-name))
+        (cast (iuiw-erpg--cast-line (iuiw-erpg--state))))
+    (overlay-put iuiw-erpg--header 'before-string
+                 (concat (propertize (or (plist-get iuiw-erpg--campaign :title)
+                                         (plist-get iuiw-erpg--campaign :id))
+                                     'face 'bold)
+                         (when branch (propertize (concat "  · " branch) 'face 'shadow))
+                         "\n\n" (when cast (concat cast "\n\n"))))))
 
-(defun iuiw-erpg--insert-entry (entry index)
-  "Insert ENTRY, the INDEXth of the log or nil while pending."
-  (let ((start (point))
-        (dim (member (plist-get entry :role) '("voice" "director" "record"))))
-    (insert (iuiw-erpg--header entry) "\n")
-    (let ((body (point)))
-      (insert (iuiw-erpg-entry-text entry))
-      (when (or dim (plist-get entry :hidden))
-        (add-face-text-property body (point) 'iuiw-erpg-dim))
-      (unless index (set-marker iuiw-erpg--stream-marker (point))))
-    (insert "\n\n")
-    (when index (put-text-property start (point) 'iuiw-erpg-index index))))
+;;; Editing the story
 
-(defun iuiw-erpg--shown-p (entry)
-  "Non-nil when ENTRY is to be shown."
-  (and (or iuiw-erpg--show-hidden (not (plist-get entry :hidden)))
-       (or iuiw-erpg-show-voices (not (member (plist-get entry :role) '("voice" "record"))))))
-
-(defun iuiw-erpg--render ()
-  "Redraw the story, keeping the input."
-  (let* ((input (iuiw-erpg--input))
-         (old (point))
-         (offset (and (marker-position iuiw-erpg--input-marker)
-                      (>= (point) iuiw-erpg--input-marker)
-                      (- (point) iuiw-erpg--input-marker)))
-         (inhibit-read-only t))
-    ;; Stay put while the rest of the story is drawn after the pending entry.
-    (set-marker-insertion-type iuiw-erpg--stream-marker nil)
-    (erase-buffer)
-    (insert (propertize (or (plist-get iuiw-erpg--campaign :title) (plist-get iuiw-erpg--campaign :id))
-                        'face 'bold)
-            "\n\n")
-    (when-let* ((cast (iuiw-erpg--cast-line)))
-      (insert cast "\n\n"))
-    (cl-loop for entry in iuiw-erpg--entries for i from 0
-             when (iuiw-erpg--shown-p entry) do (iuiw-erpg--insert-entry entry i))
-    (when iuiw-erpg--pending
-      (iuiw-erpg--insert-entry iuiw-erpg--pending nil))
-    (insert (propertize "> " 'face 'minibuffer-prompt))
-    (add-text-properties (point-min) (point)
-                         '(read-only t front-sticky (read-only) rear-nonsticky t))
-    (set-marker iuiw-erpg--input-marker (point))
-    (insert input)
-    (set-marker-insertion-type iuiw-erpg--stream-marker t)
-    (goto-char (if offset (+ iuiw-erpg--input-marker offset) (min old iuiw-erpg--input-marker)))))
-
-(defun iuiw-erpg--stream (text)
-  "Show TEXT at the end of the pending entry."
-  (let ((inhibit-read-only t))
-    (save-excursion
-      (goto-char iuiw-erpg--stream-marker)
-      (insert (propertize text 'read-only t 'front-sticky '(read-only) 'rear-nonsticky t)))))
+(defun iuiw-erpg--state (&optional entries)
+  "State now: state.md with the records in ENTRIES, else the story's, replayed."
+  (iuiw-erpg-replay (iuiw-erpg-state iuiw-erpg--campaign)
+                    (or entries (iuiw-erpg-story-entries))))
 
 (defun iuiw-erpg--save ()
-  "Write the log and redraw."
-  (iuiw-erpg-log-write iuiw-erpg--campaign iuiw-erpg--entries)
-  (iuiw-erpg--render))
+  "Save the story and refresh the header."
+  (when (buffer-modified-p)
+    (let ((save-silently t)) (save-buffer)))
+  (iuiw-erpg--show-header))
 
-(defun iuiw-erpg--add (entry)
-  "Append ENTRY to the log."
-  (setq iuiw-erpg--entries (append iuiw-erpg--entries (list entry))))
+(defun iuiw-erpg--comment-at (pos text)
+  "Put a comment saying TEXT right after the text before POS."
+  (save-excursion
+    (goto-char pos)
+    (skip-chars-backward " \t\n")
+    (insert "\n\n<!-- " text (if (string-search "\n" text) "\n-->" " -->"))))
 
-(defun iuiw-erpg--entry-at-point ()
-  "Index of the log entry at point, an error when none."
-  (or (get-text-property (point) 'iuiw-erpg-index)
-      (user-error "No entry here")))
+(defun iuiw-erpg--open-section (name)
+  "Start a section NAME at the end of the story.
+Returns a marker where its text goes."
+  (save-excursion
+    (goto-char (point-max))
+    (skip-chars-backward " \t\n")
+    (delete-region (point) (point-max))
+    (insert (if (bobp) "" "\n\n") "### " name "\n\n")
+    (point-marker)))
 
-(defun iuiw-erpg--last-narrator ()
-  "Index of the last narrator reply in use, or nil."
-  (cl-position-if (lambda (e) (and (equal (plist-get e :role) "narrator")
-                                   (not (plist-get e :hidden))))
-                  iuiw-erpg--entries :from-end t))
+(defun iuiw-erpg--drop-empty-tail ()
+  "Remove a last section with nothing written in it."
+  (let ((last (car (last (iuiw-erpg-story-entries)))))
+    (when (and last (member (plist-get last :role) '("user" "director"))
+               (string-empty-p (plist-get last :text)))
+      (delete-region (plist-get last :start) (point-max)))))
+
+(defun iuiw-erpg--last-narrator (entries)
+  "Index of the narrator's last section in ENTRIES, or nil."
+  (cl-position "narrator" entries :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t))
+
+(defun iuiw-erpg--section-end ()
+  "End of the section point is in."
+  (save-excursion
+    (end-of-line)
+    (if (re-search-forward iuiw-erpg-heading-regexp nil t) (match-beginning 0) (point-max))))
 
 ;;; Turns
 
@@ -237,68 +178,76 @@ where images can be shown; any other avatar is shown as text."
       (iuiw-erpg--combo-aliases :voice)
       (iuiw-erpg--narrator-aliases)))
 
+(defun iuiw-erpg--rejected-file ()
+  "Where refused and failed replies of this campaign are kept."
+  (iuiw-erpg-file ".cache" "rejected" (concat (plist-get iuiw-erpg--campaign :id) ".md")))
+
+(defun iuiw-erpg--reject (alias text error)
+  "Keep the reply TEXT that ALIAS refused with, or its ERROR, out of the story."
+  (let ((file (iuiw-erpg--rejected-file))
+        (coding-system-for-write 'utf-8-unix))
+    (make-directory (file-name-directory file) t)
+    (write-region (format "## %s %s %s\n\n%s\n\n" (format-time-string "%F %T") alias
+                          (if error "failed" "refused") (if (string-blank-p (or text "")) error text))
+                  nil file t 'silent)
+    (message "%s %s; trying the next model (M-x iuiw-erpg-rejected)" alias (if error "failed" "refused"))))
+
 (defun iuiw-erpg--record (ctx)
-  "Have the recorder update state.md from replies the user has moved on from.
-It runs beside the turn; facts land a turn late, while the story they come
-from is still in every prompt."
-  (let* ((entries iuiw-erpg--entries)
-         (narrator-p (lambda (e) (and (equal (plist-get e :role) "narrator") (not (plist-get e :hidden)))))
-         (done (or (cl-position-if (lambda (e) (and (funcall narrator-p e) (plist-get e :recorded)))
-                                   entries :from-end t)
+  "Have the recorder note facts from replies the user has moved on from.
+Its notes go in a 记录 comment after the last of them.  It runs beside the
+turn; facts land a turn late, while the story they come from is still in
+every prompt."
+  (let* ((entries (plist-get ctx :entries))
+         (done (or (cl-position "record" entries :key (lambda (e) (plist-get e :role))
+                                :test #'equal :from-end t)
                    -1))
-         (last (cl-position-if narrator-p entries :from-end t))
+         (last (iuiw-erpg--last-narrator entries))
          (campaign (plist-get ctx :campaign))
+         (state (plist-get ctx :state))
          (buffer (current-buffer)))
     (when (and last (> last done))
       (let ((story (iuiw-erpg--story (seq-subseq entries (1+ done) (1+ last))))
-            (replies (seq-filter narrator-p (seq-subseq entries (1+ done) (1+ last))))
-            (file (iuiw-erpg-state-file campaign)))
+            (at (copy-marker (plist-get (nth last entries) :end))))
         (iuiw-erpg-request-chain
          (iuiw-erpg--recorder-aliases)
          (iuiw-erpg-recorder-system (plist-get ctx :preset))
-         (list (iuiw-erpg-recorder-message campaign (plist-get ctx :state) story))
+         (list (iuiw-erpg-recorder-message campaign state story))
          :buffer buffer
          :callback
-         (lambda (text alias)
-           (let ((record (iuiw-erpg-parse-record text))
-                 (visiting (find-buffer-visiting file)))
+         (lambda (text _alias)
+           (let ((record (iuiw-erpg-parse-record text)))
              (cond ((not (buffer-live-p buffer)))
                    ((null record) (message "erpg: the recorder gave no usable answer; it tries again next turn"))
-                   ((and visiting (buffer-modified-p visiting))
-                    (message "erpg: state.md has unsaved edits; the recorder tries again next turn"))
                    (t
-                    ;; Reread: the user may have edited state.md since the turn began.
-                    (pcase-let* ((before (iuiw-erpg-state campaign))
-                                 (`(,state . ,changes) (iuiw-erpg-apply-record campaign before record)))
-                      (iuiw-erpg-write-state campaign state)
-                      (when visiting
-                        (with-current-buffer visiting (revert-buffer t t t)))
-                      (with-current-buffer buffer
-                        (dolist (e replies) (plist-put e :recorded t))
-                        (when changes
-                          (iuiw-erpg--add (iuiw-erpg-entry "record" (string-join changes "\n")
-                                                           :model alias
-                                                           :before-present (vconcat (plist-get before :present))
-                                                           :before-facts (vconcat (plist-get before :facts)))))
-                        (iuiw-erpg--save))))))))))))
+                    (with-current-buffer buffer
+                      (let ((changes (cdr (iuiw-erpg-apply-record campaign state record))))
+                        (iuiw-erpg--comment-at at (string-join (cons "记录" changes) "\n"))
+                        (unless iuiw-erpg--busy (iuiw-erpg--save)))))))))))))
 
 (defun iuiw-erpg--context ()
-  "The campaign reread from disk, with its preset, state and cards, as a plist."
-  (let ((campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id))))
+  "The campaign reread from disk with its preset, story, state and cards."
+  (let ((campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id)))
+        (entries (iuiw-erpg-story-entries)))
     (setq iuiw-erpg--campaign campaign)
     (list :campaign campaign
+          :entries entries
           :preset (iuiw-erpg-preset (or (plist-get campaign :preset) "default"))
-          :state (iuiw-erpg-state campaign)
+          :state (iuiw-erpg--state entries)
           :cards (iuiw-erpg-cast campaign))))
 
 (defun iuiw-erpg--finish (&optional message)
   "End the turn, showing MESSAGE when given."
-  (setq iuiw-erpg--busy nil iuiw-erpg--pending nil)
+  (setq iuiw-erpg--busy nil)
+  (when iuiw-erpg--changes
+    (accept-change-group iuiw-erpg--changes)
+    (undo-amalgamate-change-group iuiw-erpg--changes)
+    (setq iuiw-erpg--changes nil))
   (iuiw-erpg--save)
   (when message (message "%s" message)))
 
 (defun iuiw-erpg--voices (ctx done)
-  "Ask each present character with a voice for its intent, then call DONE."
+  "Ask each present character with a voice for its intent, then call DONE.
+Intents go in 意图 comments at the end of the story."
   (let* ((campaign (plist-get ctx :campaign))
          (present (plist-get (plist-get ctx :state) :present))
          (cards (seq-filter (lambda (c)
@@ -308,8 +257,7 @@ from is still in every prompt."
                                    (not (equal (plist-get c :name) (plist-get campaign :player)))))
                             (plist-get ctx :cards)))
          (left (length cards))
-         (buffer (current-buffer))
-         (entries iuiw-erpg--entries))
+         (buffer (current-buffer)))
     (if (zerop left)
         (funcall done)
       (message "Characters are deciding: %s"
@@ -320,85 +268,106 @@ from is still in every prompt."
            (iuiw-erpg--voice-aliases card)
            (iuiw-erpg-voice-system campaign (plist-get ctx :preset) (plist-get ctx :state)
                                    card (plist-get ctx :cards))
-           (list (iuiw-erpg-voice-message campaign (plist-get ctx :preset) entries card))
+           (list (iuiw-erpg-voice-message campaign (plist-get ctx :preset) (plist-get ctx :entries) card))
            :buffer buffer
            :on-fail (lambda (alias text error)
                       (when (buffer-live-p buffer)
-                        (with-current-buffer buffer
-                          (iuiw-erpg--add (iuiw-erpg-entry "voice" (or text error) :name name
-                                                           :model alias :hidden t)))))
-           :callback (lambda (text alias)
+                        (with-current-buffer buffer (iuiw-erpg--reject alias text error))))
+           :callback (lambda (text _alias)
                        (when (buffer-live-p buffer)
                          (with-current-buffer buffer
                            (when (and text iuiw-erpg--busy)
-                             (iuiw-erpg--add (iuiw-erpg-entry "voice" (string-trim text)
-                                                              :name name :model alias)))
+                             (iuiw-erpg--comment-at (point-max)
+                                                    (format "意图 %s\n%s" name (string-trim text))))
                            (when (and (zerop (cl-decf left)) iuiw-erpg--busy)
-                             (iuiw-erpg--render)
                              (funcall done)))))))))))
 
 (defun iuiw-erpg--intents (entries)
-  "Intents formed since the last user or director entry in ENTRIES.
+  "Intents formed since the last user or director section in ENTRIES.
 They are returned as ((NAME . TEXT) ...)."
   (let ((since (or (cl-position-if (lambda (e) (member (plist-get e :role) '("user" "director")))
                                    entries :from-end t)
                    -1)))
     (cl-loop for e in (nthcdr (1+ since) entries)
-             when (and (equal (plist-get e :role) "voice") (not (plist-get e :hidden)))
+             when (equal (plist-get e :role) "voice")
              collect (cons (plist-get e :name) (iuiw-erpg-entry-text e)))))
 
-(defun iuiw-erpg--narrate (ctx mode &optional target)
-  "Have the narrator write, streaming into the buffer.
-MODE is `new' for the next reply, `swipe' for another version of entry
-TARGET, or `continue' to extend TARGET."
+(defun iuiw-erpg--narrate (ctx mode)
+  "Have the narrator write, streaming into the story.
+MODE is `new' for a new section, `again' to rewrite the narrator's last
+section, or `continue' to extend it."
   (let* ((campaign (plist-get ctx :campaign))
          (preset (plist-get ctx :preset))
-         (before (if target (seq-take iuiw-erpg--entries (if (eq mode 'continue) (1+ target) target))
-                   iuiw-erpg--entries))
+         (entries (iuiw-erpg-story-entries))
+         (target (unless (eq mode 'new)
+                   (or (iuiw-erpg--last-narrator entries) (user-error "No reply yet"))))
+         (entry (and target (nth target entries)))
+         (before (if target (seq-take entries (if (eq mode 'continue) (1+ target) target)) entries))
          (intents (unless (eq mode 'continue) (iuiw-erpg--intents before)))
          (prefill (alist-get "prefill" preset nil nil #'equal))
-         (buffer (current-buffer)))
+         (messages (lambda (alias)
+                     (iuiw-erpg-narrator-messages campaign preset before intents (eq mode 'continue)
+                                                  (and (plist-get (iuiw-erpg-model alias) :prefill) prefill))))
+         (buffer (current-buffer))
+         (heading (and (eq mode 'new) (copy-marker (point-max))))
+         (old (and (eq mode 'again) (buffer-substring (plist-get entry :body) (plist-get entry :end))))
+         start end)
+    ;; Fail before touching the story when the messages cannot be made.
+    (funcall messages (car (iuiw-erpg--narrator-aliases)))
+    (setq iuiw-erpg--changes (prepare-change-group))
+    (activate-change-group iuiw-erpg--changes)
+    (setq start (pcase mode
+                  ('new (iuiw-erpg--open-section "旁白"))
+                  ('again (delete-region (plist-get entry :body) (plist-get entry :end))
+                          (save-excursion (goto-char (plist-get entry :body)) (insert "\n") (point-marker)))
+                  ('continue (save-excursion (goto-char (plist-get entry :end))
+                                             (skip-chars-backward " \t\n")
+                                             (point-marker))))
+          end (copy-marker start t))
     (iuiw-erpg-request-chain
      (iuiw-erpg--narrator-aliases)
      (iuiw-erpg-narrator-system campaign preset (plist-get ctx :state) (plist-get ctx :cards))
-     (lambda (alias)
-       (iuiw-erpg-narrator-messages campaign preset before intents (eq mode 'continue)
-                                    (and (plist-get (iuiw-erpg-model alias) :prefill) prefill)))
+     messages
      :buffer buffer
      :on-start (lambda (alias)
                  (with-current-buffer buffer
-                   (setq iuiw-erpg--pending (iuiw-erpg-entry "narrator" "" :model alias))
-                   (iuiw-erpg--render)))
+                   (delete-region start end)
+                   (when iuiw-erpg--follow (goto-char end))
+                   (message "%s is writing" alias)))
      :on-chunk (lambda (text)
                  (when (buffer-live-p buffer)
                    (with-current-buffer buffer
-                     (when iuiw-erpg--pending
-                       (iuiw-erpg-entry-set-text iuiw-erpg--pending
-                                                 (concat (iuiw-erpg-entry-text iuiw-erpg--pending) text))
-                       (iuiw-erpg--stream text)))))
+                     (let ((follow (= (point) end)))
+                       (save-excursion (goto-char end) (insert text))
+                       (when follow (goto-char end))))))
      :on-fail (lambda (alias text error)
                 (when (buffer-live-p buffer)
                   (with-current-buffer buffer
-                    (iuiw-erpg--add (iuiw-erpg-entry "narrator" (if (string-blank-p (or text "")) error text)
-                                                     :model alias :hidden t))
-                    (message "%s %s; trying the next model" alias (if error "failed" "refused")))))
+                    (delete-region start end)
+                    (iuiw-erpg--reject alias text error))))
      :callback
-     (lambda (text alias)
+     (lambda (text _alias)
        (when (buffer-live-p buffer)
          (with-current-buffer buffer
            (cond ((not iuiw-erpg--busy))
                  ((null text)
-                  (iuiw-erpg--finish "No model answered; C-c C-h shows what came back"))
-                 ((eq mode 'swipe)
-                  (iuiw-erpg-entry-add-swipe (nth target iuiw-erpg--entries) (string-trim text))
-                  (plist-put (nth target iuiw-erpg--entries) :model alias)
-                  (iuiw-erpg--finish))
-                 ((eq mode 'continue)
-                  (let ((entry (nth target iuiw-erpg--entries)))
-                    (iuiw-erpg-entry-set-text entry (concat (iuiw-erpg-entry-text entry) text)))
-                  (iuiw-erpg--finish))
+                  (pcase mode
+                    ('new (delete-region heading (point-max)))
+                    ('again (delete-region start end)
+                            (save-excursion (goto-char start) (delete-char -1) (insert old))))
+                  (iuiw-erpg--finish "No model answered; M-x iuiw-erpg-rejected shows what came back"))
                  (t
-                  (iuiw-erpg--add (iuiw-erpg-entry "narrator" (string-trim text) :model alias))
+                  (save-excursion
+                    (unless (eq mode 'continue)
+                      (goto-char start)
+                      (delete-region start (progn (skip-chars-forward " \t\n" end) (point))))
+                    (goto-char end)
+                    (delete-region (progn (skip-chars-backward " \t\n" start) (point)) end)
+                    (when (and (eq mode 'again) (not (eobp)))
+                      (insert "\n\n")))
+                  (when (eq mode 'new)
+                    (iuiw-erpg--open-section (iuiw-erpg-player campaign))
+                    (when iuiw-erpg--follow (goto-char (point-max))))
                   (iuiw-erpg--finish)))))))))
 
 (defun iuiw-erpg--start ()
@@ -407,183 +376,92 @@ TARGET, or `continue' to extend TARGET."
     (user-error "A turn is running; C-c C-k stops it"))
   (setq iuiw-erpg--busy t))
 
+(defmacro iuiw-erpg--turn (&rest body)
+  "Run BODY as a turn, ending it when BODY signals."
+  (declare (indent 0))
+  `(progn
+     (iuiw-erpg--start)
+     (condition-case err
+         (progn ,@body)
+       (error (setq iuiw-erpg--busy nil)
+              (when iuiw-erpg--changes
+                (cancel-change-group iuiw-erpg--changes)
+                (setq iuiw-erpg--changes nil))
+              (signal (car err) (cdr err))))))
+
 ;;; Commands
 
-(defun iuiw-erpg--play (text)
-  "Log TEXT, as `iuiw-erpg-send' reads input, and play a turn."
-  (iuiw-erpg--start)
-  (condition-case err
-      (let ((ctx (iuiw-erpg--context)))
-        (cond ((string-prefix-p "//" text)
-               (iuiw-erpg--add (iuiw-erpg-entry "director" (string-trim (substring text 2)))))
-              ((not (string-empty-p text))
-               (iuiw-erpg--add (iuiw-erpg-entry "user" text))))
-        (iuiw-erpg--save)
-        (iuiw-erpg--record ctx)
-        (let ((buffer (current-buffer)))
-          (iuiw-erpg--voices ctx (lambda ()
-                                   (with-current-buffer buffer
-                                     (iuiw-erpg--narrate ctx 'new))))))
-    (error (setq iuiw-erpg--busy nil)
-           (signal (car err) (cdr err)))))
-
 (defun iuiw-erpg-send ()
-  "Send the input and play a turn.
-The input is an action, a // director note, or empty to let the story go on."
+  "Play a turn on the story as it is now.
+Write what you do in the section under your name at the end, or under a
+### 导演 heading for a note to the narrator; with nothing new the story goes on."
   (interactive nil iuiw-erpg-mode)
-  (when (< (point) iuiw-erpg--input-marker)
-    (user-error "Type after the > prompt"))
-  (when iuiw-erpg--busy
-    (user-error "A turn is running; C-c C-k stops it"))
-  (let ((text (string-trim (iuiw-erpg--input))))
-    (let ((inhibit-read-only t)) (delete-region iuiw-erpg--input-marker (point-max)))
-    (iuiw-erpg--play text)))
-
-(defun iuiw-erpg--rewind (index)
-  "Drop the log entries from INDEX on and undo what the recorder wrote from them.
-Returns the last dropped player line or director note as input, or nil."
-  (when iuiw-erpg--busy
-    (user-error "A turn is running; C-c C-k stops it"))
-  (let* ((campaign iuiw-erpg--campaign)
-         (dropped (nthcdr index iuiw-erpg--entries))
-         (record (seq-find (lambda (e) (equal (plist-get e :role) "record")) dropped))
-         (said (seq-find (lambda (e) (member (plist-get e :role) '("user" "director"))) dropped))
-         (visiting (find-buffer-visiting (iuiw-erpg-state-file campaign))))
-    ;; A recorder still reading the dropped story must not write it down.
-    (iuiw-erpg-abort (current-buffer))
-    (setq iuiw-erpg--entries (seq-take iuiw-erpg--entries index))
-    (when record
-      (cond ((not (plist-member record :before-facts))
-             (message "erpg: that record predates rewinding, so state.md is left as is; check it with C-c C-t"))
-            ((and visiting (buffer-modified-p visiting))
-             (message "erpg: state.md has unsaved edits, so its facts were not rewound"))
-            (t
-             (iuiw-erpg-write-state campaign
-                                    (list :present (append (plist-get record :before-present) nil)
-                                          :body (plist-get (iuiw-erpg-state campaign) :body)
-                                          :facts (append (plist-get record :before-facts) nil)))
-             (when visiting
-               (with-current-buffer visiting (revert-buffer t t t)))))
-      ;; Replies only the dropped records read are read again.
-      (let ((kept (cl-position "record" iuiw-erpg--entries :from-end t :test #'equal
-                               :key (lambda (e) (plist-get e :role)))))
-        (dolist (e (nthcdr (if kept (1+ kept) 0) iuiw-erpg--entries))
-          (plist-put e :recorded nil))))
-    (iuiw-erpg--save)
-    (when said
-      (concat (if (equal (plist-get said :role) "director") "// " "")
-              (iuiw-erpg-entry-text said)))))
-
-(defun iuiw-erpg-rewind ()
-  "Go back to before the entry at point, dropping it and everything after.
-A dropped player line or director note comes back as input to edit and send."
-  (interactive nil iuiw-erpg-mode)
-  (let* ((index (iuiw-erpg--entry-at-point))
-         (count (- (length iuiw-erpg--entries) index)))
-    (when (y-or-n-p (format "Drop this and the %d entries after it? " (1- count)))
-      (when-let* ((input (iuiw-erpg--rewind index)))
-        (let ((inhibit-read-only t))
-          (delete-region iuiw-erpg--input-marker (point-max))
-          (goto-char (point-max))
-          (insert input)))
-      (goto-char (point-max)))))
-
-(defun iuiw-erpg-retry ()
-  "Play the last turn again: the characters' intents and the narrator's reply
-since the last player line or director note are dropped and written anew."
-  (interactive nil iuiw-erpg-mode)
-  (let ((since (1+ (or (cl-position-if (lambda (e) (member (plist-get e :role) '("user" "director")))
-                                       iuiw-erpg--entries :from-end t)
-                       -1))))
-    (when (= since (length iuiw-erpg--entries))
-      (user-error "Nothing since the last input; RET plays a turn"))
-    (iuiw-erpg--rewind since)
-    (iuiw-erpg--play "")))
-
-(defun iuiw-erpg-restart ()
-  "Start the campaign over: empty the log and rewind state.md's facts."
-  (interactive nil iuiw-erpg-mode)
-  (when (y-or-n-p (format "Drop all %d entries and start over? " (length iuiw-erpg--entries)))
-    (iuiw-erpg--rewind 0)
-    (goto-char (point-max))))
+  (iuiw-erpg--turn
+    (setq iuiw-erpg--follow (save-excursion
+                              (or (not (re-search-forward iuiw-erpg-heading-regexp nil t))
+                                  (eobp))))
+    (iuiw-erpg--drop-empty-tail)
+    (let ((ctx (iuiw-erpg--context))
+          (buffer (current-buffer)))
+      (iuiw-erpg--save)
+      (iuiw-erpg--record ctx)
+      (iuiw-erpg--voices ctx (lambda ()
+                               (with-current-buffer buffer
+                                 (iuiw-erpg--narrate ctx 'new)))))))
 
 (defun iuiw-erpg-regenerate ()
-  "Write another version of the narrator's last reply.
-Earlier versions stay as swipes."
+  "Rewrite the narrator's last section; undo brings the old one back."
   (interactive nil iuiw-erpg-mode)
-  (let ((target (or (iuiw-erpg--last-narrator) (user-error "No reply to regenerate"))))
-    (iuiw-erpg--start)
-    (condition-case err
-        (iuiw-erpg--narrate (iuiw-erpg--context) 'swipe target)
-      (error (setq iuiw-erpg--busy nil)
-             (signal (car err) (cdr err))))))
+  (iuiw-erpg--turn
+    (setq iuiw-erpg--follow nil)
+    (iuiw-erpg--narrate (iuiw-erpg--context) 'again)))
 
 (defun iuiw-erpg-continue ()
-  "Have the narrator carry on writing its last reply."
+  "Have the narrator carry on writing its last section."
   (interactive nil iuiw-erpg-mode)
-  (let ((target (or (iuiw-erpg--last-narrator) (user-error "No reply to continue"))))
-    (iuiw-erpg--start)
-    (condition-case err
-        (iuiw-erpg--narrate (iuiw-erpg--context) 'continue target)
-      (error (setq iuiw-erpg--busy nil)
-             (signal (car err) (cdr err))))))
+  (iuiw-erpg--turn
+    (setq iuiw-erpg--follow nil)
+    (iuiw-erpg--narrate (iuiw-erpg--context) 'continue)))
 
-(defun iuiw-erpg--swipe (step)
-  "Show the swipe STEP away in the entry at point, else the last reply."
-  (let* ((index (or (get-text-property (point) 'iuiw-erpg-index) (iuiw-erpg--last-narrator)
-                    (user-error "No reply")))
-         (entry (nth index iuiw-erpg--entries))
-         (count (length (plist-get entry :swipes))))
-    (when (< count 2) (user-error "Only one version; C-c C-r writes another"))
-    (plist-put entry :index (mod (+ (plist-get entry :index) step) count))
-    (iuiw-erpg--save)))
+(defun iuiw-erpg-branch (name)
+  "Start branch NAME from the story up to the end of the section at point."
+  (interactive (list (read-string "Branch name: ")) iuiw-erpg-mode)
+  (when (or (string-empty-p name) (string-match-p "[/\\]" name))
+    (user-error "Not a usable branch name: %s" name))
+  (let ((file (iuiw-erpg-story-file iuiw-erpg--campaign name))
+        (text (string-trim-right (buffer-substring-no-properties (point-min) (iuiw-erpg--section-end))))
+        (player (iuiw-erpg-player iuiw-erpg--campaign)))
+    (when (file-exists-p file) (user-error "Branch %s exists" name))
+    (make-directory (file-name-directory file) t)
+    (iuiw-erpg-with-file file (insert text "\n\n### " player "\n\n"))
+    (iuiw-erpg--visit file)))
 
-(defun iuiw-erpg-swipe-previous ()
-  "Show the previous version of a reply."
-  (interactive nil iuiw-erpg-mode)
-  (iuiw-erpg--swipe -1))
-
-(defun iuiw-erpg-swipe-next ()
-  "Show the next version of a reply."
-  (interactive nil iuiw-erpg-mode)
-  (iuiw-erpg--swipe 1))
-
-(defun iuiw-erpg-edit ()
-  "Edit the entry at point; the edit is what the models see from then on."
-  (interactive nil iuiw-erpg-mode)
-  (let* ((index (iuiw-erpg--entry-at-point))
-         (buffer (current-buffer)))
-    (string-edit "Edit, then C-c C-c" (iuiw-erpg-entry-text (nth index iuiw-erpg--entries))
-                 (lambda (text)
-                   (with-current-buffer buffer
-                     (iuiw-erpg-entry-set-text (nth index iuiw-erpg--entries) text)
-                     (iuiw-erpg--save))))))
-
-(defun iuiw-erpg-delete ()
-  "Delete the entry at point from the log."
-  (interactive nil iuiw-erpg-mode)
-  (let ((index (iuiw-erpg--entry-at-point)))
-    (when (y-or-n-p "Delete this entry? ")
-      (setq iuiw-erpg--entries (append (seq-take iuiw-erpg--entries index)
-                                       (nthcdr (1+ index) iuiw-erpg--entries)))
-      (iuiw-erpg--save))))
+(defun iuiw-erpg-switch-branch (branch)
+  "Go to BRANCH of this campaign."
+  (interactive (list (iuiw-erpg--read-branch iuiw-erpg--campaign)) iuiw-erpg-mode)
+  (iuiw-erpg--visit (iuiw-erpg-story-file iuiw-erpg--campaign branch)))
 
 (defun iuiw-erpg-present (names)
-  "Set who of the cast is present to NAMES."
+  "Set who of the cast is present to NAMES, noted in the story."
   (interactive
-   (let ((campaign (iuiw-erpg-campaign (plist-get iuiw-erpg--campaign :id))))
-     (list (completing-read-multiple
-            "Present: " (plist-get campaign :cast) nil t
-            (string-join (plist-get (iuiw-erpg-state campaign) :present) ","))))
+   (list (completing-read-multiple
+          "Present: " (plist-get iuiw-erpg--campaign :cast) nil t
+          (string-join (plist-get (iuiw-erpg--state) :present) ",")))
    iuiw-erpg-mode)
-  (iuiw-erpg-set-present iuiw-erpg--campaign names)
-  (iuiw-erpg--render)
+  (iuiw-erpg--comment-at (point-max) (concat "在场：" (if names (string-join names "、") "无")))
+  (iuiw-erpg--save)
   (message "Present: %s" (string-join names "、")))
 
 (defun iuiw-erpg-edit-state ()
-  "Open the campaign's state.md, which every model reads each turn."
+  "Open the campaign's state.md, notes every model reads each turn."
   (interactive nil iuiw-erpg-mode)
   (find-file-other-window (expand-file-name "state.md" (plist-get iuiw-erpg--campaign :dir))))
+
+(defun iuiw-erpg-rejected ()
+  "Show the replies this campaign's models refused or failed with."
+  (interactive nil iuiw-erpg-mode)
+  (find-file-other-window (iuiw-erpg--rejected-file))
+  (goto-char (point-max)))
 
 (defun iuiw-erpg-narrators (aliases)
   "Use model ALIASES, in fallback order, as narrators in this buffer.
@@ -614,32 +492,37 @@ No aliases restore the campaign's."
     (message "Combo %s; narrators: %s" name (string-join (iuiw-erpg--narrator-aliases) " → "))))
 
 (defun iuiw-erpg-stop ()
-  "Stop the running turn."
+  "Stop the running turn, keeping what was written."
   (interactive nil iuiw-erpg-mode)
   (setq iuiw-erpg--busy nil)
   (iuiw-erpg-abort (current-buffer))
   (iuiw-erpg--finish "Stopped"))
 
-(defun iuiw-erpg-toggle-hidden ()
-  "Show or hide refused and failed replies."
-  (interactive nil iuiw-erpg-mode)
-  (setq iuiw-erpg--show-hidden (not iuiw-erpg--show-hidden))
-  (iuiw-erpg--render))
+(defun iuiw-erpg--visit (file)
+  "Play the story in FILE."
+  (find-file file)
+  (unless (derived-mode-p 'iuiw-erpg-mode) (iuiw-erpg-mode))
+  (goto-char (point-max)))
+
+(defun iuiw-erpg--read-branch (campaign)
+  "Ask for one of CAMPAIGN's branches, the latest played first."
+  (let ((branches (iuiw-erpg-branches campaign)))
+    (if (null (cdr branches))
+        (car branches)
+      (completing-read "Branch: "
+                       (lambda (string pred action)
+                         (if (eq action 'metadata)
+                             '(metadata (display-sort-function . identity))
+                           (complete-with-action action branches string pred)))
+                       nil t))))
 
 ;;;###autoload
-(defun iuiw-erpg-open (id)
-  "Play campaign ID."
-  (interactive (list (completing-read "Campaign: " (iuiw-erpg-campaign-ids) nil t)))
-  (let* ((campaign (iuiw-erpg-campaign id))
-         (buffer (get-buffer-create (format "*erpg %s*" id))))
-    (with-current-buffer buffer
-      (unless (derived-mode-p 'iuiw-erpg-mode)
-        (iuiw-erpg-mode)
-        (setq iuiw-erpg--campaign campaign
-              iuiw-erpg--entries (iuiw-erpg-log-read campaign))
-        (iuiw-erpg--render)))
-    (pop-to-buffer-same-window buffer)
-    (goto-char (point-max))))
+(defun iuiw-erpg-open (id &optional branch)
+  "Play campaign ID, on BRANCH when given, else its main story."
+  (interactive
+   (let* ((id (completing-read "Campaign: " (iuiw-erpg-campaign-ids) nil t)))
+     (list id (iuiw-erpg--read-branch (iuiw-erpg-campaign id)))))
+  (iuiw-erpg--visit (iuiw-erpg-story-file (iuiw-erpg-campaign id) branch)))
 
 ;;;###autoload
 (defun iuiw-erpg-new-campaign (id title cast player)
@@ -664,7 +547,7 @@ No aliases restore the campaign's."
               "combo: value       # combos.eld 里的模型组合：budget、value、premium\n"
               "narrator:          # 模型别名，逗号分隔即 fallback 顺序；空则用 combo 的\n"
               "voice:             # 生成角色意图用的模型；空则用 combo 的\n"
-              "recorder:          # 自动维护 state.md 的模型；空则用 combo 的\n"
+              "recorder:          # 记下剧情事实的模型；空则用 combo 的\n"
               "intensity:         # 尺度，自由描述\n"
               "length: 200-400\n"
               "depth: 4\n"

@@ -216,11 +216,10 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
      (iuiw-erpg--state-text state))))
 
 (defun iuiw-erpg--story (entries)
-  "ENTRIES that belong in the story: shown, and from the user or the narrator.
+  "ENTRIES that belong in the story: written by the user or the narrator.
 A director's note only counts until the narrator next speaks."
-  (let* ((shown (seq-filter (lambda (e) (and (not (plist-get e :hidden))
-                                             (member (plist-get e :role)
-                                                     '("user" "director" "narrator"))))
+  (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role) '("user" "director" "narrator"))
+                                             (not (string-empty-p (iuiw-erpg-entry-text e)))))
                             entries))
          (last-narrator (cl-position "narrator" shown
                                      :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)))
@@ -333,7 +332,7 @@ PREFILL the reply opens with the preset's prefill."
   :group 'iuiw-erpg)
 
 (defun iuiw-erpg-recorder-system (preset)
-  "System prompt of the recorder, which keeps state.md's facts, with PRESET."
+  "System prompt of the recorder, which notes the story's facts, with PRESET."
   (iuiw-erpg--join
    (alist-get "system" preset nil nil #'equal)
    (concat "# 规则\n"
@@ -392,7 +391,7 @@ Returns (NEW-STATE . CHANGES), CHANGES being lines to show."
     (unless (equal present (plist-get state :present))
       (push (concat "在场：" (if present (string-join present "、") "无")) changes))
     (if (plist-member record :facts)
-        (push (format "清单精简为 %d 条" (length facts)) changes)
+        (dolist (f facts) (push (concat "= " f) changes))
       (dolist (f (seq-difference old facts)) (push (concat "- " f) changes))
       (dolist (f (seq-difference facts old)) (push (concat "+ " f) changes)))
     (cons (list :present present :body (plist-get state :body) :facts facts)

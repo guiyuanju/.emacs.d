@@ -1,7 +1,7 @@
 ;;; iuiw-erpg-store.el --- erpg data repository -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; 读写 erpg 数据仓库：模型档案、preset、角色卡、战役、状态和对白记录。
+;; 读写 erpg 数据仓库：模型档案、preset、角色卡、战役、状态和剧情。
 ;; 格式见仓库的 README.md。
 
 ;;; Code:
@@ -157,7 +157,7 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
 
 (defun iuiw-erpg-campaign (id)
   "Campaign ID as a plist: its fields, :id, :dir, :body and :secret.
-:prior holds the facts recorded in the campaign it follows."
+:prior holds the facts recorded in the main story of the campaign it follows."
   (let* ((dir (iuiw-erpg-file "campaigns" id))
          (fields (iuiw-erpg-parse (or (iuiw-erpg--read (expand-file-name "campaign.md" dir))
                                       (user-error "No campaign %s" id))))
@@ -169,10 +169,12 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
                   :body (string-trim (substring body 0 split))
                   :secret secret
                   :prior (and follows
-                              (plist-get (iuiw-erpg-state
-                                          (list :dir (file-name-as-directory
-                                                      (iuiw-erpg-file "campaigns" follows))))
-                                         :facts))
+                              (let ((before (list :dir (file-name-as-directory
+                                                        (iuiw-erpg-file "campaigns" follows)))))
+                                (plist-get (iuiw-erpg-replay
+                                            (iuiw-erpg-state before)
+                                            (iuiw-erpg-story-read (iuiw-erpg-story-file before)))
+                                           :facts)))
                   :cast (iuiw-erpg-split (plist-get fields :cast))
                   :narrator (iuiw-erpg-split (plist-get fields :narrator))
                   :voice (iuiw-erpg-split (plist-get fields :voice))
@@ -181,7 +183,7 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
             fields)))
 
 (defconst iuiw-erpg-facts-heading "## 自动记录"
-  "Heading in state.md above the facts the recorder keeps.")
+  "Heading in state.md above facts kept before the story held them.")
 
 (defun iuiw-erpg-state-file (campaign)
   "CAMPAIGN's state.md."
@@ -218,52 +220,132 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
   "Record NAMES as who is present in CAMPAIGN, keeping the rest of the state."
   (iuiw-erpg-write-state campaign (plist-put (iuiw-erpg-state campaign) :present names)))
 
-;;; Log
+;;; Story
 
-;; An entry is a plist: :role is "user", "director", "narrator", "voice" or
-;; "record"; :swipes a vector of texts with :index the one shown; optional
-;; :name, :model, :time, :hidden for replies that are kept but never sent,
-;; and :recorded on narrator replies the recorder has read.
+;; A story is markdown: each section opens with "### NAME", NAME being 旁白
+;; for the narrator, 导演 for a director's note and anything else for the
+;; player.  HTML comments in a section are never sent; three kinds mean
+;; something: "意图 NAME" a character's intent, "记录" facts the recorder
+;; noted and "在场：…" who is present.
 
-(defun iuiw-erpg-log-file (campaign)
-  "CAMPAIGN's log file."
-  (expand-file-name "log.jsonl" (plist-get campaign :dir)))
+(defconst iuiw-erpg-heading-regexp "^### +\\(.+?\\)[ \t]*$"
+  "Matches the heading opening a section of a story.")
 
-(defun iuiw-erpg-log-read (campaign)
-  "CAMPAIGN's log entries, oldest first."
-  (when-let* ((text (iuiw-erpg--read (iuiw-erpg-log-file campaign))))
-    (mapcar (lambda (line)
-              (json-parse-string line :object-type 'plist :array-type 'array
-                                 :false-object nil :null-object nil))
-            (split-string text "\n" t))))
+(defconst iuiw-erpg--comment-regexp "<!--\\(\\(?:.\\|\n\\)*?\\)-->"
+  "Matches an HTML comment.")
 
-(defun iuiw-erpg-log-write (campaign entries)
-  "Replace CAMPAIGN's log with ENTRIES."
-  (iuiw-erpg-with-file (iuiw-erpg-log-file campaign)
-    (dolist (entry entries)
-      (insert (json-serialize
-               (cl-loop for (key value) on entry by #'cddr
-                        when value append (list key value)))
-              "\n"))))
+(defconst iuiw-erpg-main-branch "主线"
+  "Name of a campaign's main story among its branches.")
+
+(defun iuiw-erpg-story-file (campaign &optional branch)
+  "File of CAMPAIGN's story on BRANCH, the main story when nil."
+  (expand-file-name (if (member branch (list nil "" iuiw-erpg-main-branch))
+                        "story.md"
+                      (concat "branches/" branch ".md"))
+                    (plist-get campaign :dir)))
+
+(defun iuiw-erpg-branches (campaign)
+  "Names of CAMPAIGN's branches, the main one included, latest played first."
+  (let* ((dir (expand-file-name "branches" (plist-get campaign :dir)))
+         (files (cons (iuiw-erpg-story-file campaign)
+                      (and (file-directory-p dir) (directory-files dir t "\\.md\\'")))))
+    (mapcar (lambda (f) (or (iuiw-erpg-file-branch f) iuiw-erpg-main-branch))
+            (sort files (lambda (a b)
+                          (time-less-p (or (file-attribute-modification-time (file-attributes b)) 0)
+                                       (or (file-attribute-modification-time (file-attributes a)) 0)))))))
+
+(defun iuiw-erpg-file-branch (file)
+  "The branch whose story is FILE, nil for a main story."
+  (when (string-match-p "/branches/[^/]+\\.md\\'" file)
+    (file-name-base file)))
+
+(defun iuiw-erpg-file-campaign (file)
+  "Id of the campaign FILE belongs to."
+  (let ((rel (file-relative-name (expand-file-name file) (iuiw-erpg-file "campaigns"))))
+    (when (string-prefix-p "../" rel)
+      (user-error "%s is not in a campaign under %s" file iuiw-erpg-directory))
+    (car (split-string rel "/"))))
+
+(defun iuiw-erpg--comment-entry (text)
+  "The entry a comment saying TEXT makes, or nil when it is only a note."
+  (setq text (string-trim text))
+  (cond ((string-match "\\`意图[ \t]+\\([^ \t\n]+\\)" text)
+         (list :role "voice" :name (match-string 1 text) :text (string-trim (substring text (match-end 0)))))
+        ((string-match "\\`记录" text)
+         (list :role "record" :text (string-trim (substring text (match-end 0)))))
+        ((string-prefix-p "在场" text)
+         (list :role "present" :text text))))
+
+(defun iuiw-erpg-story-entries ()
+  "The story in the current buffer as entries, in order.
+Each section gives an entry with :start, :body and :end positions, then
+one entry per meaningful comment in it."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let (entries)
+        (while (re-search-forward iuiw-erpg-heading-regexp nil t)
+          (let* ((name (match-string-no-properties 1))
+                 (start (match-beginning 0))
+                 (body (min (1+ (match-end 0)) (point-max)))
+                 (end (save-excursion
+                        (goto-char body)
+                        (if (re-search-forward iuiw-erpg-heading-regexp nil t)
+                            (match-beginning 0)
+                          (point-max))))
+                 (raw (buffer-substring-no-properties body end))
+                 (pos 0)
+                 comments)
+            (while (string-match iuiw-erpg--comment-regexp raw pos)
+              (setq pos (match-end 0))
+              (when-let* ((entry (iuiw-erpg--comment-entry (match-string 1 raw))))
+                (push entry comments)))
+            (push (list :role (pcase name ("旁白" "narrator") ("导演" "director") (_ "user"))
+                        :name name
+                        :text (string-trim (replace-regexp-in-string iuiw-erpg--comment-regexp "" raw))
+                        :start start :body body :end end)
+                  entries)
+            (setq entries (append comments entries))
+            (goto-char end)))
+        (nreverse entries)))))
+
+(defun iuiw-erpg-story-read (file)
+  "Entries of the story in FILE, nil when it is missing."
+  (when-let* ((text (iuiw-erpg--read file)))
+    (with-temp-buffer
+      (insert text)
+      (iuiw-erpg-story-entries))))
+
+(defun iuiw-erpg-replay (state entries)
+  "STATE with the 记录 and 在场 comments among ENTRIES applied in order.
+A 记录 says \"+ fact\" to add, \"- fact\" to drop, \"= fact\" lines for a
+whole new list and \"在场：…\" for who is present."
+  (let ((present (plist-get state :present))
+        (facts (plist-get state :facts)))
+    (dolist (e entries)
+      (when (member (plist-get e :role) '("record" "present"))
+        (let (whole)
+          (dolist (line (split-string (plist-get e :text) "\n" t "[ \t]+"))
+            (cond ((string-match "\\`在场[：:]\\(.*\\)" line)
+                   (let ((names (string-trim (match-string 1 line))))
+                     (setq present (unless (equal names "无") (iuiw-erpg-split names)))))
+                  ((string-prefix-p "= " line) (push (substring line 2) whole))
+                  ((string-prefix-p "- " line) (setq facts (remove (substring line 2) facts)))
+                  ((string-prefix-p "+ " line) (setq facts (append facts (list (substring line 2)))))))
+          (when whole (setq facts (nreverse whole))))))
+    (list :present present :body (plist-get state :body) :facts facts)))
+
+;; An entry is a plist: :role is "user", "director", "narrator", "voice",
+;; "record" or "present"; :text what it says; :name the heading or who intends.
 
 (defun iuiw-erpg-entry (role text &rest props)
-  "A new log entry of ROLE saying TEXT, with extra PROPS."
-  (append (list :role role :swipes (vector text) :index 0 :time (float-time)) props))
+  "A new entry of ROLE saying TEXT, with extra PROPS."
+  (append (list :role role :text text) props))
 
 (defun iuiw-erpg-entry-text (entry)
-  "The text ENTRY shows."
-  (aref (plist-get entry :swipes) (plist-get entry :index)))
-
-(defun iuiw-erpg-entry-set-text (entry text)
-  "Make ENTRY show TEXT in place of its current swipe."
-  (let ((swipes (copy-sequence (plist-get entry :swipes))))
-    (aset swipes (plist-get entry :index) text)
-    (plist-put entry :swipes swipes)))
-
-(defun iuiw-erpg-entry-add-swipe (entry text)
-  "Add TEXT to ENTRY as a new swipe and show it."
-  (let ((swipes (vconcat (plist-get entry :swipes) (vector text))))
-    (plist-put (plist-put entry :swipes swipes) :index (1- (length swipes)))))
+  "The text ENTRY says."
+  (plist-get entry :text))
 
 (provide 'iuiw-erpg-store)
 ;;; iuiw-erpg-store.el ends here

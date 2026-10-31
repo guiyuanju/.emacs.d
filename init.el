@@ -1223,6 +1223,7 @@
 
 (use-package iuiw-erpg
   :ensure nil
+  :mode ("/campaigns/[^/]+/\\(?:story\\|branches/[^/]+\\)\\.md\\'" . iuiw-erpg-mode)
   :commands (iuiw-erpg-open iuiw-erpg-setup iuiw-erpg-sync iuiw-erpg-add-model
              iuiw-erpg-new-campaign iuiw-erpg-refresh-models))
 
