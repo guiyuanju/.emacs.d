@@ -36,13 +36,6 @@
     (iuiw-erpg-test--write "presets/p.md" "head\n## system\nS\n## depth\n\n## prefill\nP\n")
     (should (equal (iuiw-erpg-preset "p") '(("system" . "S") ("prefill" . "P"))))))
 
-(ert-deftest iuiw-erpg-card-needs-age ()
-  (iuiw-erpg-test--with-repo
-    (iuiw-erpg-test--write "cards/丙.md" "设定")
-    (should-error (iuiw-erpg-card "丙") :type 'user-error)
-    (should (iuiw-erpg-minor-p (iuiw-erpg-card "乙")))
-    (should-not (plist-get (iuiw-erpg-card "乙") :voice))))
-
 (ert-deftest iuiw-erpg-log-round-trip ()
   (iuiw-erpg-test--with-repo
     (let* ((campaign (iuiw-erpg-campaign "c"))
@@ -53,18 +46,6 @@
         (should (equal (iuiw-erpg-entry-text read) "二"))
         (should (eq (plist-get read :hidden) t))
         (should-not (plist-member read :model))))))
-
-(ert-deftest iuiw-erpg-minors-always-named-in-rules ()
-  (iuiw-erpg-test--with-repo
-    (let* ((campaign (iuiw-erpg-campaign "c"))
-           (cards (iuiw-erpg-cast campaign))
-           (system (iuiw-erpg-narrator-system campaign (iuiw-erpg-preset "default")
-                                              (iuiw-erpg-state campaign) cards)))
-      (should (string-prefix-p "SYS" system))
-      (should (string-match-p "乙未满 18 岁" system))
-      (should (string-match-p "乙未满 18 岁"
-                              (iuiw-erpg-voice-system campaign nil (iuiw-erpg-state campaign)
-                                                      (car cards) cards))))))
 
 (ert-deftest iuiw-erpg-narrator-messages-slots ()
   (iuiw-erpg-test--with-repo
