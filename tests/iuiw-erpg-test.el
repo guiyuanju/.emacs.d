@@ -190,6 +190,12 @@
               (should-not (buffer-modified-p))
               ;; 乙 voice: false，不单独问意图。
               (should (= (length calls) 2))
+              ;; 自己写了某个角色的意图，就不再替它生成。
+              (should-not (iuiw-erpg--voice-cards
+                           (list :campaign iuiw-erpg--campaign :cards (iuiw-erpg-cast iuiw-erpg--campaign)
+                                 :state '(:present ("甲"))
+                                 :entries (list (iuiw-erpg-entry "user" "我进门")
+                                                (iuiw-erpg-entry "voice" "行动：坐下" :name "甲")))))
               (should (string-match-p "甲：行动：起身" (car (last (nth 1 (car calls))))))
               (iuiw-erpg-regenerate)
               (should (equal (buffer-string) (concat turn "\n\n### 你\n\n")))

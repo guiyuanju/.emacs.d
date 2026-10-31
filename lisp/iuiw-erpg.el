@@ -273,12 +273,15 @@ every prompt."
   (when message (message "%s" message)))
 
 (defun iuiw-erpg--voice-cards (ctx)
-  "Cards of the characters in CTX who form an intent this turn."
+  "Cards of the characters in CTX who form an intent this turn.
+One whose intent the user already wrote this turn is left out."
   (let ((campaign (plist-get ctx :campaign))
-        (present (plist-get (plist-get ctx :state) :present)))
+        (present (plist-get (plist-get ctx :state) :present))
+        (given (mapcar #'car (iuiw-erpg--intents (plist-get ctx :entries)))))
     (seq-filter (lambda (c)
                   (and (plist-get c :voice)
                        (member (plist-get c :name) present)
+                       (not (member (plist-get c :name) given))
                        (member (plist-get c :name) (plist-get campaign :cast))
                        (not (equal (plist-get c :name) (plist-get campaign :player)))))
                 (plist-get ctx :cards))))
