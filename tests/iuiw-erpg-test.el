@@ -308,6 +308,7 @@
                               (iuiw-erpg-voice-message campaign nil state (list (iuiw-erpg-entry "user" "来了"))
                                                        (car cards))))
       ;; 【】里的动作只给叙事者，角色和记录员看不到。
+      (should (equal (iuiw-erpg--drop-asides "a[暗]b【暗】c[链接](u)d[") "abc[链接](u)d["))
       (let ((entries (list (iuiw-erpg-entry "user" "笑着点头【趁他不注意瞥她一眼】，说好")
                            (iuiw-erpg-entry "user" "【只是看】"))))
         (should (string-match-p "厉：笑着点头，说好\n\n厉：（没有旁人察觉得到的动作）"

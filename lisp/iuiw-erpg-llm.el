@@ -207,7 +207,7 @@ It leaves out what changes from turn to turn, so providers can cache it."
                (format "- 其他角色只知道%s叫「%s」；旁白里也这样称呼，除非剧情里身份已经揭开。\n" player alias))
              "- 最后一条消息开头的【当前状态】是此刻谁在场和已经成立的事，以它为准。\n"
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
-             (format "- %s的段落里【】中的是旁人察觉不到的动作或心思：照样写进正文，但其他角色不知道，也不会对它作出反应，除非你写出他们发现的过程。\n" player)
+             (format "- %s的段落里【】或 [] 中的是旁人察觉不到的动作或心思：照样写进正文，但其他角色不知道，也不会对它作出反应，除非你写出他们发现的过程。\n" player)
              "- 角色意图若用到了这个角色不可能知道的事，按他实际能察觉的来写。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
              "- 【暗中安排】只有你知道：借环境、意外、旁人、时机和手边的物件让它发生，让角色对处境作出反应；不要让角色凭空改主意，也不要让他们知道不该知道的事。\n"
@@ -334,12 +334,22 @@ extend; else with PREFILL the reply opens with the preset's prefill."
      (iuiw-erpg--prior-text campaign)
      (concat "# 你的角色\n" (iuiw-erpg--card-text card)))))
 
+(defun iuiw-erpg--drop-asides (text)
+  "TEXT without its 【】 and [] asides; a markdown link's [text](url) stays."
+  (let ((pos 0) (out ""))
+    (while (string-match "【[^】]*】\\|\\[[^]\n]*\\]" text pos)
+      (let ((link (and (string-prefix-p "[" (match-string 0 text))
+                       (eq (aref (concat text " ") (match-end 0)) ?\())))
+        (setq out (concat out (substring text pos (if link (match-end 0) (match-beginning 0))))
+              pos (match-end 0))))
+    (concat out (substring text pos))))
+
 (defun iuiw-erpg--perceived (entry)
-  "What others can perceive of ENTRY: the player's 【】 asides left out."
+  "What others can perceive of ENTRY: the player's 【】 and [] asides left out."
   (let ((text (iuiw-erpg-entry-text entry)))
     (if (not (equal (plist-get entry :role) "user"))
         text
-      (let ((seen (string-trim (replace-regexp-in-string "【[^】]*】" "" text))))
+      (let ((seen (string-trim (iuiw-erpg--drop-asides text))))
         (if (string-empty-p seen) "（没有旁人察觉得到的动作）" seen)))))
 
 (defun iuiw-erpg-voice-message (campaign preset state entries card)
