@@ -227,7 +227,8 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
 ;; player.  HTML comments in a section are never sent; three kinds mean
 ;; something: "意图 NAME" a character's intent, "记录" facts the recorder
 ;; noted, "在场：…" who is present, "叙事者：…" a note only the narrator
-;; is shown and "环境：…" a change everyone present can perceive.
+;; is shown, "主角意图：…" what the player wants the narrator to bring
+;; about for them and "环境：…" a change everyone present can perceive.
 
 (defconst iuiw-erpg-heading-regexp "^### +\\(.+?\\)[ \t]*$"
   "Matches the heading opening a section of a story.")
@@ -278,6 +279,8 @@ Its keys are :name, :age (a number), :voice, :model, :avatar and :body."
          (list :role "present" :text text))
         ((string-match "\\`叙事者[：:]" text)
          (list :role "note" :text (string-trim (substring text (match-end 0)))))
+        ((string-match "\\`主角意图[：:]" text)
+         (list :role "goal" :text (string-trim (substring text (match-end 0)))))
         ((string-match "\\`环境[：:]" text)
          (list :role "env" :text (string-trim (substring text (match-end 0)))))))
 
@@ -341,7 +344,7 @@ whole new list and \"在场：…\" for who is present."
           (when whole (setq facts (nreverse whole))))))
     (list :present present :body (plist-get state :body) :facts facts)))
 
-;; An entry is a plist: :role is "user", "director", "note", "env",
+;; An entry is a plist: :role is "user", "director", "note", "goal", "env",
 ;; "narrator", "voice", "record" or "present"; :text what it says; :name the heading or who intends.
 
 (defun iuiw-erpg-entry (role text &rest props)

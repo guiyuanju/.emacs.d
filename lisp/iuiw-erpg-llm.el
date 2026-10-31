@@ -210,6 +210,8 @@ It leaves out what changes from turn to turn, so providers can cache it."
              (format "- %s的段落里【】或 [] 中的是旁人察觉不到的动作或心思：照样写进正文，但其他角色不知道，也不会对它作出反应，除非你写出他们发现的过程。\n" player)
              "- 角色意图若用到了这个角色不可能知道的事，按他实际能察觉的来写。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
+             (format "- 最后一条消息里有【主角意图】时，这一段可以替%s说话、行动和想事情，朝这个意图推进，写得像%s会做的；其他角色借环境、意外、旁人和时机去影响，让他们自己作出反应，不要凭空改主意。意图达成，或者到了要%s自己拿主意的关口，就停下。\n"
+                     player player player)
              "- 【暗中安排】只有你知道：借环境、意外、旁人、时机和手边的物件让它发生，让角色对处境作出反应；不要让角色凭空改主意，也不要让他们知道不该知道的事。\n"
              "- 【环境】是此刻发生、在场的人都能察觉的变化，写进正文；角色意图已经是对它的反应。\n"
              "- 角色意图是他们想做的事，做不做得成、结果如何，由处境和安排决定。\n"
@@ -234,13 +236,13 @@ It leaves out what changes from turn to turn, so providers can cache it."
 Director's notes, notes for the narrator and changes around the
 characters count until the narrator next speaks."
   (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role)
-                                                     '("user" "director" "note" "env" "narrator"))
+                                                     '("user" "director" "note" "goal" "env" "narrator"))
                                              (not (string-empty-p (iuiw-erpg-entry-text e)))))
                             entries))
          (last-narrator (cl-position "narrator" shown
                                      :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)))
     (cl-loop for e in shown for i from 0
-             unless (and (member (plist-get e :role) '("director" "note" "env"))
+             unless (and (member (plist-get e :role) '("director" "note" "goal" "env"))
                          last-narrator (< i last-narrator))
              collect e)))
 
@@ -251,6 +253,7 @@ characters count until the narrator next speaks."
       ("narrator" (cons 'assistant text))
       ("director" (cons 'user (concat "【导演指令】" text)))
       ("note" (cons 'user (concat "【暗中安排】" text)))
+      ("goal" (cons 'user (concat "【主角意图】" text)))
       ("env" (cons 'user (concat "【环境】" text)))
       (_ (cons 'user text)))))
 
@@ -354,7 +357,7 @@ extend; else with PREFILL the reply opens with the preset's prefill."
 
 (defun iuiw-erpg-voice-message (campaign preset state entries card)
   "The one message asking CARD for its intent, from STATE and the story in ENTRIES."
-  (let* ((story (last (seq-remove (lambda (e) (equal (plist-get e :role) "note"))
+  (let* ((story (last (seq-remove (lambda (e) (member (plist-get e :role) '("note" "goal")))
                                   (iuiw-erpg--story entries))
                       iuiw-erpg-voice-history))
          (player (iuiw-erpg-player-alias campaign))
