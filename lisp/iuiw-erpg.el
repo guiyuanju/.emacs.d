@@ -227,17 +227,18 @@ Returns a marker where its text goes."
            (plist-get ctx :campaign) (plist-get ctx :state)
            (iuiw-erpg--story (seq-subseq entries (1+ (iuiw-erpg--recorded entries)) (1+ last)))))))
 
-(defun iuiw-erpg--record (ctx)
-  "Have the recorder note facts from replies the user has moved on from.
-Its notes go in a 记录 comment after the last of them.  It runs beside the
-turn; facts land a turn late, while the story they come from is still in
-every prompt."
+(defun iuiw-erpg--record (ctx done)
+  "Have the recorder note facts from replies moved on from, then call DONE.
+Its notes go in a 记录 comment after the last of them, so who is present
+and what holds is up to date before anyone else is asked."
   (let* ((entries (plist-get ctx :entries))
          (last (iuiw-erpg--unrecorded entries))
          (campaign (plist-get ctx :campaign))
          (state (plist-get ctx :state))
          (buffer (current-buffer)))
-    (when last
+    (if (not last)
+        (funcall done)
+      (message "The recorder is noting what happened")
       (let ((at (copy-marker (plist-get (nth last entries) :end))))
         (iuiw-erpg-request-chain
          (iuiw-erpg--recorder-aliases)
@@ -252,8 +253,24 @@ every prompt."
                    (t
                     (with-current-buffer buffer
                       (let ((changes (cdr (iuiw-erpg-apply-record campaign state record))))
-                        (iuiw-erpg--comment-at at (string-join (cons "记录" changes) "\n"))
-                        (unless iuiw-erpg--busy (iuiw-erpg--save)))))))))))))
+                        (iuiw-erpg--comment-at at (string-join (cons "记录" changes) "\n"))))))
+             (when (buffer-live-p buffer)
+               (with-current-buffer buffer (funcall done))))))))))
+
+(defun iuiw-erpg--then (buffer fn)
+  "A callback running FN in BUFFER while its turn runs.
+An error in FN ends the turn."
+  (lambda ()
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (when iuiw-erpg--busy
+          (condition-case err
+              (funcall fn)
+            (error (iuiw-erpg--finish (error-message-string err)))))))))
+
+(defun iuiw-erpg--solo-p (campaign)
+  "Non-nil when the narrator alone plays every character in CAMPAIGN."
+  (equal (plist-get campaign :mode) "solo"))
 
 (defun iuiw-erpg--context ()
   "The campaign reread from disk with its preset, story, state and cards."
@@ -279,12 +296,14 @@ every prompt."
 
 (defun iuiw-erpg--voice-cards (ctx)
   "Cards of the characters in CTX who form an intent this turn.
-One whose intent the user already wrote this turn is left out."
+One whose intent the user already wrote this turn is left out; in a solo
+campaign no one forms one."
   (let ((campaign (plist-get ctx :campaign))
         (present (plist-get (plist-get ctx :state) :present))
         (given (mapcar #'car (iuiw-erpg--intents (plist-get ctx :entries)))))
     (seq-filter (lambda (c)
-                  (and (plist-get c :voice)
+                  (and (not (iuiw-erpg--solo-p campaign))
+                       (plist-get c :voice)
                        (member (plist-get c :name) present)
                        (not (member (plist-get c :name) given))
                        (member (plist-get c :name) (plist-get campaign :cast))
@@ -343,7 +362,8 @@ section, or `continue' to extend it."
                    (or (iuiw-erpg--last-narrator entries) (user-error "No reply yet"))))
          (entry (and target (nth target entries)))
          (before (if target (seq-take entries (if (eq mode 'continue) (1+ target) target)) entries))
-         (intents (unless (eq mode 'continue) (iuiw-erpg--intents before)))
+         (intents (unless (or (eq mode 'continue) (iuiw-erpg--solo-p campaign))
+                    (iuiw-erpg--intents before)))
          (prefill (alist-get "prefill" preset nil nil #'equal))
          (messages (lambda (alias)
                      (iuiw-erpg-narrator-messages campaign preset (plist-get ctx :state) before intents
@@ -443,13 +463,15 @@ Write what you do in the section under your name at the end, or under a
                               (or (not (re-search-forward iuiw-erpg-heading-regexp nil t))
                                   (eobp))))
     (iuiw-erpg--drop-empty-tail)
-    (let ((ctx (iuiw-erpg--context))
-          (buffer (current-buffer)))
+    (let ((buffer (current-buffer)))
       (iuiw-erpg--save)
-      (iuiw-erpg--record ctx)
-      (iuiw-erpg--voices ctx (lambda ()
-                               (with-current-buffer buffer
-                                 (iuiw-erpg--narrate ctx 'new)))))))
+      (iuiw-erpg--record
+       (iuiw-erpg--context)
+       (iuiw-erpg--then
+        buffer (lambda ()
+                 (let ((ctx (iuiw-erpg--context)))
+                   (iuiw-erpg--voices ctx (iuiw-erpg--then
+                                           buffer (lambda () (iuiw-erpg--narrate ctx 'new)))))))))))
 
 (defun iuiw-erpg-regenerate ()
   "Rewrite the narrator's last section; undo brings the old one back."
@@ -690,6 +712,7 @@ the last one when nil.  Returns how many characters are sent."
               "narrator:          # 模型别名，逗号分隔即 fallback 顺序；空则用 combo 的\n"
               "voice:             # 生成角色意图用的模型；空则用 combo 的\n"
               "recorder:          # 记下剧情事实的模型；空则用 combo 的\n"
+              "mode:              # solo：叙事者一人演所有角色；空：在场角色先各自出意图\n"
               "intensity:         # 尺度，自由描述\n"
               "length: 200-400\n"
               "depth: 4\n"

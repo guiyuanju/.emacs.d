@@ -227,6 +227,11 @@
               (should (string-prefix-p (concat turn "\n\n<!-- 记录\n在场：甲\n+ 你进了门\n-->\n\n### 你\n\n我坐下\n\n")
                                        (buffer-string)))
               (should (equal (iuiw-erpg--state) '(:present ("甲") :body "" :facts ("你进了门"))))
+              ;; 记录员先跑完，角色意图拿到的是更新后的状态。
+              (let ((order (mapcar (lambda (c) (if (string-match-p "记录员" (car c)) 'record 'other))
+                                   (reverse calls))))
+                (should (equal (seq-drop order 3) '(record other other))))
+              (should (string-match-p "你进了门" (car (nth 1 (nth 1 calls)))))
               (should (equal (iuiw-erpg-story-read (iuiw-erpg-story-file iuiw-erpg--campaign))
                              (iuiw-erpg-story-entries)))
               ;; 删掉剧情，记下的事实一起没了。
@@ -236,6 +241,24 @@
               (should (equal (iuiw-erpg--state) '(:present ("甲" "乙") :body "" :facts nil))))
           (set-buffer-modified-p nil)
           (kill-buffer))))))
+(ert-deftest iuiw-erpg-solo-asks-no-intents ()
+  (iuiw-erpg-test--with-repo
+    (iuiw-erpg-test--write "campaigns/c/campaign.md"
+                           "---\ntitle: T\ncast: 甲, 乙\nnarrator: a, b\nmode: solo\n---\n世界")
+    (let (calls)
+      (iuiw-erpg-test--with-models
+        (iuiw-erpg-open "c")
+        (unwind-protect
+            (progn
+              (goto-char (point-max))
+              (insert "我进门\n\n<!-- 意图 甲\n行动：旧的\n-->")
+              (iuiw-erpg-send)
+              (should (= (length calls) 1))
+              (should-not (string-match-p "角色意图】" (car (last (nth 1 (car calls))))))
+              (should (string-suffix-p "### 旁白\n\n门开了\n\n### 你\n\n" (buffer-string))))
+          (set-buffer-modified-p nil)
+          (kill-buffer))))))
+
 (ert-deftest iuiw-erpg-branch-copies-the-story-so-far ()
   (iuiw-erpg-test--with-repo
     (let (calls)
