@@ -318,9 +318,9 @@ Intents go in 意图 comments at the end of the story."
                              (funcall done)))))))))))
 
 (defun iuiw-erpg--intents (entries)
-  "Intents formed since the last user or director section in ENTRIES.
+  "Intents formed since the last section in ENTRIES.
 They are returned as ((NAME . TEXT) ...)."
-  (let ((since (or (cl-position-if (lambda (e) (member (plist-get e :role) '("user" "director")))
+  (let ((since (or (cl-position-if (lambda (e) (member (plist-get e :role) '("user" "director" "narrator")))
                                    entries :from-end t)
                    -1)))
     (cl-loop for e in (nthcdr (1+ since) entries)
