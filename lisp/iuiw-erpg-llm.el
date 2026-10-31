@@ -208,6 +208,9 @@ It leaves out what changes from turn to turn, so providers can cache it."
              "- 最后一条消息开头的【当前状态】是此刻谁在场和已经成立的事，以它为准。\n"
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
+             "- 【暗中安排】只有你知道：借环境、意外、旁人、时机和手边的物件让它发生，让角色对处境作出反应；不要让角色凭空改主意，也不要让他们知道不该知道的事。\n"
+             "- 【环境】是此刻发生、在场的人都能察觉的变化，写进正文；角色意图已经是对它的反应。\n"
+             "- 角色意图是他们想做的事，做不做得成、结果如何，由处境和安排决定。\n"
              (format "- 用中文写，每次 %s 字；写到下限再停，篇幅用在细节上，不要靠推进更多剧情凑字数。\n"
                      (or (plist-get campaign :length) "200-400"))
              (when-let* ((intensity (plist-get campaign :intensity)))
@@ -226,15 +229,16 @@ It leaves out what changes from turn to turn, so providers can cache it."
 
 (defun iuiw-erpg--story (entries)
   "ENTRIES that belong in the story: written by the user or the narrator.
-A director's note, and a note for the narrator only, counts until the
-narrator next speaks."
-  (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role) '("user" "director" "note" "narrator"))
+Director's notes, notes for the narrator and changes around the
+characters count until the narrator next speaks."
+  (let* ((shown (seq-filter (lambda (e) (and (member (plist-get e :role)
+                                                     '("user" "director" "note" "env" "narrator"))
                                              (not (string-empty-p (iuiw-erpg-entry-text e)))))
                             entries))
          (last-narrator (cl-position "narrator" shown
                                      :key (lambda (e) (plist-get e :role)) :test #'equal :from-end t)))
     (cl-loop for e in shown for i from 0
-             unless (and (member (plist-get e :role) '("director" "note"))
+             unless (and (member (plist-get e :role) '("director" "note" "env"))
                          last-narrator (< i last-narrator))
              collect e)))
 
@@ -243,7 +247,9 @@ narrator next speaks."
   (let ((text (iuiw-erpg-entry-text entry)))
     (pcase (plist-get entry :role)
       ("narrator" (cons 'assistant text))
-      ((or "director" "note") (cons 'user (concat "【导演指令】" text)))
+      ("director" (cons 'user (concat "【导演指令】" text)))
+      ("note" (cons 'user (concat "【暗中安排】" text)))
+      ("env" (cons 'user (concat "【环境】" text)))
       (_ (cons 'user text)))))
 
 (defun iuiw-erpg--alternate (messages)
@@ -318,6 +324,7 @@ extend; else with PREFILL the reply opens with the preset's prefill."
              "- 只输出三行：「行动：」「台词：」「心思：」，每行不超过 60 字；没有就写「无」。\n"
              (format "- %s只知道自己亲眼所见、亲耳所闻和下面卡片里的事。\n" name)
              (format "- 照%s的性格和欲望行事，可以拒绝、隐瞒、主动或算计，不必迎合任何人。\n" name)
+             "- 剧情里的「环境」是你此刻察觉到的变化，要对它作出反应。\n"
              (iuiw-erpg--age-rules cards))
      (concat "# 战役设定\n" (plist-get campaign :body))
      (iuiw-erpg--prior-text campaign)
@@ -334,6 +341,7 @@ extend; else with PREFILL the reply opens with the preset's prefill."
                                   (pcase (plist-get e :role)
                                     ("narrator" "旁白")
                                     ("director" "导演")
+                                    ("env" "环境")
                                     (_ player))
                                   (iuiw-erpg-entry-text e)))
                         story)))

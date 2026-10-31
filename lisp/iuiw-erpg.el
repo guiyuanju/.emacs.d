@@ -38,7 +38,8 @@
   "C-c C-b" '("从这段分支" . iuiw-erpg-branch)
   "C-c C-o" '("切换分支" . iuiw-erpg-switch-branch)
   "C-c C-d" '("导演段" . iuiw-erpg-director)
-  "C-c C-n" '("只给叙事者" . iuiw-erpg-narrator-note)
+  "C-c C-n" '("暗中安排（只给叙事者）" . iuiw-erpg-narrator-note)
+  "C-c C-e" '("环境变化" . iuiw-erpg-environment)
   "C-c C-v" '("在场角色" . iuiw-erpg-present)
   "C-c C-t" '("state.md" . iuiw-erpg-edit-state)
   "C-c C-m" '("换叙事模型" . iuiw-erpg-narrators)
@@ -55,7 +56,7 @@
         (concat " 生成中…  " (funcall key "C-c C-k") " 停止")
       (concat " " (funcall key "C-c C-c") " 发送  " (funcall key "C-c C-r") " 重写  "
               (funcall key "C-c C-g") " 续写  " (funcall key "C-c C-d") " 导演  "
-              (funcall key "C-c C-n") " 只给叙事者  " (funcall key "C-c C-b") " 分支  "
+              (funcall key "C-c C-n") " 暗中安排  " (funcall key "C-c C-e") " 环境  " (funcall key "C-c C-b") " 分支  "
               (funcall key "C-c C-v") " 在场  " (funcall key "C-c C-p") " 预览  "
               (funcall key "C-c") " 更多"))))
 
@@ -490,9 +491,16 @@ It takes the place of an empty section left for the player."
   (goto-char (point-max)))
 
 (defun iuiw-erpg-narrator-note (text)
-  "Tell the narrator TEXT for its next section, keeping it from the characters."
-  (interactive (list (read-string "只给叙事者: ")) iuiw-erpg-mode)
+  "Have the narrator bring TEXT about next, keeping it from the characters.
+The narrator works it through circumstances, not through their minds."
+  (interactive (list (read-string "暗中安排（只给叙事者）: ")) iuiw-erpg-mode)
   (iuiw-erpg--comment-at (point-max) (concat "叙事者：" text))
+  (iuiw-erpg--save))
+
+(defun iuiw-erpg-environment (text)
+  "Make TEXT happen around the characters now: they react to it this turn."
+  (interactive (list (read-string "环境变化: ")) iuiw-erpg-mode)
+  (iuiw-erpg--comment-at (point-max) (concat "环境：" text))
   (iuiw-erpg--save))
 
 (defun iuiw-erpg-present (names)

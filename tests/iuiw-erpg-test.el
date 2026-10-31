@@ -98,15 +98,17 @@
 (ert-deftest iuiw-erpg-note-goes-only-to-the-narrator ()
   (iuiw-erpg-test--with-repo
     (with-temp-buffer
-      (insert "### 旁白\n\n开场\n\n### 你\n\n我进门\n\n<!-- 叙事者：她其实认得你 -->\n")
+      (insert "### 旁白\n\n开场\n\n### 你\n\n我进门\n\n<!-- 环境：起雾了 -->\n<!-- 叙事者：她其实认得你 -->\n")
       (let* ((campaign (iuiw-erpg-campaign "c"))
              (entries (iuiw-erpg-story-entries))
              (state '(:present nil :body "" :facts nil)))
         (should (equal (car (last entries)) '(:role "note" :text "她其实认得你")))
-        (should (string-match-p "我进门\n\n【导演指令】她其实认得你"
+        (should (string-match-p "我进门\n\n【环境】起雾了\n\n【暗中安排】她其实认得你"
                                 (car (last (iuiw-erpg-narrator-messages campaign nil state entries nil)))))
-        (should-not (string-match-p "认得你" (iuiw-erpg-voice-message campaign nil state entries
-                                                                       (iuiw-erpg-card "甲"))))
+        ;; 环境角色也察觉得到，暗中安排只有叙事者知道。
+        (let ((voice (iuiw-erpg-voice-message campaign nil state entries (iuiw-erpg-card "甲"))))
+          (should (string-match-p "环境：起雾了" voice))
+          (should-not (string-match-p "认得你" voice)))
         ;; 叙事者写过下一段就失效。
         (should-not (string-match-p "认得你"
                                     (string-join (iuiw-erpg-narrator-messages
