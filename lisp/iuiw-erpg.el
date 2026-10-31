@@ -298,9 +298,9 @@ Intents go in 意图 comments at the end of the story."
         (let ((name (plist-get card :name)))
           (iuiw-erpg-request-chain
            (iuiw-erpg--voice-aliases card)
-           (iuiw-erpg-voice-system campaign (plist-get ctx :preset) (plist-get ctx :state)
-                                   card (plist-get ctx :cards))
-           (list (iuiw-erpg-voice-message campaign (plist-get ctx :preset) (plist-get ctx :entries) card))
+           (iuiw-erpg-voice-system campaign (plist-get ctx :preset) card (plist-get ctx :cards))
+           (list (iuiw-erpg-voice-message campaign (plist-get ctx :preset) (plist-get ctx :state)
+                                          (plist-get ctx :entries) card))
            :buffer buffer
            :on-fail (lambda (alias text error)
                       (when (buffer-live-p buffer)
@@ -338,7 +338,8 @@ section, or `continue' to extend it."
          (intents (unless (eq mode 'continue) (iuiw-erpg--intents before)))
          (prefill (alist-get "prefill" preset nil nil #'equal))
          (messages (lambda (alias)
-                     (iuiw-erpg-narrator-messages campaign preset before intents (eq mode 'continue)
+                     (iuiw-erpg-narrator-messages campaign preset (plist-get ctx :state) before intents
+                                                  (eq mode 'continue)
                                                   (and (plist-get (iuiw-erpg-model alias) :prefill) prefill))))
          (buffer (current-buffer))
          (heading (and (eq mode 'new) (copy-marker (point-max))))
@@ -358,7 +359,7 @@ section, or `continue' to extend it."
           end (copy-marker start t))
     (iuiw-erpg-request-chain
      (iuiw-erpg--narrator-aliases)
-     (iuiw-erpg-narrator-system campaign preset (plist-get ctx :state) (plist-get ctx :cards))
+     (iuiw-erpg-narrator-system campaign preset (plist-get ctx :cards))
      messages
      :buffer buffer
      :on-start (lambda (alias)
@@ -541,11 +542,15 @@ No aliases restore the campaign's."
                            (complete-with-action action branches string pred)))
                        nil t))))
 
-(defun iuiw-erpg--preview-part (title aliases system messages)
+(defun iuiw-erpg--preview-part (title aliases system messages &optional moving)
   "Insert what model ALIASES are sent as TITLE: SYSTEM, then MESSAGES.
-Returns how many characters that is."
-  (let ((size (+ (length system) (apply #'+ (mapcar #'length messages)))))
-    (insert (propertize (format "━━━━ %s  %s  约 %d 字 ━━━━" title (string-join aliases " → ") size)
+MOVING is the index of the first message that changes from turn to turn,
+the last one when nil.  Returns how many characters are sent."
+  (let* ((size (+ (length system) (apply #'+ (mapcar #'length messages))))
+         (stable (+ (length system)
+                    (apply #'+ (mapcar #'length (seq-take messages (or moving (1- (length messages)))))))))
+    (insert (propertize (format "━━━━ %s  %s  约 %d 字，开头 %d 字每轮不变、可缓存 ━━━━"
+                                title (string-join aliases " → ") size stable)
                         'face 'bold)
             "\n\n" (propertize "[system]" 'face 'font-lock-keyword-face) "\n" system "\n")
     (cl-loop for m in messages for i from 0
@@ -566,7 +571,7 @@ Returns how many characters that is."
          (narrators (iuiw-erpg--narrator-aliases))
          (prefill (alist-get "prefill" preset nil nil #'equal))
          (narrator (iuiw-erpg-narrator-messages
-                    campaign preset entries
+                    campaign preset state entries
                     (mapcar (lambda (c) (cons (plist-get c :name) "（这一轮生成的意图）")) cards)
                     nil (and (plist-get (iuiw-erpg-model (car narrators)) :prefill) prefill)))
          (last (iuiw-erpg--unrecorded entries))
@@ -577,12 +582,14 @@ Returns how many characters that is."
         (dolist (c cards)
           (cl-incf total (iuiw-erpg--preview-part
                           (concat (plist-get c :name) "的意图") (iuiw-erpg--voice-aliases c)
-                          (iuiw-erpg-voice-system campaign preset state c (plist-get ctx :cards))
-                          (list (iuiw-erpg-voice-message campaign preset entries c)))))
+                          (iuiw-erpg-voice-system campaign preset c (plist-get ctx :cards))
+                          (list (iuiw-erpg-voice-message campaign preset state entries c)))))
         (cl-incf total (iuiw-erpg--preview-part
                         "叙事者" narrators
-                        (iuiw-erpg-narrator-system campaign preset state (plist-get ctx :cards))
-                        narrator))
+                        (iuiw-erpg-narrator-system campaign preset (plist-get ctx :cards))
+                        narrator
+                        (when-let* ((depth (alist-get "depth" preset nil nil #'equal)))
+                          (cl-position-if (lambda (m) (string-search depth m)) narrator))))
         (when last
           (cl-incf total (iuiw-erpg--preview-part "记录员" (iuiw-erpg--recorder-aliases)
                                                   (iuiw-erpg-recorder-system preset)

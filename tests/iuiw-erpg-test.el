@@ -67,12 +67,15 @@
                           (iuiw-erpg-entry "narrator" "n2")
                           (iuiw-erpg-entry "user" "u2")
                           (iuiw-erpg-entry "voice" "VOICE" :name "甲")))
-           (messages (iuiw-erpg-narrator-messages campaign preset entries '(("甲" . "想走")) nil "PRE")))
+           (state '(:present ("甲") :body "" :facts ("事")))
+           (messages (iuiw-erpg-narrator-messages campaign preset state entries '(("甲" . "想走")) nil "PRE")))
       ;; 开场前补一条用户消息；意图和已经过去的导演指令都不发。
       (should (equal (car messages) "（开始）"))
       (should (equal (nth 1 messages) "开场"))
       (should-not (cl-some (lambda (m) (string-match-p "旧指令\\|VOICE" m)) messages))
-      (should (string-match-p "\\`u2\n\n【角色意图】\n甲：想走\n\nPOST\\'" (nth 4 messages)))
+      ;; 每轮变的东西都在最后一条用户消息里。
+      (should (string-match-p "\\`【当前状态】\n在场：甲\n已经发生、仍然成立的事：\n- 事\n\nu2\n\n【角色意图】\n甲：想走\n\nPOST\\'"
+                              (nth 4 messages)))
       ;; depth 2：落在倒数第 2 条之前最近的用户消息上。
       (should (string-match-p "u1\n\nDEPTH" (nth 2 messages)))
       (should (equal (car (last messages)) "PRE"))
@@ -82,10 +85,24 @@
   (iuiw-erpg-test--with-repo
     (let* ((campaign (iuiw-erpg-campaign "c"))
            (entries (list (iuiw-erpg-entry "user" "u") (iuiw-erpg-entry "narrator" "n")))
-           (messages (iuiw-erpg-narrator-messages campaign nil entries nil t "PRE")))
-      (should (equal messages '("u" "n")))
-      (should-error (iuiw-erpg-narrator-messages campaign nil (list (car entries)) nil t)
-                    :type 'user-error))))
+           (state '(:present nil :body "" :facts nil))
+           (messages (iuiw-erpg-narrator-messages campaign nil state entries nil t "PRE")))
+      (should (equal messages '("【当前状态】\n在场：\n\nu" "n")))
+      (should-error (iuiw-erpg-narrator-messages campaign nil state (list (car entries)) nil t)
+                    :type 'user-error)
+      ;; 没有新输入时，意图跟着补上的「（继续）」，不挂在上一段旁白之前。
+      (let ((messages (iuiw-erpg-narrator-messages campaign nil state entries '(("甲" . "想走")))))
+        (should (equal (car messages) "u"))
+        (should (equal (car (last messages)) "【当前状态】\n在场：\n\n（继续）\n\n【角色意图】\n甲：想走"))))))
+
+(ert-deftest iuiw-erpg-trim-keeps-the-start-for-caching ()
+  (let ((iuiw-erpg-history-step 2)
+        (messages (mapcar (lambda (i) (cons 'user (make-string 10 (+ ?a i)))) (number-sequence 0 6))))
+    (should (equal (iuiw-erpg--trim messages 100) messages))
+    ;; 超出时按步长成段地丢，开头在几轮里保持不变。
+    (should (equal (iuiw-erpg--trim messages 50) (nthcdr 2 messages)))
+    (should (equal (iuiw-erpg--trim (butlast messages) 50) (nthcdr 2 (butlast messages))))
+    (should (equal (iuiw-erpg--trim messages 5) (last messages)))))
 
 (ert-deftest iuiw-erpg-model-provider-overrides-default ()
   (let (params)
@@ -256,11 +273,11 @@
            (state (iuiw-erpg-state campaign))
            (cards (iuiw-erpg-cast campaign)))
       (should (equal (plist-get campaign :body) "世界"))
-      (should (string-match-p "厉就是韩立" (iuiw-erpg-narrator-system campaign nil state cards)))
+      (should (string-match-p "厉就是韩立" (iuiw-erpg-narrator-system campaign nil cards)))
       (should-not (string-match-p "厉就是韩立"
-                                  (iuiw-erpg-voice-system campaign nil state (car cards) cards)))
+                                  (iuiw-erpg-voice-system campaign nil (car cards) cards)))
       (should (string-match-p "厉：来了"
-                              (iuiw-erpg-voice-message campaign nil (list (iuiw-erpg-entry "user" "来了"))
+                              (iuiw-erpg-voice-message campaign nil state (list (iuiw-erpg-entry "user" "来了"))
                                                        (car cards)))))))
 
 (ert-deftest iuiw-erpg-campaign-card-and-prior ()
@@ -275,8 +292,7 @@
       (should (equal (plist-get card :age) 37))
       (should (equal (plist-get (iuiw-erpg-card "甲") :age) 30))
       (should (string-match-p "甲救了你\n- 你欠甲一命"
-                              (iuiw-erpg-voice-system campaign nil (iuiw-erpg-state campaign)
-                                                      card (list card)))))))
+                              (iuiw-erpg-voice-system campaign nil card (list card)))))))
 
 (ert-deftest iuiw-erpg-preview-shows-every-request ()
   (iuiw-erpg-test--with-repo

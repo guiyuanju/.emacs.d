@@ -17,6 +17,13 @@
   :type 'plist
   :group 'iuiw-erpg)
 
+(defcustom iuiw-erpg-history-step 20
+  "Story is dropped from the front this many messages at a time.
+The history's start then stays put for many turns, so providers can
+cache it."
+  :type 'natnum
+  :group 'iuiw-erpg)
+
 (defcustom iuiw-erpg-history-chars 30000
   "Most characters of past story sent to the narrator."
   :type 'natnum
@@ -167,8 +174,8 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
   (format "## %s（%d 岁）\n%s" (plist-get card :name) (plist-get card :age) (plist-get card :body)))
 
 (defun iuiw-erpg--state-text (state)
-  "STATE as a prompt section."
-  (concat "# 当前状态\n在场：" (string-join (plist-get state :present) "、")
+  "STATE as a block to open the latest message with."
+  (concat "【当前状态】\n在场：" (string-join (plist-get state :present) "、")
           (unless (string-empty-p (plist-get state :body))
             (concat "\n" (plist-get state :body)))
           (when (plist-get state :facts)
@@ -185,8 +192,9 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
   "PARTS that are non-empty, separated by blank lines."
   (string-join (seq-remove (lambda (p) (or (null p) (string-empty-p p))) parts) "\n\n"))
 
-(defun iuiw-erpg-narrator-system (campaign preset state cards)
-  "The narrator's system prompt for CAMPAIGN with PRESET, STATE and CARDS."
+(defun iuiw-erpg-narrator-system (campaign preset cards)
+  "The narrator's system prompt for CAMPAIGN with PRESET and CARDS.
+It leaves out what changes from turn to turn, so providers can cache it."
   (let ((player (iuiw-erpg-player campaign))
         (player-card (seq-find (lambda (c) (equal (plist-get c :name) (plist-get campaign :player)))
                                cards)))
@@ -197,6 +205,7 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
              (format "- 不替%s说话、行动或做决定，写到需要%s回应时停下。\n" player player)
              (when-let* ((alias (plist-get campaign :alias)))
                (format "- 其他角色只知道%s叫「%s」；旁白里也这样称呼，除非剧情里身份已经揭开。\n" player alias))
+             "- 最后一条消息开头的【当前状态】是此刻谁在场和已经成立的事，以它为准。\n"
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
              (format "- 用中文写，每次 %s 字；写到下限再停，篇幅用在细节上，不要靠推进更多剧情凑字数。\n"
@@ -204,7 +213,7 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
              (when-let* ((intensity (plist-get campaign :intensity)))
                (format "- 尺度：%s\n" intensity))
              (iuiw-erpg--age-rules cards))
-     (concat "# 世界与开场\n" (plist-get campaign :body))
+     (concat "# 战役设定\n" (plist-get campaign :body))
      (when-let* ((secret (plist-get campaign :secret)))
        (concat "# 只有你知道\n角色们不知道下面的事，除非剧情里让他们知道了。\n" secret))
      (iuiw-erpg--prior-text campaign)
@@ -213,8 +222,7 @@ model failed or the request was aborted.  BUFFER and ON-CHUNK are as in
        "# 玩家角色\n玩家就是「你」，用第二人称写。")
      (concat "# 角色\n"
              (mapconcat #'iuiw-erpg--card-text
-                        (seq-remove (lambda (c) (eq c player-card)) cards) "\n\n"))
-     (iuiw-erpg--state-text state))))
+                        (seq-remove (lambda (c) (eq c player-card)) cards) "\n\n")))))
 
 (defun iuiw-erpg--story (entries)
   "ENTRIES that belong in the story: written by the user or the narrator.
@@ -250,27 +258,32 @@ A director's note only counts until the narrator next speaks."
     out))
 
 (defun iuiw-erpg--trim (messages limit)
-  "The latest MESSAGES whose texts add up to at most LIMIT characters.
-The last message is always kept."
-  (let ((total 0) kept)
-    (cl-loop for m in (reverse messages)
-             do (cl-incf total (length (cdr m)))
-             while (or (null kept) (<= total limit))
-             do (push m kept))
-    kept))
+  "MESSAGES from the first multiple of `iuiw-erpg-history-step' after which
+their texts add up to at most LIMIT characters.  The last message is
+always kept."
+  (let* ((sizes (mapcar (lambda (m) (length (cdr m))) messages))
+         (total (apply #'+ sizes))
+         (start 0))
+    (while (and (> total limit) (< (+ start iuiw-erpg-history-step) (length messages)))
+      (cl-decf total (apply #'+ (seq-subseq sizes start (+ start iuiw-erpg-history-step))))
+      (cl-incf start iuiw-erpg-history-step))
+    (if (> total limit) (last messages) (nthcdr start messages))))
 
 (defun iuiw-erpg--append (message text)
   "MESSAGE with TEXT added after a blank line."
   (cons (car message) (concat (cdr message) "\n\n" text)))
 
-(defun iuiw-erpg-narrator-messages (campaign preset entries intents &optional continue prefill)
+(defun iuiw-erpg-narrator-messages (campaign preset state entries intents &optional continue prefill)
   "Texts for the narrator from the story in ENTRIES, CAMPAIGN and PRESET.
-INTENTS, ((NAME . TEXT) ...), go with the last user message.  With
-CONTINUE the story ends with the narrator's reply to extend; else with
-PREFILL the reply opens with the preset's prefill."
+STATE opens the last user message and INTENTS, ((NAME . TEXT) ...), go
+with it.  With CONTINUE the story ends with the narrator's reply to
+extend; else with PREFILL the reply opens with the preset's prefill."
   (let* ((messages (iuiw-erpg--trim (mapcar #'iuiw-erpg--entry-message (iuiw-erpg--story entries))
                                     iuiw-erpg-history-chars))
          (messages (iuiw-erpg--alternate messages))
+         (messages (if (and (not continue) (eq (car (car (last messages))) 'assistant))
+                       (append messages (list (cons 'user "（继续）")))
+                     messages))
          (last-user (cl-position 'user messages :key #'car :from-end t))
          (depth-note (alist-get "depth" preset nil nil #'equal))
          (post (alist-get "post-history" preset nil nil #'equal)))
@@ -286,16 +299,16 @@ PREFILL the reply opens with the preset's prefill."
                                                   intents "\n")))))
     (when post
       (setf (nth last-user messages) (iuiw-erpg--append (nth last-user messages) post)))
+    (setf (nth last-user messages)
+          (cons 'user (concat (iuiw-erpg--state-text state) "\n\n" (cdr (nth last-user messages)))))
     (when (and continue (not (eq (car (car (last messages))) 'assistant)))
       (user-error "Nothing to continue"))
-    (when (and (not continue) (eq (car (car (last messages))) 'assistant))
-      (setq messages (append messages (list (cons 'user "（继续）")))))
     (when (and prefill (not continue))
       (setq messages (append messages (list (cons 'assistant prefill)))))
     (mapcar #'cdr messages)))
 
-(defun iuiw-erpg-voice-system (campaign preset state card cards)
-  "System prompt for CARD forming its intent in CAMPAIGN."
+(defun iuiw-erpg-voice-system (campaign preset card cards)
+  "System prompt for CARD forming its intent in CAMPAIGN, the same every turn."
   (let ((name (plist-get card :name)))
     (iuiw-erpg--join
      (alist-get "system" preset nil nil #'equal)
@@ -305,13 +318,12 @@ PREFILL the reply opens with the preset's prefill."
              (format "- %s只知道自己亲眼所见、亲耳所闻和下面卡片里的事。\n" name)
              (format "- 照%s的性格和欲望行事，可以拒绝、隐瞒、主动或算计，不必迎合任何人。\n" name)
              (iuiw-erpg--age-rules cards))
-     (concat "# 世界\n" (plist-get campaign :body))
+     (concat "# 战役设定\n" (plist-get campaign :body))
      (iuiw-erpg--prior-text campaign)
-     (concat "# 你的角色\n" (iuiw-erpg--card-text card))
-     (iuiw-erpg--state-text state))))
+     (concat "# 你的角色\n" (iuiw-erpg--card-text card)))))
 
-(defun iuiw-erpg-voice-message (campaign preset entries card)
-  "The one message asking CARD for its intent, from the story in ENTRIES."
+(defun iuiw-erpg-voice-message (campaign preset state entries card)
+  "The one message asking CARD for its intent, from STATE and the story in ENTRIES."
   (let* ((story (last (iuiw-erpg--story entries) iuiw-erpg-voice-history))
          (player (iuiw-erpg-player-alias campaign))
          (lines (mapcar (lambda (e)
@@ -323,6 +335,7 @@ PREFILL the reply opens with the preset's prefill."
                                   (iuiw-erpg-entry-text e)))
                         story)))
     (iuiw-erpg--join
+     (iuiw-erpg--state-text state)
      (concat "最近的剧情：\n" (if lines (string-join lines "\n\n") "（刚开场）"))
      (format "写出%s此刻的意图。" (plist-get card :name))
      (alist-get "post-history" preset nil nil #'equal))))
@@ -332,10 +345,16 @@ PREFILL the reply opens with the preset's prefill."
   :type 'natnum
   :group 'iuiw-erpg)
 
+(defun iuiw-erpg--preamble (preset)
+  "PRESET's system text before its first heading."
+  (let ((system (or (alist-get "system" preset nil nil #'equal) "")))
+    (string-trim (substring system 0 (and (string-match "^#" system) (match-beginning 0))))))
+
 (defun iuiw-erpg-recorder-system (preset)
-  "System prompt of the recorder, which notes the story's facts, with PRESET."
+  "System prompt of the recorder, which notes the story's facts.
+Of PRESET it gets only the preamble: the writing rules are no use to it."
   (iuiw-erpg--join
-   (alist-get "system" preset nil nil #'equal)
+   (iuiw-erpg--preamble preset)
    (concat "# 规则\n"
            "- 你是这场互动小说的记录员，不写剧情。读新发生的剧情，维护一份事实清单，供角色以后回忆。\n"
            "- 只记以后还用得上的事：关系和态度的变化、承诺和交易、暴露的秘密、得到或失去的东西、伤势、去过的地方、做出的决定。\n"
