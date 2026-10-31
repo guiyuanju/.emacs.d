@@ -22,6 +22,11 @@
   :type 'string
   :group 'iuiw-erpg)
 
+(defcustom iuiw-erpg-avatar-height 96
+  "Height in pixels of the avatars of who is present."
+  :type 'natnum
+  :group 'iuiw-erpg)
+
 (defface iuiw-erpg-narrator '((t :inherit font-lock-keyword-face :weight bold))
   "Face of the narrator's header."
   :group 'iuiw-erpg)
@@ -81,6 +86,29 @@
       (buffer-substring-no-properties iuiw-erpg--input-marker (point-max))
     ""))
 
+(defun iuiw-erpg--avatar (card height)
+  "CARD's avatar at most HEIGHT pixels high, or nil.
+An avatar naming an image file under the repository shows as that image
+where images can be shown; any other avatar is shown as text."
+  (when-let* ((avatar (plist-get card :avatar)))
+    (if (not (string-match-p (image-file-name-regexp) avatar))
+        avatar
+      (let ((file (iuiw-erpg-file avatar)))
+        (when (and (display-images-p) (file-readable-p file))
+          (propertize "*" 'display (create-image file nil nil :max-height height :ascent 'center)
+                      'help-echo file))))))
+
+(defun iuiw-erpg--cast-line ()
+  "Who is present, with their avatars, or nil when no one is."
+  (let* ((campaign iuiw-erpg--campaign)
+         (cards (delq nil (mapcar (lambda (name) (ignore-errors (iuiw-erpg-card name campaign)))
+                                  (plist-get (iuiw-erpg-state campaign) :present)))))
+    (when cards
+      (mapconcat (lambda (card)
+                   (concat (or (iuiw-erpg--avatar card iuiw-erpg-avatar-height) "")
+                           " " (plist-get card :name)))
+                 cards "   "))))
+
 (defun iuiw-erpg--header (entry)
   "Header line of ENTRY."
   (let* ((role (plist-get entry :role))
@@ -90,7 +118,11 @@
      (pcase role
        ("narrator" (propertize "旁白" 'face 'iuiw-erpg-narrator))
        ("director" (funcall aside "导演"))
-       ("voice" (funcall aside (format "· %s的意图" (plist-get entry :name))))
+       ("voice" (concat (or (ignore-errors
+                              (iuiw-erpg--avatar (iuiw-erpg-card (plist-get entry :name) iuiw-erpg--campaign)
+                                                 (round (* 1.5 (frame-char-height)))))
+                            "")
+                        (funcall aside (format "· %s的意图" (plist-get entry :name)))))
        ("record" (funcall aside "· 记录"))
        (_ (propertize (iuiw-erpg-player iuiw-erpg--campaign) 'face 'iuiw-erpg-player)))
      (when-let* ((model (plist-get entry :model)))
@@ -132,6 +164,8 @@
     (insert (propertize (or (plist-get iuiw-erpg--campaign :title) (plist-get iuiw-erpg--campaign :id))
                         'face 'bold)
             "\n\n")
+    (when-let* ((cast (iuiw-erpg--cast-line)))
+      (insert cast "\n\n"))
     (cl-loop for entry in iuiw-erpg--entries for i from 0
              when (iuiw-erpg--shown-p entry) do (iuiw-erpg--insert-entry entry i))
     (when iuiw-erpg--pending
@@ -465,6 +499,7 @@ Earlier versions stay as swipes."
             (string-join (plist-get (iuiw-erpg-state campaign) :present) ","))))
    iuiw-erpg-mode)
   (iuiw-erpg-set-present iuiw-erpg--campaign names)
+  (iuiw-erpg--render)
   (message "Present: %s" (string-join names "、")))
 
 (defun iuiw-erpg-edit-state ()
