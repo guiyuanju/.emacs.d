@@ -207,6 +207,8 @@ It leaves out what changes from turn to turn, so providers can cache it."
                (format "- 其他角色只知道%s叫「%s」；旁白里也这样称呼，除非剧情里身份已经揭开。\n" player alias))
              "- 最后一条消息开头的【当前状态】是此刻谁在场和已经成立的事，以它为准。\n"
              "- 消息里的【角色意图】是在场角色此刻想做的事，要体现在正文里，怎么写由你决定；不要照抄，也不要提到它。\n"
+             (format "- %s的段落里【】中的是旁人察觉不到的动作或心思：照样写进正文，但其他角色不知道，也不会对它作出反应，除非你写出他们发现的过程。\n" player)
+             "- 角色意图若用到了这个角色不可能知道的事，按他实际能察觉的来写。\n"
              "- 【导演指令】是用户对剧情的要求，照做，不要回应它本身。\n"
              "- 【暗中安排】只有你知道：借环境、意外、旁人、时机和手边的物件让它发生，让角色对处境作出反应；不要让角色凭空改主意，也不要让他们知道不该知道的事。\n"
              "- 【环境】是此刻发生、在场的人都能察觉的变化，写进正文；角色意图已经是对它的反应。\n"
@@ -323,12 +325,22 @@ extend; else with PREFILL the reply opens with the preset's prefill."
              (format "- 你只扮演%s。根据最近的剧情，写出%s此刻的意图，交给叙事者写成正文。\n" name name)
              "- 只输出三行：「行动：」「台词：」「心思：」，每行不超过 60 字；没有就写「无」。\n"
              (format "- %s只知道自己亲眼所见、亲耳所闻和下面卡片里的事。\n" name)
+             (format "- 最近的剧情是全知的旁白：别人的心思和身体感受、背着%s发生的事、写明暗中或趁人不注意做的事，%s都不知道；清单里写明%s不知道的事也一样。只按看得见、听得见的行动。\n"
+                     name name name)
              (format "- 照%s的性格和欲望行事，可以拒绝、隐瞒、主动或算计，不必迎合任何人。\n" name)
              "- 剧情里的「环境」是你此刻察觉到的变化，要对它作出反应。\n"
              (iuiw-erpg--age-rules cards))
      (concat "# 战役设定\n" (plist-get campaign :body))
      (iuiw-erpg--prior-text campaign)
      (concat "# 你的角色\n" (iuiw-erpg--card-text card)))))
+
+(defun iuiw-erpg--perceived (entry)
+  "What others can perceive of ENTRY: the player's 【】 asides left out."
+  (let ((text (iuiw-erpg-entry-text entry)))
+    (if (not (equal (plist-get entry :role) "user"))
+        text
+      (let ((seen (string-trim (replace-regexp-in-string "【[^】]*】" "" text))))
+        (if (string-empty-p seen) "（没有旁人察觉得到的动作）" seen)))))
 
 (defun iuiw-erpg-voice-message (campaign preset state entries card)
   "The one message asking CARD for its intent, from STATE and the story in ENTRIES."
@@ -343,7 +355,7 @@ extend; else with PREFILL the reply opens with the preset's prefill."
                                     ("director" "导演")
                                     ("env" "环境")
                                     (_ player))
-                                  (iuiw-erpg-entry-text e)))
+                                  (iuiw-erpg--perceived e)))
                         story)))
     (iuiw-erpg--join
      (iuiw-erpg--state-text state)
@@ -371,6 +383,7 @@ Of PRESET it gets only the preamble: the writing rules are no use to it."
            "- 只记以后还用得上的事：关系和态度的变化、承诺和交易、暴露的秘密、得到或失去的东西、伤势、去过的地方、做出的决定。\n"
            "- 不记一时的动作、对白原文和气氛描写；已有清单里有的不重复记。\n"
            "- 每条一句，不超过 40 字，写明是谁；玩家写作「你」。\n"
+           "- 只有部分角色知道的事，写明谁不知道（如「陆鸣舟没察觉」）。\n"
            "- 只输出一个 JSON 对象，不要别的文字。")))
 
 (defun iuiw-erpg-recorder-message (campaign state entries)
@@ -389,7 +402,7 @@ Of PRESET it gets only the preamble: the writing rules are no use to it."
      (concat "新发生的剧情：\n"
              (mapconcat (lambda (e)
                           (format "%s：%s" (if (equal (plist-get e :role) "narrator") "旁白" player)
-                                  (iuiw-erpg-entry-text e)))
+                                  (iuiw-erpg--perceived e)))
                         entries "\n\n"))
      (if condense
          (format "清单太长了。输出 {\"present\": [此刻在场的角色], \"facts\": [合并精简后的完整清单]}，清单总长不超过 %d 字，去掉不再重要的。"

@@ -306,7 +306,14 @@
                                   (iuiw-erpg-voice-system campaign nil (car cards) cards)))
       (should (string-match-p "厉：来了"
                               (iuiw-erpg-voice-message campaign nil state (list (iuiw-erpg-entry "user" "来了"))
-                                                       (car cards)))))))
+                                                       (car cards))))
+      ;; 【】里的动作只给叙事者，角色和记录员看不到。
+      (let ((entries (list (iuiw-erpg-entry "user" "笑着点头【趁他不注意瞥她一眼】，说好")
+                           (iuiw-erpg-entry "user" "【只是看】"))))
+        (should (string-match-p "厉：笑着点头，说好\n\n厉：（没有旁人察觉得到的动作）"
+                                (iuiw-erpg-voice-message campaign nil state entries (car cards))))
+        (should-not (string-match-p "瞥" (iuiw-erpg-recorder-message campaign state entries)))
+        (should (string-match-p "瞥" (string-join (iuiw-erpg-narrator-messages campaign nil state entries nil) "")))))))
 
 (ert-deftest iuiw-erpg-campaign-card-and-prior ()
   (iuiw-erpg-test--with-repo
