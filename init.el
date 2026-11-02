@@ -794,8 +794,7 @@
 
 (use-package iuiw-magit
   :ensure nil
-  :commands iuiw-magit-display-buffer
-  :autoload iuiw-magit-push)
+  :commands iuiw-magit-display-buffer)
 
 (use-package vdiff
   :defer t

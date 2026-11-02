@@ -3,6 +3,7 @@
 ;;; Commentary:
 ;; 从 auth-source 选一个账号，把密码复制到剪贴板，过一会儿清掉。
 ;; port 为 totp 的条目是 totp-auth 存的 OTP 密钥，不在这里列出。
+;; `iuiw-auth-ssh-master' 用它回答跳板机的 OTP，建好 ControlMaster 后 shell 里的 ssh、git 复用这条连接。
 ;; auth-source 会把解密后的整个文件一直缓存在内存里，这里到时清掉，下次读取重新解密。
 
 ;;; Code:
@@ -85,19 +86,71 @@ With ENCRYPTED, return only encrypted backends."
         (setq otp (totp-auth-generate-otp secret)))
       (car otp))))
 
+(defun iuiw-auth-answer-otp (process string)
+  "Answer the SSH OTP prompt in STRING from `auth-sources'; non-nil if sent.
+Only the first prompt of PROCESS is answered, so a rejected code is not
+retried."
+  (when-let* (((not (process-get process 'iuiw-auth-otp-sent)))
+              ((string-match iuiw-auth-otp-prompt-regexp string))
+              (token (ignore-errors
+                       (iuiw-auth-totp-token (match-string 2 string)
+                                             (match-string 1 string)))))
+    (process-put process 'iuiw-auth-otp-sent t)
+    (process-send-string process (concat token "\n"))
+    t))
+
 (defun iuiw-auth-magit-otp-prompt (orig process string)
-  "Answer an SSH OTP prompt in STRING from `auth-sources'.
-Only the first prompt of PROCESS is answered; otherwise call ORIG, which
-asks the user."
-  (if-let* (((not (process-get process 'iuiw-auth-otp-sent)))
-            ((string-match iuiw-auth-otp-prompt-regexp string))
-            (token (ignore-errors
-                     (iuiw-auth-totp-token (match-string 2 string)
-                                           (match-string 1 string)))))
-      (progn
-        (process-put process 'iuiw-auth-otp-sent t)
-        (process-send-string process (concat token "\n")))
+  "Answer an SSH OTP prompt in STRING, else call ORIG, which asks the user."
+  (unless (iuiw-auth-answer-otp process string)
     (funcall orig process string)))
+
+(defcustom iuiw-auth-ssh-master-timeout 300
+  "Seconds `iuiw-auth-ssh-master' waits for authentication."
+  :type 'natnum
+  :group 'auth-source)
+
+(defun iuiw-auth--ssh-master-live-p (host)
+  "Return non-nil if an SSH ControlMaster connection to HOST is up."
+  (zerop (call-process "ssh" nil nil nil "-O" "check" host)))
+
+(defun iuiw-auth--ssh-master-filter (process string)
+  "Insert STRING into PROCESS's buffer and answer the prompt it ends with."
+  (with-current-buffer (process-buffer process)
+    (goto-char (point-max))
+    (insert string))
+  (let ((line (car (last (split-string string "\n" t "[ \t\r]*")))))
+    (when (and line (string-match-p ": ?$" line)
+               (not (iuiw-auth-answer-otp process line)))
+      (process-send-string process (concat (read-passwd line) "\n")))))
+
+;;;###autoload
+(defun iuiw-auth-ssh-master (host)
+  "Open an SSH ControlMaster connection to HOST unless one is up.
+Later ssh and git commands through HOST reuse it without prompting.  The
+OTP comes from `auth-sources', else the user is asked.  Signal an error
+on failure or after `iuiw-auth-ssh-master-timeout', so `emacsclient
+--eval' exits non-zero."
+  (unless (iuiw-auth--ssh-master-live-p host)
+    (let* ((buffer (generate-new-buffer (format " *ssh-master %s*" host)))
+           (process (make-process :name "ssh-master" :buffer buffer
+                                  :command (list "ssh" "-MNf" host)
+                                  :connection-type 'pty
+                                  :filter #'iuiw-auth--ssh-master-filter
+                                  :sentinel #'ignore))
+           (deadline (+ (float-time) iuiw-auth-ssh-master-timeout)))
+      (unwind-protect
+          (progn
+            (while (and (process-live-p process) (< (float-time) deadline))
+              (accept-process-output process 0.1))
+            (when (process-live-p process)
+              (error "ssh %s timed out after %ds" host iuiw-auth-ssh-master-timeout))
+            (unless (and (zerop (process-exit-status process))
+                         (iuiw-auth--ssh-master-live-p host))
+              (error "ssh %s failed:\n%s" host
+                     (with-current-buffer buffer (string-trim (buffer-string))))))
+        (delete-process process)
+        (kill-buffer buffer))))
+  host)
 
 (defun iuiw-auth--label (entry)
   "Return a completion label for auth-source ENTRY."
