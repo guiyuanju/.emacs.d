@@ -29,7 +29,8 @@
 ;; clean repo stays hidden until it changes.  A repo's row shows
 ;; its branch and the lines changed since its last commit, and under it
 ;; the changed files, read asynchronously and at most every
-;; `overlook-project-status-interval' seconds.  RET on a repo shows its
+;; `overlook-project-status-interval' seconds, and soon after a save in
+;; it or a Magit refresh of it.  RET on a repo shows its
 ;; diff in Magit, or its status when clean; RET on a file shows its diff
 ;; since the last commit in Magit.  Without Magit, VC does both.
 ;;
@@ -59,6 +60,12 @@
 (defcustom overlook-project-parallel-reads 2
   "Most repos whose status is read at once; the others wait their turn."
   :type 'natnum
+  :group 'overlook)
+
+(defcustom overlook-project-touch-delay 0.5
+  "Seconds a save or Magit refresh waits before its repos are read again.
+The saves and refreshes within that time share one read."
+  :type 'number
   :group 'overlook)
 
 (defcustom overlook-project-files 5
@@ -104,6 +111,14 @@ A rename's CODE has R in place of the A of its new path.")
 
 (defvar overlook-project--reading (make-hash-table :test #'equal)
   "Repo directories whose status is being read.")
+
+(defvar overlook-project--again (make-hash-table :test #'equal)
+  "Repos touched while being read, to read again once that read is done.")
+
+(defvar overlook-project--touched nil
+  "Directories saved in or refreshed by Magit since the last touch read.")
+
+(defvar overlook-project--touch-timer nil)
 
 (defvar overlook-project--shown nil
   "Repos and folders of the perspectives as last drawn, shown or clean.")
@@ -220,6 +235,9 @@ Does nothing while `overlook-project-parallel-reads' repos are being read."
 (defun overlook-project--done (dir)
   "Note that DIR's status is read, and start reading the next stale repo shown."
   (remhash dir overlook-project--reading)
+  (when (gethash dir overlook-project--again)
+    (remhash dir overlook-project--again)
+    (setcar (gethash dir overlook-project--status) 0))
   (overlook-project--tick))
 
 (defun overlook-project--status (dir)
@@ -425,6 +443,42 @@ Past `overlook-project-files' the rest fold into one line with their totals."
   "Read the shown repos' statuses again when stale; a change redraws."
   (mapc #'overlook-project--status overlook-project--shown))
 
+(defun overlook-project--touch (dir)
+  "Read the shown repos and folders holding DIR, or inside its repo, soon."
+  (when (overlook-live-p)
+    (push (file-name-as-directory (expand-file-name dir)) overlook-project--touched)
+    (unless (timerp overlook-project--touch-timer)
+      (setq overlook-project--touch-timer
+            (run-with-timer overlook-project-touch-delay nil #'overlook-project--read-touched)))))
+
+(defun overlook-project--read-touched ()
+  "Mark the shown repos and folders touched lately stale, and read them."
+  (let ((touched (delete-dups overlook-project--touched)))
+    (setq overlook-project--touched nil
+          overlook-project--touch-timer nil)
+    (dolist (shown overlook-project--shown)
+      (when (seq-some
+             (lambda (dir)
+               (or (string-prefix-p shown dir)
+                   ;; A separate repo nested in DIR's is left alone.
+                   (and (string-prefix-p dir shown)
+                        (not (file-exists-p (expand-file-name ".git" shown))))))
+             touched)
+        (if (gethash shown overlook-project--reading)
+            (puthash shown t overlook-project--again)
+          (when-let* ((entry (gethash shown overlook-project--status)))
+            (setcar entry 0)))))
+    (overlook-project--tick)))
+
+(defun overlook-project--saved ()
+  "Read the repo of the file just saved soon."
+  (when buffer-file-name
+    (overlook-project--touch (file-name-directory buffer-file-name))))
+
+(defun overlook-project--magit-refreshed ()
+  "Read the repo Magit just refreshed soon."
+  (overlook-project--touch default-directory))
+
 ;;;###autoload
 (define-minor-mode overlook-project-mode
   "List the repos of each perspective's project on the dashboard."
@@ -435,7 +489,14 @@ Past `overlook-project-files' the rest fold into one line with their totals."
    '((overlook-perspective-functions overlook-project--insert 50)
      (overlook-heading-mark-functions overlook-project--heading-mark)
      (overlook-before-render-hook overlook-project--forget)
-     (overlook-tick-hook overlook-project--tick)))
+     (overlook-tick-hook overlook-project--tick)
+     (after-save-hook overlook-project--saved)))
+  ;; Adding to the hook before Magit defines it would drop Magit's own functions.
+  (if overlook-project-mode
+      (with-eval-after-load 'magit-mode
+        (when overlook-project-mode
+          (add-hook 'magit-post-refresh-hook #'overlook-project--magit-refreshed)))
+    (remove-hook 'magit-post-refresh-hook #'overlook-project--magit-refreshed))
   (overlook-refresh))
 
 (provide 'overlook-project)
