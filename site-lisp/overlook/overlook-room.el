@@ -24,15 +24,15 @@
 ;;; Commentary:
 
 ;; `overlook-room-open' shows a room in a lui buffer, where the user reads
-;; the room as it goes and posts as `courier-room-user'.  A post naming
+;; the room as it goes and posts as `overlook-courier-room-user'.  A post naming
 ;; the user while its room is not shown is announced in the echo area.
 
 ;;; Code:
 
 (require 'lui)
 (require 'circe-color-nicks)
-(require 'courier-room)
-(require 'courier-persona)
+(require 'overlook-courier-room)
+(require 'overlook-courier-persona)
 
 (defcustom overlook-room-history 200
   "How many earlier posts a room's buffer shows when opened."
@@ -87,7 +87,7 @@
 
 (defun overlook-room--face (id)
   "Face of ID: the user's, or a color of its own for each agent."
-  (cond ((equal id courier-room-user) 'overlook-room-user)
+  (cond ((equal id overlook-courier-room-user) 'overlook-room-user)
         ((equal id "all") 'bold)
         (t `(:foreground ,(circe-nick-color-for-nick id) :inherit overlook-room-agent))))
 
@@ -108,8 +108,8 @@ author's within `overlook-room-group-seconds'."
   (let* ((from (plist-get post :from))
          (time (plist-get post :time))
          (body (plist-get post :body))
-         (prefix (if (and (not (equal from courier-room-user))
-                          (courier-room-mentions-p body courier-room-user))
+         (prefix (if (and (not (equal from overlook-courier-room-user))
+                          (overlook-courier-room-mentions-p body overlook-courier-room-user))
                      (propertize "▎ " 'face 'overlook-room-mention)
                    "  "))
          (lui-time-stamp-time (seconds-to-time time)))
@@ -118,7 +118,7 @@ author's within `overlook-room-group-seconds'."
       (when (> lui-output-marker (point-min))
         (let ((lui-time-stamp-position nil))
           (lui-insert "" t)))
-      (lui-insert (concat (when-let* ((avatar (plist-get (courier-persona from) :avatar)))
+      (lui-insert (concat (when-let* ((avatar (plist-get (overlook-courier-persona from) :avatar)))
                             (concat avatar " "))
                           (propertize from 'face (overlook-room--face from)))
                   t))
@@ -133,11 +133,11 @@ author's within `overlook-room-group-seconds'."
               (start (save-excursion
                        (skip-chars-backward "^[:space:]" lui-input-marker)
                        (and (eq (char-after) ?@) (1+ (point))))))
-    (let* ((room (courier-room overlook-room--name))
-           (members (and room (mapcar #'car (courier-room-members room))))
-           (agents (append (mapcar #'courier-agent-id (courier-agents)) (courier-offline)))
-           (ids (delete-dups (append (remove courier-room-user members) agents
-                                     (list "all" courier-room-user)))))
+    (let* ((room (overlook-courier-room overlook-room--name))
+           (members (and room (mapcar #'car (overlook-courier-room-members room))))
+           (agents (append (mapcar #'overlook-courier-agent-id (overlook-courier-agents)) (overlook-courier-offline)))
+           (ids (delete-dups (append (remove overlook-courier-room-user members) agents
+                                     (list "all" overlook-courier-room-user)))))
       (list start (point)
             (lambda (string predicate action)
               (if (eq action 'metadata)
@@ -148,16 +148,16 @@ author's within `overlook-room-group-seconds'."
             :annotation-function
             (lambda (id)
               (cond ((equal id "all") " every member")
-                    ((equal id courier-room-user) " you")
-                    ((not (courier-room-present-p id)) " gone")
-                    ((not (courier-agent id)) " offline persona; naming starts it")
+                    ((equal id overlook-courier-room-user) " you")
+                    ((not (overlook-courier-room-present-p id)) " gone")
+                    ((not (overlook-courier-agent id)) " offline persona; naming starts it")
                     ((member id members) " member")
                     (t " joins when named")))))))
 
 (defun overlook-room--input (text)
   "Post TEXT to this buffer's room as the user."
-  (courier-room-post overlook-room--name courier-room-user text)
-  (when-let* ((missed (courier-room-missed overlook-room--name text)))
+  (overlook-courier-room-post overlook-room--name overlook-courier-room-user text)
+  (when-let* ((missed (overlook-courier-room-missed overlook-room--name text)))
     (message "%s" missed)))
 
 (defun overlook-room--on-post (name post)
@@ -166,26 +166,26 @@ author's within `overlook-room-group-seconds'."
     (when buffer
       (with-current-buffer buffer (overlook-room--insert post)))
     (if (and buffer (get-buffer-window buffer 'visible))
-        (courier-room-mark-read name courier-room-user)
-      (when (and (not (equal (plist-get post :from) courier-room-user))
-                 (courier-room-mentions-p (plist-get post :body) courier-room-user))
+        (overlook-courier-room-mark-read name overlook-courier-room-user)
+      (when (and (not (equal (plist-get post :from) overlook-courier-room-user))
+                 (overlook-courier-room-mentions-p (plist-get post :body) overlook-courier-room-user))
         (message "#%s: %s mentioned you; M-x overlook-room-open" name (plist-get post :from))))))
 
-(add-hook 'courier-room-post-functions #'overlook-room--on-post)
+(add-hook 'overlook-courier-room-post-functions #'overlook-room--on-post)
 
 ;;;###autoload
 (defun overlook-room-open (name)
   "Show room NAME, made if missing, and join it as the user."
-  (interactive (list (completing-read "Room: " (courier-room-names))))
-  (let* ((room (courier-room-join name courier-room-user))
-         (name (courier-room-name room))
+  (interactive (list (completing-read "Room: " (overlook-courier-room-names))))
+  (let* ((room (overlook-courier-room-join name overlook-courier-room-user))
+         (name (overlook-courier-room-name room))
          (buffer (or (overlook-room--buffer name) (generate-new-buffer (format "#%s" name)))))
     (with-current-buffer buffer
       (unless (derived-mode-p 'overlook-room-mode)
         (overlook-room-mode)
         (setq overlook-room--name name)
-        (mapc #'overlook-room--insert (courier-room-history name overlook-room-history))))
-    (courier-room-mark-read name courier-room-user)
+        (mapc #'overlook-room--insert (overlook-courier-room-history name overlook-room-history))))
+    (overlook-courier-room-mark-read name overlook-courier-room-user)
     (pop-to-buffer buffer)))
 
 (defun overlook-room-invite (id)
@@ -193,11 +193,11 @@ author's within `overlook-room-group-seconds'."
   (interactive
    (list (completing-read
           "Invite agent: "
-          (seq-remove (lambda (id) (courier-room-member (courier-room overlook-room--name) id))
-                      (append (mapcar #'courier-agent-id (courier-agents)) (courier-offline)))
+          (seq-remove (lambda (id) (overlook-courier-room-member (overlook-courier-room overlook-room--name) id))
+                      (append (mapcar #'overlook-courier-agent-id (overlook-courier-agents)) (overlook-courier-offline)))
           nil t))
    overlook-room-mode)
-  (courier-room-invite overlook-room--name id courier-room-user)
+  (overlook-courier-room-invite overlook-room--name id overlook-courier-room-user)
   (message "Added %s to #%s" id overlook-room--name))
 
 (defvar overlook-agent-shell-configs)
@@ -214,7 +214,7 @@ argument, ask for its reasoning EFFORT."
          (read-string "Task (empty to wait for posts): ")
          (and current-prefix-arg (read-string "Effort: ")))
    overlook-room-mode)
-  (let ((id (courier-room-spawn overlook-room--name agent directory courier-room-user
+  (let ((id (overlook-courier-room-spawn overlook-room--name agent directory overlook-courier-room-user
                                 (and (not (string-empty-p (or effort ""))) effort)
                                 (and (not (string-empty-p task)) task))))
     (message "Started %s in #%s" id overlook-room--name)))
@@ -223,14 +223,14 @@ argument, ask for its reasoning EFFORT."
   "Close this buffer's room, archiving its posts."
   (interactive nil overlook-room-mode)
   (when (yes-or-no-p (format "Close #%s? " overlook-room--name))
-    (courier-room-close overlook-room--name)))
+    (overlook-courier-room-close overlook-room--name)))
 
 (defun overlook-room--on-close (name)
   "Kill room NAME's buffer."
   (when-let* ((buffer (overlook-room--buffer name)))
     (kill-buffer buffer)))
 
-(add-hook 'courier-room-close-functions #'overlook-room--on-close)
+(add-hook 'overlook-courier-room-close-functions #'overlook-room--on-close)
 
 (provide 'overlook-room)
 ;;; overlook-room.el ends here

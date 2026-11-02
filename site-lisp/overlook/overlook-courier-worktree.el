@@ -1,4 +1,4 @@
-;;; courier-worktree.el --- Git worktrees for the agents courier spawns -*- lexical-binding: t; -*-
+;;; overlook-courier-worktree.el --- Git worktrees for the agents courier spawns -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
@@ -30,83 +30,84 @@
 ;; `.overlook' file marking it one project.  The branch is made from the
 ;; checked out commit unless it exists.  `.worktrees/' goes in the repo's
 ;; info/exclude, so Git leaves it out of the status.
-;; `courier-worktree-spawn' starts an agent in one, following the room
+;; `overlook-courier-worktree-spawn' starts an agent in one, following the room
 ;; named after the branch, where events about it go; removing the
 ;; worktree closes that room.
 
 ;;; Code:
 
-(require 'courier)
-(require 'courier-room)
+(require 'overlook-courier)
+(require 'overlook-courier-room)
 
-(defcustom courier-worktree-directory ".worktrees"
+(defcustom overlook-courier-worktree-directory ".worktrees"
   "Folder, inside a project, holding the worktrees made for its agents."
   :type 'string
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defcustom courier-worktree-marker ".overlook"
+(defcustom overlook-courier-worktree-marker ".overlook"
   "File marking a folder of several repos' worktrees as one project."
   :type 'string
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defun courier-worktree-git-program ()
+(defun overlook-courier-worktree-git-program ()
   "The git program to run."
   (or (bound-and-true-p vc-git-program) "git"))
 
-(defun courier-worktree--git (dir &rest args)
+(defun overlook-courier-worktree--git (dir &rest args)
   "Run git with ARGS in DIR; return its output, or signal its error."
   (with-temp-buffer
     (let* ((default-directory (file-name-as-directory dir))
-           (status (apply #'process-file (courier-worktree-git-program) nil t nil args)))
+           (status (apply #'process-file (overlook-courier-worktree-git-program) nil t nil args)))
       (unless (eq status 0)
         (user-error "Git %s in %s: %s" (string-join args " ") (abbreviate-file-name dir)
                     (string-trim (buffer-string))))
       (string-trim (buffer-string)))))
 
-(defun courier-worktree--repo-p (dir)
+(defun overlook-courier-worktree--repo-p (dir)
   "Non-nil when DIR is the top of a Git repo or worktree."
   (file-exists-p (expand-file-name ".git" dir)))
 
-(defun courier-worktree-repos (dir)
+(defun overlook-courier-worktree-repos (dir)
   "DIR when it is a Git repo, else the Git repos directly inside it."
   (let ((dir (file-name-as-directory (expand-file-name dir))))
-    (if (courier-worktree--repo-p dir)
+    (if (overlook-courier-worktree--repo-p dir)
         (list dir)
-      (seq-filter #'courier-worktree--repo-p
+      (seq-filter #'overlook-courier-worktree--repo-p
                   (mapcar #'file-name-as-directory
                           (seq-filter #'file-directory-p
                                       (directory-files dir t "\\`[^.]")))))))
 
-(defun courier-worktree-path (dir branch)
+(defun overlook-courier-worktree-path (dir branch)
   "Where the worktree of project DIR for BRANCH lies."
   (file-name-as-directory
    (expand-file-name (replace-regexp-in-string "/" "-" branch)
-                     (expand-file-name courier-worktree-directory dir))))
+                     (expand-file-name overlook-courier-worktree-directory dir))))
 
-(defun courier-worktree-room (branch)
+(defun overlook-courier-worktree-room (branch)
   "Name of the room events about BRANCH go to.
 The name of BRANCH's worktree folder names the same room."
-  (courier-room-name-for branch))
+  (overlook-courier-room-name-for branch))
 
-(defun courier-worktree-at (path)
+(defun overlook-courier-worktree-at (path)
   "(DIR . NAME) when PATH is a worktree folder of project DIR, else nil.
-NAME is as `courier-worktree-list' gives it."
+NAME is as `overlook-courier-worktree-list' gives it."
   (let* ((path (file-name-as-directory (expand-file-name path)))
          (folder (file-name-parent-directory path))
-         (inside (file-name-as-directory courier-worktree-directory))
+         (inside (file-name-as-directory overlook-courier-worktree-directory))
          (name (file-name-nondirectory (directory-file-name path))))
     (when (and folder (string-suffix-p inside folder))
       (let ((dir (substring folder 0 (- (length inside)))))
-        (and (member name (courier-worktree-list dir))
+        (and (member name (overlook-courier-worktree-list dir))
              (cons dir name))))))
 
-(defun courier-worktree--exclude (dir)
-  "Have the repo holding DIR, if any, leave out `courier-worktree-directory'."
+(defun overlook-courier-worktree--exclude (dir)
+  "Have the repo holding DIR, if any, leave out the worktrees.
+They live in `overlook-courier-worktree-directory'."
   (when-let* ((common (ignore-errors
-                        (courier-worktree--git dir "rev-parse" "--path-format=absolute"
+                        (overlook-courier-worktree--git dir "rev-parse" "--path-format=absolute"
                                                "--git-common-dir"))))
     (let ((file (expand-file-name "info/exclude" common))
-          (line (concat courier-worktree-directory "/")))
+          (line (concat overlook-courier-worktree-directory "/")))
       (unless (and (file-exists-p file)
                    (with-temp-buffer
                      (insert-file-contents file)
@@ -119,95 +120,96 @@ NAME is as `courier-worktree-list' gives it."
           (insert line "\n")
           (write-region nil nil file nil 'silent))))))
 
-(defun courier-worktree--add-one (repo path branch)
+(defun overlook-courier-worktree--add-one (repo path branch)
   "Check out BRANCH of REPO at PATH, making the branch when it does not exist."
   (make-directory (file-name-directory (directory-file-name path)) t)
-  (if (ignore-errors (courier-worktree--git repo "rev-parse" "--verify" "--quiet"
+  (if (ignore-errors (overlook-courier-worktree--git repo "rev-parse" "--verify" "--quiet"
                                             (concat "refs/heads/" branch)))
-      (courier-worktree--git repo "worktree" "add" (directory-file-name path) branch)
-    (courier-worktree--git repo "worktree" "add" "-b" branch (directory-file-name path))))
+      (overlook-courier-worktree--git repo "worktree" "add" (directory-file-name path) branch)
+    (overlook-courier-worktree--git repo "worktree" "add" "-b" branch (directory-file-name path))))
 
-(defun courier-worktree-add (dir branch)
+(defun overlook-courier-worktree-add (dir branch)
   "Make the worktree of project DIR for BRANCH and return its path.
 An existing one is returned as it is."
   (let* ((dir (file-name-as-directory (expand-file-name dir)))
-         (path (courier-worktree-path dir branch))
-         (repos (or (courier-worktree-repos dir) (user-error "No Git repo in %s" dir))))
-    (courier-worktree--git dir "check-ref-format" "--branch" branch)
+         (path (overlook-courier-worktree-path dir branch))
+         (repos (or (overlook-courier-worktree-repos dir) (user-error "No Git repo in %s" dir))))
+    (overlook-courier-worktree--git dir "check-ref-format" "--branch" branch)
     (unless (file-exists-p path)
-      (courier-worktree--exclude dir)
+      (overlook-courier-worktree--exclude dir)
       (if (equal repos (list dir))
-          (courier-worktree--add-one dir path branch)
+          (overlook-courier-worktree--add-one dir path branch)
         (let ((made nil))
           (condition-case err
               (progn
                 (make-directory path t)
-                (with-temp-file (expand-file-name courier-worktree-marker path))
+                (with-temp-file (expand-file-name overlook-courier-worktree-marker path))
                 (dolist (repo repos)
                   (let ((sub (file-name-as-directory
                               (expand-file-name (file-name-nondirectory (directory-file-name repo))
                                                 path))))
-                    (courier-worktree--add-one repo sub branch)
+                    (overlook-courier-worktree--add-one repo sub branch)
                     (push (cons repo sub) made))))
             (error
              (pcase-dolist (`(,repo . ,sub) made)
-               (ignore-errors (courier-worktree--git repo "worktree" "remove" "--force"
+               (ignore-errors (overlook-courier-worktree--git repo "worktree" "remove" "--force"
                                                      (directory-file-name sub))))
              (ignore-errors (delete-directory path t))
              (signal (car err) (cdr err)))))))
     path))
 
-(defun courier-worktree-spawn (name dir branch prompt &optional from effort)
+(defun overlook-courier-worktree-spawn (name dir branch prompt &optional from effort)
   "Start agent NAME in the worktree of project DIR for BRANCH, made if missing.
-It works on PROMPT for agent FROM at reasoning EFFORT, as `courier-spawn'
-starts it, and every post in the room named after BRANCH wakes it.
+It works on PROMPT for agent FROM at reasoning EFFORT, as
+`overlook-courier-spawn' starts it, and every post in the room named after
+BRANCH wakes it.
 Returns its id."
-  (let* ((path (courier-worktree-add dir branch))
-         (room (courier-worktree-room branch))
+  (let* ((path (overlook-courier-worktree-add dir branch))
+         (room (overlook-courier-worktree-room branch))
          (note (format "You work in a Git worktree of your own, %s, on branch %s; \
 commit your work there, and leave the main checkout alone.  Events about \
 the branch, such as CI results, reach you from the room #%s."
                        (abbreviate-file-name path) branch room))
-         (id (courier-spawn name path (and prompt (concat note "\n\n" prompt)) from effort)))
-    (courier-room-join room id 'all)
-    (unless prompt (courier-note id note))
+         (id (overlook-courier-spawn name path (and prompt (concat note "\n\n" prompt)) from effort)))
+    (overlook-courier-room-join room id 'all)
+    (unless prompt (overlook-courier-note id note))
     id))
 
-(defun courier-worktree-remove (dir branch &optional force)
+(defun overlook-courier-worktree-remove (dir branch &optional force)
   "Remove the worktree of project DIR for BRANCH, keeping the branch.
 Git refuses while a checkout has changes, unless FORCE is non-nil.  The
 room named after the branch is closed."
-  (let ((path (courier-worktree-path dir branch)))
+  (let ((path (overlook-courier-worktree-path dir branch)))
     (unless (file-directory-p path) (user-error "No worktree %s" (abbreviate-file-name path)))
-    (dolist (checkout (courier-worktree-repos path))
-      (apply #'courier-worktree--git checkout "worktree" "remove"
+    (dolist (checkout (overlook-courier-worktree-repos path))
+      (apply #'overlook-courier-worktree--git checkout "worktree" "remove"
              (append (and force '("--force")) (list (directory-file-name checkout)))))
     (when (file-directory-p path) (delete-directory path t))
-    (let ((room (courier-worktree-room branch)))
-      (when (courier-room room) (courier-room-close room)))
+    (let ((room (overlook-courier-worktree-room branch)))
+      (when (overlook-courier-room room) (overlook-courier-room-close room)))
     path))
 
-(defun courier-worktree-list (dir)
+(defun overlook-courier-worktree-list (dir)
   "Branches with a worktree in project DIR."
-  (let ((folder (expand-file-name courier-worktree-directory dir)))
+  (let ((folder (expand-file-name overlook-courier-worktree-directory dir)))
     (and (file-directory-p folder)
          (mapcar #'file-name-nondirectory
                  (seq-filter #'file-directory-p (directory-files folder t "\\`[^.]"))))))
 
-(defun courier-worktree-cli (args)
+(defun overlook-courier-worktree-cli (args)
   "Run the worktree command ARGS and return its output."
   (pcase args
     (`("add" ,dir ,branch)
-     (format "Worktree for %s at %s." branch (abbreviate-file-name (courier-worktree-add dir branch))))
+     (format "Worktree for %s at %s." branch (abbreviate-file-name (overlook-courier-worktree-add dir branch))))
     ((or `("remove" ,dir ,branch) `("remove" "--force" ,dir ,branch))
-     (courier-worktree-remove dir branch (equal (cadr args) "--force"))
+     (overlook-courier-worktree-remove dir branch (equal (cadr args) "--force"))
      (format "Removed the worktree of %s; the branch is kept." branch))
     (`("list" ,dir)
-     (courier-or-empty (mapconcat (lambda (name)
-                      (format "%s  %s" name (abbreviate-file-name (courier-worktree-path dir name))))
-                    (courier-worktree-list dir) "\n")
+     (overlook-courier-or-empty (mapconcat (lambda (name)
+                      (format "%s  %s" name (abbreviate-file-name (overlook-courier-worktree-path dir name))))
+                    (overlook-courier-worktree-list dir) "\n")
          "No worktrees."))
     (_ (user-error "Usage: courier worktree add DIR BRANCH | remove [--force] DIR BRANCH | list DIR"))))
 
-(provide 'courier-worktree)
-;;; courier-worktree.el ends here
+(provide 'overlook-courier-worktree)
+;;; overlook-courier-worktree.el ends here

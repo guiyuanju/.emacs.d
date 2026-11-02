@@ -85,12 +85,12 @@ Turn on the modules you want; each is a global minor mode:
   (overlook-usage-mode 1))        ; Claude and Codex plan usage
 ```
 
-To let agents message, spawn and monitor each other, turn on the bundled
+To let agents message, spawn and monitor each other, turn on the
 [courier](docs/courier.md) bridge:
 
 ```elisp
-(require 'overlook-courier)
-(overlook-courier-mode 1)
+(require 'overlook-agent-courier)
+(overlook-agent-courier-mode 1)
 ```
 
 A spawned agent opens in the perspective of the project it works in,
@@ -103,20 +103,20 @@ a Git worktree of its own, listed under the perspective with the agents working 
 rooms; `M-x overlook-room-open` shows one, and a Rooms section above
 the perspectives lists them with your unread posts (`✉N`), highlighted
 when one names you.  The room of a worktree's branch is listed under
-the worktree instead.  Personas, folders in `courier-persona-directories`, give
+the worktree instead.  Personas, folders in `overlook-courier-persona-directories`, give
 agents a lasting id, role and memory; a Personas section lists them, and
 messaging one nobody runs starts it.
 
 Two more modes act on agents working on branches:
 
 ```elisp
-(require 'courier-ci)
-(courier-ci-mode 1)          ; CI results of agents' worktree branches, into the branch's room
+(require 'overlook-courier-ci)
+(overlook-courier-ci-mode 1)          ; CI results of agents' worktree branches, into the branch's room
 (require 'overlook-watchdog)
 (overlook-watchdog-mode 1)   ; report spawned agents stuck in a turn or waiting for you
 ```
 
-`courier-ci-mode` asks GitHub (`gh`) or GitLab (`glab`) about each pushed
+`overlook-courier-ci-mode` asks GitHub (`gh`) or GitLab (`glab`) about each pushed
 branch an agent works on in a worktree, and posts each finished run in
 the room named after the branch, which that agent follows; see
 [courier](docs/courier.md#events).  `overlook-watchdog-mode` checks, by
@@ -126,6 +126,26 @@ fixed rules, for a spawned agent whose turn runs past
 that started no turn, which courier gave up on.  Each
 finding goes once to the room `#watchdog`, and to the agent's parent when
 nobody follows that room.
+
+More usage rows, each added by loading its file:
+
+```elisp
+(setopt overlook-usage-deepseek-api-key "sk-…") ; or a function returning it
+(require 'overlook-usage-deepseek)    ; DeepSeek balance and today's spending
+(require 'overlook-usage-antigravity) ; Antigravity's weekly Gemini limit (macOS)
+```
+
+And keeping the agents themselves working:
+
+```elisp
+;; Offer updates of the ACP adapters (npm), CLIs (Homebrew), ACP registry
+;; binaries and agent-shell (elpaca), checked once a day when idle.
+(run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'overlook-agent-update-check)
+(with-eval-after-load 'agent-shell (overlook-agent-update-acp-use)) ; use the installed binaries
+;; Offer to let Codex read the CLAUDE.md the other agents read.
+(setopt overlook-agent-rules-file "~/projects/CLAUDE.md")
+(add-hook 'overlook-mode-hook #'overlook-agent-rules-check-once)
+```
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:
@@ -326,7 +346,8 @@ itself, as overlook-agent-shell.el does.
 
 Plan usage comes from undocumented sources: Claude's from rate limits
 claude-agent-acp forwards to agent-shell, Codex's from its session logs
-in `~/.codex/sessions`.  Either may change without notice.
+in `~/.codex/sessions`, Antigravity's from an internal Google endpoint.
+Any of them may change without notice.
 
 ## Development
 

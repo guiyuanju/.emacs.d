@@ -55,7 +55,7 @@ it finishes or gets stuck.  Courier tells the parent, with a
 
 - it ended a turn on the parent's message without sending the parent
   anything: the note carries its last reply, cut to its last
-  `courier-reply-max` (4000) characters, with the path of its transcript;
+  `overlook-courier-reply-max` (4000) characters, with the path of its transcript;
 - its turn failed, with the error, even if it had reported;
 - it is gone before reporting on the parent's message.
 
@@ -63,17 +63,17 @@ Two things only the user can act on do not wake the parent; it finds them
 at the top of its next prompt: that the child waits for the user (once a
 turn), and that a child which had reported is gone.
 
-Started with no prompt (`courier-spawn` with PROMPT nil), an agent idles
+Started with no prompt (`overlook-courier-spawn` with PROMPT nil), an agent idles
 until a message comes, and its briefing comes with it.  Courier gathers
-mail for `courier-delivery-delay` (2) seconds before delivering, so
+mail for `overlook-courier-delivery-delay` (2) seconds before delivering, so
 messages arriving together cost one turn.
 
 A turn the user starts in the child's buffer is not reported.
 
 A delivery to an agent that is ready yet starts no turn would keep its
-mail waiting for good, so after `courier-delivery-timeout` (120) seconds
+mail waiting for good, so after `overlook-courier-delivery-timeout` (120) seconds
 courier gives up on it, delivers the next mail, and runs
-`courier-stalled-functions` with the agent's id and the delivery's time;
+`overlook-courier-stalled-functions` with the agent's id and the delivery's time;
 overlook's watchdog reports it.
 
 ### Worktrees
@@ -86,7 +86,7 @@ a worktree of each repo directly in DIR and a `.overlook` file making it
 one project.  The branch is made from each repo's checked out commit
 unless it exists; `.worktrees/` is added to the repo's `info/exclude`.
 The child is told its branch and to commit there, and follows the room
-named after the branch (`courier-room-name-for`: lowercase, other
+named after the branch (`overlook-courier-room-name-for`: lowercase, other
 characters as `-`) with `--wake all`, so events published about the
 branch reach it.  Merging is left to whoever asked for the work.
 Removing the worktree closes that room.
@@ -103,12 +103,12 @@ not, as `BRANCH/REPO`, or `BRANCH` for a single repo.
 ## Rooms
 
 A room is a chat log that agents and you share, kept in
-`courier-room-directory` so it outlives Emacs.  Posting wakes only the
+`overlook-courier-room-directory` so it outlives Emacs.  Posting wakes only the
 members it names, `@ID` or `@all`: waking every member on every post would
 cost each a turn and let agents answer each other until the hop limit.
 Naming an agent that is not a member adds it.  A post that wakes a
 member brings along its latest unread posts, up to
-`courier-room-wake-context` (20), and marks them read.  Other posts wait,
+`overlook-courier-room-wake-context` (20), and marks them read.  Other posts wait,
 and the next prompt a member gets says how many are unread.
 
 ```sh
@@ -132,20 +132,20 @@ failed, a comment on a pull request.  Each belongs to a thread, a stream
 of events such as a branch's CI runs, and goes to the room named after
 the thread.  Agents working on the thread follow that room with
 `--wake all`; an agent spawned with `--worktree BRANCH` follows its
-branch's.  `courier-event-emit` (in `courier-event.el`) takes a plist:
+branch's.  `overlook-courier-event-emit` (in `overlook-courier-event.el`) takes a plist:
 
 | | |
 |---|---|
 | `:source` | who saw it, such as `"ci"` |
-| `:thread` | the thread; its room is `(courier-room-name-for THREAD)` |
+| `:thread` | the thread; its room is `(overlook-courier-room-name-for THREAD)` |
 | `:text` | what the agents are told |
 | `:key` | optional; an event of the same source and key again is a duplicate and left out |
-| `:fallback` | who hears of it when no agent follows the room: an id, `"none"`, or nil for `courier-room-publish-fallback` |
+| `:fallback` | who hears of it when no agent follows the room: an id, `"none"`, or nil for `overlook-courier-room-publish-fallback` |
 
-It leaves out duplicates, runs `courier-event-filters` (each returns the
+It leaves out duplicates, runs `overlook-courier-event-filters` (each returns the
 event, changed or not, or nil to drop it), posts it in the room for a
 source that does not join it, and logs what became of it in
-`courier-event-log`: `delivered`, `unclaimed`, `dropped` or `duplicate`.
+`overlook-courier-event-log`: `delivered`, `unclaimed`, `dropped` or `duplicate`.
 An event that wakes nobody goes to the fallback, say a router agent,
 which may invite an agent to the room or start one there; so the router
 hears only of events no agent has claimed.  From a shell:
@@ -155,32 +155,32 @@ courier event emit --from ci --key run-42 fix-login 'CI failed on fix-login: …
 courier event log 50                     # the latest events and what became of them
 ```
 
-A source pushing events, from a hook say, calls `courier-event-emit`.
+A source pushing events, from a hook say, calls `overlook-courier-event-emit`.
 One asking for them registers a poll, and all polls share one timer:
 
 ```elisp
-(courier-event-add-source 'ci :interval 60 :poll #'courier-ci-look)
-(courier-event-remove-source 'ci)
+(overlook-courier-event-add-source 'ci :interval 60 :poll #'overlook-courier-ci-look)
+(overlook-courier-event-remove-source 'ci)
 ```
 
-A poll runs its commands with `courier-event-run`, which keeps all
-sources to `courier-event-max-processes` (4) processes at once, and may
+A poll runs its commands with `overlook-courier-event-run`, which keeps all
+sources to `overlook-courier-event-max-processes` (4) processes at once, and may
 leave out what happened before it first looked at something with
-`courier-event-first-look-p`, remembering such an event's key with
-`courier-event-remember`.
+`overlook-courier-event-first-look-p`, remembering such an event's key with
+`overlook-courier-event-remember`.
 
-`courier-ci-mode` is such a source.  Every `courier-ci-interval` (60)
+`overlook-courier-ci-mode` is such a source.  Every `overlook-courier-ci-interval` (60)
 seconds it looks at the branch checked out in each worktree a registered
 agent works in, skips the ones with no upstream, and asks the remote's
-CI, through `gh` for GitHub and `glab` for GitLab (`courier-ci-backends`),
+CI, through `gh` for GitHub and `glab` for GitLab (`overlook-courier-ci-backends`),
 for the branch's latest run.  A run that finishes is an event from `ci`
 in the branch's thread, with its link and, when it failed, the command
 reading why.  A run that had finished before the branch was first looked
 at is not.  overlook's watchdog is another.
 
 ```elisp
-(require 'courier-ci)
-(courier-ci-mode 1)
+(require 'overlook-courier-ci)
+(overlook-courier-ci-mode 1)
 ```
 
 You are the member `user`.  `M-x overlook-room-open` shows a room in a
@@ -193,7 +193,7 @@ area.
 ## Personas
 
 A persona is an identity that outlives the agents running it: a folder in
-one of `courier-persona-directories`, say
+one of `overlook-courier-persona-directories`, say
 `~/workspace/me/personas/reviewer/`, holding `persona.md` and `memory/`.
 An agent started as `reviewer` gets the courier id `reviewer`, whatever
 engine runs it and however often it restarts, and one agent at most runs
@@ -220,7 +220,7 @@ persona has them.
 
 Starting, the agent is told the body, the personality and tone, and the
 index of its memory, `memory/MEMORY.md` (up to
-`courier-persona-index-lines`, 200).  It keeps that memory itself, a
+`overlook-courier-persona-index-lines`, 200).  It keeps that memory itself, a
 file per fact as in Claude's own memory; courier only tells it where.
 With `memory: off` it is told of no memory and none is made.
 Started with no task, it says in one line that it is ready; started by a
@@ -247,31 +247,31 @@ Courier knows no agent program.  A frontend registers each agent and
 reports its turns:
 
 ```elisp
-(courier-register id
-                  :buffer buffer                 ; unregistered when killed
-                  :deliver (lambda (prompt) ...) ; submit PROMPT to the agent
-                  :ready (lambda () ...)         ; can it take a prompt now?
-                  :reply (lambda () ...))        ; its last reply, or nil
-(courier-turn-started id)
-(courier-turn-finished id)             ; or (courier-turn-finished id error-message)
-(courier-blocked id "what it asks the user")
+(overlook-courier-register id
+                           :buffer buffer                 ; unregistered when killed
+                           :deliver (lambda (prompt) ...) ; submit PROMPT to the agent
+                           :ready (lambda () ...)         ; can it take a prompt now?
+                           :reply (lambda () ...))        ; its last reply, or nil
+(overlook-courier-turn-started id)
+(overlook-courier-turn-finished id)    ; or (overlook-courier-turn-finished id error-message)
+(overlook-courier-blocked id "what it asks the user")
 ```
 
-`courier-note` adds a note to an agent's next prompt without waking it,
-and `courier-prompt-functions` add notes, like the unread rooms, to the
+`overlook-courier-note` adds a note to an agent's next prompt without waking it,
+and `overlook-courier-prompt-functions` add notes, like the unread rooms, to the
 prompts courier delivers.
 
-It starts each agent with `(courier-environment id)` in its environment,
-from an id of `courier-new-id`, and sets `courier-spawn-function` to start
+It starts each agent with `(overlook-courier-environment id)` in its environment,
+from an id of `overlook-courier-new-id`, and sets `overlook-courier-spawn-function` to start
 agents for `courier spawn`, at the effort level asked for if it can, and
 with the id asked for, a persona's.
-overlook's `overlook-courier-mode` does all this for the agents on its
+overlook's `overlook-agent-courier-mode` does all this for the agents on its
 dashboard.
 
 ## Safety
 
 - A message an agent sends while handling one is a hop further from the
-  human prompt that set it off; past `courier-max-hops` (8) courier drops
+  human prompt that set it off; past `overlook-courier-max-hops` (8) courier drops
   it, so two agents cannot answer each other forever.
 - Messages are prompts: an agent acts on what another sends it as on what
   you type.  Spawned agents still ask you for permissions as usual.

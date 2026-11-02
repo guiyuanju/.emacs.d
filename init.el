@@ -1049,8 +1049,8 @@
   (require 'overlook)
   ;; 声明 elicitation 能力后 Claude 才会拿到 AskUserQuestion 工具；实验功能，只有内部变量可开。
   (setq agent-shell-elicitation--experimental-feature-enabled t)
-  ;; Antigravity 等二进制 ACP agent 由 iuiw-agent-update 装在 var/acp/ 下。
-  (iuiw-agent-update-acp-use))
+  ;; Antigravity 等二进制 ACP agent 由 overlook-agent-update 装在 var/acp/ 下。
+  (overlook-agent-update-acp-use))
 
 (use-package iuiw-agent-shell
   :ensure nil
@@ -1060,10 +1060,13 @@
   :autoload iuiw-agent-shell-dot-subdir)
 
 ;; overlook 第一次打开时检查本机 agent 能否读到 workspace 规则。
-(use-package iuiw-agent-rules
+(use-package overlook-agent-rules
   :ensure nil
-  :commands iuiw-agent-rules-check
-  :hook (overlook-mode . iuiw-agent-rules-check-once))
+  :load-path "site-lisp/overlook"
+  :commands overlook-agent-rules-check
+  :hook (overlook-mode . overlook-agent-rules-check-once)
+  :custom
+  (overlook-agent-rules-file "~/workspace/CLAUDE.md"))
 
 (use-package iuiw-assistant
   :ensure nil
@@ -1075,25 +1078,28 @@
     (evil-define-key* 'normal iuiw-assistant-result-mode-map
       "q" #'iuiw-assistant-quit "y" #'iuiw-assistant-copy "r" #'iuiw-assistant-replace)))
 
-(use-package iuiw-agent-update
-  :ensure nil
-  :commands iuiw-agent-update-check
-  :autoload iuiw-agent-update-acp-use
-  :init
-  ;; 每天排一次空闲 30 秒后的检查。
-  (run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'iuiw-agent-update-check))
-
-;; overlook 内置的 agent 信箱，agent 经 bin/courier 调用。
-(use-package courier
+(use-package overlook-agent-update
   :ensure nil
   :load-path "site-lisp/overlook"
-  :commands courier-cli
+  :commands overlook-agent-update-check
+  :autoload overlook-agent-update-acp-use
   :custom
-  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory))
+  (overlook-agent-update-acp-directory (expand-file-name "acp/" iuiw-state-directory))
+  :init
+  ;; 每天排一次空闲 30 秒后的检查。
+  (run-with-timer 0 (* 24 60 60) #'run-with-idle-timer 30 nil #'overlook-agent-update-check))
+
+;; overlook 内置的 agent 信箱，agent 经 bin/courier 调用。
+(use-package overlook-courier
+  :ensure nil
+  :load-path "site-lisp/overlook"
+  :commands overlook-courier-cli
+  :custom
+  (overlook-courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory))
   ;; 人设随所属 workspace 走：me 的推到 GitHub，okj 的只在本机。
-  (courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/"))
+  (overlook-courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/"))
   ;; 没有 agent 跟进的事件（CI 等）交给 router 人设分派。
-  (courier-room-publish-fallback "router"))
+  (overlook-courier-room-publish-fallback "router"))
 
 ;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
 (use-package circe :defer t)
@@ -1125,14 +1131,17 @@
   (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")
   (overlook-section-order '(overlook-usage--section
-                            overlook-courier--personas-section
-                            overlook-courier--rooms-section
+                            overlook-agent-courier--personas-section
+                            overlook-agent-courier--rooms-section
                             overlook--perspectives-section
                             iuiw-workspace--todo-section
                             iuiw-workspace--inbox-section
                             iuiw-elfeed-sync--digest-section))
   (overlook-agent-shell-ignore-function #'iuiw-assistant-shell-p)
   (overlook-usage-file (expand-file-name "claude-usage.json" iuiw-state-directory))
+  ;; DeepSeek 的 key 在 local.el 里，elfeed 的总结也用它。
+  (overlook-usage-deepseek-api-key (lambda () (bound-and-true-p iuiw-deepseek-api-key)))
+  (overlook-usage-deepseek-state-file (expand-file-name "deepseek-spending.json" iuiw-state-directory))
   (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" iuiw-state-directory))
   (overlook-agent-forks-file (expand-file-name "overlook-forks.eld" iuiw-state-directory))
   (overlook-agent-shell-configs
@@ -1151,16 +1160,16 @@
   (require 'overlook-project)
   (require 'overlook-agent-shell)
   (require 'overlook-usage)
-  (require 'overlook-courier)
+  (require 'overlook-agent-courier)
   (overlook-perspective-mode 1)
   (overlook-project-mode 1)
   (overlook-agent-mode 1)
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
-  (overlook-courier-mode 1)
+  (overlook-agent-courier-mode 1)
   ;; worktree 里 agent 的分支跑完 CI，把结果发到以分支命名的房间。
-  (require 'courier-ci)
-  (courier-ci-mode 1)
+  (require 'overlook-courier-ci)
+  (overlook-courier-ci-mode 1)
   ;; 被派出的 agent 一轮跑太久、等人太久，或信件投递后没开始新一轮时，报到 #watchdog。
   (require 'overlook-watchdog)
   (overlook-watchdog-mode 1)
@@ -1174,8 +1183,8 @@
               ("deepseek" . ,(nerd-icons-mdicon "nf-md-dolphin"))))
     ;; 用量行后面写账号名；codex 登的是个人 ChatGPT 账号。
     (setopt overlook-usage-accounts '(("claude" . "okj") ("codex" . "personal"))))
-  (require 'iuiw-deepseek)
-  (require 'iuiw-antigravity)
+  (require 'overlook-usage-deepseek)
+  (require 'overlook-usage-antigravity)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新；一行折成多行时 j/k 仍按整行走。
   (with-eval-after-load 'evil
     (pcase-dolist (`(,key . ,command) overlook-keys)

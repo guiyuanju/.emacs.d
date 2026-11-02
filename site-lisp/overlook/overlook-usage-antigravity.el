@@ -1,6 +1,32 @@
-;;; iuiw-antigravity.el --- Antigravity plan quota on the overlook dashboard -*- lexical-binding: t; -*-
+;;; overlook-usage-antigravity.el --- Antigravity plan quota on the overlook dashboard -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
+
+;; An antigravity row in the dashboard's Usage section: the weekly limit
+;; the Gemini models share, on macOS.  Loading this file adds the row; it
+;; shows once a reading arrives.
+;;
 ;; Quota comes from Antigravity's undocumented retrieveUserQuotaSummary,
 ;; which only answers a client calling itself Antigravity.  The OAuth refresh
 ;; credentials antigravity-acp keeps in the macOS keychain stay inside one
@@ -13,9 +39,9 @@
 ;;; Code:
 
 (require 'overlook-usage)
-(require 'iuiw-agent-update)
+(require 'overlook-agent-update)
 
-(defconst iuiw-antigravity--script
+(defconst overlook-usage-antigravity--script
   "c=
 while read -r _; do
   [ -n \"$c\" ] || c=$(security find-generic-password -s gemini -a antigravity-acp -w) || c=
@@ -34,19 +60,19 @@ done"
   "Shell script answering each input line with one line of Antigravity's quota.
 The line is \"ok JSON\" or \"err STEP\"; $1 is the user agent.")
 
-(defvar iuiw-antigravity--windows nil)
-(defvar iuiw-antigravity--error nil)
-(defvar iuiw-antigravity--process nil)
-(defvar iuiw-antigravity--waiting nil
+(defvar overlook-usage-antigravity--windows nil)
+(defvar overlook-usage-antigravity--error nil)
+(defvar overlook-usage-antigravity--process nil)
+(defvar overlook-usage-antigravity--waiting nil
   "Non-nil while a quota request is unanswered.")
 
-(defun iuiw-antigravity--user-agent ()
+(defun overlook-usage-antigravity--user-agent ()
   "User agent naming the installed antigravity-acp version."
   (format "antigravity/%s darwin/arm64"
-          (or (alist-get 'version (iuiw-agent-update--acp-installed "antigravity-acp"))
+          (or (alist-get 'version (overlook-agent-update--acp-installed "antigravity-acp"))
               "1.4.1")))
 
-(defun iuiw-antigravity--parse (data)
+(defun overlook-usage-antigravity--parse (data)
   "The Gemini models' weekly window from retrieveUserQuotaSummary DATA.
 A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
   (or (mapcan
@@ -61,22 +87,22 @@ A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
        (alist-get 'groups data))
       (error "No Gemini quota in response")))
 
-(defun iuiw-antigravity--answer (line)
+(defun overlook-usage-antigravity--answer (line)
   "Record the quota answer LINE from the shell."
-  (setq iuiw-antigravity--waiting nil)
+  (setq overlook-usage-antigravity--waiting nil)
   (condition-case nil
       (progn
         (unless (string-prefix-p "ok " line)
           (error "Quota request failed"))
-        (setq iuiw-antigravity--windows
-              (iuiw-antigravity--parse
+        (setq overlook-usage-antigravity--windows
+              (overlook-usage-antigravity--parse
                (json-parse-string (substring line 3) :object-type 'alist :array-type 'list))
-              iuiw-antigravity--error nil))
-    (error (setq iuiw-antigravity--error t)))
+              overlook-usage-antigravity--error nil))
+    (error (setq overlook-usage-antigravity--error t)))
   (overlook-usage-scan))
 
-(defun iuiw-antigravity--filter (process output)
-  "Hand each complete line of PROCESS OUTPUT to `iuiw-antigravity--answer'."
+(defun overlook-usage-antigravity--filter (process output)
+  "Hand each complete line of PROCESS OUTPUT to the answer handler."
   (with-current-buffer (process-buffer process)
     (goto-char (point-max))
     (insert output)
@@ -84,44 +110,44 @@ A missing `remainingFraction' is proto3 omitting zero, so the limit is used up."
     (while (search-forward "\n" nil t)
       (let ((line (buffer-substring-no-properties (point-min) (1- (point)))))
         (delete-region (point-min) (point))
-        (iuiw-antigravity--answer line)))))
+        (overlook-usage-antigravity--answer line)))))
 
-(defun iuiw-antigravity--process ()
+(defun overlook-usage-antigravity--process ()
   "Return the live quota shell, starting it if needed."
-  (unless (process-live-p iuiw-antigravity--process)
-    (setq iuiw-antigravity--waiting nil
-          iuiw-antigravity--process
+  (unless (process-live-p overlook-usage-antigravity--process)
+    (setq overlook-usage-antigravity--waiting nil
+          overlook-usage-antigravity--process
           (make-process
            :name "antigravity-quota" :buffer (generate-new-buffer " *antigravity-quota*")
            :noquery t :connection-type 'pipe
-           :command (list "sh" "-c" iuiw-antigravity--script "sh" (iuiw-antigravity--user-agent))
-           :filter #'iuiw-antigravity--filter
+           :command (list "sh" "-c" overlook-usage-antigravity--script "sh" (overlook-usage-antigravity--user-agent))
+           :filter #'overlook-usage-antigravity--filter
            :sentinel (lambda (process _event)
                        (unless (process-live-p process)
                          (kill-buffer (process-buffer process))
-                         (setq iuiw-antigravity--waiting nil))))))
-  iuiw-antigravity--process)
+                         (setq overlook-usage-antigravity--waiting nil))))))
+  overlook-usage-antigravity--process)
 
-(defun iuiw-antigravity--fetch ()
+(defun overlook-usage-antigravity--fetch ()
   "Ask for the quota unless a request is unanswered; non-nil when it asked."
-  (unless iuiw-antigravity--waiting
-    (setq iuiw-antigravity--waiting t)
-    (process-send-string (iuiw-antigravity--process) "\n")
+  (unless overlook-usage-antigravity--waiting
+    (setq overlook-usage-antigravity--waiting t)
+    (process-send-string (overlook-usage-antigravity--process) "\n")
     t))
 
-(defun iuiw-antigravity-usage ()
+(defun overlook-usage-antigravity-usage ()
   "Antigravity's Gemini usage, as last fetched.
 A blank first window puts the weekly one under the other rows' 7d column."
-  (when iuiw-antigravity--windows
+  (when overlook-usage-antigravity--windows
     (cons (propertize "antigravity"
-                      'face (and iuiw-antigravity--error 'warning)
-                      'help-echo (if iuiw-antigravity--error
+                      'face (and overlook-usage-antigravity--error 'warning)
+                      'help-echo (if overlook-usage-antigravity--error
                                      "Last quota refresh failed; showing the previous reading"
                                    "Weekly limit shared by the Gemini models; refreshed every 5 minutes"))
-          (cons '("" "" nil) iuiw-antigravity--windows))))
+          (cons '("" "" nil) overlook-usage-antigravity--windows))))
 
-(add-to-list 'overlook-usage-functions #'iuiw-antigravity-usage t)
-(overlook-usage-add-poller #'iuiw-antigravity--fetch)
+(add-to-list 'overlook-usage-functions #'overlook-usage-antigravity-usage t)
+(overlook-usage-add-poller #'overlook-usage-antigravity--fetch)
 
-(provide 'iuiw-antigravity)
-;;; iuiw-antigravity.el ends here
+(provide 'overlook-usage-antigravity)
+;;; overlook-usage-antigravity.el ends here

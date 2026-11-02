@@ -30,18 +30,18 @@
 ;;   `overlook-watchdog-turn-limit', or waited for the user longer than
 ;;   `overlook-watchdog-waiting-limit';
 ;; - courier gave up on a delivery to any agent that started no turn,
-;;   after `courier-delivery-timeout'.
+;;   after `overlook-courier-delivery-timeout'.
 ;;
 ;; Each finding is a courier event, emitted once, from `watchdog' in the
 ;; thread `overlook-watchdog-room'.  When no agent follows that room, it
 ;; goes to the stuck agent's parent, else to
-;; `courier-room-publish-fallback'.
+;; `overlook-courier-room-publish-fallback'.
 
 ;;; Code:
 
 (require 'overlook-agent)
-(require 'overlook-courier)
-(require 'courier-event)
+(require 'overlook-agent-courier)
+(require 'overlook-courier-event)
 
 (defcustom overlook-watchdog-interval 60
   "Seconds between checks of the agents."
@@ -68,10 +68,10 @@
 
 (defun overlook-watchdog--report (id kind since text)
   "Emit TEXT about agent ID once for finding KIND that began at SINCE."
-  (courier-event-emit
+  (overlook-courier-event-emit
    (list :source "watchdog" :thread overlook-watchdog-room :text text
          :key (format "%s %s %s" id kind since)
-         :fallback (when-let* ((agent (courier-agent id))) (courier-agent-parent agent)))))
+         :fallback (when-let* ((agent (overlook-courier-agent id))) (overlook-courier-agent-parent agent)))))
 
 (defun overlook-watchdog--minutes (seconds)
   "SECONDS as whole minutes."
@@ -79,7 +79,7 @@
 
 (defun overlook-watchdog--check-agent (buffer now)
   "Check agent BUFFER, spawned by another agent, at time NOW."
-  (let* ((id (buffer-local-value 'overlook-courier-id buffer))
+  (let* ((id (buffer-local-value 'overlook-agent-courier-id buffer))
          (brief (lambda () (or (overlook-agent--brief buffer) "no activity shown"))))
     (with-current-buffer buffer
       (when-let* (((overlook-agent-turn-open-p))
@@ -115,9 +115,9 @@ whether it has it."
   (interactive)
   (let ((now (float-time)))
     (dolist (buffer (overlook-agent-buffers))
-      (when-let* ((id (buffer-local-value 'overlook-courier-id buffer))
-                  (agent (courier-agent id))
-                  ((courier-agent-parent agent)))
+      (when-let* ((id (buffer-local-value 'overlook-agent-courier-id buffer))
+                  (agent (overlook-courier-agent id))
+                  ((overlook-courier-agent-parent agent)))
         (overlook-watchdog--check-agent buffer now)))
     (dolist (buffer (hash-table-keys overlook-watchdog--waiting))
       (unless (buffer-live-p buffer) (remhash buffer overlook-watchdog--waiting)))))
@@ -129,11 +129,11 @@ whether it has it."
   :group 'overlook
   (if overlook-watchdog-mode
       (progn
-        (courier-event-add-source "watchdog" :interval overlook-watchdog-interval
+        (overlook-courier-event-add-source "watchdog" :interval overlook-watchdog-interval
                                   :poll #'overlook-watchdog-check)
-        (add-hook 'courier-stalled-functions #'overlook-watchdog--stalled))
-    (courier-event-remove-source "watchdog")
-    (remove-hook 'courier-stalled-functions #'overlook-watchdog--stalled)))
+        (add-hook 'overlook-courier-stalled-functions #'overlook-watchdog--stalled))
+    (overlook-courier-event-remove-source "watchdog")
+    (remove-hook 'overlook-courier-stalled-functions #'overlook-watchdog--stalled)))
 
 (provide 'overlook-watchdog)
 ;;; overlook-watchdog.el ends here

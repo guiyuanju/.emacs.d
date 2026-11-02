@@ -1,0 +1,386 @@
+;;; overlook-agent-courier.el --- Agents on the overlook dashboard messaging each other -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 guiyuanju
+
+;; Author: guiyuanju <guiyuanjune@outlook.com>
+;; URL: https://github.com/guiyuanju/overlook
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; Registers each agent overlook runs with courier, so agents can message,
+;; spawn and monitor each other.  An agent started while the mode is on
+;; learns its courier id from $COURIER_ID and finds the courier script on
+;; its PATH.  Its errors and requests for the user reach the agent that
+;; spawned it.  A spawned agent opens in the perspective of the project it
+;; works in, else in its parent's; the
+;; dashboard marks who spawned it, and the messages waiting for it.
+;; Above the perspectives, a Rooms section lists courier's chat rooms with
+;; the posts the user has not read; RET opens one.  The room named after a
+;; worktree's branch is listed under the worktree's row instead.  `d d' on
+;; a room closes it, moving its posts to the archive.  A Personas section
+;; lists courier's personas; RET starts one, or shows the agent running it.
+;; Agents running a persona are listed there only, and kept out of the
+;; perspectives: RET shows one in the current perspective.  What a persona
+;; spawns goes to the perspective of its project, else to the orphans'.
+;; An agent resumed in a later Emacs keeps its courier id.
+
+;;; Code:
+
+(require 'overlook-agent)
+(require 'overlook-courier)
+(require 'overlook-courier-room)
+(require 'overlook-courier-persona)
+(require 'overlook-courier-worktree)
+
+(declare-function overlook-room-open "overlook-room")
+
+(defvar overlook-agent-shell-configs)
+
+(defvar-local overlook-agent-courier-id nil
+  "This agent's courier id.")
+(put 'overlook-agent-courier-id 'permanent-local t)
+
+(defvar overlook-agent-courier--parent nil
+  "Courier id of the agent spawning the agent being started, or nil.")
+
+(defvar overlook-agent-courier--as nil
+  "Courier id the agent being started must get, or nil.")
+
+(defun overlook-agent-courier--environment (name root)
+  "Environment telling agent NAME starting in ROOT its courier id.
+A resumed agent gets its earlier id back unless another agent has it."
+  (overlook-courier-environment
+   (or overlook-agent-courier--as
+       (when-let* ((id (alist-get 'courier overlook-agent-resuming)))
+         (and (not (overlook-courier-agent id)) id))
+       (overlook-courier-new-id name root))))
+
+(defun overlook-agent-courier--check-resume (saved)
+  "Refuse to resume SAVED agent when it ran a persona some agent runs now."
+  (when-let* ((id (alist-get 'courier saved))
+              ((overlook-courier-persona id))
+              (agent (overlook-courier-agent id)))
+    (user-error "Persona %s runs already in %s; stop it first" id
+                (buffer-name (overlook-courier-agent-buffer agent)))))
+
+(defun overlook-agent-courier--persona-item-p (item)
+  "Non-nil when dashboard ITEM, a live or saved agent, runs a persona."
+  (when-let* ((id (pcase item
+                    (`(agent . ,buffer) (buffer-local-value 'overlook-agent-courier-id buffer))
+                    (`(saved . ,saved) (alist-get 'courier saved)))))
+    (member id (overlook-courier-persona-names))))
+
+(defun overlook-agent-courier--saved (buffer)
+  "Entries keeping agent BUFFER's courier id for when it is resumed."
+  (when-let* ((id (buffer-local-value 'overlook-agent-courier-id buffer)))
+    `((courier . ,id))))
+
+(defun overlook-agent-courier--register (buffer)
+  "Register agent BUFFER with courier once its frontend is ready."
+  (with-current-buffer buffer
+    (when-let* (((not (and overlook-agent-courier-id (overlook-courier-agent overlook-agent-courier-id))))
+                (submit (overlook-agent-get buffer 'submit)))
+      (let* ((environment (overlook-agent-get buffer 'environment))
+             (id (or (seq-some (lambda (entry)
+                                 (and (string-prefix-p "COURIER_ID=" entry)
+                                      (substring entry (length "COURIER_ID="))))
+                               environment)
+                     (overlook-courier-new-id (or (overlook-agent-get buffer 'agent) "agent")
+                                     (or (overlook-agent-get buffer 'root) default-directory))))
+            (ready (overlook-agent-get buffer 'ready))
+            (reply (overlook-agent-get buffer 'reply))
+            (transcript (overlook-agent-get buffer 'transcript)))
+        (setq overlook-agent-courier-id id)
+        (overlook-courier-register
+         id
+         :buffer buffer
+         :parent overlook-agent-courier--parent
+         :deliver (lambda (text) (with-current-buffer buffer (funcall submit text)))
+         :ready (lambda ()
+                  (with-current-buffer buffer
+                    (if ready (funcall ready)
+                      (not (memq overlook-agent-status '(working waiting))))))
+         :reply (and reply (lambda () (with-current-buffer buffer (funcall reply))))
+         :transcript (and transcript
+                          (lambda () (with-current-buffer buffer (funcall transcript)))))))))
+
+(defun overlook-agent-courier--detach-persona (buffer)
+  "Keep agent BUFFER out of the perspectives when it runs a persona."
+  (when (and (not (buffer-local-value 'overlook-detached buffer))
+             (overlook-agent-courier--persona-item-p (cons 'agent buffer)))
+    (overlook-detach buffer)))
+
+(defun overlook-agent-courier--sync ()
+  "Register the agents courier does not know yet, and detach the personas."
+  (dolist (buffer (overlook-agent-buffers))
+    (overlook-agent-courier--register buffer)
+    (overlook-agent-courier--detach-persona buffer)))
+
+(defun overlook-agent-courier--turn-started ()
+  "Tell courier this agent started a turn."
+  (overlook-courier-turn-started overlook-agent-courier-id))
+
+(defun overlook-agent-courier--turn-finished ()
+  "Tell courier this agent finished a turn, and the error it failed with."
+  (overlook-courier-turn-finished overlook-agent-courier-id overlook-agent-error))
+
+(defun overlook-agent-courier--blocked ()
+  "Tell courier this agent waits for the user, and on what."
+  (overlook-courier-blocked overlook-agent-courier-id
+                   (or (overlook-agent--brief (current-buffer)) "a request")))
+
+(defun overlook-agent-courier--perspective-of (directory)
+  "The perspective whose project root holds DIRECTORY most closely, or nil."
+  (let ((directory (file-name-as-directory (file-truename directory)))
+        (best nil)
+        (length 0))
+    (dolist (name (overlook-perspectives))
+      (when-let* ((root (overlook-perspective-root name))
+                  (root (file-name-as-directory (file-truename root)))
+                  ((string-prefix-p root directory))
+                  ((> (length root) length)))
+        (setq best name length (length root))))
+    best))
+
+(defun overlook-agent-courier--spawn (name directory parent &optional effort as)
+  "Start agent NAME in DIRECTORY for agent PARENT and return its id.
+It opens in the perspective of the project holding DIRECTORY, else in
+PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
+A persona opens in no perspective, and what a persona spawns outside the
+projects goes to `overlook-orphan-perspective'."
+  (let* ((parent-buffer (when-let* ((agent (overlook-courier-agent parent))) (overlook-courier-agent-buffer agent)))
+         (perspective (unless (and as (overlook-courier-persona as))
+                        (or (overlook-agent-courier--perspective-of directory)
+                            (and (buffer-live-p parent-buffer)
+                                 (if (buffer-local-value 'overlook-detached parent-buffer)
+                                     (overlook-orphan-perspective)
+                                   (overlook-agent-perspective parent-buffer))))))
+         (buffer (let ((overlook-agent-courier--parent parent)
+                       (overlook-agent-courier--as as))
+                   (overlook-agent--launch name directory nil t effort))))
+    (when perspective (overlook-add-to-perspective perspective buffer))
+    (let ((overlook-agent-courier--parent parent)) (overlook-agent-courier--register buffer))
+    (overlook-agent-courier--detach-persona buffer)
+    (buffer-local-value 'overlook-agent-courier-id buffer)))
+
+(defun overlook-agent-courier--mark (buffer)
+  "Who spawned agent BUFFER and how many messages wait for it."
+  (when-let* ((agent (overlook-courier-agent (buffer-local-value 'overlook-agent-courier-id buffer))))
+    (let ((parent (overlook-courier-agent-parent agent))
+          (pending (length (overlook-courier-agent-mailbox agent))))
+      (concat (if parent (propertize (concat " ← " parent) 'face 'shadow) "")
+              (if (> pending 0) (propertize (format " ✉%d" pending) 'face 'warning) "")))))
+
+(defun overlook-agent-courier--room-row (name &optional dim)
+  "Insert the row of room NAME: its unread posts, and whether one names the user.
+With DIM, its name is dimmed; unread posts still stand out."
+  (let* ((room (overlook-courier-room name))
+         (read (plist-get (overlook-courier-room-member room overlook-courier-room-user) :read))
+         (unread (if read
+                     (cl-loop for post in (overlook-courier-room-posts room)
+                              while (> (plist-get post :n) read)
+                              collect post)
+                   '()))
+         (named (seq-some (lambda (post)
+                            (and (not (equal (plist-get post :from) overlook-courier-room-user))
+                                 (overlook-courier-room-mentions-p (plist-get post :body) overlook-courier-room-user)))
+                          unread))
+         (members (length (overlook-courier-room-members room)))
+         (last (car (overlook-courier-room-posts room)))
+         (meta (propertize (format "%d member%s" members (if (= members 1) "" "s"))
+                           'face 'shadow))
+         (line (concat overlook-indent "#" name
+                       (if unread (propertize (format " ✉%d" (length unread)) 'face 'warning) "")
+                       (overlook-align-right meta 1)
+                       "\n")))
+    (when dim
+      (add-face-text-property (length overlook-indent) (length line) 'shadow t line))
+    (when named
+      (add-face-text-property (length overlook-indent) (length line) 'overlook-agent-waiting t line))
+    (add-text-properties 0 (length line)
+                         `( overlook-item (room . ,name)
+                            overlook-action ,(lambda () (overlook-room-open name))
+                            overlook-attention ,named
+                            help-echo ,(if last (overlook-courier-room-format last) "No posts yet"))
+                         line)
+    (overlook-insert-row line)))
+
+(defun overlook-agent-courier--persona-row (name)
+  "Insert the row of persona NAME: whether it runs, its engine's icon, its name."
+  (let* ((persona (overlook-courier-persona name))
+         (agent (overlook-courier-agent name))
+         (buffer (and agent (overlook-courier-agent-buffer agent)))
+         (running (buffer-live-p buffer))
+         (meta (propertize (if running "" "offline") 'face 'shadow))
+         (line (concat overlook-indent
+                       (overlook-glyph-cell
+                        (if running
+                            (overlook-agent-glyph buffer)
+                          (overlook-agent-idle-glyph)))
+                       (overlook-agent-label (or (plist-get persona :engine) "?"))
+                       " " (plist-get persona :name)
+                       (overlook-align-right meta 1)
+                       "\n")))
+    (add-text-properties 0 (length line)
+                         `( overlook-item (persona . ,name)
+                            overlook-action ,(if running
+                                                 (lambda () (overlook-agent-visit buffer))
+                                               (lambda () (overlook-persona-start name)))
+                            help-echo ,(concat (if-let* ((description (plist-get persona :description)))
+                                                   (concat description "\n")
+                                                 "")
+                                               (if running "RET: show it" "RET: start it; e: edit it")))
+                         line)
+    (overlook-insert-row line)))
+
+(defun overlook-agent-courier--personas-section ()
+  "Insert the Personas section: a row per persona, or one to make the first."
+  (when overlook-courier-persona-directories
+    (overlook-insert-section
+     (propertize "Personas" 'overlook-action #'overlook-persona-new)
+     (lambda ()
+       (if-let* ((names (overlook-courier-persona-names)))
+           (mapc #'overlook-agent-courier--persona-row names)
+         (overlook-insert-row
+          (propertize (concat overlook-indent "No personas yet; RET makes one\n")
+                      'face 'shadow
+                      'overlook-action #'overlook-persona-new)))))))
+
+(defun overlook-persona-start (name &optional directory engine effort)
+  "Start persona NAME, by default in its own directory on its own engine.
+With a prefix argument, ask for the DIRECTORY, ENGINE and reasoning EFFORT."
+  (interactive
+   (let ((name (completing-read "Start persona: " (seq-remove #'overlook-courier-agent (overlook-courier-persona-names))
+                                nil t)))
+     (cons name
+           (when current-prefix-arg
+             (let ((persona (overlook-courier-persona name)))
+               (list (read-directory-name "In directory: " (overlook-courier-persona-directory persona))
+                     (completing-read "Engine: "
+                                      (and (boundp 'overlook-agent-shell-configs)
+                                           (mapcar #'car overlook-agent-shell-configs))
+                                      nil nil (plist-get persona :engine))
+                     (let ((effort (read-string "Effort (empty for its own): ")))
+                       (and (not (string-empty-p effort)) effort))))))))
+  (overlook-courier-persona-start name :directory directory :engine engine :effort effort)
+  (message "Started persona %s" name))
+
+(defconst overlook-agent-courier--persona-template "---
+engine: claude
+effort:
+description: %s
+avatar:
+personality:
+tone:
+---
+%s
+
+## Background
+"
+  "Text of a new persona.md, given its description and role.")
+
+(defun overlook-persona-new (name directory)
+  "Make persona NAME in DIRECTORY, one of `overlook-courier-persona-directories'.
+Opens its persona.md to fill in."
+  (interactive
+   (list (let ((name (read-string "New persona: ")))
+           (unless (overlook-courier-persona-name-p name)
+             (user-error "Persona names are lowercase letters, digits, - and _, but not %s"
+                         (string-join overlook-courier-persona-reserved ", ")))
+           (when (overlook-courier-persona name) (user-error "Persona %s exists" name))
+           name)
+         (if (cdr overlook-courier-persona-directories)
+             (completing-read "In: " overlook-courier-persona-directories nil t)
+           (or (car overlook-courier-persona-directories)
+               (user-error "Set `overlook-courier-persona-directories' first")))))
+  (let ((folder (expand-file-name name directory)))
+    (make-directory (expand-file-name "memory" folder) t)
+    (find-file (expand-file-name "persona.md" folder))
+    (when (= (buffer-size) 0)
+      (insert (format overlook-agent-courier--persona-template
+                      (read-string "One-line description: ")
+                      "Your role, and the rules you keep."))
+      (save-buffer))))
+
+(defun overlook-persona-edit (name)
+  "Open persona NAME's persona.md; on the dashboard, the persona at point."
+  (interactive
+   (list (pcase (and (derived-mode-p 'overlook-mode) (overlook-item-at-point))
+           (`(persona . ,name) name)
+           (_ (completing-read "Edit persona: " (overlook-courier-persona-names) nil t)))))
+  (find-file (expand-file-name "persona.md" (plist-get (overlook-courier-persona name) :folder))))
+
+(defun overlook-agent-courier--worktree-room (dir)
+  "Name of the room of worktree DIR's branch."
+  (overlook-courier-worktree-room (file-name-nondirectory (directory-file-name dir))))
+
+(defun overlook-agent-courier--insert-worktree-room (_perspective dir)
+  "Insert the dimmed row of the room of worktree DIR's branch, when it has one."
+  (when-let* ((name (and dir (overlook-agent-courier--worktree-room dir)))
+              ((overlook-courier-room name)))
+    (overlook-agent-courier--room-row name t)))
+
+(defun overlook-agent-courier--delete (item)
+  "Close the room ITEM stands for, once confirmed, moving its posts to the archive."
+  (pcase item
+    (`(room . ,name)
+     (when (yes-or-no-p (format "Close room #%s, archiving its posts? " name))
+       (overlook-courier-room-close name)
+       (message "Closed room #%s" name))
+     t)))
+
+(defun overlook-agent-courier--rooms-section ()
+  "Insert the Rooms section: a row per courier room not under a worktree."
+  (let ((under (mapcar #'overlook-agent-courier--worktree-room
+                       (seq-mapcat #'overlook-worktrees (overlook-perspectives)))))
+    (overlook-insert-section
+     (propertize "Rooms" 'overlook-action (lambda () (call-interactively #'overlook-room-open)))
+     (lambda ()
+       (dolist (name (overlook-courier-room-names))
+         (unless (member name under) (overlook-agent-courier--room-row name)))))))
+
+;;;###autoload
+(define-minor-mode overlook-agent-courier-mode
+  "Let overlook's agents message, spawn and monitor each other through courier."
+  :global t
+  :group 'overlook
+  (overlook-toggle-hooks
+   overlook-agent-courier-mode
+   '((overlook-agent-environment-functions overlook-agent-courier--environment)
+     (overlook-agent-changed-hook overlook-agent-courier--sync)
+     (overlook-agent-turn-start-hook overlook-agent-courier--turn-started)
+     (overlook-agent-turn-end-hook overlook-agent-courier--turn-finished)
+     (overlook-agent-attention-hook overlook-agent-courier--blocked)
+     (overlook-agent-row-marks overlook-agent-courier--mark)
+     (overlook-agent-hide-functions overlook-agent-courier--persona-item-p)
+     (overlook-sections overlook-agent-courier--rooms-section -10)
+     (overlook-worktree-functions overlook-agent-courier--insert-worktree-room 50)
+     (overlook-delete-functions overlook-agent-courier--delete)
+     (overlook-sections overlook-agent-courier--personas-section -9)
+     (overlook-agent-save-functions overlook-agent-courier--saved)
+     (overlook-agent-resume-functions overlook-agent-courier--check-resume)
+     (overlook-courier-changed-hook overlook-refresh)))
+  (setq overlook-courier-spawn-function (and overlook-agent-courier-mode #'overlook-agent-courier--spawn))
+  (when overlook-agent-courier-mode (overlook-agent-courier--sync))
+  (overlook-refresh))
+
+(overlook-define-key "e" #'overlook-persona-edit)
+
+(provide 'overlook-agent-courier)
+;;; overlook-agent-courier.el ends here

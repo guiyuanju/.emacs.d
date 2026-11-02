@@ -46,12 +46,15 @@
 ;;   line names the account new agents get when it is not the first.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
 ;;   another agent in the same project.
+;; - A permission request for an MCP tool lists every argument of the call;
+;;   agent-shell shows them only when there is a single string one.
 
 ;;; Code:
 
 (require 'overlook-agent)
 (require 'agent-shell)
 (require 'acp)
+(require 'json)
 (require 'map)
 
 (declare-function overlook-usage-save-claude "overlook-usage" (usage &optional account))
@@ -550,6 +553,28 @@ Works from an agent shell or its dashboard row."
                (overlook-agent-show target))))
           (message "Handoff draft ready; review and send with RET"))))))
 
+(defun overlook-agent-shell--permission-arguments (orig &rest args)
+  "Call ORIG with ARGS, then append every argument of the tool call.
+`agent-shell' shows `rawInput' only when it is a single string field, so
+other MCP calls asked for permission showing only their tool name."
+  (let* ((title (apply orig args))
+         (tool-call (plist-get args :tool-call))
+         (raw-input (map-elt tool-call :raw-input)))
+    (if (and (member (map-elt tool-call :kind) '(nil "other"))
+             raw-input
+             (not (and (= (length raw-input) 1) (stringp (cdar raw-input))))
+             (not (map-elt raw-input 'command)))
+        (concat title "\n\n"
+                (mapconcat
+                 (lambda (pair)
+                   (let ((value (cdr pair)))
+                     (if (and (stringp value) (string-search "\n" value))
+                         (format "%s:\n```\n%s\n```" (car pair) value)
+                       (format "- %s: `%s`" (car pair)
+                               (if (stringp value) value (json-encode value))))))
+                 raw-input "\n"))
+      title)))
+
 ;;;###autoload
 (define-minor-mode overlook-agent-shell-mode
   "Track every `agent-shell' buffer as an overlook agent."
@@ -558,6 +583,8 @@ Works from an agent shell or its dashboard row."
   (if overlook-agent-shell-mode
       (progn
         (advice-add 'acp-make-client :filter-args #'overlook-agent-shell--add-environment)
+        (advice-add 'agent-shell--permission-title :around
+                    #'overlook-agent-shell--permission-arguments)
         (add-hook 'overlook-agent-environment-functions #'overlook-agent-shell--account-environment)
         (add-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
         (add-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
@@ -567,6 +594,7 @@ Works from an agent shell or its dashboard row."
           (with-current-buffer buffer
             (when (derived-mode-p 'agent-shell-mode) (overlook-agent-shell--track)))))
     (advice-remove 'acp-make-client #'overlook-agent-shell--add-environment)
+    (advice-remove 'agent-shell--permission-title #'overlook-agent-shell--permission-arguments)
     (remove-hook 'overlook-agent-environment-functions #'overlook-agent-shell--account-environment)
     (remove-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
     (remove-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)

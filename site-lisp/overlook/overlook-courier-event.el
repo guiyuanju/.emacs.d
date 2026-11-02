@@ -1,4 +1,4 @@
-;;; courier-event.el --- Events for agents, from sources that watch the world -*- lexical-binding: t; -*-
+;;; overlook-courier-event.el --- Events for agents, from sources that watch the world -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
@@ -34,16 +34,16 @@
 ;;              a duplicate, and is left out
 ;;   :fallback  who hears of it when no agent follows the room: an agent
 ;;              id, "none" for nobody, or nil for
-;;              `courier-room-publish-fallback'
+;;              `overlook-courier-room-publish-fallback'
 ;;
-;; `courier-event-emit' leaves out duplicates, passes the event through
-;; `courier-event-filters', posts it in its room and logs what became of
-;; it in `courier-event-log'.  A source pushing events, from a hook say,
+;; `overlook-courier-event-emit' leaves out duplicates, passes the event through
+;; `overlook-courier-event-filters', posts it in its room and logs what became of
+;; it in `overlook-courier-event-log'.  A source pushing events, from a hook say,
 ;; calls it directly.  A source asking for them registers with
-;; `courier-event-add-source' and is polled at its interval; its polls
-;; run their commands through `courier-event-run', which keeps the
-;; processes of all sources to `courier-event-max-processes' at once, and
-;; may use `courier-event-first-look-p' to leave out what had happened
+;; `overlook-courier-event-add-source' and is polled at its interval; its polls
+;; run their commands through `overlook-courier-event-run', which keeps the
+;; processes of all sources to `overlook-courier-event-max-processes' at once, and
+;; may use `overlook-courier-event-first-look-p' to leave out what had happened
 ;; before it first looked.  Sources are named by strings.
 
 ;;; Code:
@@ -51,128 +51,128 @@
 (require 'cl-lib)
 (require 'ring)
 (require 'seq)
-(require 'courier)
-(require 'courier-room)
+(require 'overlook-courier)
+(require 'overlook-courier-room)
 
-(defcustom courier-event-tick 10
+(defcustom overlook-courier-event-tick 10
   "Seconds between checks of which sources are due for a poll."
   :type 'number
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defcustom courier-event-max-processes 4
+(defcustom overlook-courier-event-max-processes 4
   "Most processes the sources' polls run at once."
   :type 'natnum
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defcustom courier-event-log-size 200
-  "Most events kept in `courier-event-log'."
+(defcustom overlook-courier-event-log-size 200
+  "Most events kept in `overlook-courier-event-log'."
   :type 'natnum
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defcustom courier-event-key-memory 5000
+(defcustom overlook-courier-event-key-memory 5000
   "Most event keys remembered to leave out duplicates."
   :type 'natnum
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defvar courier-event-filters nil
+(defvar overlook-courier-event-filters nil
   "Functions of an event returning it, changed or not, or nil to drop it.
 They run in order on each event that is not a duplicate.")
 
-(defvar courier-event-log nil
+(defvar overlook-courier-event-log nil
   "Recent events, newest first, each with :time, :outcome and :reached.
 The outcome is `delivered', `unclaimed', `dropped' or `duplicate'.")
 
-(defvar courier-event--keys (make-hash-table :test #'equal)
+(defvar overlook-courier-event--keys (make-hash-table :test #'equal)
   "Keys of the events seen, as (SOURCE . KEY).")
 
-(defvar courier-event--key-order nil
-  "Ring of the keys in `courier-event--keys', to forget the oldest.")
+(defvar overlook-courier-event--key-order nil
+  "Ring of the keys in `overlook-courier-event--keys', to forget the oldest.")
 
-(defvar courier-event--looked (make-hash-table :test #'equal)
+(defvar overlook-courier-event--looked (make-hash-table :test #'equal)
   "Subjects the sources have looked at, as (SOURCE . SUBJECT).")
 
-(defvar courier-event--sources nil
+(defvar overlook-courier-event--sources nil
   "Alist of each registered source's name to a plist of :interval, :poll and :next.")
 
-(defvar courier-event--timer nil)
+(defvar overlook-courier-event--timer nil)
 
-(defvar courier-event--running 0
-  "Processes of `courier-event-run' running.")
+(defvar overlook-courier-event--running 0
+  "Processes of `overlook-courier-event-run' running.")
 
-(defvar courier-event--waiting nil
-  "Calls of `courier-event-run' waiting for a process, oldest first.")
+(defvar overlook-courier-event--waiting nil
+  "Calls of `overlook-courier-event-run' waiting for a process, oldest first.")
 
 ;;; Emitting
 
-(defun courier-event-remember (source key)
+(defun overlook-courier-event-remember (source key)
   "Note that the event of SOURCE and KEY was seen; return nil if it had been."
   (let ((entry (cons source key)))
-    (unless (gethash entry courier-event--keys)
-      (unless courier-event--key-order
-        (setq courier-event--key-order (make-ring courier-event-key-memory)))
-      (when (= (ring-length courier-event--key-order) (ring-size courier-event--key-order))
-        (remhash (ring-remove courier-event--key-order) courier-event--keys))
-      (ring-insert courier-event--key-order entry)
-      (puthash entry t courier-event--keys))))
+    (unless (gethash entry overlook-courier-event--keys)
+      (unless overlook-courier-event--key-order
+        (setq overlook-courier-event--key-order (make-ring overlook-courier-event-key-memory)))
+      (when (= (ring-length overlook-courier-event--key-order) (ring-size overlook-courier-event--key-order))
+        (remhash (ring-remove overlook-courier-event--key-order) overlook-courier-event--keys))
+      (ring-insert overlook-courier-event--key-order entry)
+      (puthash entry t overlook-courier-event--keys))))
 
-(defun courier-event--log (event outcome &optional reached)
+(defun overlook-courier-event--log (event outcome &optional reached)
   "Log EVENT with its OUTCOME and the ids it REACHED, and return the entry."
   (let ((entry (append (list :time (float-time) :outcome outcome :reached reached) event)))
-    (setq courier-event-log (ntake courier-event-log-size (cons entry courier-event-log)))
+    (setq overlook-courier-event-log (ntake overlook-courier-event-log-size (cons entry overlook-courier-event-log)))
     entry))
 
-(defun courier-event-emit (event)
+(defun overlook-courier-event-emit (event)
   "Post EVENT, a plist as the Commentary describes, in its thread's room.
-Returns its entry in `courier-event-log'."
+Returns its entry in `overlook-courier-event-log'."
   (let ((source (or (plist-get event :source) "event"))
         (key (plist-get event :key)))
     (setq event (plist-put (copy-sequence event) :source source))
-    (if (and key (not (courier-event-remember source key)))
-        (courier-event--log event 'duplicate)
+    (if (and key (not (overlook-courier-event-remember source key)))
+        (overlook-courier-event--log event 'duplicate)
       (if-let* ((kept (seq-reduce (lambda (event filter) (and event (funcall filter event)))
-                                  courier-event-filters event)))
-          (let* ((room (courier-room-name-for (or (plist-get kept :thread)
+                                  overlook-courier-event-filters event)))
+          (let* ((room (overlook-courier-room-name-for (or (plist-get kept :thread)
                                                   (user-error "Event without a thread"))))
                  (fallback (plist-get kept :fallback))
-                 (reached (courier-room-publish room source (plist-get kept :text)
+                 (reached (overlook-courier-room-publish room source (plist-get kept :text)
                                                 (cond ((equal fallback "none") nil)
                                                       (fallback)
-                                                      (t courier-room-publish-fallback)))))
-            (courier-event--log (plist-put kept :thread room)
+                                                      (t overlook-courier-room-publish-fallback)))))
+            (overlook-courier-event--log (plist-put kept :thread room)
                                 (if reached 'delivered 'unclaimed) reached))
-        (courier-event--log event 'dropped)))))
+        (overlook-courier-event--log event 'dropped)))))
 
-(defun courier-event-first-look-p (source subject)
+(defun overlook-courier-event-first-look-p (source subject)
   "Non-nil the first time SOURCE looks at SUBJECT, such as a branch."
   (let ((entry (cons source subject)))
-    (unless (gethash entry courier-event--looked)
-      (puthash entry t courier-event--looked))))
+    (unless (gethash entry overlook-courier-event--looked)
+      (puthash entry t overlook-courier-event--looked))))
 
 ;;; Sources
 
-(cl-defun courier-event-add-source (name &key interval poll)
+(cl-defun overlook-courier-event-add-source (name &key interval poll)
   "Poll source NAME by calling POLL, of no arguments, every INTERVAL seconds.
 The first poll comes INTERVAL seconds from now."
-  (setf (alist-get name courier-event--sources nil nil #'equal)
+  (setf (alist-get name overlook-courier-event--sources nil nil #'equal)
         (list :interval interval :poll poll :next (+ (float-time) interval)))
-  (courier-event--start-timer))
+  (overlook-courier-event--start-timer))
 
-(defun courier-event-remove-source (name)
+(defun overlook-courier-event-remove-source (name)
   "Stop polling source NAME."
-  (setq courier-event--sources (assoc-delete-all name courier-event--sources))
-  (courier-event--start-timer))
+  (setq overlook-courier-event--sources (assoc-delete-all name overlook-courier-event--sources))
+  (overlook-courier-event--start-timer))
 
-(defun courier-event--start-timer ()
+(defun overlook-courier-event--start-timer ()
   "Run the polling timer while some source is registered."
-  (when (timerp courier-event--timer) (cancel-timer courier-event--timer))
-  (setq courier-event--timer
-        (and courier-event--sources
-             (run-with-timer courier-event-tick courier-event-tick #'courier-event--tick))))
+  (when (timerp overlook-courier-event--timer) (cancel-timer overlook-courier-event--timer))
+  (setq overlook-courier-event--timer
+        (and overlook-courier-event--sources
+             (run-with-timer overlook-courier-event-tick overlook-courier-event-tick #'overlook-courier-event--tick))))
 
-(defun courier-event--tick ()
+(defun overlook-courier-event--tick ()
   "Poll the sources that are due."
   (let ((now (float-time)))
-    (pcase-dolist (`(,name . ,source) courier-event--sources)
+    (pcase-dolist (`(,name . ,source) overlook-courier-event--sources)
       (when (>= now (plist-get source :next))
         (plist-put source :next (+ now (plist-get source :interval)))
         (condition-case err
@@ -181,27 +181,27 @@ The first poll comes INTERVAL seconds from now."
 
 ;;; Processes
 
-(defun courier-event-run (dir command then)
+(defun overlook-courier-event-run (dir command then)
   "Run COMMAND in DIR, calling THEN with its output, or nil when it fails.
-Waits while `courier-event-max-processes' run already."
-  (if (>= courier-event--running courier-event-max-processes)
-      (setq courier-event--waiting (nconc courier-event--waiting (list (list dir command then))))
-    (cl-incf courier-event--running)
-    (courier-event--process dir command
+Waits while `overlook-courier-event-max-processes' run already."
+  (if (>= overlook-courier-event--running overlook-courier-event-max-processes)
+      (setq overlook-courier-event--waiting (nconc overlook-courier-event--waiting (list (list dir command then))))
+    (cl-incf overlook-courier-event--running)
+    (overlook-courier-event--process dir command
                             (lambda (text)
-                              (cl-decf courier-event--running)
-                              (when-let* ((next (pop courier-event--waiting)))
-                                (apply #'courier-event-run next))
+                              (cl-decf overlook-courier-event--running)
+                              (when-let* ((next (pop overlook-courier-event--waiting)))
+                                (apply #'overlook-courier-event-run next))
                               (funcall then text)))))
 
-(defun courier-event--process (dir command then)
+(defun overlook-courier-event--process (dir command then)
   "Start COMMAND in DIR, calling THEN with its output, or nil when it fails."
   (let ((output (generate-new-buffer " *courier-event*"))
         (errors (generate-new-buffer " *courier-event-errors*"))
         (default-directory (file-name-as-directory dir)))
     (condition-case nil
         (make-process
-         :name "courier-event" :buffer output :stderr errors :noquery t
+         :name "overlook-courier-event" :buffer output :stderr errors :noquery t
          :connection-type 'pipe :command command
          :sentinel (lambda (process _event)
                      (unless (process-live-p process)
@@ -214,7 +214,7 @@ Waits while `courier-event-max-processes' run already."
 
 ;;; Calls from agents
 
-(defun courier-event-format (entry)
+(defun overlook-courier-event-format (entry)
   "Log ENTRY as one line."
   (format "%s  %-9s %s #%s%s  %s"
           (format-time-string "%m-%d %H:%M" (plist-get entry :time))
@@ -226,29 +226,29 @@ Waits while `courier-event-max-processes' run already."
             "")
           (car (split-string (or (plist-get entry :text) "") "\n"))))
 
-(defun courier-event-cli (from args)
+(defun overlook-courier-event-cli (from args)
   "Run the event command ARGS for agent FROM and return its output."
   (pcase args
     ((and `("emit" . ,rest)
           (let `(,options ,thread ,text)
-            (courier-options rest '("--from" "--key" "--fallback"))))
-     (let ((entry (courier-event-emit
-                   (list :source (or (courier-option "--from" options) from "event")
+            (overlook-courier-options rest '("--from" "--key" "--fallback"))))
+     (let ((entry (overlook-courier-event-emit
+                   (list :source (or (overlook-courier-option "--from" options) from "event")
                          :thread thread :text text
-                         :key (courier-option "--key" options)
-                         :fallback (courier-option "--fallback" options)))))
+                         :key (overlook-courier-option "--key" options)
+                         :fallback (overlook-courier-option "--fallback" options)))))
        (pcase (plist-get entry :outcome)
          ('delivered (format "Posted in #%s; it reached %s." (plist-get entry :thread)
                              (string-join (plist-get entry :reached) ", ")))
          ('unclaimed (format "Posted in #%s; nobody follows it." (plist-get entry :thread)))
          (outcome (format "Not posted: %s." outcome)))))
     ((or `("log") `("log" ,n))
-     (courier-or-empty (mapconcat #'courier-event-format
-                    (reverse (take (if n (string-to-number n) 20) courier-event-log))
+     (overlook-courier-or-empty (mapconcat #'overlook-courier-event-format
+                    (reverse (take (if n (string-to-number n) 20) overlook-courier-event-log))
                     "\n")
          "No events yet."))
     (_ (user-error "Usage: courier event emit [--from SOURCE] [--key KEY] \
 [--fallback ID|none] THREAD MESSAGE | log [N]"))))
 
-(provide 'courier-event)
-;;; courier-event.el ends here
+(provide 'overlook-courier-event)
+;;; overlook-courier-event.el ends here

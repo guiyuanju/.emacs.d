@@ -56,12 +56,12 @@
 (declare-function magit-diff-working-tree "magit-diff")
 (declare-function vc-version-diff "vc")
 
-(declare-function courier-worktree-list "courier-worktree")
-(declare-function courier-worktree-path "courier-worktree")
-(declare-function courier-worktree-repos "courier-worktree")
-(declare-function courier-worktree-remove "courier-worktree")
-(declare-function courier-worktree-at "courier-worktree")
-(declare-function courier-worktree--git "courier-worktree")
+(declare-function overlook-courier-worktree-list "overlook-courier-worktree")
+(declare-function overlook-courier-worktree-path "overlook-courier-worktree")
+(declare-function overlook-courier-worktree-repos "overlook-courier-worktree")
+(declare-function overlook-courier-worktree-remove "overlook-courier-worktree")
+(declare-function overlook-courier-worktree-at "overlook-courier-worktree")
+(declare-function overlook-courier-worktree--git "overlook-courier-worktree")
 
 (defcustom overlook-project-status-interval 30
   "Seconds before a repo's branch and changes are read again."
@@ -338,9 +338,9 @@ Their common folders are left out, and the name when only folders changed."
 
 (defun overlook-project--worktrees (root)
   "Worktrees courier made in project ROOT, each as (DIR . NAME)."
-  (when (fboundp 'courier-worktree-list)
-    (mapcar (lambda (name) (cons (courier-worktree-path root name) name))
-            (courier-worktree-list root))))
+  (when (fboundp 'overlook-courier-worktree-list)
+    (mapcar (lambda (name) (cons (overlook-courier-worktree-path root name) name))
+            (overlook-courier-worktree-list root))))
 
 (defun overlook-project--worktree-dirs (perspective)
   "Folders of the worktrees of PERSPECTIVE's project."
@@ -468,7 +468,7 @@ changed files, or a row of each of its repos when it has several.  Each
 repo shows its commits ahead of and behind the main checkout's branch.
 The row is dimmed while nothing lies in TREE, nothing is changed and no
 commit is unmerged."
-  (let* ((repos (courier-worktree-repos tree))
+  (let* ((repos (overlook-courier-worktree-repos tree))
          (divergences (mapcar (lambda (dir)
                                 (cons dir (overlook-project--divergence
                                            dir (overlook-project--base dir tree root))))
@@ -543,20 +543,20 @@ Under a main checkout that is a repo, its own files are on its row."
   "The repos of worktree TREE with uncommitted changes."
   (seq-filter (lambda (dir)
                 (not (string-empty-p
-                      (or (ignore-errors (courier-worktree--git dir "status" "--porcelain")) ""))))
-              (courier-worktree-repos tree)))
+                      (or (ignore-errors (overlook-courier-worktree--git dir "status" "--porcelain")) ""))))
+              (overlook-courier-worktree-repos tree)))
 
 (defun overlook-project-delete-worktree (tree)
   "Delete worktree TREE with what lies in it, such as its agents, once confirmed.
 Its branch stays."
-  (pcase-let* ((`(,root . ,name) (or (courier-worktree-at tree)
+  (pcase-let* ((`(,root . ,name) (or (overlook-courier-worktree-at tree)
                                      (user-error "Not a worktree: %s" tree)))
                (contents (overlook-folder-contents tree))
                (changed (overlook-project--uncommitted tree))
                ;; From the last read; reading again would outlive the worktree.
                (unmerged (seq-some (lambda (dir)
                                      (> (or (nth 2 (gethash dir overlook-project--diverged)) 0) 0))
-                                   (courier-worktree-repos tree))))
+                                   (overlook-courier-worktree-repos tree))))
     (when (yes-or-no-p
            (concat (format "Delete worktree %s" name)
                    (if contents (format " and %s" (mapconcat #'car contents ", ")) "")
@@ -572,7 +572,7 @@ Its branch stays."
           (when (file-in-directory-p (buffer-local-value 'default-directory buffer) tree)
             (with-current-buffer buffer (set-buffer-modified-p nil))
             (kill-buffer buffer))))
-      (courier-worktree-remove root name t)
+      (overlook-courier-worktree-remove root name t)
       (overlook-refresh)
       (message "Deleted worktree %s" name))))
 
@@ -580,7 +580,7 @@ Its branch stays."
   "Delete the worktree ITEM stands for, if it is one."
   (pcase item
     (`(,(or 'repo 'worktree) . ,dir)
-     (when (and (fboundp 'courier-worktree-at) (courier-worktree-at dir))
+     (when (and (fboundp 'overlook-courier-worktree-at) (overlook-courier-worktree-at dir))
        (overlook-project-delete-worktree dir)
        t))))
 

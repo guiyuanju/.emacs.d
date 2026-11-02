@@ -1,4 +1,4 @@
-;;; courier-persona.el --- Lasting identities for courier's agents -*- lexical-binding: t; -*-
+;;; overlook-courier-persona.el --- Lasting identities for courier's agents -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
@@ -24,7 +24,7 @@
 ;;; Commentary:
 
 ;; A persona is an identity that outlives the agents running it: a
-;; folder NAME/ in one of `courier-persona-directories' holding
+;; folder NAME/ in one of `overlook-courier-persona-directories' holding
 ;; persona.md, its role and settings, and memory/, what it has learned.
 ;; An agent started as persona NAME gets the courier id NAME, so it is
 ;; reached at the same address whatever engine runs it and however often
@@ -51,48 +51,48 @@
 
 ;;; Code:
 
-(require 'courier)
+(require 'overlook-courier)
 
-(defcustom courier-persona-directories nil
+(defcustom overlook-courier-persona-directories nil
   "Directories holding a folder per persona; the first one is for new personas."
   :type '(repeat directory)
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defcustom courier-persona-index-lines 200
+(defcustom overlook-courier-persona-index-lines 200
   "Most lines of a persona's MEMORY.md given to an agent starting as it."
   :type 'natnum
-  :group 'courier)
+  :group 'overlook-courier)
 
-(defconst courier-persona-fields
+(defconst overlook-courier-persona-fields
   '(engine effort directory description avatar personality tone memory)
   "Fields persona.md's front matter may set.")
 
-(defconst courier-persona-reserved '("all" "user")
+(defconst overlook-courier-persona-reserved '("all" "user")
   "Names rooms give other meanings, which no persona may have.")
 
-(defun courier-persona-name-p (name)
+(defun overlook-courier-persona-name-p (name)
   "Non-nil when NAME may name a persona."
   (and (string-match-p "\\`[a-z0-9][a-z0-9_-]*\\'" name)
-       (not (member name courier-persona-reserved))))
+       (not (member name overlook-courier-persona-reserved))))
 
-(defun courier-persona--folders ()
+(defun overlook-courier-persona--folders ()
   "Alist of each persona's name to its folder; the first directory wins a name."
   (let (folders)
-    (dolist (directory courier-persona-directories)
+    (dolist (directory overlook-courier-persona-directories)
       (when (file-directory-p directory)
         (dolist (file (directory-files directory t))
-          (when (and (courier-persona-name-p (file-name-nondirectory file))
+          (when (and (overlook-courier-persona-name-p (file-name-nondirectory file))
                      (file-exists-p (expand-file-name "persona.md" file)))
             (unless (assoc (file-name-nondirectory file) folders)
               (push (cons (file-name-nondirectory file) (file-name-as-directory file))
                     folders))))))
     (nreverse folders)))
 
-(defun courier-persona-names ()
+(defun overlook-courier-persona-names ()
   "Names of all personas, sorted."
-  (sort (mapcar #'car (courier-persona--folders)) #'string<))
+  (sort (mapcar #'car (overlook-courier-persona--folders)) #'string<))
 
-(defun courier-persona--parse (text)
+(defun overlook-courier-persona--parse (text)
   "Plist of the front matter fields in persona.md's TEXT, and :body the rest."
   (let (fields (body text))
     (when (string-match "\\`---[ \t]*\n\\(\\(?:.*\n\\)*?\\)---[ \t]*\\(?:\n\\|\\'\\)" text)
@@ -102,51 +102,52 @@
           (let ((key (intern (match-string 1 line)))
                 (value (string-trim (replace-regexp-in-string
                                      "\\(?:\\`\\|[ \t]\\)#.*" "" (match-string 2 line)))))
-            (when (and (memq key courier-persona-fields) (not (string-empty-p value)))
+            (when (and (memq key overlook-courier-persona-fields) (not (string-empty-p value)))
               (setq fields (plist-put fields (intern (format ":%s" key)) value)))))))
     (plist-put fields :body (string-trim body))))
 
-(defun courier-persona (name)
+(defun overlook-courier-persona (name)
   "Persona NAME as a plist of its fields, :body, :name and :folder; or nil."
-  (when-let* ((folder (alist-get name (courier-persona--folders) nil nil #'equal)))
+  (when-let* ((folder (alist-get name (overlook-courier-persona--folders) nil nil #'equal)))
     (append (list :name name :folder folder)
-            (courier-persona--parse
+            (overlook-courier-persona--parse
              (with-temp-buffer
                (insert-file-contents (expand-file-name "persona.md" folder))
                (buffer-string))))))
 
-(defun courier-persona-memory (persona)
+(defun overlook-courier-persona-memory (persona)
   "Folder of PERSONA's memory."
   (expand-file-name "memory/" (plist-get persona :folder)))
 
-(defun courier-persona-directory (persona)
+(defun overlook-courier-persona-directory (persona)
   "Where PERSONA starts: its directory, else the folder above the personas."
   (if-let* ((directory (plist-get persona :directory)))
       (expand-file-name directory)
     (file-name-directory (directory-file-name
                           (file-name-directory (directory-file-name (plist-get persona :folder)))))))
 
-(defun courier-persona--index (persona)
-  "PERSONA's MEMORY.md, cut to `courier-persona-index-lines' lines, or nil."
-  (let ((file (expand-file-name "MEMORY.md" (courier-persona-memory persona))))
+(defun overlook-courier-persona--index (persona)
+  "PERSONA's MEMORY.md, or nil.
+It is cut to `overlook-courier-persona-index-lines' lines."
+  (let ((file (expand-file-name "MEMORY.md" (overlook-courier-persona-memory persona))))
     (when (file-readable-p file)
       (let* ((lines (with-temp-buffer
                       (insert-file-contents file)
                       (split-string (string-trim (buffer-string)) "\n")))
-             (cut (- (length lines) courier-persona-index-lines)))
+             (cut (- (length lines) overlook-courier-persona-index-lines)))
         (unless (equal lines '(""))
-          (concat (string-join (take courier-persona-index-lines lines) "\n")
+          (concat (string-join (take overlook-courier-persona-index-lines lines) "\n")
                   (when (> cut 0) (format "\n[… %d more lines in MEMORY.md]" cut))))))))
 
-(defun courier-persona-remembers-p (persona)
+(defun overlook-courier-persona-remembers-p (persona)
   "Non-nil unless PERSONA's front matter turns its memory off."
   (not (member (plist-get persona :memory) '("off" "no" "false"))))
 
-(defun courier-persona-briefing (persona engine)
+(defun overlook-courier-persona-briefing (persona engine)
   "What an agent of ENGINE starting as PERSONA is told."
   (let ((name (plist-get persona :name))
-        (memory (courier-persona-memory persona))
-        (index (courier-persona--index persona)))
+        (memory (overlook-courier-persona-memory persona))
+        (index (overlook-courier-persona--index persona)))
     (string-join
      (delq nil
            (list
@@ -160,7 +161,7 @@ messaging you starts you when nobody runs you." name engine name)
                                           (when-let* ((tone (plist-get persona :tone)))
                                             (concat "Tone: " tone))))))
               (when traits (string-join traits "\n")))
-            (when (courier-persona-remembers-p persona)
+            (when (overlook-courier-persona-remembers-p persona)
              (format "Your memory is in %s: a file per fact, each listed with a line \
 in MEMORY.md.  Read a file when it bears on your work.  When your user \
 corrects you, or you learn something about your role or how your user \
@@ -171,66 +172,66 @@ about the code or the domain goes to the project's own notes instead.  %s"
                     (if index (concat "MEMORY.md now:\n\n" index) "It is empty so far.")))))
      "\n\n")))
 
-(cl-defun courier-persona-start (name &key directory task from engine effort wait)
+(cl-defun overlook-courier-persona-start (name &key directory task from engine effort wait)
   "Start persona NAME and return its id, NAME.
 It starts in DIRECTORY, else the persona's own, run by ENGINE at
 reasoning EFFORT, else the persona's.  FROM is the agent starting it, its
 parent.  It works on TASK if non-nil.  With WAIT non-nil it idles, and
 learns who it is with the first message it gets; otherwise it says it
 is ready."
-  (let* ((persona (or (courier-persona name) (user-error "No persona %s" name)))
+  (let* ((persona (or (overlook-courier-persona name) (user-error "No persona %s" name)))
          (engine (or engine (plist-get persona :engine)
                      (user-error "Persona %s names no engine" name))))
-    (when (courier-persona-remembers-p persona)
-      (make-directory (courier-persona-memory persona) t))
-    (let* ((briefing (courier-persona-briefing persona engine))
-           (id (courier-spawn engine (or directory (courier-persona-directory persona))
+    (when (overlook-courier-persona-remembers-p persona)
+      (make-directory (overlook-courier-persona-memory persona) t))
+    (let* ((briefing (overlook-courier-persona-briefing persona engine))
+           (id (overlook-courier-spawn engine (or directory (overlook-courier-persona-directory persona))
                               (unless wait
                                 (concat briefing "\n\n"
                                         (or task "Say in one line that you are ready.")))
                               from (or effort (plist-get persona :effort)) name)))
-      (when wait (courier-note id briefing))
+      (when wait (overlook-courier-note id briefing))
       id)))
 
-(defun courier-persona--start-offline (id from)
+(defun overlook-courier-persona--start-offline (id from)
   "Start persona ID, which FROM is messaging, to take the message; or nil."
-  (when (courier-persona id)
+  (when (overlook-courier-persona id)
     (message "courier: started persona %s for %s" id (or from "the user"))
-    (courier-persona-start id :wait t)))
+    (overlook-courier-persona-start id :wait t)))
 
-(defun courier-persona--describe (name)
+(defun overlook-courier-persona--describe (name)
   "A line describing persona NAME for `courier persona list'."
-  (let ((persona (courier-persona name)))
+  (let ((persona (overlook-courier-persona name)))
     (format "%s  %s, %s%s" name
-            (if (courier-agent name) "running" "offline")
+            (if (overlook-courier-agent name) "running" "offline")
             (or (plist-get persona :engine) "no engine")
             (if-let* ((description (plist-get persona :description)))
                 (concat "  " description)
               ""))))
 
-(defun courier-persona-cli (from args)
+(defun overlook-courier-persona-cli (from args)
   "Run the persona command ARGS for agent FROM and return its output."
   (pcase args
     (`("list")
-     (courier-or-empty (mapconcat #'courier-persona--describe (courier-persona-names) "\n")
+     (overlook-courier-or-empty (mapconcat #'overlook-courier-persona--describe (overlook-courier-persona-names) "\n")
          "No personas."))
     (`("start" . ,rest)
-     (pcase-let* ((`(,options . ,rest) (courier-options rest '("--engine" "--effort")))
+     (pcase-let* ((`(,options . ,rest) (overlook-courier-options rest '("--engine" "--effort")))
                   (`(,name ,directory ,task) rest))
        (unless (and name (<= (length rest) 3))
          (user-error "Usage: courier persona start [--engine E] [--effort L] NAME [DIR [TASK]]"))
-       (courier-persona-start name :directory directory :task task :from (and (courier-agent from) from)
-                              :engine (courier-option "--engine" options)
-                              :effort (courier-option "--effort" options))
+       (overlook-courier-persona-start name :directory directory :task task :from (and (overlook-courier-agent from) from)
+                              :engine (overlook-courier-option "--engine" options)
+                              :effort (overlook-courier-option "--effort" options))
        (format "Started persona %s.%s" name
-               (if (and task (courier-agent from))
+               (if (and task (overlook-courier-agent from))
                    "  It reports when done or stuck.  End your turn now."
                  ""))))
     (_ (user-error "Usage: courier persona list \
 | start [--engine E] [--effort L] NAME [DIR [TASK]]"))))
 
-(add-hook 'courier-offline-functions #'courier-persona-names)
-(add-hook 'courier-start-functions #'courier-persona--start-offline)
+(add-hook 'overlook-courier-offline-functions #'overlook-courier-persona-names)
+(add-hook 'overlook-courier-start-functions #'overlook-courier-persona--start-offline)
 
-(provide 'courier-persona)
-;;; courier-persona.el ends here
+(provide 'overlook-courier-persona)
+;;; overlook-courier-persona.el ends here

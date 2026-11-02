@@ -38,8 +38,8 @@ encode() { printf '%s' "$1" | base64 | tr -d '\n'; }
 
 out=$(mktemp)
 trap 'rm -f "$out"' EXIT
-form="(progn (require 'courier) (let ((default-directory (file-name-as-directory (courier--decode \"$(encode "$PWD")\"))))"
-form="$form (courier-cli \"$out\" \"$(encode "${COURIER_ID:-}")\""
+form="(progn (require 'overlook-courier) (let ((default-directory (file-name-as-directory (overlook-courier--decode \"$(encode "$PWD")\"))))"
+form="$form (overlook-courier-cli \"$out\" \"$(encode "${COURIER_ID:-}")\""
 for arg in "$@"; do form="$form \"$(encode "$arg")\""; done
 form="$form)))"
 
