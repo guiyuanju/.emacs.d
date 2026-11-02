@@ -796,6 +796,28 @@ Agents are listed; usage and repos are not."
           (overlook-courier--check-resume '((courier . "claude@p"))))
       (delete-directory root t))))
 
+(ert-deftest overlook-courier-keeps-persona-agents-off-the-perspectives ()
+  (require 'overlook-courier)
+  (let* ((root (make-temp-file "personas" t))
+         (courier-persona-directories (list root))
+         (overlook-agent-hide-functions (list #'overlook-courier--persona-item-p))
+         (overlook-agent-saved nil)
+         (router (overlook-test--agent "router-agent"))
+         (worker (overlook-test--agent "worker-agent")))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "router" root))
+          (write-region "---\nengine: claude\n---\n" nil (expand-file-name "router/persona.md" root))
+          (with-current-buffer router (setq overlook-courier-id "router"))
+          (with-current-buffer worker (setq overlook-courier-id "claude@fix"))
+          (overlook-test-with-dashboard `(("one" ,router ,worker)) "one"
+            (should (string-search "worker-agent" (buffer-string)))
+            (should-not (string-search "router-agent" (buffer-string))))
+          (should (overlook-courier--persona-item-p '(saved (courier . "router"))))
+          (should-not (overlook-courier--persona-item-p '(saved (courier . "claude@fix")))))
+      (mapc #'kill-buffer (list router worker))
+      (delete-directory root t))))
+
 (ert-deftest overlook-room-shows-posts-and-posts-as-the-user ()
   (require 'overlook-room)
   (let ((courier-room-directory (make-temp-file "courier-rooms" t))

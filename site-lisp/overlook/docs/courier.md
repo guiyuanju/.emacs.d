@@ -234,8 +234,9 @@ courier persona start --engine codex --effort high reviewer ~/repo 'Review the d
 
 On the dashboard a Personas section lists them: RET starts one or shows
 the agent running it, `e` opens its `persona.md`, and RET on the heading,
-or on its only row while there are none, makes a new one.  An agent's row says `as reviewer`, and its avatar
-heads its posts in rooms.  overlook keeps every agent's courier id when it
+or on its only row while there are none, makes a new one.  An agent
+running a persona is listed there only, not under a perspective, and its
+avatar heads its posts in rooms.  overlook keeps every agent's courier id when it
 resumes the agent in a later Emacs, and refuses to resume a persona's
 session while another agent runs that persona.  A persona named in a
 post that fails to start is left out; the others still get the post.

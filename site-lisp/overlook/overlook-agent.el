@@ -170,6 +170,11 @@ END is nil while the turn runs.")
 (defvar overlook-agent-row-marks nil
   "Functions of an agent buffer returning a mark after its name, or nil.")
 
+(defvar overlook-agent-hide-functions nil
+  "Functions of a dashboard item returning non-nil to hide it.
+The item is (agent . BUFFER) or (saved . SAVED); a hidden one is not
+listed under any perspective.")
+
 (defvar overlook-agent--last nil
   "Name of the agent most recently started or shown.")
 
@@ -901,15 +906,17 @@ DRAWN, a list in a cons, collects the items inserted, so none is twice."
 Forks sit under the agent they were forked from when it is listed there
 too.  A nil PERSPECTIVE inserts those in none."
   (overlook-agent--note-forks)
-  (let* ((items (append (mapcar (lambda (buffer) (cons 'agent buffer))
-                                (overlook-agent-buffers
-                                 (lambda (buffer)
-                                   (equal (overlook-agent-perspective buffer) perspective))))
-                        (mapcar (lambda (saved) (cons 'saved saved))
-                                (seq-filter (lambda (saved)
-                                              (equal (overlook-agent--saved-perspective saved)
-                                                     perspective))
-                                            overlook-agent-saved))))
+  (let* ((items (seq-remove
+                 (lambda (item) (run-hook-with-args-until-success 'overlook-agent-hide-functions item))
+                 (append (mapcar (lambda (buffer) (cons 'agent buffer))
+                                 (overlook-agent-buffers
+                                  (lambda (buffer)
+                                    (equal (overlook-agent-perspective buffer) perspective))))
+                         (mapcar (lambda (saved) (cons 'saved saved))
+                                 (seq-filter (lambda (saved)
+                                               (equal (overlook-agent--saved-perspective saved)
+                                                      perspective))
+                                             overlook-agent-saved)))))
          (sessions (delq nil (mapcar #'overlook-agent--item-session items)))
          (drawn (list nil)))
     (dolist (item items)

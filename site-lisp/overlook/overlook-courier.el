@@ -33,6 +33,7 @@
 ;; Above the perspectives, a Rooms section lists courier's chat rooms with
 ;; the posts the user has not read; RET opens one.  A Personas section
 ;; lists courier's personas; RET starts one, or shows the agent running it.
+;; Agents running a persona are listed there only, not under a perspective.
 ;; An agent resumed in a later Emacs keeps its courier id.
 
 ;;; Code:
@@ -72,6 +73,13 @@ A resumed agent gets its earlier id back unless another agent has it."
               (agent (courier-agent id)))
     (user-error "Persona %s runs already in %s; stop it first" id
                 (buffer-name (courier-agent-buffer agent)))))
+
+(defun overlook-courier--persona-item-p (item)
+  "Non-nil when dashboard ITEM, a live or saved agent, runs a persona."
+  (when-let* ((id (pcase item
+                    (`(agent . ,buffer) (buffer-local-value 'overlook-courier-id buffer))
+                    (`(saved . ,saved) (alist-get 'courier saved)))))
+    (member id (courier-persona-names))))
 
 (defun overlook-courier--saved (buffer)
   "Entries keeping agent BUFFER's courier id for when it is resumed."
@@ -153,13 +161,11 @@ PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil."
     (buffer-local-value 'overlook-courier-id buffer)))
 
 (defun overlook-courier--mark (buffer)
-  "The persona agent BUFFER runs, who spawned it and how many messages wait for it."
+  "Who spawned agent BUFFER and how many messages wait for it."
   (when-let* ((agent (courier-agent (buffer-local-value 'overlook-courier-id buffer))))
     (let ((parent (courier-agent-parent agent))
-          (pending (length (courier-agent-mailbox agent)))
-          (persona (courier-persona (courier-agent-id agent))))
-      (concat (if persona (concat " as " (overlook-courier--persona-label persona)) "")
-              (if parent (propertize (concat " ← " parent) 'face 'shadow) "")
+          (pending (length (courier-agent-mailbox agent))))
+      (concat (if parent (propertize (concat " ← " parent) 'face 'shadow) "")
               (if (> pending 0) (propertize (format " ✉%d" pending) 'face 'warning) "")))))
 
 (defun overlook-courier--room-row (name)
@@ -318,6 +324,7 @@ Opens its persona.md to fill in."
      (overlook-agent-turn-end-hook overlook-courier--turn-finished)
      (overlook-agent-attention-hook overlook-courier--blocked)
      (overlook-agent-row-marks overlook-courier--mark)
+     (overlook-agent-hide-functions overlook-courier--persona-item-p)
      (overlook-sections overlook-courier--rooms-section -10)
      (overlook-sections overlook-courier--personas-section -9)
      (overlook-agent-save-functions overlook-courier--saved)
