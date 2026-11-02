@@ -47,6 +47,32 @@ candidates: ›, /, │."
   "Face of the separator between agent-shell header fields."
   :group 'agent-shell)
 
+(defun iuiw-agent-shell--account-header (model)
+  "Add the agent's default account to the name in header MODEL."
+  (let* ((id (map-nested-elt (agent-shell--state) '(:agent-config :identifier)))
+         (account (if (eq id 'claude-code)
+                      (and (fboundp 'overlook-agent-shell-claude-current-account)
+                           (overlook-agent-shell-claude-current-account))
+                    (and (boundp 'overlook-usage-accounts)
+                         (alist-get (symbol-name id) overlook-usage-accounts
+                                    nil nil #'equal)))))
+    (when account
+      (setf (alist-get :buffer-name model)
+            (concat (alist-get :buffer-name model) " @" account)))
+    model))
+
+(advice-add 'agent-shell--make-header-model :filter-return
+            #'iuiw-agent-shell--account-header)
+
+(defun iuiw-agent-shell--refresh-account-headers (&rest _)
+  "Refresh all agent headers after the default account changes."
+  (dolist (buffer (agent-shell-buffers))
+    (with-current-buffer buffer
+      (agent-shell--update-header-and-mode-line))))
+
+(advice-add 'overlook-agent-shell-claude-switch-account :after
+            #'iuiw-agent-shell--refresh-account-headers)
+
 (defun iuiw-agent-shell--minimal-header (header)
   "Return HEADER with a quiet separator and its field faces made visible.
 agent-shell tints fields with `font-lock-face', which header lines ignore,
