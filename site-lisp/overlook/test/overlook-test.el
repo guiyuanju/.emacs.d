@@ -747,16 +747,13 @@ Agents are listed; usage and repos are not."
             (with-current-buffer buffer
               (setq overlook-courier-id (if (eq buffer worker) "w@p" "m@p")
                     overlook-agent-turn (list (- now 3600)))))
-          (setf (courier-agent-delivered (courier-agent "m@p")) (- now 600))
           (overlook-watchdog-check)
-          (should (= (length published) 2))
-          (should (seq-find (lambda (p) (and (string-search "w@p has run one turn for 60 min" (nth 2 p))
-                                             (equal (nth 3 p) "router")))
-                            published))
-          (should (seq-find (lambda (p) (and (string-search "delivered to m@p 10 min ago" (nth 2 p))
-                                             (null (nth 3 p))))
-                            published))
-          (should-not (courier-agent-delivered (courier-agent "m@p")))
+          (should (= (length published) 1))
+          (should (string-search "w@p has run one turn for 60 min" (nth 2 (car published))))
+          (should (equal (nth 3 (car published)) "router"))
+          (overlook-watchdog--stalled "m@p" (- now 600))
+          (should (string-search "delivered to m@p 10 min ago" (nth 2 (car published))))
+          (should-not (nth 3 (car published)))
           (overlook-watchdog-check)
           (should (= (length published) 2))
           (with-current-buffer worker
@@ -1062,6 +1059,7 @@ Agents are listed; usage and repos are not."
 
 ;; Worktrees of the project show under it while clean, by their path in the worktree folder.
 (ert-deftest overlook-project-lists-worktrees-while-clean ()
+  (require 'courier-worktree)
   (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
         (alpha (overlook-test--agent "alpha"))
         (overlook-project--status (make-hash-table :test #'equal)))
@@ -1078,10 +1076,7 @@ Agents are listed; usage and repos are not."
               (overlook--render)
               (should (string-match-p "⎇ +fix/api +fix" (buffer-string)))
               (should (string-match-p "⎇ +fix/web +fix" (buffer-string)))
-              (should-not (string-match-p "⎇ +api " (buffer-string)))
-              (let ((overlook-project-worktrees nil))
-                (overlook--render)
-                (should-not (string-search "fix/api" (buffer-string)))))))
+              (should-not (string-match-p "⎇ +api " (buffer-string))))))
       (kill-buffer alpha)
       (delete-directory root t))))
 

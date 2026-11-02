@@ -29,9 +29,8 @@
 ;; - an agent another agent spawned has run one turn longer than
 ;;   `overlook-watchdog-turn-limit', or waited for the user longer than
 ;;   `overlook-watchdog-waiting-limit';
-;; - a courier delivery to any agent has started no turn within
-;;   `overlook-watchdog-delivery-limit' though the agent is ready; the
-;;   agent then gets no more mail, so it is let take mail again.
+;; - courier gave up on a delivery to any agent that started no turn,
+;;   after `courier-delivery-timeout'.
 ;;
 ;; Each finding is a courier event, emitted once, from `watchdog' in the
 ;; thread `overlook-watchdog-room'.  When no agent follows that room, it
@@ -59,11 +58,6 @@
   :type 'number
   :group 'overlook)
 
-(defcustom overlook-watchdog-delivery-limit 120
-  "Seconds a courier delivery may go without starting a turn."
-  :type 'number
-  :group 'overlook)
-
 (defcustom overlook-watchdog-room "watchdog"
   "Room the findings are published in."
   :type 'string
@@ -86,7 +80,7 @@
 (defun overlook-watchdog--check-agent (buffer now)
   "Check agent BUFFER, spawned by another agent, at time NOW."
   (let* ((id (buffer-local-value 'overlook-courier-id buffer))
-         (brief (or (overlook-agent--brief buffer) "no activity shown")))
+         (brief (lambda () (or (overlook-agent--brief buffer) "no activity shown"))))
     (with-current-buffer buffer
       (when-let* (((overlook-agent-turn-open-p))
                   (start (car overlook-agent-turn))
@@ -95,7 +89,7 @@
          id 'turn start
          (format "%s has run one turn for %s; now: %s.  If it loops or drifts from \
 its task, tell your user; a message reaches it only after the turn."
-                 id (overlook-watchdog--minutes (- now start)) brief))))
+                 id (overlook-watchdog--minutes (- now start)) (funcall brief)))))
     (if (not (eq (buffer-local-value 'overlook-agent-status buffer) 'waiting))
         (remhash buffer overlook-watchdog--waiting)
       (let ((since (or (gethash buffer overlook-watchdog--waiting)
@@ -105,22 +99,21 @@ its task, tell your user; a message reaches it only after the turn."
            id 'waiting since
            (format "%s has waited for the user for %s: %s.  Remind your user; \
 only they can answer in its buffer."
-                   id (overlook-watchdog--minutes (- now since)) brief)))))))
+                   id (overlook-watchdog--minutes (- now since)) (funcall brief))))))))
+
+(defun overlook-watchdog--stalled (id since)
+  "Report that courier gave up on the delivery to agent ID made at SINCE."
+  (overlook-watchdog--report
+   id 'delivery since
+   (format "A message delivered to %s %s ago started no turn, so it got no \
+more mail; it takes mail again now.  The message may be lost: ask %s \
+whether it has it."
+           id (overlook-watchdog--minutes (- (float-time) since)) id)))
 
 (defun overlook-watchdog-check ()
   "Check every agent against the watchdog's rules, publishing what is new."
   (interactive)
   (let ((now (float-time)))
-    (dolist (agent (courier-stalled overlook-watchdog-delivery-limit))
-      (let ((id (courier-agent-id agent))
-            (since (courier-agent-delivered agent)))
-        (courier-unstall id)
-        (overlook-watchdog--report
-         id 'delivery since
-         (format "A message delivered to %s %s ago started no turn, so it got no \
-more mail; it takes mail again now.  The message may be lost: ask %s \
-whether it has it."
-                 id (overlook-watchdog--minutes (- now since)) id))))
     (dolist (buffer (overlook-agent-buffers))
       (when-let* ((id (buffer-local-value 'overlook-courier-id buffer))
                   (agent (courier-agent id))
@@ -135,9 +128,12 @@ whether it has it."
   :global t
   :group 'overlook
   (if overlook-watchdog-mode
-      (courier-event-add-source 'watchdog :interval overlook-watchdog-interval
-                                :poll #'overlook-watchdog-check)
-    (courier-event-remove-source 'watchdog)))
+      (progn
+        (courier-event-add-source "watchdog" :interval overlook-watchdog-interval
+                                  :poll #'overlook-watchdog-check)
+        (add-hook 'courier-stalled-functions #'overlook-watchdog--stalled))
+    (courier-event-remove-source "watchdog")
+    (remove-hook 'courier-stalled-functions #'overlook-watchdog--stalled)))
 
 (provide 'overlook-watchdog)
 ;;; overlook-watchdog.el ends here

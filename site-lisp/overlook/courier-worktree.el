@@ -29,9 +29,10 @@
 ;; repo, else a folder holding a worktree of each repo in DIR and a
 ;; `.overlook' file marking it one project.  The branch is made from the
 ;; checked out commit unless it exists.  `.worktrees/' goes in the repo's
-;; info/exclude, so Git leaves it out of the status.  Removing the
-;; worktree closes the room named after its branch, where
-;; `courier-spawn' had its agent follow the events about the branch.
+;; info/exclude, so Git leaves it out of the status.
+;; `courier-worktree-spawn' starts an agent in one, following the room
+;; named after the branch, where events about it go; removing the
+;; worktree closes that room.
 
 ;;; Code:
 
@@ -48,12 +49,15 @@
   :type 'string
   :group 'courier)
 
+(defun courier-worktree-git-program ()
+  "The git program to run."
+  (or (bound-and-true-p vc-git-program) "git"))
+
 (defun courier-worktree--git (dir &rest args)
   "Run git with ARGS in DIR; return its output, or signal its error."
   (with-temp-buffer
     (let* ((default-directory (file-name-as-directory dir))
-           (status (apply #'process-file (or (bound-and-true-p vc-git-program) "git")
-                          nil t nil args)))
+           (status (apply #'process-file (courier-worktree-git-program) nil t nil args)))
       (unless (eq status 0)
         (user-error "Git %s in %s: %s" (string-join args " ") (abbreviate-file-name dir)
                     (string-trim (buffer-string))))
@@ -135,6 +139,22 @@ An existing one is returned as it is."
              (ignore-errors (delete-directory path t))
              (signal (car err) (cdr err)))))))
     path))
+
+(defun courier-worktree-spawn (name dir branch prompt &optional from effort)
+  "Start agent NAME in the worktree of project DIR for BRANCH, made if missing.
+It works on PROMPT for agent FROM at reasoning EFFORT, as `courier-spawn'
+starts it, and every post in the room named after BRANCH wakes it.
+Returns its id."
+  (let* ((path (courier-worktree-add dir branch))
+         (room (courier-room-name-for branch))
+         (note (format "You work in a Git worktree of your own, %s, on branch %s; \
+commit your work there, and leave the main checkout alone.  Events about \
+the branch, such as CI results, reach you from the room #%s."
+                       (abbreviate-file-name path) branch room))
+         (id (courier-spawn name path (and prompt (concat note "\n\n" prompt)) from effort)))
+    (courier-room-join room id 'all)
+    (unless prompt (courier-note id note))
+    id))
 
 (defun courier-worktree-remove (dir branch &optional force)
   "Remove the worktree of project DIR for BRANCH, keeping the branch.

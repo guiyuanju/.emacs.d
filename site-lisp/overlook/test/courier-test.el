@@ -743,16 +743,16 @@
   (courier-test-with-personas '("w@p" "r@p")
     (courier-test-with-events
       (courier-room-join "fix" "w@p" 'all)
-      (let ((event '(:source ci :thread "fix" :key "1" :text "red")))
+      (let ((event '(:source "ci" :thread "fix" :key "1" :text "red")))
         (should (equal (plist-get (courier-event-emit event) :reached) '("w@p")))
         (should (eq (plist-get (courier-event-emit event) :outcome) 'duplicate))
         (let ((courier-event-filters
                (list (lambda (e) (and (not (string-search "noise" (plist-get e :text))) e))
                      (lambda (e) (plist-put (copy-sequence e) :text (upcase (plist-get e :text)))))))
-          (should (eq (plist-get (courier-event-emit '(:source ci :thread "fix" :text "noise"))
+          (should (eq (plist-get (courier-event-emit '(:source "ci" :thread "fix" :text "noise"))
                                  :outcome)
                       'dropped))
-          (courier-event-emit '(:source ci :thread "fix" :text "green")))
+          (courier-event-emit '(:source "ci" :thread "fix" :text "green")))
         (courier-deliver)
         (should (string-suffix-p "GREEN" (car (last (courier-test--received "w@p")))))
         (should (equal (mapcar (lambda (e) (plist-get e :outcome)) courier-event-log)
@@ -764,7 +764,7 @@
   (courier-test-with-personas '("r@p")
     (courier-test-with-events
       (let ((courier-room-publish-fallback "r@p"))
-        (should (eq (plist-get (courier-event-emit '(:thread "a" :text "x" :fallback none)) :outcome)
+        (should (eq (plist-get (courier-event-emit '(:thread "a" :text "x" :fallback "none")) :outcome)
                     'unclaimed))
         (should (equal (plist-get (courier-event-emit '(:thread "a" :text "y")) :reached) '("r@p")))
         (should (string-search "nobody follows it"
@@ -784,8 +784,6 @@
       (courier-event--tick)
       (courier-event--tick)
       (should (= polls 1))
-      (courier-event-poll 'x)
-      (should (= polls 2))
       (courier-event-remove-source 'x)
       (should-not courier-event--timer))))
 
@@ -809,9 +807,23 @@
 (ert-deftest courier-event-first-look ()
   (courier-test-with-events
     (should (equal (courier-event-cli nil '("log")) "No events yet."))
-    (should (courier-event-first-look-p 'ci "x"))
+    (should (courier-event-first-look-p "ci" "x"))
     (should-not (courier-event-first-look-p "ci" "x"))
-    (should (courier-event-first-look-p 'ci "y"))))
+    (should (courier-event-first-look-p "ci" "y"))))
+
+(ert-deftest courier-gives-up-on-a-delivery-that-started-no-turn ()
+  (courier-test-with-agents '("a@p")
+    (let* ((stalled nil)
+           (courier-stalled-functions (list (lambda (id since) (push (cons id since) stalled)))))
+      (courier-send "a@p" "one")
+      (courier-deliver)
+      (courier-send "a@p" "two")
+      (courier-deliver)
+      (should (= (length (courier-test--received "a@p")) 1))
+      (setf (courier-agent-delivered (courier-agent "a@p")) 100)
+      (courier-deliver)
+      (should (equal stalled '(("a@p" . 100))))
+      (should (string-suffix-p "two" (cadr (courier-test--received "a@p")))))))
 
 (ert-deftest courier-room-name-for-a-branch ()
   (should (equal (courier-room-name-for "feature/Login_redirect") "feature-login_redirect"))
@@ -841,8 +853,7 @@
       (should (string-search "woke nobody" prompt))
       (should (string-search "courier room invite --wake all lonely ID" prompt)))
     (should-not (courier-room-publish "lonely" "ci" "again"))
-    (let ((courier-room-publish-fallback "missing"))
-      (should-not (courier-room-publish "lonely" "ci" "again")))))
+    (should-not (courier-room-publish "lonely" "ci" "again" "missing"))))
 
 (ert-deftest courier-room-cli-invites-and-spawns-with-wake ()
   (courier-test-with-personas '("a@p" "b@p")

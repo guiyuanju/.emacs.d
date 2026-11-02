@@ -52,6 +52,10 @@
 (declare-function magit-diff-wash-diffs "magit-diff")
 (declare-function vc-version-diff "vc")
 
+(declare-function courier-worktree-list "courier-worktree")
+(declare-function courier-worktree-path "courier-worktree")
+(declare-function courier-worktree-repos "courier-worktree")
+
 (defcustom overlook-project-status-interval 30
   "Seconds before a repo's branch and changes are read again."
   :type 'number
@@ -87,13 +91,6 @@ folder that is a repo itself is listed as one."
 `rows' lists them under the perspective like a repo's; `mark' puts a
 \"*\" after the perspective's heading instead."
   :type '(choice (const rows) (const mark))
-  :group 'overlook)
-
-(defcustom overlook-project-worktrees ".worktrees"
-  "Folder inside a project holding worktrees of its repos, or nil.
-Each repo in a folder there shows under the project's perspective even
-while clean, by its path inside this folder."
-  :type '(choice string (const nil))
   :group 'overlook)
 
 (defface overlook-project-repo
@@ -386,15 +383,17 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                              t)))))
 
 (defun overlook-project--worktrees (root)
-  "Repos in the worktree folders of project ROOT, each as (DIR . LABEL)."
-  (when-let* ((overlook-project-worktrees)
-              (folder (expand-file-name overlook-project-worktrees root))
-              ((file-directory-p folder)))
-    (mapcan (lambda (tree)
-              (mapcar (lambda (dir)
-                        (cons dir (directory-file-name (file-relative-name dir folder))))
-                      (overlook-project-repos tree)))
-            (seq-filter #'file-directory-p (directory-files folder t "\\`[^.]")))))
+  "Repos in the worktrees courier made in project ROOT, each as (DIR . LABEL).
+They show while clean too: their work may be committed but not merged."
+  (when (fboundp 'courier-worktree-list)
+    (mapcan (lambda (branch)
+              (let ((tree (courier-worktree-path root branch)))
+                (mapcar (lambda (dir)
+                          (cons dir (if (equal dir tree) branch
+                                      (concat branch "/" (directory-file-name
+                                                          (file-relative-name dir tree))))))
+                        (courier-worktree-repos tree))))
+            (courier-worktree-list root))))
 
 (defun overlook-project--label (dir)
   "The name repo DIR shows by."
@@ -453,7 +452,6 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                                                (not (and (eq overlook-project-folder-display 'mark)
                                                          (member dir folders)))))
                                         dirs))
-                    ;; A worktree stays listed while clean: its work may be committed but not merged.
                     trees))
              (width (apply #'max 0 (mapcar (lambda (row) (string-width (cdr row))) rows))))
         (pcase-dolist (`(,dir . ,name) rows)

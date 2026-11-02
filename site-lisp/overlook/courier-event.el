@@ -33,7 +33,7 @@
 ;;   :key       optional; an event of the same source and key again is
 ;;              a duplicate, and is left out
 ;;   :fallback  who hears of it when no agent follows the room: an agent
-;;              id, `none' for nobody, or nil for
+;;              id, "none" for nobody, or nil for
 ;;              `courier-room-publish-fallback'
 ;;
 ;; `courier-event-emit' leaves out duplicates, passes the event through
@@ -44,11 +44,12 @@
 ;; run their commands through `courier-event-run', which keeps the
 ;; processes of all sources to `courier-event-max-processes' at once, and
 ;; may use `courier-event-first-look-p' to leave out what had happened
-;; before it first looked.
+;; before it first looked.  Sources are named by strings.
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'ring)
 (require 'seq)
 (require 'courier)
 (require 'courier-room)
@@ -85,7 +86,7 @@ The outcome is `delivered', `unclaimed', `dropped' or `duplicate'.")
   "Keys of the events seen, as (SOURCE . KEY).")
 
 (defvar courier-event--key-order nil
-  "The keys in `courier-event--keys', oldest first.")
+  "Ring of the keys in `courier-event--keys', to forget the oldest.")
 
 (defvar courier-event--looked (make-hash-table :test #'equal)
   "Subjects the sources have looked at, as (SOURCE . SUBJECT).")
@@ -103,32 +104,27 @@ The outcome is `delivered', `unclaimed', `dropped' or `duplicate'.")
 
 ;;; Emitting
 
-(defun courier-event--name (source)
-  "SOURCE as a string."
-  (if (symbolp source) (symbol-name source) source))
-
 (defun courier-event-remember (source key)
   "Note that the event of SOURCE and KEY was seen; return nil if it had been."
-  (let ((entry (cons (courier-event--name source) key)))
+  (let ((entry (cons source key)))
     (unless (gethash entry courier-event--keys)
-      (puthash entry t courier-event--keys)
-      (setq courier-event--key-order (nconc courier-event--key-order (list entry)))
-      (when (> (hash-table-count courier-event--keys) courier-event-key-memory)
-        (remhash (pop courier-event--key-order) courier-event--keys))
-      t)))
+      (unless courier-event--key-order
+        (setq courier-event--key-order (make-ring courier-event-key-memory)))
+      (when (= (ring-length courier-event--key-order) (ring-size courier-event--key-order))
+        (remhash (ring-remove courier-event--key-order) courier-event--keys))
+      (ring-insert courier-event--key-order entry)
+      (puthash entry t courier-event--keys))))
 
 (defun courier-event--log (event outcome &optional reached)
   "Log EVENT with its OUTCOME and the ids it REACHED, and return the entry."
   (let ((entry (append (list :time (float-time) :outcome outcome :reached reached) event)))
-    (push entry courier-event-log)
-    (when (> (length courier-event-log) courier-event-log-size)
-      (setcdr (nthcdr (1- courier-event-log-size) courier-event-log) nil))
+    (setq courier-event-log (ntake courier-event-log-size (cons entry courier-event-log)))
     entry))
 
 (defun courier-event-emit (event)
   "Post EVENT, a plist as the Commentary describes, in its thread's room.
 Returns its entry in `courier-event-log'."
-  (let ((source (courier-event--name (or (plist-get event :source) "event")))
+  (let ((source (or (plist-get event :source) "event"))
         (key (plist-get event :key)))
     (setq event (plist-put (copy-sequence event) :source source))
     (if (and key (not (courier-event-remember source key)))
@@ -137,15 +133,18 @@ Returns its entry in `courier-event-log'."
                                   courier-event-filters event)))
           (let* ((room (courier-room-name-for (or (plist-get kept :thread)
                                                   (user-error "Event without a thread"))))
+                 (fallback (plist-get kept :fallback))
                  (reached (courier-room-publish room source (plist-get kept :text)
-                                                (plist-get kept :fallback))))
+                                                (cond ((equal fallback "none") nil)
+                                                      (fallback)
+                                                      (t courier-room-publish-fallback)))))
             (courier-event--log (plist-put kept :thread room)
                                 (if reached 'delivered 'unclaimed) reached))
         (courier-event--log event 'dropped)))))
 
 (defun courier-event-first-look-p (source subject)
   "Non-nil the first time SOURCE looks at SUBJECT, such as a branch."
-  (let ((entry (cons (courier-event--name source) subject)))
+  (let ((entry (cons source subject)))
     (unless (gethash entry courier-event--looked)
       (puthash entry t courier-event--looked))))
 
@@ -179,14 +178,6 @@ The first poll comes INTERVAL seconds from now."
         (condition-case err
             (funcall (plist-get source :poll))
           (error (message "courier: polling %s failed: %s" name (error-message-string err))))))))
-
-(defun courier-event-poll (name)
-  "Poll source NAME now."
-  (interactive (list (intern (completing-read "Poll source: "
-                                              (mapcar #'car courier-event--sources) nil t))))
-  (funcall (plist-get (or (alist-get name courier-event--sources nil nil #'equal)
-                          (user-error "No source %s" name))
-                      :poll)))
 
 ;;; Processes
 
@@ -241,12 +232,11 @@ Waits while `courier-event-max-processes' run already."
     ((and `("emit" . ,rest)
           (let `(,options ,thread ,text)
             (courier-options rest '("--from" "--key" "--fallback"))))
-     (let* ((fallback (cdr (assoc "--fallback" options)))
-            (entry (courier-event-emit
-                    (list :source (or (cdr (assoc "--from" options)) from "event")
-                          :thread thread :text text
-                          :key (cdr (assoc "--key" options))
-                          :fallback (if (equal fallback "none") 'none fallback)))))
+     (let ((entry (courier-event-emit
+                   (list :source (or (courier-option "--from" options) from "event")
+                         :thread thread :text text
+                         :key (courier-option "--key" options)
+                         :fallback (courier-option "--fallback" options)))))
        (pcase (plist-get entry :outcome)
          ('delivered (format "Posted in #%s; it reached %s." (plist-get entry :thread)
                              (string-join (plist-get entry :reached) ", ")))

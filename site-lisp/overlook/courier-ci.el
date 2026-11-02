@@ -58,6 +58,9 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
 (defvar courier-ci--reading nil
   "Checkouts being looked at.")
 
+(defvar courier-ci--backends nil
+  "Alist of (CHECKOUT . REMOTE) to the function asking that remote's CI, or nil.")
+
 (defun courier-ci--json (text)
   "TEXT parsed as JSON, or nil."
   (and text (ignore-errors (json-parse-string text :object-type 'plist :array-type 'list))))
@@ -131,31 +134,40 @@ Returns its entry in `courier-event-log' when it was emitted."
                                  :text (courier-ci--message checkout branch run)))))
                (and (not (eq (plist-get entry :outcome) 'duplicate)) entry))))))
 
+(defun courier-ci--backend (checkout remote then)
+  "Call THEN with the function asking the CI of REMOTE of CHECKOUT, or nil."
+  (if-let* ((known (assoc (cons checkout remote) courier-ci--backends)))
+      (funcall then (cdr known))
+    (courier-event-run
+     checkout (list (courier-worktree-git-program) "remote" "get-url" remote)
+     (lambda (url)
+       (let ((backend (and url (cdr (seq-find (lambda (entry) (string-match-p (car entry) url))
+                                              courier-ci-backends)))))
+         (when url (push (cons (cons checkout remote) backend) courier-ci--backends))
+         (funcall then backend))))))
+
 (defun courier-ci--look (checkout)
   "Look at the CI of the branch checked out in CHECKOUT, if it is pushed."
   (unless (member checkout courier-ci--reading)
     (push checkout courier-ci--reading)
-    (let ((done (lambda () (setq courier-ci--reading (delete checkout courier-ci--reading)))))
+    (let ((done (lambda (&rest _) (setq courier-ci--reading (delete checkout courier-ci--reading)))))
       (courier-event-run
-       checkout (list (or (bound-and-true-p vc-git-program) "git")
-                      "rev-parse" "--abbrev-ref" "HEAD" "@{upstream}")
+       checkout (list (courier-worktree-git-program) "rev-parse" "--abbrev-ref" "HEAD" "@{upstream}")
        (lambda (text)
          (pcase (and text (split-string text "\n" t))
            ((and `(,branch ,upstream)
                  (guard (string-match "\\`\\([^/]+\\)/\\(.+\\)\\'" upstream)))
             (let ((remote (match-string 1 upstream))
                   (remote-branch (match-string 2 upstream)))
-              (courier-event-run
-               checkout (list (or (bound-and-true-p vc-git-program) "git") "remote" "get-url" remote)
-               (lambda (url)
-                 (if-let* ((url)
-                           (backend (cdr (seq-find (lambda (entry) (string-match-p (car entry) url))
-                                                   courier-ci-backends))))
-                     (funcall backend checkout remote-branch
-                              (lambda (run)
-                                (funcall done)
-                                (courier-ci-saw checkout branch run)))
-                   (funcall done))))))
+              (courier-ci--backend
+               checkout remote
+               (lambda (backend)
+                 (if (null backend)
+                     (funcall done)
+                   (funcall backend checkout remote-branch
+                            (lambda (run)
+                              (funcall done)
+                              (courier-ci-saw checkout branch run))))))))
            (_ (funcall done))))))))
 
 (defun courier-ci-look ()
@@ -169,8 +181,8 @@ Returns its entry in `courier-event-log' when it was emitted."
   :global t
   :group 'courier
   (if courier-ci-mode
-      (courier-event-add-source 'ci :interval courier-ci-interval :poll #'courier-ci-look)
-    (courier-event-remove-source 'ci)))
+      (courier-event-add-source "ci" :interval courier-ci-interval :poll #'courier-ci-look)
+    (courier-event-remove-source "ci")))
 
 (provide 'courier-ci)
 ;;; courier-ci.el ends here

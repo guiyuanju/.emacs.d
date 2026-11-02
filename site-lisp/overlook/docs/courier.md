@@ -71,9 +71,10 @@ messages arriving together cost one turn.
 A turn the user starts in the child's buffer is not reported.
 
 A delivery to an agent that is ready yet starts no turn would keep its
-mail waiting for good.  `courier-stalled` lists such agents and
-`courier-unstall` lets one take mail again; overlook's watchdog does both
-after `overlook-watchdog-delivery-limit` (120) seconds.
+mail waiting for good, so after `courier-delivery-timeout` (120) seconds
+courier gives up on it, delivers the next mail, and runs
+`courier-stalled-functions` with the agent's id and the delivery's time;
+overlook's watchdog reports it.
 
 ### Worktrees
 
@@ -97,7 +98,7 @@ courier worktree remove . fix-login        # keeps the branch; --force first dro
 ```
 
 overlook lists each worktree under its project's perspective, clean or
-not, as `BRANCH/REPO` (`overlook-project-worktrees`).
+not, as `BRANCH/REPO`, or `BRANCH` for a single repo.
 
 ## Rooms
 
@@ -139,7 +140,7 @@ branch's.  `courier-event-emit` (in `courier-event.el`) takes a plist:
 | `:thread` | the thread; its room is `(courier-room-name-for THREAD)` |
 | `:text` | what the agents are told |
 | `:key` | optional; an event of the same source and key again is a duplicate and left out |
-| `:fallback` | who hears of it when no agent follows the room: an id, `none`, or nil for `courier-room-publish-fallback` |
+| `:fallback` | who hears of it when no agent follows the room: an id, `"none"`, or nil for `courier-room-publish-fallback` |
 
 It leaves out duplicates, runs `courier-event-filters` (each returns the
 event, changed or not, or nil to drop it), posts it in the room for a

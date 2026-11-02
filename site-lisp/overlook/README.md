@@ -121,8 +121,8 @@ the room named after the branch, which that agent follows; see
 [courier](docs/courier.md#events).  `overlook-watchdog-mode` checks, by
 fixed rules, for a spawned agent whose turn runs past
 `overlook-watchdog-turn-limit` (30 min) or that waits for you past
-`overlook-watchdog-waiting-limit` (15 min), and for a courier delivery that
-started no turn, which it undoes so the agent takes mail again.  Each
+`overlook-watchdog-waiting-limit` (15 min), and reports a courier delivery
+that started no turn, which courier gave up on.  Each
 finding goes once to the room `#watchdog`, and to the agent's parent when
 nobody follows that room.
 
@@ -230,9 +230,6 @@ Evil users can bind the same keys in normal state:
   returning nil to hide it, such as one outside the workspace you are
   working in.  The current perspective, and one with an agent needing
   you, still show.
-- `overlook-project-worktrees`: the folder in a project whose repos'
-  worktrees are listed under its perspective even while clean, where
-  `courier spawn --worktree` makes them; nil to not list them.
 - `overlook-project-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-project-folders`, as a `*` after its
   perspective's heading while it has changes, instead of listing them.

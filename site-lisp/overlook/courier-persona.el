@@ -220,8 +220,8 @@ is ready."
        (unless (and name (<= (length rest) 3))
          (user-error "Usage: courier persona start [--engine E] [--effort L] NAME [DIR [TASK]]"))
        (courier-persona-start name :directory directory :task task :from (and (courier-agent from) from)
-                              :engine (cdr (assoc "--engine" options))
-                              :effort (cdr (assoc "--effort" options)))
+                              :engine (courier-option "--engine" options)
+                              :effort (courier-option "--effort" options))
        (format "Started persona %s.%s" name
                (if (and task (courier-agent from))
                    "  It reports when done or stuck.  End your turn now."

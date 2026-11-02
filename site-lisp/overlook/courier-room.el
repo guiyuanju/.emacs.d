@@ -58,9 +58,12 @@
   "Member id of the user.")
 
 (defcustom courier-room-publish-fallback nil
-  "Id of the agent told of a published event that wakes no member, or nil."
+  "Id of the agent told of an event that wakes no member, or nil.
+An event may name another agent, or nobody, instead."
   :type '(choice (const nil) string)
   :group 'courier)
+
+(declare-function courier-worktree-spawn "courier-worktree")
 
 (defvar courier-room-post-functions nil
   "Functions of a room's NAME and a POST, called after each post.")
@@ -244,10 +247,11 @@ that wakes it.  WORKTREE and WAKE are as for `courier-spawn' and
 `courier-room-join'.  Returns its id."
   (let* ((name (courier-room-name (courier-room name t)))
          (parent (and (courier-agent from) from))
-         (id (courier-spawn agent directory
-                            (and task (concat (courier-room--invitation name from wake)
-                                              "\n\n" task))
-                            parent effort nil worktree)))
+         (task (and task (concat (courier-room--invitation name from wake) "\n\n" task)))
+         (id (if worktree
+                 (progn (require 'courier-worktree)
+                        (courier-worktree-spawn agent directory worktree task parent effort))
+               (courier-spawn agent directory task parent effort))))
     (courier-room-join name id wake)
     (unless task
       (courier-note id (courier-room--invitation name from wake)))
@@ -392,12 +396,10 @@ an event source FROM, which does not join."
 (defun courier-room-publish (name source body &optional fallback)
   "Post BODY in room NAME for event SOURCE, such as \"ci\".
 The members it wakes, those asking to be woken by every post, take it.
-When it wakes nobody, agent FALLBACK, else `courier-room-publish-fallback',
-is sent it to find who should; FALLBACK `none' tells nobody.  Returns the
-ids it reached."
+When it wakes nobody, agent FALLBACK, if non-nil, is sent it to find who
+should.  Returns the ids it reached."
   (let* ((post (courier-room-post name source body t))
-         (woke (plist-get post :woke))
-         (fallback (unless (eq fallback 'none) (or fallback courier-room-publish-fallback))))
+         (woke (plist-get post :woke)))
     (if (or woke (null fallback))
         woke
       (let ((name (courier-room--check-name name)))
@@ -520,8 +522,8 @@ Posts that woke it came in its prompts, so they are not counted."
               (courier-options rest '("--effort" "--worktree" "--wake")))
             (guard (and directory (<= (length task) 1))))
        (let ((id (courier-room-spawn name agent directory from
-                                     (cdr (assoc "--effort" options)) (car task)
-                                     :worktree (cdr (assoc "--worktree" options))
+                                     (courier-option "--effort" options) (car task)
+                                     :worktree (courier-option "--worktree" options)
                                      :wake (courier-room--wake-option options))))
          (format "Started %s in #%s." id (courier-room--check-name name))))
       (`("close" ,name)
@@ -541,7 +543,7 @@ Posts that woke it came in its prompts, so they are not counted."
 
 (defun courier-room--wake-option (options)
   "The --wake value in OPTIONS as a symbol, or nil."
-  (when-let* ((wake (cdr (assoc "--wake" options)))) (intern wake)))
+  (when-let* ((wake (courier-option "--wake" options))) (intern wake)))
 
 (add-hook 'courier-prompt-functions #'courier-room-note)
 
