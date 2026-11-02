@@ -39,6 +39,9 @@
 ;; only the changes under it.  With `overlook-project-folder-display' set
 ;; to `mark', such a folder gets no row; a "*" after the perspective's
 ;; heading tells it has changes.
+;;
+;; The repos in courier's worktrees of the project show while clean too,
+;; above the agents; the changed repos come after them.
 
 ;;; Code:
 
@@ -432,6 +435,20 @@ They show while clean too: their work may be committed but not merged."
                        (overlook-project--folders perspective)))
     "*"))
 
+(defun overlook-project--insert-rows (rows perspective)
+  "Insert ROWS, each (DIR . NAME), in PERSPECTIVE, their names in one column."
+  (let ((width (apply #'max 0 (mapcar (lambda (row) (string-width (cdr row))) rows))))
+    (pcase-dolist (`(,dir . ,name) rows)
+      (overlook-project--row dir perspective width name))))
+
+(defun overlook-project--insert-worktrees (perspective)
+  "Insert the repos in the worktrees of PERSPECTIVE's project."
+  (when-let* ((root (overlook-perspective-root perspective))
+              (trees (overlook-project--worktrees root)))
+    (dolist (tree trees)
+      (cl-pushnew (car tree) overlook-project--shown :test #'equal))
+    (overlook-project--insert-rows trees perspective)))
+
 (defun overlook-project--insert (perspective)
   "Insert the changed repos and folders of PERSPECTIVE's project."
   (let* ((root (overlook-perspective-root perspective))
@@ -442,20 +459,16 @@ They show while clean too: their work may be committed but not merged."
         (when (and (overlook-project--top dir) (not (member dir dirs)))
           (setq dirs (append dirs (list dir))))))
     ;; A clean one stays off the dashboard but is still read on each tick.
-    (let ((trees (and root (overlook-project--worktrees root))))
-      (dolist (dir (append dirs (mapcar #'car trees)))
-        (cl-pushnew dir overlook-project--shown :test #'equal))
-      (let* ((rows (append
-                    (mapcar (lambda (dir) (cons dir (overlook-project--label dir)))
-                            (seq-filter (lambda (dir)
-                                          (and (cdr (overlook-project--status dir))
-                                               (not (and (eq overlook-project-folder-display 'mark)
-                                                         (member dir folders)))))
-                                        dirs))
-                    trees))
-             (width (apply #'max 0 (mapcar (lambda (row) (string-width (cdr row))) rows))))
-        (pcase-dolist (`(,dir . ,name) rows)
-          (overlook-project--row dir perspective width name))))))
+    (dolist (dir dirs)
+      (cl-pushnew dir overlook-project--shown :test #'equal))
+    (overlook-project--insert-rows
+     (mapcar (lambda (dir) (cons dir (overlook-project--label dir)))
+             (seq-filter (lambda (dir)
+                           (and (cdr (overlook-project--status dir))
+                                (not (and (eq overlook-project-folder-display 'mark)
+                                          (member dir folders)))))
+                         dirs))
+     perspective)))
 
 (defun overlook-project--forget ()
   "Start collecting the repos drawn by this render."
@@ -508,7 +521,8 @@ They show while clean too: their work may be committed but not merged."
   :group 'overlook
   (overlook-toggle-hooks
    overlook-project-mode
-   '((overlook-perspective-functions overlook-project--insert 50)
+   '((overlook-perspective-functions overlook-project--insert-worktrees -50)
+     (overlook-perspective-functions overlook-project--insert 50)
      (overlook-heading-mark-functions overlook-project--heading-mark)
      (overlook-before-render-hook overlook-project--forget)
      (overlook-tick-hook overlook-project--tick)

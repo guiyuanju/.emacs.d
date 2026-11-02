@@ -254,8 +254,10 @@ add to it:
   `overlook-insert-section`.  `overlook-section-order` fixes the order
   of the ones it lists, ahead of the rest.
 - `overlook-perspective-functions`: rows under each perspective, called
-  with its name.  Insert each row with `overlook-insert-row`, which can
-  nest rows under it.
+  with its name, by hook depth: worktrees at -50, agents at 0, changed
+  repos at 50.  Insert each row with `overlook-insert-row`, which can
+  nest rows under it.  Under `overlook-orphans-perspective`, also insert
+  the rows that belong to no perspective.
 - `overlook-usage-functions`: rows in the usage section.
 - `overlook-usage-add-poller`: refresh a row's data over the network, at most every few minutes while the dashboard is open.
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.

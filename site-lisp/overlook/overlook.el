@@ -177,6 +177,11 @@ Sections not listed follow, by hook depth."
   "Name of `overlook-orphan-perspective' when it exists, else nil."
   (car (member overlook-orphan-perspective (overlook-perspectives))))
 
+(defun overlook-orphans-perspective ()
+  "Name of the perspective rows of no perspective go under.
+That is `overlook-orphan-perspective', or else the current one."
+  (or (overlook-orphan-perspective) (overlook-current-perspective)))
+
 (defun overlook-add-to-perspective (name buffer)
   "Add BUFFER to perspective NAME."
   (funcall overlook-add-to-perspective-function name buffer))
@@ -243,16 +248,14 @@ sits at depth 0.")
 
 (defvar overlook-perspective-functions nil
   "Functions inserting rows under a perspective's heading, by hook depth.
-Each is called with the perspective's NAME in the dashboard buffer.")
+Each is called with the perspective's NAME in the dashboard buffer.
+Worktrees sit at depth -50, agents at 0 and changed repos at 50.  Under
+`overlook-orphans-perspective' a function also inserts its rows that
+belong to no perspective.")
 
 (defvar overlook-heading-mark-functions nil
   "Functions of a perspective NAME returning a mark put right after its heading.
 Each returns a string, such as \"*\", or nil.")
-
-(defvar overlook-orphan-functions nil
-  "Functions inserting rows that belong to no perspective.
-Each is called with no arguments.  The rows go under the perspective
-`overlook-orphan-perspective', or else the current one.")
 
 (defvar overlook-mode-line-functions nil
   "Functions returning strings joined into the dashboard's mode line.")
@@ -527,12 +530,12 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 (defun overlook--perspectives ()
   "Insert each perspective's heading and rows.
-Rows of no perspective go under `overlook-orphan-perspective', which is
-left out while it has none and is not current, or else the current one.
+`overlook-orphan-perspective', holding rows of no perspective, is left
+out while it has none and is not current.
 Those `overlook-perspective-filter' hides are left out unless current or
 needing attention."
   (let* ((current (overlook-current-perspective))
-         (orphans (or (overlook-orphan-perspective) current))
+         (orphans (overlook-orphans-perspective))
          (previous nil))
     (dolist (name (overlook-ordered-perspectives))
       (let ((start (point)))
@@ -541,9 +544,8 @@ needing attention."
                         (overlook--heading name (equal name current))
                         (lambda ()
                           (run-hook-with-args 'overlook-perspective-functions name)
-                          (when (equal name orphans)
-                            (run-hooks 'overlook-orphan-functions)
-                            (unless (equal name current) (magit-cancel-section t)))))))
+                          (when (and (equal name orphans) (not (equal name current)))
+                            (magit-cancel-section t))))))
           (if (and (oref section end)
                    (or (equal name current)
                        (null overlook-perspective-filter)

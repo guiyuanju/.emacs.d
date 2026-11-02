@@ -904,18 +904,21 @@ DRAWN, a list in a cons, collects the items inserted, so none is twice."
 (defun overlook-agent--insert (perspective)
   "Insert the agents listed under PERSPECTIVE, then those saved there.
 Forks sit under the agent they were forked from when it is listed there
-too.  A nil PERSPECTIVE inserts those in none."
+too.  Under `overlook-orphans-perspective', those in none follow."
   (overlook-agent--note-forks)
-  (let* ((items (seq-remove
+  (let* ((perspectives (if (equal perspective (overlook-orphans-perspective))
+                           (list perspective nil)
+                         (list perspective)))
+         (items (seq-remove
                  (lambda (item) (run-hook-with-args-until-success 'overlook-agent-hide-functions item))
                  (append (mapcar (lambda (buffer) (cons 'agent buffer))
                                  (overlook-agent-buffers
                                   (lambda (buffer)
-                                    (equal (overlook-agent-perspective buffer) perspective))))
+                                    (member (overlook-agent-perspective buffer) perspectives))))
                          (mapcar (lambda (saved) (cons 'saved saved))
                                  (seq-filter (lambda (saved)
-                                               (equal (overlook-agent--saved-perspective saved)
-                                                      perspective))
+                                               (member (overlook-agent--saved-perspective saved)
+                                                       perspectives))
                                              overlook-agent-saved)))))
          (sessions (delq nil (mapcar #'overlook-agent--item-session items)))
          (drawn (list nil)))
@@ -927,10 +930,6 @@ too.  A nil PERSPECTIVE inserts those in none."
     (dolist (item items)
       (unless (memq item (car drawn))
         (overlook-agent--insert-tree item items perspective 0 drawn)))))
-
-(defun overlook-agent--insert-orphans ()
-  "Insert the agents in no perspective."
-  (overlook-agent--insert nil))
 
 (defun overlook-agent--mode-line ()
   "A count of agents by state, like \"3 agents · 1 working\"."
@@ -965,7 +964,6 @@ too.  A nil PERSPECTIVE inserts those in none."
   (overlook-toggle-hooks
    overlook-agent-mode
    '((overlook-perspective-functions overlook-agent--insert)
-     (overlook-orphan-functions overlook-agent--insert-orphans)
      (overlook-mode-line-functions overlook-agent--mode-line)
      (overlook-tick-hook overlook-agent--tick)
      (window-selection-change-functions overlook-agent--acknowledge)

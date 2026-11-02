@@ -28,7 +28,6 @@ Agents are listed; usage and repos are not."
           (overlook-perspective-root-function #'ignore)
           (overlook-sections (list #'overlook--perspectives-section))
           (overlook-perspective-functions (list #'overlook-agent--insert))
-          (overlook-orphan-functions (list #'overlook-agent--insert-orphans))
           (dashboard (get-buffer-create overlook-buffer-name)))
      (unwind-protect
          (with-current-buffer dashboard
@@ -1094,12 +1093,44 @@ Agents are listed; usage and repos are not."
                      (cons (float-time) (cdr repo)) overlook-project--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
             (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions (list #'overlook-project--insert)))
+                  (overlook-perspective-functions
+                   (list #'overlook-project--insert-worktrees #'overlook-project--insert)))
               (overlook--render)
               (should (string-match-p "⎇ +fix/api +fix" (buffer-string)))
               (should (string-match-p "⎇ +fix/web +fix" (buffer-string)))
               (should-not (string-match-p "⎇ +api " (buffer-string))))))
       (kill-buffer alpha)
+      (delete-directory root t))))
+
+;; Under a perspective come its worktrees, then its agents with those of no perspective, then changed repos.
+(ert-deftest overlook-perspective-groups-worktrees-agents-changes ()
+  (require 'courier-worktree)
+  (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+        (alpha (overlook-test--agent "alpha"))
+        (beta (overlook-test--agent "beta"))
+        (overlook-orphan-perspective "one")
+        (overlook-project--status (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (dolist (dir '("api/.git" ".worktrees/fix/api/.git"))
+            (make-directory (expand-file-name dir root) t))
+          (dolist (repo '(("api/" "main" ("a.el" " M" 3 1)) (".worktrees/fix/api/" "fix")))
+            (puthash (expand-file-name (car repo) root)
+                     (cons (float-time) (cdr repo)) overlook-project--status))
+          (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+            (let ((overlook-perspective-root-function (lambda (_) root))
+                  (overlook-perspective-functions nil))
+              (overlook-toggle-hooks
+               t '((overlook-perspective-functions overlook-project--insert 50)
+                   (overlook-perspective-functions overlook-agent--insert)
+                   (overlook-perspective-functions overlook-project--insert-worktrees -50)))
+              (overlook--render)
+              (should (< (overlook-test--line-of "fix/api")
+                         (overlook-test--line-of "alpha")
+                         (overlook-test--line-of "beta")
+                         (overlook-test--line-of "a.el"))))))
+      (kill-buffer alpha)
+      (kill-buffer beta)
       (delete-directory root t))))
 
 ;; A save or Magit refresh reads the repos it touched again, but not a separate repo nested in one.
