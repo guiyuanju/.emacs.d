@@ -435,11 +435,32 @@ backend can stream; CALLBACK still gets the whole text."
 (defvar-local iuiw-elfeed-ai--digest-args nil
   "The (BACKEND ENTRIES FILTER) of the digest in this buffer.")
 
-(defun iuiw-elfeed-ai-digest-open ()
-  "Follow the link at point in another window, keeping the digest on the side."
+(defun iuiw-elfeed-ai--link-id ()
+  "Return the entry id of the elfeed link at point, or nil."
+  (let ((link (org-element-lineage (org-element-context) '(link) t)))
+    (when (and link (equal (org-element-property :type link) "elfeed"))
+      (pcase (split-string (org-element-property :path link) "#")
+        (`(,feed . ,rest) (and rest (cons feed (string-join rest "#"))))))))
+
+(defun iuiw-elfeed-ai-digest-browse ()
+  "Open the article of the link at point in the browser."
   (interactive)
-  (let ((buf (current-buffer))
+  (let* ((id (iuiw-elfeed-ai--link-id))
+         (entry (and id (elfeed-db-get-entry id)))
+         (url (cond (entry (elfeed-entry-link entry))
+                    ((and id (string-match-p "\\`https?://" (cdr id))) (cdr id)))))
+    (cond (url (browse-url url))
+          (id (user-error "No article URL for this entry"))
+          (t (org-open-at-point)))))
+
+(defun iuiw-elfeed-ai-digest-open ()
+  "Show the entry of the link at point in elfeed in another window, keeping the digest on the side."
+  (interactive)
+  (let ((id (iuiw-elfeed-ai--link-id))
+        (buf (current-buffer))
         (pos (point)))
+    (when (and id (not (elfeed-db-get-entry id)))
+      (user-error "本机 elfeed 里没有这条（别的机器抓的），按 RET 用浏览器打开"))
     (select-window (or (get-mru-window nil nil t) (selected-window)))
     (with-current-buffer buf
       (save-excursion (goto-char pos) (org-open-at-point)))))
@@ -462,13 +483,17 @@ backend can stream; CALLBACK still gets the whole text."
   (setq-local org-return-follows-link t)
   (read-only-mode 1))
 
-(define-key iuiw-elfeed-ai-digest-mode-map (kbd "RET") #'iuiw-elfeed-ai-digest-open)
-(define-key iuiw-elfeed-ai-digest-mode-map (kbd "<return>") #'iuiw-elfeed-ai-digest-open)
+(define-key iuiw-elfeed-ai-digest-mode-map (kbd "RET") #'iuiw-elfeed-ai-digest-browse)
+(define-key iuiw-elfeed-ai-digest-mode-map (kbd "<return>") #'iuiw-elfeed-ai-digest-browse)
+(define-key iuiw-elfeed-ai-digest-mode-map (kbd "M-RET") #'iuiw-elfeed-ai-digest-open)
+(define-key iuiw-elfeed-ai-digest-mode-map (kbd "M-<return>") #'iuiw-elfeed-ai-digest-open)
 
 (with-eval-after-load 'evil
   (evil-define-key* '(normal motion) iuiw-elfeed-ai-digest-mode-map
-    (kbd "RET") #'iuiw-elfeed-ai-digest-open
-    (kbd "<return>") #'iuiw-elfeed-ai-digest-open
+    (kbd "RET") #'iuiw-elfeed-ai-digest-browse
+    (kbd "<return>") #'iuiw-elfeed-ai-digest-browse
+    (kbd "M-RET") #'iuiw-elfeed-ai-digest-open
+    (kbd "M-<return>") #'iuiw-elfeed-ai-digest-open
     "q" #'quit-window
     "gr" #'iuiw-elfeed-ai-digest-regenerate
     "e" #'iuiw-elfeed-ai-digest-edit-focus))
