@@ -89,6 +89,13 @@ folder that is a repo itself is listed as one."
   :type '(choice (const rows) (const mark))
   :group 'overlook)
 
+(defcustom overlook-project-worktrees ".worktrees"
+  "Folder inside a project holding worktrees of its repos, or nil.
+Each repo in a folder there shows under the project's perspective even
+while clean, by its path inside this folder."
+  :type '(choice string (const nil))
+  :group 'overlook)
+
 (defface overlook-project-repo
   '((t :inherit shadow))
   "Face of a repo's row, dimmed so agents stand out."
@@ -378,11 +385,26 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                                  (overlook-project--insert-file dir file perspective)))
                              t)))))
 
-(defun overlook-project--row (dir perspective width)
-  "Insert the row of repo DIR in PERSPECTIVE, its name padded to WIDTH."
+(defun overlook-project--worktrees (root)
+  "Repos in the worktree folders of project ROOT, each as (DIR . LABEL)."
+  (when-let* ((overlook-project-worktrees)
+              (folder (expand-file-name overlook-project-worktrees root))
+              ((file-directory-p folder)))
+    (mapcan (lambda (tree)
+              (mapcar (lambda (dir)
+                        (cons dir (directory-file-name (file-relative-name dir folder))))
+                      (overlook-project-repos tree)))
+            (seq-filter #'file-directory-p (directory-files folder t "\\`[^.]")))))
+
+(defun overlook-project--label (dir)
+  "The name repo DIR shows by."
+  (file-name-nondirectory (directory-file-name dir)))
+
+(defun overlook-project--row (dir perspective width &optional name)
+  "Insert the row of repo DIR in PERSPECTIVE, its NAME padded to WIDTH."
   (pcase-let* ((`(,branch . ,files) (overlook-project--status dir))
                (total (overlook-project--total files))
-               (name (file-name-nondirectory (directory-file-name dir))))
+               (name (or name (overlook-project--label dir))))
     (overlook-insert-row (propertize
                           (concat overlook-indent
                                   (propertize (concat (overlook-glyph-cell "⎇")
@@ -421,19 +443,21 @@ Past `overlook-project-files' the rest fold into one line with their totals."
         (when (and (overlook-project--top dir) (not (member dir dirs)))
           (setq dirs (append dirs (list dir))))))
     ;; A clean one stays off the dashboard but is still read on each tick.
-    (dolist (dir dirs)
-      (cl-pushnew dir overlook-project--shown :test #'equal))
-    (let* ((dirs (seq-filter (lambda (dir)
-                               (and (cdr (overlook-project--status dir))
-                                    (not (and (eq overlook-project-folder-display 'mark)
-                                              (member dir folders)))))
-                             dirs))
-           (width (apply #'max 0 (mapcar (lambda (dir)
-                                           (string-width (file-name-nondirectory
-                                                          (directory-file-name dir))))
-                                         dirs))))
-      (dolist (dir dirs)
-        (overlook-project--row dir perspective width)))))
+    (let ((trees (and root (overlook-project--worktrees root))))
+      (dolist (dir (append dirs (mapcar #'car trees)))
+        (cl-pushnew dir overlook-project--shown :test #'equal))
+      (let* ((rows (append
+                    (mapcar (lambda (dir) (cons dir (overlook-project--label dir)))
+                            (seq-filter (lambda (dir)
+                                          (and (cdr (overlook-project--status dir))
+                                               (not (and (eq overlook-project-folder-display 'mark)
+                                                         (member dir folders)))))
+                                        dirs))
+                    ;; A worktree stays listed while clean: its work may be committed but not merged.
+                    trees))
+             (width (apply #'max 0 (mapcar (lambda (row) (string-width (cdr row))) rows))))
+        (pcase-dolist (`(,dir . ,name) rows)
+          (overlook-project--row dir perspective width name))))))
 
 (defun overlook-project--forget ()
   "Start collecting the repos drawn by this render."

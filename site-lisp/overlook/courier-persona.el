@@ -42,6 +42,7 @@
 ;;   avatar: 🦉              shown beside its name
 ;;   personality: calm, exacting
 ;;   tone: terse
+;;   memory: off             keeps no memory, as for an agent that cannot write files
 ;;   ---
 ;;
 ;; The rest, its role, rules and any background, is the persona's
@@ -63,7 +64,7 @@
   :group 'courier)
 
 (defconst courier-persona-fields
-  '(engine effort directory description avatar personality tone)
+  '(engine effort directory description avatar personality tone memory)
   "Fields persona.md's front matter may set.")
 
 (defconst courier-persona-reserved '("all" "user")
@@ -137,6 +138,10 @@
           (concat (string-join (take courier-persona-index-lines lines) "\n")
                   (when (> cut 0) (format "\n[… %d more lines in MEMORY.md]" cut))))))))
 
+(defun courier-persona-remembers-p (persona)
+  "Non-nil unless PERSONA's front matter turns its memory off."
+  (not (member (plist-get persona :memory) '("off" "no" "false"))))
+
 (defun courier-persona-briefing (persona engine)
   "What an agent of ENGINE starting as PERSONA is told."
   (let ((name (plist-get persona :name))
@@ -155,14 +160,15 @@ messaging you starts you when nobody runs you." name engine name)
                                           (when-let* ((tone (plist-get persona :tone)))
                                             (concat "Tone: " tone))))))
               (when traits (string-join traits "\n")))
-            (format "Your memory is in %s: a file per fact, each listed with a line \
+            (when (courier-persona-remembers-p persona)
+             (format "Your memory is in %s: a file per fact, each listed with a line \
 in MEMORY.md.  Read a file when it bears on your work.  When your user \
 corrects you, or you learn something about your role or how your user \
 wants it done that will hold beyond this task, save it there and add its \
 line to MEMORY.md; fix or delete a memory that proves wrong.  Knowledge \
 about the code or the domain goes to the project's own notes instead.  %s"
                     (abbreviate-file-name memory)
-                    (if index (concat "MEMORY.md now:\n\n" index) "It is empty so far."))))
+                    (if index (concat "MEMORY.md now:\n\n" index) "It is empty so far.")))))
      "\n\n")))
 
 (cl-defun courier-persona-start (name &key directory task from engine effort wait)
@@ -175,7 +181,8 @@ is ready."
   (let* ((persona (or (courier-persona name) (user-error "No persona %s" name)))
          (engine (or engine (plist-get persona :engine)
                      (user-error "Persona %s names no engine" name))))
-    (make-directory (courier-persona-memory persona) t)
+    (when (courier-persona-remembers-p persona)
+      (make-directory (courier-persona-memory persona) t))
     (let* ((briefing (courier-persona-briefing persona engine))
            (id (courier-spawn engine (or directory (courier-persona-directory persona))
                               (unless wait
@@ -201,15 +208,6 @@ is ready."
                 (concat "  " description)
               ""))))
 
-(defun courier-persona--options (args options)
-  "Split ARGS into the values of the leading OPTIONS and the rest.
-Returns (ALIST . REST), ALIST mapping each option given to its value."
-  (let (values)
-    (while (member (car args) options)
-      (let ((option (pop args)))
-        (push (cons option (or (pop args) (user-error "%s needs a value" option))) values)))
-    (cons values args)))
-
 (defun courier-persona-cli (from args)
   "Run the persona command ARGS for agent FROM and return its output."
   (pcase args
@@ -217,7 +215,7 @@ Returns (ALIST . REST), ALIST mapping each option given to its value."
      (or (mapconcat #'courier-persona--describe (courier-persona-names) "\n")
          "No personas."))
     (`("start" . ,rest)
-     (pcase-let* ((`(,options . ,rest) (courier-persona--options rest '("--engine" "--effort")))
+     (pcase-let* ((`(,options . ,rest) (courier-options rest '("--engine" "--effort")))
                   (`(,name ,directory ,task) rest))
        (unless (and name (<= (length rest) 3))
          (user-error "Usage: courier persona start [--engine E] [--effort L] NAME [DIR [TASK]]"))

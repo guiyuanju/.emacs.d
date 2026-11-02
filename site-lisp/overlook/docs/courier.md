@@ -29,6 +29,7 @@ it on their own.
 courier list                                  # the agents, who spawned them, unread mail
 courier spawn codex . 'Review the diff of foo.go'  # then end your turn; it reports back
 courier spawn --effort high claude . 'Find why the build fails'  # at that reasoning effort
+courier spawn --worktree fix-login claude . 'Fix the login redirect'  # in a checkout of its own
 courier send claude@shop 'Tests pass on my side'
 courier monitor codex@shop                    # be told when it next finishes
 courier whoami
@@ -69,6 +70,35 @@ messages arriving together cost one turn.
 
 A turn the user starts in the child's buffer is not reported.
 
+A delivery to an agent that is ready yet starts no turn would keep its
+mail waiting for good.  `courier-stalled` lists such agents and
+`courier-unstall` lets one take mail again; overlook's watchdog does both
+after `overlook-watchdog-delivery-limit` (120) seconds.
+
+### Worktrees
+
+`courier spawn --worktree BRANCH` starts the child in a checkout of its
+own, so agents working at once on one project do not edit the same
+files.  For project DIR it is `DIR/.worktrees/BRANCH` (`/` in the branch
+becomes `-`): a Git worktree when DIR is a repo; otherwise a folder with
+a worktree of each repo directly in DIR and a `.overlook` file making it
+one project.  The branch is made from each repo's checked out commit
+unless it exists; `.worktrees/` is added to the repo's `info/exclude`.
+The child is told its branch and to commit there, and follows the room
+named after the branch (`courier-room-name-for`: lowercase, other
+characters as `-`) with `--wake all`, so events published about the
+branch reach it.  Merging is left to whoever asked for the work.
+Removing the worktree closes that room.
+
+```sh
+courier worktree list .
+courier worktree add . fix-login           # without starting an agent
+courier worktree remove . fix-login        # keeps the branch; --force first drops uncommitted changes
+```
+
+overlook lists each worktree under its project's perspective, clean or
+not, as `BRANCH/REPO` (`overlook-project-worktrees`).
+
 ## Rooms
 
 A room is a chat log that agents and you share, kept in
@@ -87,10 +117,42 @@ courier room post design '@codex@shop the API is v2 now'
 courier room read design                 # what you have not read
 courier room read design --last 50
 courier room list                        # members marked (gone) can no longer be woken
-courier room invite design codex@shop    # add an agent and tell it
-courier room spawn design claude . 'Draft the schema'   # start one as a member; --effort first; no task: it idles until named
+courier room invite design codex@shop    # add an agent and tell it; --wake all first: every post wakes it
+courier room spawn design claude . 'Draft the schema'   # start one as a member; no task: it idles until named
+                                         # options first: --effort LEVEL, --worktree BRANCH, --wake all|none
 courier room leave design
 courier room close design                # archive the posts under archive/
+```
+
+### Events
+
+A room can stand for one stream of events, a thread: the CI runs of a
+branch, the comments on a pull request.  Agents working on it follow the
+room with `--wake all`; whatever publishes the events posts there:
+
+```sh
+courier room publish --from ci fix-login 'CI failed on fix-login: …'
+```
+
+`courier-room-publish` posts for an event source that does not join the
+room, and wakes the members as any post does.  When it wakes nobody, it
+tells `courier-room-publish-fallback` (or `--fallback ID`), say a router
+agent, which may invite an agent to the room or start one there.  So
+the router hears only of events no agent has claimed; the rest go
+straight to the agent following them.
+
+`courier-ci-mode` publishes CI results this way.  Every
+`courier-ci-interval` (60) seconds it looks at the branch checked out in
+each worktree a registered agent works in, skips the ones with no
+upstream, and asks the remote's CI, through `gh` for GitHub and `glab`
+for GitLab (`courier-ci-backends`), for the branch's latest run.  A run
+that finishes is published, as from `ci`, in the room named after the
+branch, with its link and, when it failed, the command reading why.  A
+run that had finished before the branch was first looked at is not.
+
+```elisp
+(require 'courier-ci)
+(courier-ci-mode 1)
 ```
 
 You are the member `user`.  `M-x overlook-room-open` shows a room in a
@@ -119,6 +181,7 @@ description: Reviews diffs; never edits
 avatar: 🦉              # shown beside its name; the rest are optional too
 personality: calm, exacting
 tone: terse
+memory: off             # no memory, for an agent that may not write files
 ---
 Its role, its rules, and any background story.
 ```
@@ -131,6 +194,7 @@ Starting, the agent is told the body, the personality and tone, and the
 index of its memory, `memory/MEMORY.md` (up to
 `courier-persona-index-lines`, 200).  It keeps that memory itself, a
 file per fact as in Claude's own memory; courier only tells it where.
+With `memory: off` it is told of no memory and none is made.
 Started with no task, it says in one line that it is ready; started by a
 message, it learns who it is with that message, in the same turn.
 

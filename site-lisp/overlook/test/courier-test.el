@@ -4,6 +4,8 @@
 (require 'courier)
 (require 'courier-room)
 (require 'courier-persona)
+(require 'courier-worktree)
+(require 'courier-ci)
 
 (defvar courier-test--inbox nil
   "Alist of agent id to the prompts delivered to it, newest first.")
@@ -541,6 +543,13 @@
         (should-not (string-search "Tone:" briefing))
         (should (string-search "[Short reports](short.md)" briefing))))))
 
+(ert-deftest courier-persona-without-memory ()
+  (courier-test-with-personas '()
+    (let ((persona (append '(:memory "off") (courier-persona "reviewer"))))
+      (should-not (courier-persona-remembers-p persona))
+      (should-not (string-search "Your memory" (courier-persona-briefing persona "codex"))))
+    (should (courier-persona-remembers-p (courier-persona "reviewer")))))
+
 (ert-deftest courier-persona-starts-under-its-own-id ()
   (courier-test-with-personas '("a@p")
     (should (equal (courier-persona-start "reviewer" :task "Review x.go" :from "a@p") "reviewer"))
@@ -610,5 +619,217 @@
       (should (= (courier-room-unread (courier-room "ops") "reviewer") 1))
       (should (string-search "Not delivered to reviewer: could not start"
                              (courier-room-missed "ops" "@reviewer @b@p review this"))))))
+
+;;; Worktrees
+
+(defun courier-test--repo (dir)
+  "Make DIR a Git repo with one commit."
+  (make-directory dir t)
+  (let ((default-directory (file-name-as-directory dir)))
+    (call-process "git" nil nil nil "init" "-q" "-b" "main")
+    (call-process "git" nil nil nil "-c" "user.name=t" "-c" "user.email=t@t"
+                  "commit" "-q" "--allow-empty" "-m" "start")))
+
+(defun courier-test--branch (dir)
+  "The branch checked out in DIR."
+  (let ((default-directory (file-name-as-directory dir)))
+    (string-trim (shell-command-to-string "git branch --show-current"))))
+
+(defmacro courier-test-with-tmp (var &rest body)
+  "Run BODY with VAR bound to a fresh temporary directory."
+  (declare (indent 1))
+  `(let ((,var (file-name-as-directory (file-truename (make-temp-file "courier-wt" t)))))
+     (unwind-protect (progn ,@body) (delete-directory ,var t))))
+
+(ert-deftest courier-worktree-of-a-repo ()
+  (courier-test-with-tmp root
+    (courier-test--repo root)
+    (let ((path (courier-worktree-add root "fix/login")))
+      (should (equal path (expand-file-name ".worktrees/fix-login/" root)))
+      (should (equal (courier-test--branch path) "fix/login"))
+      (should (equal (courier-worktree-add root "fix/login") path))
+      (should (equal (courier-worktree-list root) '("fix-login")))
+      (let ((default-directory root))
+        (should (string-empty-p (shell-command-to-string "git status --porcelain"))))
+      (courier-worktree-remove root "fix/login")
+      (should-not (file-exists-p path))
+      (should (equal (courier-test--branch root) "main"))
+      (let ((default-directory root))
+        (should (string-search "fix/login" (shell-command-to-string "git branch")))))))
+
+(ert-deftest courier-worktree-of-a-folder-of-repos ()
+  (courier-test-with-tmp root
+    (courier-test--repo (expand-file-name "api" root))
+    (courier-test--repo (expand-file-name "web" root))
+    (make-directory (expand-file-name "notes" root))
+    (let ((path (courier-worktree-add root "feature")))
+      (should (file-exists-p (expand-file-name ".overlook" path)))
+      (should (equal (mapcar (lambda (dir) (file-relative-name dir path)) (courier-worktree-repos path))
+                     '("api/" "web/")))
+      (should (equal (courier-test--branch (expand-file-name "web" path)) "feature"))
+      (write-region "x" nil (expand-file-name "api/dirty" path))
+      (should-error (courier-worktree-remove root "feature"))
+      (courier-worktree-remove root "feature" t)
+      (should-not (file-exists-p path)))))
+
+(ert-deftest courier-worktree-rolls-back-a-failed-folder ()
+  (courier-test-with-tmp root
+    (courier-test--repo (expand-file-name "api" root))
+    (make-directory (expand-file-name "web/.git" root) t)
+    (should-error (courier-worktree-add root "feature"))
+    (should-not (file-exists-p (courier-worktree-path root "feature")))
+    (should (equal (courier-test--branch (expand-file-name "api" root)) "main"))))
+
+(ert-deftest courier-spawn-in-a-worktree ()
+  (courier-test-with-tmp root
+    (courier-test--repo root)
+    (courier-test-with-agents '("a@p")
+      (let* ((courier-room-directory (expand-file-name "rooms/" (make-temp-file "courier-rooms" t)))
+             (courier-room--rooms nil)
+             (courier-room--loaded nil)
+             (started nil)
+             (courier-spawn-function
+              (lambda (name directory parent _effort &optional as)
+                (push directory started)
+                (let ((id (or as (courier-new-id name directory))))
+                  (courier-test--register id parent)
+                  id)))
+             (output (make-temp-file "courier-out")))
+        (unwind-protect
+            (let ((default-directory root))
+              (should (courier-cli output (base64-encode-string "a@p")
+                                   (base64-encode-string "spawn")
+                                   (base64-encode-string "--worktree")
+                                   (base64-encode-string "fix")
+                                   (base64-encode-string "claude")
+                                   (base64-encode-string ".")
+                                   (base64-encode-string "go"))))
+          (delete-file output))
+        (should (equal started (list (expand-file-name ".worktrees/fix/" root))))
+        (courier-deliver)
+        (let ((brief (car (courier-test--received "claude@fix"))))
+          (should (string-search "on branch fix" brief))
+          (should (string-search "from the room #fix" brief))
+          (should (string-suffix-p "go" brief)))
+        (should (eq (plist-get (courier-room-member (courier-room "fix") "claude@fix") :wake) 'all))
+        (courier-worktree-remove root "fix")
+        (should-not (courier-room "fix"))
+        (delete-directory (file-name-directory (directory-file-name courier-room-directory)) t)))))
+
+(ert-deftest courier-options-split-leading-options ()
+  (should (equal (courier-options '("--effort" "low" "--worktree" "b" "x" "y")
+                                  '("--effort" "--worktree"))
+                 '((("--worktree" . "b") ("--effort" . "low")) "x" "y")))
+  (should-error (courier-options '("--effort") '("--effort"))))
+
+;;; Events
+
+(ert-deftest courier-room-name-for-a-branch ()
+  (should (equal (courier-room-name-for "feature/Login_redirect") "feature-login_redirect"))
+  (should (equal (courier-room-name-for "-x-") "x"))
+  (should (= (length (courier-room-name-for (make-string 40 ?a))) 32))
+  (should-error (courier-room-name-for "//")))
+
+(ert-deftest courier-room-publish-reaches-followers-only ()
+  (courier-test-with-personas '("w@p" "r@p" "x@p")
+    (courier-room-join "fix" "w@p" 'all)
+    (courier-room-join "fix" "x@p")
+    (should (equal (courier-room-publish "fix" "ci" "build failed" "r@p") '("w@p")))
+    (should-not (courier-room-member (courier-room "fix") "ci"))
+    (courier-deliver)
+    (let ((prompt (car (courier-test--received "w@p"))))
+      (should (string-search "from event source ci" prompt))
+      (should (string-suffix-p "build failed" prompt)))
+    (should-not (courier-test--received "x@p"))
+    (should-not (courier-test--received "r@p"))
+    (should (= (courier-room-unread (courier-room "fix") "x@p") 1))))
+
+(ert-deftest courier-room-publish-falls-back-when-nobody-follows ()
+  (courier-test-with-personas '("r@p")
+    (should (equal (courier-room-publish "lonely" "ci" "build failed" "r@p") '("r@p")))
+    (courier-deliver)
+    (let ((prompt (car (courier-test--received "r@p"))))
+      (should (string-search "woke nobody" prompt))
+      (should (string-search "courier room invite --wake all lonely ID" prompt)))
+    (should-not (courier-room-publish "lonely" "ci" "again"))
+    (let ((courier-room-publish-fallback "missing"))
+      (should-not (courier-room-publish "lonely" "ci" "again")))))
+
+(ert-deftest courier-room-cli-invites-and-spawns-with-wake ()
+  (courier-test-with-personas '("a@p" "b@p")
+    (courier-room-cli "a@p" '("invite" "--wake" "all" "ops" "b@p"))
+    (should (eq (plist-get (courier-room-member (courier-room "ops") "b@p") :wake) 'all))
+    (courier-deliver)
+    (should (string-search "Every post wakes you" (car (courier-test--received "b@p"))))
+    (should (string-search "Started codex@"
+                           (courier-room-cli "a@p" '("spawn" "--wake" "none" "ops" "codex" "/w/p" "go"))))
+    (should (eq (plist-get (courier-room-member (courier-room "ops") "codex@p") :wake) 'none))
+    (should (string-search "it reached b@p"
+                           (courier-room-cli nil '("publish" "--from" "ci" "ops" "green"))))))
+
+;;; CI
+
+(ert-deftest courier-ci-publishes-runs-that-newly-finish ()
+  (courier-test-with-personas '("w@p")
+    (let ((courier-ci--seen (make-hash-table :test #'equal))
+          (run (list :id 1 :done nil :result "" :name "test" :url "u" :sha "abcdef123" :hint "gh x")))
+      (courier-room-join "fix" "w@p" 'all)
+      ;; A run finished before the first look is not news.
+      (should-not (courier-ci-saw "/r/" "fix" (append '(:id 0 :done t :result "failure") run)))
+      (should-not (courier-ci-saw "/r/" "fix" run))
+      (should (courier-ci-saw "/r/" "fix" (append '(:done t :result "failure") run)))
+      (should-not (courier-ci-saw "/r/" "fix" (append '(:done t :result "failure") run)))
+      (courier-deliver)
+      (let ((prompt (car (courier-test--received "w@p"))))
+        (should (string-search "CI test failure on branch fix of r (abcdef1): u" prompt))
+        (should (string-search "Read why with `gh x` in /r/." prompt)))
+      ;; A branch first seen with no run announces its first one.
+      (should-not (courier-ci-saw "/r/" "new" nil))
+      (should (courier-ci-saw "/r/" "new" (list :id 2 :done t :result "success" :sha "1"))))))
+
+(ert-deftest courier-ci-looks-at-pushed-worktree-branches ()
+  (courier-test-with-tmp root
+    (let ((remote (expand-file-name "remote.git" root))
+          (project (expand-file-name "p/" root)))
+      (call-process "git" nil nil nil "init" "-q" "--bare" remote)
+      (courier-test--repo project)
+      (let ((default-directory project))
+        (call-process "git" nil nil nil "remote" "add" "origin" "https://github.com/o/p.git"))
+      (let* ((path (courier-worktree-add project "fix"))
+             (unpushed (courier-worktree-add project "local"))
+             (buffers (list (generate-new-buffer "w") (generate-new-buffer "l")))
+             (asked nil)
+             (published nil))
+        (let ((default-directory path))
+          ;; An upstream without pushing: point it at a fake remote-tracking ref.
+          (call-process "git" nil nil nil "update-ref" "refs/remotes/origin/fix" "HEAD")
+          (call-process "git" nil nil nil "branch" "--set-upstream-to=origin/fix"))
+        (with-current-buffer (car buffers) (setq default-directory (expand-file-name "sub/" path)))
+        (with-current-buffer (cadr buffers) (setq default-directory unpushed))
+        (unwind-protect
+            (courier-test-with-agents '()
+              (courier-register "w@p" :buffer (car buffers))
+              (courier-register "l@p" :buffer (cadr buffers))
+              (should (equal (courier-ci--checkouts) (list unpushed path)))
+              (let ((courier-ci--seen (make-hash-table :test #'equal))
+                    (courier-ci--reading nil)
+                    (courier-ci-backends
+                     `(("github\\.com" . ,(lambda (dir branch then)
+                                            (push (cons dir branch) asked)
+                                            (funcall then (list :id 7 :done t :result "success"))))))
+                    (courier-room-publish-fallback nil))
+                (cl-letf (((symbol-function 'courier-room-publish)
+                           (lambda (&rest args) (push args published))))
+                  (courier-ci-look)
+                  (with-timeout (10 (error "Timed out"))
+                    (while courier-ci--reading (accept-process-output nil 0.05)))
+                  (should (equal asked (list (cons path "fix"))))
+                  (should-not published)
+                  (puthash (concat path "\0fix") 'none courier-ci--seen)
+                  (courier-ci-look)
+                  (with-timeout (10 (error "Timed out"))
+                    (while courier-ci--reading (accept-process-output nil 0.05)))
+                  (should (equal (car (car published)) "fix")))))
+          (mapc #'kill-buffer buffers))))))
 
 ;;; courier-test.el ends here

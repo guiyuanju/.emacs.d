@@ -3,6 +3,7 @@
 #   courier send ID MESSAGE        message agent ID; it gets it between turns
 #   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; it reports back
 #     --effort LEVEL               right after spawn: start it at that reasoning effort
+#     --worktree BRANCH            right after spawn: start it in a worktree of DIR on BRANCH
 #   courier monitor ID             be told when agent ID next finishes a turn
 #   courier list                   list the agents, and the offline personas
 #   courier whoami                 print your own id
@@ -10,17 +11,20 @@
 #   courier room read ROOM         its posts you have not read (--last N: the last N)
 #   courier room join ROOM         join it (--wake mention|all|none); room leave ROOM
 #   courier room invite ROOM ID    add agent ID to the room and tell it; @ID in a post does too
-#   courier room spawn ROOM AGENT DIR [TASK]  start AGENT in DIR as a member (--effort LEVEL first)
+#   courier room spawn ROOM AGENT DIR [TASK]  start AGENT in DIR as a member (--effort, --worktree, --wake first)
+#   courier room publish ROOM MESSAGE  post an event (--from SOURCE first); nobody following: to the router
 #   courier room close ROOM        close the room; its posts are archived
 #   courier room list              list the rooms
 #   courier persona list           list the personas: lasting identities with a memory
 #   courier persona start NAME [DIR [TASK]]  start persona NAME (--engine E --effort L first)
+#   courier worktree list DIR      list the worktrees of project DIR; worktree add DIR BRANCH
+#   courier worktree remove DIR BRANCH  remove one, keeping the branch (--force first: even if dirty)
 #   courier skill                  print the guide to courier for agents
 # Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 

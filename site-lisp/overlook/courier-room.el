@@ -57,6 +57,11 @@
 (defconst courier-room-user "user"
   "Member id of the user.")
 
+(defcustom courier-room-publish-fallback nil
+  "Id of the agent told of a published event that wakes no member, or nil."
+  :type '(choice (const nil) string)
+  :group 'courier)
+
 (defvar courier-room-post-functions nil
   "Functions of a room's NAME and a POST, called after each post.")
 
@@ -130,6 +135,13 @@
       (user-error "Room names are lowercase letters, digits, - and _: %s" name))
     name))
 
+(defun courier-room-name-for (text)
+  "A room name made of TEXT, such as a branch name."
+  (let ((name (string-trim (replace-regexp-in-string "[^a-z0-9_-]+" "-" (downcase text))
+                           "[-_]+" "[-_]+")))
+    (when (string-empty-p name) (user-error "No room name in %s" text))
+    (string-trim-right (substring name 0 (min 32 (length name))) "[-_]+")))
+
 (defun courier-room (name &optional create)
   "The room called NAME, made if CREATE is non-nil, or nil."
   (courier-room--load)
@@ -193,43 +205,52 @@ and `courier-room-context-chars', and how many of POSTS are left out."
                 "")
               (mapconcat #'courier-room-format shown "\n")))))
 
-(defun courier-room--invitation (name from)
-  "What an agent added to room NAME by member FROM is told."
+(defun courier-room--invitation (name from &optional wake)
+  "What an agent added to room NAME by member FROM is told.
+WAKE is which posts wake it, as for `courier-room-join'."
   (let ((recent (courier-room--context name (courier-room-posts (courier-room name))
                                        "Recent posts")))
-    (concat (format "[courier] %s added you to the chat room #%s.  Posts naming \
-you, @ and your id, or @all wake you.  Post with `courier room post %s \
-MESSAGE`; leave with `courier room leave %s`."
+    (concat (format "[courier] %s added you to the chat room #%s.  %s  Post with \
+`courier room post %s MESSAGE`; leave with `courier room leave %s`."
                     (if (or (null from) (equal from courier-room-user)) "Your user"
                       (format "Agent %s" from))
-                    name name name)
+                    name
+                    (pcase wake
+                      ('all "Every post wakes you.")
+                      ('none "No post wakes you; read them with `courier room read`.")
+                      (_ "Posts naming you, @ and your id, or @all wake you."))
+                    name name)
             (when recent (concat "  " recent)))))
 
-(defun courier-room-invite (name id &optional from)
+(defun courier-room-invite (name id &optional from wake)
   "Make agent ID a member of room NAME for member FROM, and tell it so.
-An offline agent is not started; it learns of the room once named."
+WAKE is which posts wake it, as for `courier-room-join'.  An offline
+agent is not started; it learns of the room once named."
   (let ((agent (courier-agent id)))
     (unless (or agent (member id (courier-offline))) (user-error "No agent %s" id))
-    (let ((room (courier-room-join name id)))
+    (let ((room (courier-room-join name id wake)))
       (when agent
-        (courier--enqueue agent from (courier-room--invitation (courier-room-name room) from)
+        (courier--enqueue agent from
+                          (courier-room--invitation (courier-room-name room) from wake)
                           (courier--hops from) t))
       room)))
 
-(defun courier-room-spawn (name agent directory &optional from effort task)
+(cl-defun courier-room-spawn (name agent directory &optional from effort task
+                                   &key worktree wake)
   "Start AGENT in DIRECTORY as a member of room NAME, for member FROM.
 EFFORT is its reasoning effort level, or nil.  It works on TASK if
 non-nil; otherwise it idles, and learns of the room with the first post
-that wakes it.  Returns its id."
+that wakes it.  WORKTREE and WAKE are as for `courier-spawn' and
+`courier-room-join'.  Returns its id."
   (let* ((name (courier-room-name (courier-room name t)))
          (parent (and (courier-agent from) from))
          (id (courier-spawn agent directory
-                            (and task (concat (courier-room--invitation name from)
+                            (and task (concat (courier-room--invitation name from wake)
                                               "\n\n" task))
-                            parent effort)))
-    (courier-room-join name id)
+                            parent effort nil worktree)))
+    (courier-room-join name id wake)
     (unless task
-      (courier-note id (courier-room--invitation name from)))
+      (courier-note id (courier-room--invitation name from wake)))
     id))
 
 (defun courier-room-close (name)
@@ -293,27 +314,31 @@ that wakes it.  Returns its id."
     ('none nil)
     (_ (courier-room-mentions-p body id))))
 
-(defun courier-room--wake-text (name from body unread)
+(defun courier-room--wake-text (name from body unread &optional event)
   "The prompt waking a member with BODY, posted by FROM in room NAME.
 UNREAD are the member's unread posts before it, newest first; those
-`courier-room--fit' allows come along."
+`courier-room--fit' allows come along.  EVENT non-nil means FROM is an
+event source, not an agent."
   (let ((context (courier-room--context
                   name unread (format "[courier] Unread in #%s before the post for you" name))))
     (concat
      (when context (concat context "\n\n"))
      (format "[courier] #%s, from %s (answer with `courier room post %s MESSAGE`):\n\n%s"
              name
-             (if (equal from courier-room-user) "your user"
-               (format "agent %s, not from your user" from))
+             (cond ((equal from courier-room-user) "your user")
+                   (event (format "event source %s" from))
+                   (t (format "agent %s, not from your user" from)))
              name body))))
 
-(defun courier-room-post (name from body)
+(defun courier-room-post (name from body &optional event)
   "Post BODY from member FROM in room NAME, joining it first if need be.
 Agents BODY names with @ID join the room.  Wakes the members the post is
-for."
+for, and returns the post with :woke, their ids.  EVENT non-nil posts for
+an event source FROM, which does not join."
   (let* ((room (courier-room name t))
-         (name (courier-room-name room)))
-    (unless (courier-room-member room from)
+         (name (courier-room-name room))
+         (woke nil))
+    (unless (or event (courier-room-member room from))
       (courier-room-join name from))
     (let ((added (cl-loop for id in (append (mapcar #'courier-agent-id (courier-agents))
                                             (courier-offline))
@@ -329,7 +354,7 @@ for."
       (push post (courier-room-posts room))
       (cl-incf (courier-room-count room))
       ;; Someone who had read everything has read their own post too.
-      (let ((author (courier-room-member room from)))
+      (when-let* ((author (courier-room-member room from)))
         (when (= (plist-get author :read) (1- (courier-room-count room)))
           (setf (plist-get author :read) (courier-room-count room))
           (courier-room--save-members)))
@@ -345,13 +370,15 @@ for."
                                              id (error-message-string err))
                                     nil))
                                (courier-agent id))))
+            (push id woke)
             (courier--enqueue agent from
                               (concat (courier-room--wake-text
                                        name from body
                                        (cl-loop for earlier in (cdr (courier-room-posts room))
                                                 while (> (plist-get earlier :n) (plist-get member :read))
                                                 unless (equal (plist-get earlier :from) id)
-                                                collect earlier))
+                                                collect earlier)
+                                       event)
                                       (when (member id added)
                                         (format "\n\n[courier] Being named added you to \
 #%s; leave with `courier room leave %s`." name name)))
@@ -360,7 +387,35 @@ for."
         (courier-room--save-members))
       (run-hook-with-args 'courier-room-post-functions name post)
       (run-hooks 'courier-changed-hook)
-      post))))
+      (append post (list :woke (nreverse woke)))))))
+
+(defun courier-room-publish (name source body &optional fallback)
+  "Post BODY in room NAME for event SOURCE, such as \"ci\".
+The members it wakes, those asking to be woken by every post, take it.
+When it wakes nobody, agent FALLBACK, else `courier-room-publish-fallback',
+is sent it to find who should.  Returns the ids it reached."
+  (let* ((post (courier-room-post name source body t))
+         (woke (plist-get post :woke))
+         (fallback (or fallback courier-room-publish-fallback)))
+    (if (or woke (null fallback))
+        woke
+      (let ((name (courier-room--check-name name)))
+        (condition-case err
+            (progn
+              (courier--enqueue
+               (or (courier-reach fallback) (user-error "No agent %s" fallback))
+               source
+               (format "[courier] An event from %s in #%s woke nobody, as no agent \
+follows the room:\n\n%s\n\nIf an agent should handle it, add it with `courier room \
+invite --wake all %s ID`; or start one with `courier room spawn --wake all %s AGENT DIR \
+TASK`.  If it needs nothing, end your turn."
+                       source name body name name)
+               0 t)
+              (list fallback))
+          (error
+           (message "courier: could not tell %s of an event in #%s: %s"
+                    fallback name (error-message-string err))
+           nil))))))
 
 ;;; Text for agents
 
@@ -455,15 +510,26 @@ Posts that woke it came in its prompts, so they are not counted."
                          (courier-room-name room) (funcall me))
                  (when recent
                    (concat "  Recent posts:\n" (mapconcat #'courier-room-format recent "\n"))))))
-      (`("invite" ,name ,id)
-       (courier-room-invite name id from)
+      ((and `("invite" . ,rest)
+            (let `(,options ,name ,id) (courier-options rest '("--wake"))))
+       (courier-room-invite name id from (courier-room--wake-option options))
        (format "Added %s to #%s." id (courier-room--check-name name)))
-      ((or `("spawn" ,name ,agent ,directory)
-           `("spawn" ,name ,agent ,directory ,task)
-           `("spawn" "--effort" ,effort ,name ,agent ,directory)
-           `("spawn" "--effort" ,effort ,name ,agent ,directory ,task))
-       (let ((id (courier-room-spawn name agent directory from effort task)))
+      ((and `("spawn" . ,rest)
+            (let `(,options ,name ,agent ,directory . ,task)
+              (courier-options rest '("--effort" "--worktree" "--wake")))
+            (guard (and directory (<= (length task) 1))))
+       (let ((id (courier-room-spawn name agent directory from
+                                     (cdr (assoc "--effort" options)) (car task)
+                                     :worktree (cdr (assoc "--worktree" options))
+                                     :wake (courier-room--wake-option options))))
          (format "Started %s in #%s." id (courier-room--check-name name))))
+      ((and `("publish" . ,rest)
+            (let `(,options ,name ,body) (courier-options rest '("--from" "--fallback"))))
+       (let ((reached (courier-room-publish name (or (cdr (assoc "--from" options)) from "event")
+                                            body (cdr (assoc "--fallback" options)))))
+         (format "Published in #%s; %s." (courier-room--check-name name)
+                 (if reached (concat "it reached " (string-join reached ", "))
+                   "nobody follows the room"))))
       (`("close" ,name)
        (courier-room-close name)
        (format "Closed #%s; its posts are archived." (courier-room--check-name name)))
@@ -475,8 +541,13 @@ Posts that woke it came in its prompts, so they are not counted."
                       (courier-room-names) "\n")
            "No rooms."))
       (_ (user-error "Usage: courier room post NAME MESSAGE | read NAME [--last N] \
-| join NAME [--wake mention|all|none] | invite NAME ID \
-| spawn [--effort LEVEL] NAME AGENT DIR [TASK] | leave NAME | close NAME | list")))))
+| join NAME [--wake mention|all|none] | invite [--wake W] NAME ID \
+| spawn [--effort L] [--worktree BRANCH] [--wake W] NAME AGENT DIR [TASK] \
+| publish [--from SOURCE] [--fallback ID] NAME MESSAGE | leave NAME | close NAME | list")))))
+
+(defun courier-room--wake-option (options)
+  "The --wake value in OPTIONS as a symbol, or nil."
+  (when-let* ((wake (cdr (assoc "--wake" options)))) (intern wake)))
 
 (add-hook 'courier-prompt-functions #'courier-room-note)
 

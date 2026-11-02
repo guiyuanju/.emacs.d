@@ -27,7 +27,8 @@
 ;; spawn and monitor each other.  An agent started while the mode is on
 ;; learns its courier id from $COURIER_ID and finds the courier script on
 ;; its PATH.  Its errors and requests for the user reach the agent that
-;; spawned it.  A spawned agent opens in its parent's perspective; the
+;; spawned it.  A spawned agent opens in the perspective of the project it
+;; works in, else in its parent's; the
 ;; dashboard marks who spawned it, and the messages waiting for it.
 ;; Above the perspectives, a Rooms section lists courier's chat rooms with
 ;; the posts the user has not read; RET opens one.  A Personas section
@@ -123,12 +124,27 @@ A resumed agent gets its earlier id back unless another agent has it."
   (courier-blocked overlook-courier-id
                    (or (overlook-agent--brief (current-buffer)) "a request")))
 
+(defun overlook-courier--perspective-of (directory)
+  "The perspective whose project root holds DIRECTORY most closely, or nil."
+  (let ((directory (file-name-as-directory (file-truename directory)))
+        (best nil)
+        (length 0))
+    (dolist (name (overlook-perspectives))
+      (when-let* ((root (overlook-perspective-root name))
+                  (root (file-name-as-directory (file-truename root)))
+                  ((string-prefix-p root directory))
+                  ((> (length root) length)))
+        (setq best name length (length root))))
+    best))
+
 (defun overlook-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
-It opens in PARENT's perspective, at reasoning EFFORT if non-nil, with
-courier id AS if non-nil."
+It opens in the perspective of the project holding DIRECTORY, else in
+PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil."
   (let* ((parent-buffer (when-let* ((agent (courier-agent parent))) (courier-agent-buffer agent)))
-         (perspective (and (buffer-live-p parent-buffer) (overlook-agent-perspective parent-buffer)))
+         (perspective (or (overlook-courier--perspective-of directory)
+                          (and (buffer-live-p parent-buffer)
+                               (overlook-agent-perspective parent-buffer))))
          (buffer (let ((overlook-courier--parent parent)
                        (overlook-courier--as as))
                    (overlook-agent--launch name directory nil t effort))))

@@ -98,6 +98,10 @@ The first to start it returns its id; the others return nil.")
 A function returns nil to add nothing.")
 
 (autoload 'courier-room-cli "courier-room")
+(autoload 'courier-worktree-cli "courier-worktree")
+(autoload 'courier-worktree-add "courier-worktree")
+(autoload 'courier-room-join "courier-room")
+(autoload 'courier-room-name-for "courier-room")
 (autoload 'courier-persona-cli "courier-persona")
 
 (defvar courier-changed-hook nil
@@ -115,7 +119,7 @@ A function returns nil to add nothing.")
   (mailbox nil :documentation "Messages not delivered yet, oldest first.")
   (monitors nil :documentation "Ids of agents to tell when this one next stops.")
   (hops 0 :documentation "Hops of the messages this agent's turn handles.")
-  (delivered nil :documentation "Non-nil while a delivery has not started a turn yet.")
+  (delivered nil :documentation "Time of a delivery that has not started a turn yet, or nil.")
   (askers nil :documentation "Senders of the messages this agent's turn handles.")
   (told nil :documentation "Agents this one sent to in its current turn.")
   (blocked nil :documentation "Non-nil once its parent heard it waits for the user this turn.")
@@ -247,23 +251,44 @@ An offline TO is started first."
     (run-hooks 'courier-changed-hook)
     t))
 
-(defun courier-spawn (name directory prompt &optional from effort as)
+(defun courier-spawn (name directory prompt &optional from effort as worktree)
   "Start agent NAME in DIRECTORY on PROMPT for agent FROM, its parent.
 EFFORT is the reasoning effort level to start it with, or nil for its
-default; AS the id to give it, or nil for a new one.  With PROMPT nil the
-agent idles, and its briefing comes with the first message it gets.
-Returns the new agent's id."
+default; AS the id to give it, or nil for a new one.  WORKTREE, a branch
+name, starts it in a worktree of DIRECTORY on that branch instead, woken
+by every post in the room named after the branch, where events about it
+go.  With PROMPT nil the agent idles, and its briefing comes with the
+first message it gets.  Returns the new agent's id."
   (unless courier-spawn-function (user-error "No frontend can spawn agents"))
   (when (and as (courier-agent as)) (user-error "%s is running already" as))
-  (let ((id (funcall courier-spawn-function name (expand-file-name directory) from effort as)))
+  (let* ((directory (if worktree
+                        (courier-worktree-add directory worktree)
+                      (expand-file-name directory)))
+         (id (funcall courier-spawn-function name directory from effort as))
+         (room (and worktree (courier-room-name-for worktree)))
+         (briefing (concat (courier--briefing id from prompt)
+                           (when worktree
+                             (format "  You work in a Git worktree of your own, %s, on \
+branch %s; commit your work there, and leave the main checkout alone.  \
+Events about the branch, such as CI results, reach you from the room #%s."
+                                     (abbreviate-file-name directory) worktree room)))))
+    (when room (courier-room-join room id 'all))
     (when-let* ((agent (courier-agent id)))
       (setf (courier-agent-parent agent) from))
     (if prompt
-        (courier--enqueue (courier-agent id) from
-                          (concat (courier--briefing id from t) "\n\n" prompt)
+        (courier--enqueue (courier-agent id) from (concat briefing "\n\n" prompt)
                           (courier--hops from))
-      (courier-note id (courier--briefing id from nil)))
+      (courier-note id briefing))
     id))
+
+(defun courier-options (args names)
+  "Split ARGS into the options NAMES leading it and the rest.
+Returns (OPTIONS . REST), OPTIONS an alist of each option given to its value."
+  (let ((options nil))
+    (while (member (car args) names)
+      (let ((name (pop args)))
+        (push (cons name (or (pop args) (user-error "No value after %s" name))) options)))
+    (cons options args)))
 
 (defun courier--briefing (id from task)
   "What agent ID is told when spawned for agent FROM, with a TASK or not."
@@ -399,7 +424,7 @@ It goes on once they answer in its buffer." id what)))))
         (if (not (courier--ready-p agent))
             (setq waiting t)
           (setf (courier-agent-mailbox agent) nil
-                (courier-agent-delivered agent) t
+                (courier-agent-delivered agent) (float-time)
                 (courier-agent-askers agent)
                 (delete-dups (delq nil (mapcar (lambda (m) (and (not (plist-get m :aside))
                                                                 (plist-get m :from)))
@@ -422,6 +447,25 @@ It goes on once they answer in its buffer." id what)))))
     (when (timerp courier--retry-timer) (cancel-timer courier--retry-timer))
     (setq courier--retry-timer
           (and waiting (run-at-time courier-retry-interval nil #'courier-deliver)))))
+
+(defun courier-stalled (seconds)
+  "Agents whose last delivery has not started a turn in SECONDS, though ready.
+An agent ready for a prompt took the delivery without starting a turn,
+and gets no more mail until one starts."
+  (seq-filter (lambda (agent)
+                (when-let* ((delivered (courier-agent-delivered agent))
+                            ((numberp delivered)))
+                  (and (> (- (float-time) delivered) seconds)
+                       (if-let* ((ready (courier-agent-ready agent)))
+                           (ignore-errors (funcall ready))
+                         t))))
+              (courier-agents)))
+
+(defun courier-unstall (id)
+  "Let agent ID take mail again after a delivery that started no turn."
+  (when-let* ((agent (courier-agent id)))
+    (setf (courier-agent-delivered agent) nil)
+    (courier--schedule)))
 
 (defun courier--schedule ()
   "Deliver after `courier-delivery-delay', gathering the mail that comes meanwhile."
@@ -462,9 +506,13 @@ in the agent's working directory."
                         (courier-send to body from)
                         (format "Sent to %s; it arrives when %s is between turns.%s" to to
                                 (if offline (format "  %s was offline, so it was started." to) ""))))
-                     ((or `("spawn" ,name ,directory ,prompt)
-                          `("spawn" "--effort" ,effort ,name ,directory ,prompt))
-                      (let ((id (courier-spawn name directory prompt from effort)))
+                     ((and `("spawn" . ,rest)
+                           (let `(,options ,name ,directory ,prompt)
+                             (courier-options rest '("--effort" "--worktree"))))
+                      (let ((id (courier-spawn name directory prompt from
+                                               (alist-get "--effort" options nil nil #'equal)
+                                               nil
+                                               (alist-get "--worktree" options nil nil #'equal))))
                         (format "Started %s.%s" id
                                 (if (courier-agent from)
                                     "  It reports when done or stuck, and courier tells you \
@@ -481,10 +529,11 @@ gone.  End your turn now."
                                         (string-join offline ", ")))))
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
                      (`("room" . ,rest) (courier-room-cli from rest))
+                     (`("worktree" . ,rest) (courier-worktree-cli rest))
                      (`("persona" . ,rest) (courier-persona-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
-| spawn [--effort LEVEL] AGENT DIR PROMPT | monitor ID | list | whoami \
-| room COMMAND | persona COMMAND")))
+| spawn [--effort LEVEL] [--worktree BRANCH] AGENT DIR PROMPT | monitor ID \
+| list | whoami | room COMMAND | persona COMMAND | worktree COMMAND")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)

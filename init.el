@@ -1089,7 +1089,11 @@
   :load-path "site-lisp/overlook"
   :commands courier-cli
   :custom
-  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory)))
+  (courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory))
+  ;; 人设随所属 workspace 走：me 的推到 GitHub，okj 的只在本机。
+  (courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/"))
+  ;; 没有 agent 跟进的事件（CI 等）交给 router 人设分派。
+  (courier-room-publish-fallback "router"))
 
 ;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
 (use-package circe :defer t)
@@ -1142,6 +1146,12 @@
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
   (overlook-courier-mode 1)
+  ;; worktree 里 agent 的分支跑完 CI，把结果发到以分支命名的房间。
+  (require 'courier-ci)
+  (courier-ci-mode 1)
+  ;; 被派出的 agent 一轮跑太久、等人太久，或信件投递后没开始新一轮时，报到 #watchdog。
+  (require 'overlook-watchdog)
+  (overlook-watchdog-mode 1)
   (add-to-list 'savehist-additional-variables 'overlook-perspective-switch-times)
   ;; 看板上 agent 的名字换成图标。
   (with-eval-after-load 'nerd-icons

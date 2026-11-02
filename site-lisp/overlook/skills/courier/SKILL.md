@@ -39,7 +39,18 @@ courier spawn --effort high claude ~/repo 'Find why the build fails.'
 ```
 
 Give the child an exact scope: which files, read-only or not, what to
-report.  Then end your turn.  The child reports with `courier send`, and
+report.  When it will edit files while others work in the same project,
+give it a checkout of its own with `--worktree BRANCH`: it starts in
+`DIR/.worktrees/BRANCH` on that branch, made from the current commit.
+Merge or review the branch afterwards, then clean up:
+
+```sh
+courier spawn --worktree fix-login claude . 'Fix the login redirect; commit on your branch.'
+courier worktree list .
+courier worktree remove . fix-login        # keeps the branch; --force drops uncommitted changes
+```
+
+  Then end your turn.  The child reports with `courier send`, and
 courier also tells you if it ends a turn on your task without reporting
 (with its last reply), waits for the user, hits an error or is gone.
 Read the actual result before telling your user it worked.
@@ -75,11 +86,17 @@ courier room list                        # rooms and members; (gone) ones get no
 courier room join design                 # --wake all: every post wakes you
 courier room read design                 # posts you have not read; --last 50
 courier room post design '@codex@shop the API is v2 now'
-courier room invite design codex@shop
+courier room invite design codex@shop    # --wake all first: every post wakes it
 courier room spawn design claude . 'Draft the schema'   # a new member; without a task it idles until named
+                                         # options first: --effort, --worktree BRANCH, --wake all|none
 courier room leave design
 courier room close design                # archives the posts
 ```
+
+Some rooms carry events, such as CI results for a branch, posted with
+`courier room publish`; an agent spawned with `--worktree BRANCH`
+already follows the room of its branch.  An event that wakes nobody goes
+to the router, if one is set, to hand it to an agent.
 
 Name only the members who must act, since each one you wake spends a
 turn.  Do not answer a post that needs no answer, and close or leave rooms

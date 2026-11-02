@@ -93,16 +93,38 @@ To let agents message, spawn and monitor each other, turn on the bundled
 (overlook-courier-mode 1)
 ```
 
-A spawned agent opens in its parent's perspective, and its row shows
+A spawned agent opens in the perspective of the project it works in,
+else in its parent's, and its row shows
 `← parent`, and `✉N` while messages wait for it.  `courier spawn --effort
 LEVEL` starts it at that reasoning effort, through the session config
 option `overlook-agent-shell-effort-options` names for it (Claude's
-`effort`, Codex's `reasoning_effort`).  Agents and you can also talk in shared chat
+`effort`, Codex's `reasoning_effort`); `--worktree BRANCH` starts it in
+a Git worktree of its own, listed under the perspective.  Agents and you can also talk in shared chat
 rooms; `M-x overlook-room-open` shows one, and a Rooms section above
 the perspectives lists them with your unread posts (`✉N`), highlighted
 when one names you.  Personas, folders in `courier-persona-directories`, give
 agents a lasting id, role and memory; a Personas section lists them, and
 messaging one nobody runs starts it.
+
+Two more modes act on agents working on branches:
+
+```elisp
+(require 'courier-ci)
+(courier-ci-mode 1)          ; CI results of agents' worktree branches, into the branch's room
+(require 'overlook-watchdog)
+(overlook-watchdog-mode 1)   ; report spawned agents stuck in a turn or waiting for you
+```
+
+`courier-ci-mode` asks GitHub (`gh`) or GitLab (`glab`) about each pushed
+branch an agent works on in a worktree, and posts each finished run in
+the room named after the branch, which that agent follows; see
+[courier](docs/courier.md#events).  `overlook-watchdog-mode` checks, by
+fixed rules, for a spawned agent whose turn runs past
+`overlook-watchdog-turn-limit` (30 min) or that waits for you past
+`overlook-watchdog-waiting-limit` (15 min), and for a courier delivery that
+started no turn, which it undoes so the agent takes mail again.  Each
+finding goes once to the room `#watchdog`, and to the agent's parent when
+nobody follows that room.
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:
@@ -208,6 +230,9 @@ Evil users can bind the same keys in normal state:
   returning nil to hide it, such as one outside the workspace you are
   working in.  The current perspective, and one with an agent needing
   you, still show.
+- `overlook-project-worktrees`: the folder in a project whose repos'
+  worktrees are listed under its perspective even while clean, where
+  `courier spawn --worktree` makes them; nil to not list them.
 - `overlook-project-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-project-folders`, as a `*` after its
   perspective's heading while it has changes, instead of listing them.
