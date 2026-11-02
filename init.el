@@ -1172,11 +1172,8 @@
               ("codex" . ,(nerd-icons-codicon "nf-cod-openai"))
               ("antigravity" . ,(nerd-icons-codicon "nf-cod-sparkle"))
               ("deepseek" . ,(nerd-icons-mdicon "nf-md-dolphin"))))
-    ;; 账号用图标区分：房子是个人，公文包是公司；codex 登的是个人 ChatGPT 账号。
-    (setopt overlook-account-labels
-            `(("okj" . ,(nerd-icons-codicon "nf-cod-briefcase" :face 'shadow))
-              ("personal" . ,(nerd-icons-codicon "nf-cod-home" :face 'shadow)))
-            overlook-usage-accounts '(("claude" . "okj") ("codex" . "personal"))))
+    ;; 用量行后面写账号名；codex 登的是个人 ChatGPT 账号。
+    (setopt overlook-usage-accounts '(("claude" . "okj") ("codex" . "personal"))))
   (require 'iuiw-deepseek)
   (require 'iuiw-antigravity)
   ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新；一行折成多行时 j/k 仍按整行走。

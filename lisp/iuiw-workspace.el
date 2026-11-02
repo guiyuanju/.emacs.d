@@ -20,6 +20,8 @@
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
+;; status 改成 done 或 dropped 的项目，切换 perspective 或存 project.md 时关掉（当前的除外），连同保存的 agent；
+;; 里面还有改过没存的文件或在跑的进程（包括 agent）时先不关。
 
 ;;; Code:
 
@@ -34,6 +36,9 @@
 (declare-function persp-current-name "perspective")
 (declare-function persp-names "perspective")
 (declare-function persp-switch "perspective")
+(declare-function persp-kill "perspective")
+(declare-function persp-get-buffers "perspective")
+(declare-function overlook-agent-forget-perspective "overlook-agent")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-insert-section "overlook")
 (declare-function overlook-insert-row "overlook")
@@ -165,9 +170,13 @@ Globbed again only when the workspace root or a projects/ folder changes."
       (equal iuiw-workspace-filter (plist-get card :workspace))
       (member iuiw-workspace-filter (plist-get card :also))))
 
+(defun iuiw-workspace--card (id)
+  "The card of project ID, or nil."
+  (seq-find (lambda (card) (equal (plist-get card :id) id)) (iuiw-workspace--cards)))
+
 (defun iuiw-workspace-perspective-shown-p (name)
   "Non-nil unless perspective NAME is a project hidden by `iuiw-workspace-filter'."
-  (let ((card (seq-find (lambda (card) (equal (plist-get card :id) name)) (iuiw-workspace--cards))))
+  (let ((card (iuiw-workspace--card name)))
     (or (null card) (iuiw-workspace--shown-p card))))
 
 (defun iuiw-workspace-switch-perspective (name)
@@ -1001,18 +1010,49 @@ workspace of the current perspective comes first."
   "`iuiw-workspace-filter' for the dashboard's mode line, or nil when unset."
   (and iuiw-workspace-filter (propertize iuiw-workspace-filter 'face 'warning)))
 
+(defun iuiw-workspace--busy-p (name)
+  "Non-nil when perspective NAME holds an unsaved file or a running process."
+  (seq-some (lambda (buffer)
+              (or (and (buffer-file-name buffer) (buffer-modified-p buffer))
+                  (get-buffer-process buffer)))
+            (persp-get-buffers name)))
+
+(defun iuiw-workspace-close-ended (&rest _)
+  "Close the perspectives of ended projects, but the current one and busy ones.
+Their saved agents are forgotten."
+  (when (bound-and-true-p persp-mode)
+    (let ((current (persp-current-name))
+          (ended (mapcar (lambda (card) (plist-get card :id))
+                         (seq-filter (lambda (card)
+                                       (member (plist-get card :status) '("done" "dropped")))
+                                     (iuiw-workspace--cards)))))
+      (dolist (name (seq-intersection (persp-names) ended))
+        (unless (or (equal name current) (iuiw-workspace--busy-p name))
+          (when (fboundp 'overlook-agent-forget-perspective)
+            (overlook-agent-forget-perspective name))
+          (persp-kill name)
+          (message "Closed perspective %s: the project has ended" name))))))
+
+(defun iuiw-workspace--close-ended-soon (&rest _)
+  "Close the perspectives of ended projects once the current command is done."
+  (run-at-time 0 nil #'iuiw-workspace-close-ended))
+
 (defun iuiw-workspace--refresh-after-save ()
-  "Re-render the dashboard after saving a project.md or inbox.md."
+  "Re-render the dashboard after saving a project.md or inbox.md.
+A project.md may end its project, closing its perspective."
   (when (and buffer-file-name
              (fboundp 'overlook-refresh)
              (pcase (file-name-nondirectory buffer-file-name)
                ("project.md" (iuiw-workspace-project-root))
                ("inbox.md" (file-in-directory-p buffer-file-name iuiw-workspace-directory))))
+    (when (equal (file-name-nondirectory buffer-file-name) "project.md")
+      (iuiw-workspace--close-ended-soon))
     (overlook-refresh)))
 
 ;;;###autoload
 (define-minor-mode iuiw-workspace-dashboard-mode
-  "Show ongoing projects' todos and the inboxes in the agents dashboard."
+  "Show ongoing projects' todos and the inboxes in the agents dashboard.
+Also close the perspectives of ended projects, as `iuiw-workspace-close-ended'."
   :global t
   :group 'iuiw-workspace
   (if iuiw-workspace-dashboard-mode
@@ -1020,10 +1060,12 @@ workspace of the current perspective comes first."
         (add-hook 'overlook-sections #'iuiw-workspace--todo-section 50)
         (add-hook 'overlook-sections #'iuiw-workspace--inbox-section 60)
         (add-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line -50)
+        (add-hook 'persp-switch-hook #'iuiw-workspace--close-ended-soon)
         (add-hook 'after-save-hook #'iuiw-workspace--refresh-after-save))
     (remove-hook 'overlook-sections #'iuiw-workspace--todo-section)
     (remove-hook 'overlook-sections #'iuiw-workspace--inbox-section)
     (remove-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line)
+    (remove-hook 'persp-switch-hook #'iuiw-workspace--close-ended-soon)
     (remove-hook 'after-save-hook #'iuiw-workspace--refresh-after-save)))
 
 (provide 'iuiw-workspace)
