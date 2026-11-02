@@ -115,7 +115,8 @@ check could stack a second prompt and a second, colliding install.")
   "Account for one finished probe, and offer the findings once none are left."
   (setq overlook-agent-update--pending (1- overlook-agent-update--pending))
   (when (zerop overlook-agent-update--pending)
-    (let ((findings (sort overlook-agent-update--findings :key #'cadr :lessp #'string<)))
+    (let ((findings (sort overlook-agent-update--findings
+                          (lambda (a b) (string< (cadr a) (cadr b))))))
       (setq overlook-agent-update--findings nil)
       (cond (findings (overlook-agent-update--offer findings))
             (t (setq overlook-agent-update--busy nil)
