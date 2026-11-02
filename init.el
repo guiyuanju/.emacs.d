@@ -1059,6 +1059,12 @@
   :demand t
   :autoload iuiw-agent-shell-dot-subdir)
 
+;; overlook 第一次打开时检查本机 agent 能否读到 workspace 规则。
+(use-package iuiw-agent-rules
+  :ensure nil
+  :commands iuiw-agent-rules-check
+  :hook (overlook-mode . iuiw-agent-rules-check-once))
+
 (use-package iuiw-assistant
   :ensure nil
   :commands (iuiw-assistant-chat iuiw-assistant-ask iuiw-assistant-run
