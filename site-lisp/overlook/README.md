@@ -248,13 +248,18 @@ Evil users can bind the same keys in normal state:
   and an OAuth token from `claude setup-token` (or a function returning
   it).  The first may have none, keeping Claude Code's own login.
   Agents on another account show `@NAME` after their name, and its plan
-  usage gets a row of its own, kept beside `overlook-usage-file`:
+  usage gets a row of its own, kept beside `overlook-usage-file`.
+  `overlook-account-labels` draws accounts by a short label instead,
+  the first one too, and `overlook-usage-accounts` names the account
+  behind a usage row that has none:
 
   ```elisp
   (setopt overlook-agent-shell-claude-accounts
           `(("work")
             ("personal" . ,(lambda () (auth-source-pick-first-password
                                        :host "claude.ai" :user "personal")))))
+  (setopt overlook-account-labels '(("work" . "W") ("personal" . "P"))
+          overlook-usage-accounts '(("claude" . "work") ("codex" . "personal")))
   ```
 
 ## Extending

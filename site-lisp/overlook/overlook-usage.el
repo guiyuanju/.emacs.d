@@ -60,6 +60,13 @@
   :type 'directory
   :group 'overlook)
 
+(defcustom overlook-usage-accounts nil
+  "Accounts behind usage rows named without one, keyed by row name.
+Like ((\"claude\" . \"work\") (\"codex\" . \"home\")); a row's account
+is drawn by its label in `overlook-account-labels'."
+  :type '(alist :key-type string :value-type string)
+  :group 'overlook)
+
 (defcustom overlook-usage-functions '(overlook-usage-claude overlook-usage-codex)
   "Functions returning an agent's plan usage, shown on the dashboard.
 Each returns (NAME . WINDOWS), a list of them, or nil when it knows
@@ -247,13 +254,18 @@ It turns `warning' from `overlook-usage-warning'."
 
 (defun overlook-usage--label (name)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties.
-In a NAME like \"claude @personal\", the agent's name before the space is drawn."
-  (if-let* ((space (string-search " " name))
-            (agent (substring name 0 space))
-            (icon (overlook-usage--label-1 agent))
-            ((not (eq icon agent))))
-      (concat icon (substring name space))
-    (overlook-usage--label-1 name)))
+In a NAME like \"claude @home\", the agent's name before \" @\" is drawn
+by its icon and the account by its label in `overlook-account-labels'."
+  (let* ((at (string-search " @" name))
+         (agent (if at (substring name 0 at) name))
+         (account (if at
+                      (substring-no-properties name (+ at 2))
+                    (alist-get (substring-no-properties name) overlook-usage-accounts
+                               nil nil #'equal)))
+         (label (overlook-account-label account)))
+    (concat (overlook-usage--label-1 agent)
+            (cond (label (concat " " label))
+                  (at (substring name at))))))
 
 (defun overlook-usage--label-1 (name)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties."

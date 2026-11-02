@@ -60,6 +60,9 @@ each environment gathered says how many were gathered so far."
       (should (equal (plist-get (overlook-agent-shell--add-environment args) :environment-variables)
                      '("CLAUDE_CODE_OAUTH_TOKEN=tok")))
       (should (equal (substring-no-properties (overlook-agent-shell--account-mark buffer)) " @home"))
+      (let ((overlook-account-labels '(("home" . "H") ("work" . "W"))))
+        (should (equal (overlook-agent-shell--account-mark buffer) " H"))
+        (should (equal (overlook-agent-shell--account-mode-line) "claude H")))
       (should (equal (overlook-agent-shell--account-environment "codex" "/tmp/") nil)))))
 
 (ert-deftest overlook-agent-shell-tracks-a-shell-started-any-way ()

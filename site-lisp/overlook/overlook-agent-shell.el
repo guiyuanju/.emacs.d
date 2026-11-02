@@ -41,8 +41,9 @@
 ;;   `overlook-agent-shell-claude-switch-account' changes it, for agents
 ;;   started or resumed from then on.  An account other than the first
 ;;   gets its OAuth token, from `claude setup-token', in the process's
-;;   environment, and its name after the agent's on the dashboard; the
-;;   mode line names the account new agents get when it is not the first.
+;;   environment, and its name after the agent's on the dashboard, or
+;;   its label from `overlook-account-labels' when it has one; the mode
+;;   line names the account new agents get when it is not the first.
 ;; - `overlook-agent-shell-handoff' drafts a handoff of an agent's task to
 ;;   another agent in the same project.
 
@@ -365,17 +366,22 @@ Prefers its description, as the title of a shell command is the command."
                       (or (if (functionp token) (funcall token) token)
                           (user-error "No token for Claude account %s" account))))))))
 
+(defun overlook-agent-shell--account-name (account)
+  "ACCOUNT as the dashboard draws it: its label, or @ACCOUNT."
+  (or (overlook-account-label account) (propertize (concat "@" account) 'face 'shadow)))
+
 (defun overlook-agent-shell--account-mode-line ()
   "The account new Claude agents run as, unless it is the first."
   (when-let* ((account (overlook-agent-shell--other-account
                         (overlook-agent-shell-claude-current-account))))
-    (concat "claude @" account)))
+    (concat "claude " (overlook-agent-shell--account-name account))))
 
 (defun overlook-agent-shell--account-mark (buffer)
-  "The name of agent BUFFER's Claude account, unless it is the first."
-  (when-let* ((account (overlook-agent-shell--other-account
-                        (buffer-local-value 'overlook-agent-shell--claude-account buffer))))
-    (propertize (concat " @" account) 'face 'shadow)))
+  "Agent BUFFER's Claude account, when it has a label or is not the first."
+  (let ((account (buffer-local-value 'overlook-agent-shell--claude-account buffer)))
+    (when (or (overlook-account-label account)
+              (overlook-agent-shell--other-account account))
+      (concat " " (overlook-agent-shell--account-name account)))))
 
 (defun overlook-agent-shell--on-notification (notification)
   "Track the session update in ACP NOTIFICATION."

@@ -101,6 +101,16 @@ perspective."
 Sections not listed follow, by hook depth."
   :type '(repeat function))
 
+(defcustom overlook-account-labels nil
+  "Short labels drawn in place of account names, keyed by name.
+Like ((\"work\" . \"W\") (\"home\" . \"H\")).  An account with a label
+shows it wherever the dashboard names the account, the first one too."
+  :type '(alist :key-type string :value-type string))
+
+(defun overlook-account-label (account)
+  "The label `overlook-account-labels' gives ACCOUNT, or nil."
+  (and account (alist-get account overlook-account-labels nil nil #'equal)))
+
 (defcustom overlook-refresh-idle 0.5
   "Seconds input must pause before the dashboard redraws."
   :type 'number)
