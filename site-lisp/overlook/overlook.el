@@ -89,11 +89,15 @@ The current perspective, and one with a row needing your attention, are
 shown regardless."
   :type '(choice (const :tag "Show all" nil) function))
 
+(defcustom overlook-show-empty-perspectives nil
+  "Non-nil to list a perspective with no rows and no mark after its heading.
+The current one is listed either way."
+  :type 'boolean)
+
 (defcustom overlook-orphan-perspective nil
   "Perspective listing the rows that belong to no perspective, or nil.
-Rows opened from there open in it, and it is left out while it has no
-rows and is not current.  Without it, they are listed under the current
-perspective."
+Rows opened from there open in it.  Without it, they are listed under
+the current perspective."
   :type '(choice (const :tag "The current perspective" nil) string))
 
 (defcustom overlook-section-order nil
@@ -111,6 +115,19 @@ shows it wherever the dashboard names the account, the first one too."
   "The label `overlook-account-labels' gives ACCOUNT, or nil."
   (and account (alist-get account overlook-account-labels nil nil #'equal)))
 
+(defcustom overlook-account-width 3
+  "Characters of an account's name shown after @ on the dashboard; nil for all."
+  :type '(choice (const :tag "All" nil) natnum))
+
+(defun overlook-account-name (account)
+  "ACCOUNT as the dashboard draws it: its label, else @ACCOUNT, dimmed.
+The name is cut to `overlook-account-width' characters."
+  (or (overlook-account-label account)
+      (propertize (concat "@" (if overlook-account-width
+                                  (truncate-string-to-width account overlook-account-width)
+                                account))
+                  'face 'shadow)))
+
 (defcustom overlook-refresh-idle 0.5
   "Seconds input must pause before the dashboard redraws."
   :type 'number)
@@ -127,8 +144,8 @@ shows it wherever the dashboard names the account, the first one too."
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
 
-(defconst overlook-indent ""
-  "Indent of rows under a heading.")
+(defvar overlook-indent ""
+  "Indent of the rows being inserted; `overlook-nested' adds to it.")
 
 (defconst overlook-buffer-name " *overlook*"
   "The dashboard buffer.  A leading space keeps it out of buffer lists.")
@@ -278,31 +295,54 @@ sits at depth 0.")
 
 (defvar overlook-perspective-functions nil
   "Functions inserting rows under a perspective's heading, by hook depth.
-Each is called with the perspective's NAME in the dashboard buffer.
-Worktrees sit at depth -50, agents at 0 and changed repos at 50.  Under
-`overlook-orphans-perspective' a function also inserts its rows that
-belong to no perspective.  Rows of something in a worktree go under the
-worktree's row instead, through `overlook-worktree-functions'.")
+Each is called with the perspective's NAME in the dashboard buffer.  The
+rows of what lies in a checkout come from `overlook-worktree-functions'
+instead.  Under `overlook-orphans-perspective' a function also inserts
+its rows that belong to no perspective.")
 
 (defvar overlook-worktrees-functions nil
   "Functions of a perspective NAME returning the worktrees listed under it.
 Each returns a list of folders, each ending in a slash.")
 
 (defvar overlook-worktree-functions nil
-  "Functions inserting rows under a worktree's row, by hook depth.
+  "Functions inserting the rows of what lies in a checkout, by hook depth.
 Each is called with the perspective's NAME and the worktree's folder
-DIR, and inserts the rows of what lies in DIR.  The worktree's changed
-files follow.")
+DIR, or nil for what lies in none of its worktrees.  Agents sit at depth
+0 and changed repos at 50.  With DIR nil they go right under the
+perspective's heading while it lists no worktrees, else under the row
+of its main checkout, which a function of `overlook-perspective-functions'
+inserts with those of its worktrees.")
+
+(defvar overlook--worktrees-cache nil
+  "Worktrees looked up during one render, keyed by perspective name.")
 
 (defun overlook-worktrees (name)
   "Folders of the worktrees listed under perspective NAME."
-  (seq-mapcat (lambda (fn) (funcall fn name)) overlook-worktrees-functions))
+  (let ((lookup (lambda () (seq-mapcat (lambda (fn) (funcall fn name))
+                                       overlook-worktrees-functions))))
+    (if overlook--worktrees-cache
+        (car (with-memoization (gethash name overlook--worktrees-cache)
+               (list (funcall lookup))))
+      (funcall lookup))))
 
 (defun overlook-worktree-of (dir worktrees)
   "The folder among WORKTREES holding DIR, or nil."
   (when dir
     (let ((dir (file-name-as-directory (expand-file-name dir))))
       (seq-find (lambda (tree) (string-prefix-p tree dir)) worktrees))))
+
+(defvar overlook-folder-contents-functions nil
+  "Functions of a folder DIR returning what lies in it, before DIR goes.
+Each returns a list of (DESCRIPTION . DELETE), DESCRIPTION naming one
+thing, like \"agent claude\", and DELETE a function letting it go.")
+
+(defun overlook-folder-contents (dir)
+  "What lies in folder DIR, as `overlook-folder-contents-functions' tell."
+  (seq-mapcat (lambda (fn) (funcall fn dir)) overlook-folder-contents-functions))
+
+(defvar overlook-delete-functions nil
+  "Functions of a row's `overlook-item' deleting what it stands for.
+Each returns non-nil when it handled the item.")
 
 (defvar overlook-heading-mark-functions nil
   "Functions of a perspective NAME returning a mark put right after its heading.
@@ -380,6 +420,7 @@ The binding is recorded in `overlook-keys'."
 (pcase-dolist (`(,key . ,command)
                '(("RET" . overlook-visit)
                  ("o" . overlook-visit)
+                 ("d d" . overlook-delete)
                  ("TAB" . magit-section-toggle)
                  ("C-j" . overlook-next-heading)
                  ("C-k" . overlook-previous-heading)
@@ -499,6 +540,12 @@ like `overlook-action', cover its whole line, which is a heading for
                                 (magit-cancel-section t)
                                 (insert "\n")))))
 
+(defun overlook-nested (children)
+  "CHILDREN, a function inserting rows, with those rows indented a step more."
+  (lambda ()
+    (let ((overlook-indent (concat overlook-indent "  ")))
+      (funcall children))))
+
 (defun overlook-align-right (text columns)
   "TEXT aligned to end COLUMNS before the window's right edge."
   (concat (propertize " " 'display `(space :align-to (- right ,(+ columns (string-width text)))))
@@ -563,12 +610,14 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
                                  (length overlook-section-order)))
                  #'< (nreverse functions))))
 
-(defun overlook--heading (name &optional current)
-  "Heading line of perspective NAME, highlighted when CURRENT."
-  (propertize (concat (propertize (concat name
-                                          (mapconcat (lambda (function)
-                                                       (or (funcall function name) ""))
-                                                     overlook-heading-mark-functions))
+(defun overlook--heading-marks (name)
+  "The marks `overlook-heading-mark-functions' put after perspective NAME."
+  (mapconcat (lambda (function) (or (funcall function name) ""))
+             overlook-heading-mark-functions))
+
+(defun overlook--heading (name marks &optional current)
+  "Heading line of perspective NAME and its MARKS, highlighted when CURRENT."
+  (propertize (concat (propertize (concat name marks)
                                   'face (if current 'overlook-heading-current
                                           'overlook-heading))
                       (when-let* ((tag (and overlook-perspective-annotation
@@ -581,21 +630,25 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 (defun overlook--perspectives ()
   "Insert each perspective's heading and rows.
-`overlook-orphan-perspective', holding rows of no perspective, is left
-out while it has none and is not current.
-Those `overlook-perspective-filter' hides are left out unless current or
+One with no rows and no mark after its heading is left out unless
+current or `overlook-show-empty-perspectives' is set.  Those
+`overlook-perspective-filter' hides are left out unless current or
 needing attention."
   (let* ((current (overlook-current-perspective))
-         (orphans (overlook-orphans-perspective))
          (previous nil))
     (dolist (name (overlook-ordered-perspectives))
-      (let ((start (point)))
+      (let* ((start (point))
+             (marks (overlook--heading-marks name)))
         (when previous (overlook-end-with-blank previous))
         (let ((section (overlook-insert-row
-                        (overlook--heading name (equal name current))
+                        (overlook--heading name marks (equal name current))
                         (lambda ()
                           (run-hook-with-args 'overlook-perspective-functions name)
-                          (when (and (equal name orphans) (not (equal name current)))
+                          (unless (overlook-worktrees name)
+                            (run-hook-with-args 'overlook-worktree-functions name nil))
+                          (unless (or (equal name current)
+                                      overlook-show-empty-perspectives
+                                      (not (string-empty-p marks)))
                             (magit-cancel-section t))))))
           (if (and (oref section end)
                    (or (equal name current)
@@ -676,6 +729,7 @@ After a perspective switch, point goes to the current perspective instead."
                        (list (list nil (overlook--place (point)) nil))))
              (overlook--buffers-cache (make-hash-table :test #'equal))
              (overlook--roots-cache (make-hash-table :test #'equal))
+             (overlook--worktrees-cache (make-hash-table :test #'equal))
              (inhibit-read-only t))
         (erase-buffer)
         (run-hooks 'overlook-before-render-hook)
@@ -762,6 +816,13 @@ FORWARD picks the direction; WHAT names those lines when there is none."
 (defun overlook-item-at-point ()
   "The `overlook-item' of the row at point, or nil."
   (get-text-property (line-beginning-position) 'overlook-item))
+
+(defun overlook-delete ()
+  "Delete what the row at point stands for, such as an agent or a worktree."
+  (interactive)
+  (let ((item (overlook-item-at-point)))
+    (unless (and item (run-hook-with-args-until-success 'overlook-delete-functions item))
+      (user-error "Nothing to delete on this line"))))
 
 (defun overlook-visit ()
   "Run the action of the row at point, or fold the rows under it."

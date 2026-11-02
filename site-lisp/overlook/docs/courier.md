@@ -206,7 +206,7 @@ engine: claude          # the agent to run it, required
 effort: medium          # its reasoning effort
 directory: ~/src/shop   # where it starts, else the folder above the personas
 description: Reviews diffs; never edits
-avatar: 🦉              # shown beside its name; the rest are optional too
+avatar: 🦉              # heads its posts in rooms; the rest are optional too
 personality: calm, exacting
 tone: terse
 memory: off             # no memory, for an agent that may not write files

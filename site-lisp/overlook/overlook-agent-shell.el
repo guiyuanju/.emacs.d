@@ -366,22 +366,18 @@ Prefers its description, as the title of a shell command is the command."
                       (or (if (functionp token) (funcall token) token)
                           (user-error "No token for Claude account %s" account))))))))
 
-(defun overlook-agent-shell--account-name (account)
-  "ACCOUNT as the dashboard draws it: its label, or @ACCOUNT."
-  (or (overlook-account-label account) (propertize (concat "@" account) 'face 'shadow)))
-
 (defun overlook-agent-shell--account-mode-line ()
   "The account new Claude agents run as, unless it is the first."
   (when-let* ((account (overlook-agent-shell--other-account
                         (overlook-agent-shell-claude-current-account))))
-    (concat "claude " (overlook-agent-shell--account-name account))))
+    (concat "claude " (overlook-account-name account))))
 
 (defun overlook-agent-shell--account-mark (buffer)
   "Agent BUFFER's Claude account, when it has a label or is not the first."
   (let ((account (buffer-local-value 'overlook-agent-shell--claude-account buffer)))
     (when (or (overlook-account-label account)
               (overlook-agent-shell--other-account account))
-      (concat " " (overlook-agent-shell--account-name account)))))
+      (concat " " (overlook-account-name account)))))
 
 (defun overlook-agent-shell--on-notification (notification)
   "Track the session update in ACP NOTIFICATION."

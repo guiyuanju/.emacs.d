@@ -83,6 +83,23 @@
    (expand-file-name (replace-regexp-in-string "/" "-" branch)
                      (expand-file-name courier-worktree-directory dir))))
 
+(defun courier-worktree-room (branch)
+  "Name of the room events about BRANCH go to.
+The name of BRANCH's worktree folder names the same room."
+  (courier-room-name-for branch))
+
+(defun courier-worktree-at (path)
+  "(DIR . NAME) when PATH is a worktree folder of project DIR, else nil.
+NAME is as `courier-worktree-list' gives it."
+  (let* ((path (file-name-as-directory (expand-file-name path)))
+         (folder (file-name-parent-directory path))
+         (inside (file-name-as-directory courier-worktree-directory))
+         (name (file-name-nondirectory (directory-file-name path))))
+    (when (and folder (string-suffix-p inside folder))
+      (let ((dir (substring folder 0 (- (length inside)))))
+        (and (member name (courier-worktree-list dir))
+             (cons dir name))))))
+
 (defun courier-worktree--exclude (dir)
   "Have the repo holding DIR, if any, leave out `courier-worktree-directory'."
   (when-let* ((common (ignore-errors
@@ -146,7 +163,7 @@ It works on PROMPT for agent FROM at reasoning EFFORT, as `courier-spawn'
 starts it, and every post in the room named after BRANCH wakes it.
 Returns its id."
   (let* ((path (courier-worktree-add dir branch))
-         (room (courier-room-name-for branch))
+         (room (courier-worktree-room branch))
          (note (format "You work in a Git worktree of your own, %s, on branch %s; \
 commit your work there, and leave the main checkout alone.  Events about \
 the branch, such as CI results, reach you from the room #%s."
@@ -166,7 +183,7 @@ room named after the branch is closed."
       (apply #'courier-worktree--git checkout "worktree" "remove"
              (append (and force '("--force")) (list (directory-file-name checkout)))))
     (when (file-directory-p path) (delete-directory path t))
-    (let ((room (courier-room-name-for branch)))
+    (let ((room (courier-worktree-room branch)))
       (when (courier-room room) (courier-room-close room)))
     path))
 

@@ -102,7 +102,8 @@ option `overlook-agent-shell-effort-options` names for it (Claude's
 a Git worktree of its own, listed under the perspective with the agents working in it.  Agents and you can also talk in shared chat
 rooms; `M-x overlook-room-open` shows one, and a Rooms section above
 the perspectives lists them with your unread posts (`✉N`), highlighted
-when one names you.  Personas, folders in `courier-persona-directories`, give
+when one names you.  The room of a worktree's branch is listed under
+the worktree instead.  Personas, folders in `courier-persona-directories`, give
 agents a lasting id, role and memory; a Personas section lists them, and
 messaging one nobody runs starts it.
 
@@ -166,11 +167,11 @@ On the dashboard:
 | Key | |
 |---|---|
 | `RET` / `o` | visit the row: switch to a perspective, show a repo's diff in Magit, show a changed file's diff in Magit (a renamed one with its old path; a new one is visited), show an agent |
-| `TAB` | fold or unfold the rows under a row, or a changed file's diff; folds are kept across redraws |
+| `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `H` | hand the agent's task off to another agent |
-| `x` | forget a saved agent |
+| `d d` | delete the row's thing: kill an agent, once confirmed; forget a saved agent; remove a worktree with the agents in it, keeping its branch; close a room, archiving its posts |
 | `g` | redraw |
 | `q` | close |
 
@@ -190,8 +191,8 @@ Evil users can bind the same keys in normal state:
 - A failed agent shows its error message and stays marked after you view it,
   until it starts working again. Failures also participate in attention
   navigation and desktop notifications.
-- A saved agent: `○ claude saved`, dimmed, for each agent running when
-  Emacs quit.  `RET` on it resumes its session where it left off, minus a turn cut
+- A saved agent: `○ claude saved`, dimmed, with its title and how long
+  ago its last turn was, for each agent running when Emacs quit.  `RET` on it resumes its session where it left off, minus a turn cut
   short; they are kept in `overlook-agent-saved-file`.
 - A fork, made with `agent-shell-fork`: under the agent it was forked
   from, after `└`, when both are listed under the same perspective;
@@ -207,8 +208,17 @@ Evil users can bind the same keys in normal state:
   even while Emacs has focus, or `nil` never; `overlook-agent-notify-function`
   shows it.
 - A repo: its branch and the lines changed since its last commit, then the
-  changed files with their line counts.  These come from Git, so they show
+  changed files, indented, with their line counts.  These come from Git, so they show
   every change in the working tree, whoever made it.
+- While a project has worktrees, its rows are grouped by checkout, each
+  group's rows indented: first the main checkout, with the agents in no
+  worktree and the changed repos, then each worktree, with the agents
+  working in it, its branch's room and its changed files.  A worktree
+  shows its commits ahead of (`↑N`) and behind (`↓N`) the main
+  checkout's branch, or `merged`, and is dimmed when merged with no agent
+  or change in it.
+- A perspective with no rows is left out unless current, or
+  `overlook-show-empty-perspectives` is set.
 
 ## Customization
 
@@ -247,11 +257,12 @@ Evil users can bind the same keys in normal state:
 - `overlook-agent-shell-claude-accounts`: Claude accounts, each a name
   and an OAuth token from `claude setup-token` (or a function returning
   it).  The first may have none, keeping Claude Code's own login.
-  Agents on another account show `@NAME` after their name, and its plan
+  Agents on another account show `@NAME` after their name, cut to
+  `overlook-account-width` characters (3 by default), and its plan
   usage gets a row of its own, kept beside `overlook-usage-file`.
   `overlook-account-labels` draws accounts by a short label instead,
   the first one too, and `overlook-usage-accounts` names the account
-  behind a usage row that has none:
+  behind a usage row that has none, shown as `@NAME` without a label:
 
   ```elisp
   (setopt overlook-agent-shell-claude-accounts
@@ -272,15 +283,22 @@ add to it:
   `overlook-insert-section`.  `overlook-section-order` fixes the order
   of the ones it lists, ahead of the rest.
 - `overlook-perspective-functions`: rows under each perspective, called
-  with its name, by hook depth: worktrees at -50, agents at 0, changed
-  repos at 50.  Insert each row with `overlook-insert-row`, which can
-  nest rows under it.  Under `overlook-orphans-perspective`, also insert
-  the rows that belong to no perspective.
+  with its name, by hook depth, such as the rows of its checkouts.
+  Insert each row with `overlook-insert-row`, which can nest rows under
+  it.  Under `overlook-orphans-perspective`, also insert the rows that
+  belong to no perspective.
+- `overlook-delete-functions`: what `d d` does on a row, given its
+  `overlook-item`; `overlook-folder-contents-functions`: what lies in a
+  folder about to go, each with a function letting it go.
+- `overlook-nested`: wrap a function inserting rows to indent them a
+  step more.
 - `overlook-worktrees-functions`: worktree folders listed under a
-  perspective; `overlook-worktree-functions`: rows under a worktree's
-  row, called with the perspective's name and the worktree's folder.  A
-  row of something in a worktree goes there instead of under the
-  perspective; `overlook-worktree-of` tells which worktree holds a folder.
+  perspective; `overlook-worktree-functions`: rows of what lies in a
+  checkout, called with the perspective's name and the worktree's
+  folder, or nil for what lies in none, by hook depth: agents at 0,
+  changed repos at 50.  With nil they go right under the perspective
+  while it lists no worktrees, else under its main checkout's row;
+  `overlook-worktree-of` tells which worktree holds a folder.
 - `overlook-detach`: keep a buffer out of every perspective, even once
   shown; opening it from the dashboard shows it in the current one.
   The courier module detaches the agents running a persona.

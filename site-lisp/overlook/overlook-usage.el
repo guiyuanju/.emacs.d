@@ -255,17 +255,16 @@ It turns `warning' from `overlook-usage-warning'."
 (defun overlook-usage--label (name)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties.
 In a NAME like \"claude @home\", the agent's name before \" @\" is drawn
-by its icon and the account by its label in `overlook-account-labels'."
+by its icon and the account as `overlook-account-name' draws it.  So is
+the account `overlook-usage-accounts' gives."
   (let* ((at (string-search " @" name))
          (agent (if at (substring name 0 at) name))
          (account (if at
                       (substring-no-properties name (+ at 2))
                     (alist-get (substring-no-properties name) overlook-usage-accounts
-                               nil nil #'equal)))
-         (label (overlook-account-label account)))
+                               nil nil #'equal))))
     (concat (overlook-usage--label-1 agent)
-            (cond (label (concat " " label))
-                  (at (substring name at))))))
+            (and account (concat " " (overlook-account-name account))))))
 
 (defun overlook-usage--label-1 (name)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties."

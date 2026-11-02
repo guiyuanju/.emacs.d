@@ -180,7 +180,8 @@ listed under any perspective.")
 
 (defvar overlook-agent-saved nil
   "Agents of an earlier Emacs not resumed yet.
-Each is an alist with keys `agent', `root', `session' and `perspective'.")
+Each is an alist with keys `agent', `root', `session' and `perspective',
+and `title' and `active', the time of its last turn, when known.")
 
 (defvar overlook-agent--saved-loaded nil
   "Non-nil once `overlook-agent-saved-file' has been read.")
@@ -300,6 +301,11 @@ A detached agent shows in the current perspective."
   (let ((glyph (alist-get (buffer-local-value 'overlook-agent-status buffer)
                           overlook-agent-status-glyphs)))
     (propertize (car glyph) 'face (cadr glyph))))
+
+(defun overlook-agent-idle-glyph ()
+  "The idle glyph of `overlook-agent-status-glyphs', dimmed.
+For an agent that is not running."
+  (propertize (car (alist-get 'idle overlook-agent-status-glyphs)) 'face 'shadow))
 
 (defun overlook-agent--set-status (status)
   "Set this agent's STATUS, telling the views when it changed."
@@ -445,6 +451,9 @@ An unknown context value keeps the last one."
 (defun overlook-agent-register (buffer name)
   "Track BUFFER as agent NAME.  Its frontend has set its identity already."
   (with-current-buffer buffer
+    (when-let* ((root (alist-get 'root overlook-agent-identity)))
+      (setf (alist-get 'root overlook-agent-identity)
+            (file-name-as-directory (expand-file-name root))))
     (add-hook 'kill-buffer-hook (lambda () (run-at-time 0 nil #'overlook-agent-changed)) nil t))
   (setq overlook-agent--last name)
   (overlook-agent-changed))
@@ -476,6 +485,10 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                   (root . ,(overlook-agent-get buffer 'root))
                                   (session . ,session)
                                   (perspective . ,(overlook-agent-perspective buffer))
+                                  (title . ,(overlook-agent--title buffer))
+                                  (active . ,(when-let* ((turn (buffer-local-value
+                                                                'overlook-agent-turn buffer)))
+                                               (or (cdr turn) (car turn))))
                                   ,@(seq-mapcat (lambda (fn) (funcall fn buffer))
                                                 overlook-agent-save-functions))))
                             (overlook-agent-buffers)))
@@ -562,14 +575,48 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                (overlook-orphan-perspective))
                            (lambda () (overlook-agent-show (overlook-agent--resume saved)))))
 
-(defun overlook-agent-forget ()
-  "Forget the saved agent of the dashboard row at point."
-  (interactive)
-  (pcase (overlook-item-at-point)
-    (`(saved . ,saved)
-     (setq overlook-agent-saved (delq saved overlook-agent-saved))
-     (overlook-agent-changed))
-    (_ (user-error "Not on a saved agent"))))
+(defun overlook-agent-forget (saved)
+  "Forget SAVED agent."
+  (setq overlook-agent-saved (delq saved overlook-agent-saved))
+  (overlook-agent-changed))
+
+(defun overlook-agent-forget-perspective (name)
+  "Forget the saved agents of perspective NAME."
+  (setq overlook-agent-saved
+        (seq-remove (lambda (saved) (equal (alist-get 'perspective saved) name))
+                    overlook-agent-saved))
+  (overlook-agent-changed))
+
+(defun overlook-agent-kill (buffer)
+  "Stop agent BUFFER and kill it, so it is not saved to resume either."
+  (let ((kill-buffer-query-functions nil))
+    (kill-buffer buffer)))
+
+(defun overlook-agent--delete (item)
+  "Kill the agent ITEM stands for, once confirmed, or forget the saved one."
+  (pcase item
+    (`(agent . ,buffer)
+     (when (yes-or-no-p (format "Kill agent %s%s? " (buffer-name buffer)
+                                (if (eq (buffer-local-value 'overlook-agent-status buffer) 'working)
+                                    ", still working" "")))
+       (overlook-agent-kill buffer))
+     t)
+    (`(saved . ,saved) (overlook-agent-forget saved) t)))
+
+(defun overlook-agent--in-folder (dir)
+  "The agents working in folder DIR, as `overlook-folder-contents-functions' wants."
+  (let ((in (lambda (root) (and root (file-in-directory-p root dir)))))
+    (append (mapcar (lambda (buffer)
+                      (cons (format "agent %s" (buffer-name buffer))
+                            (lambda () (overlook-agent-kill buffer))))
+                    (overlook-agent-buffers
+                     (lambda (buffer) (funcall in (overlook-agent-get buffer 'root)))))
+            (mapcar (lambda (saved)
+                      (cons (format "saved agent %s" (or (alist-get 'title saved)
+                                                         (alist-get 'agent saved)))
+                            (lambda () (overlook-agent-forget saved))))
+                    (seq-filter (lambda (saved) (funcall in (alist-get 'root saved)))
+                                overlook-agent-saved)))))
 
 (defun overlook-agent--annotate (name)
   "Status and perspective of the agent buffer NAME, for completion."
@@ -656,9 +703,13 @@ Looked up afresh, so an answer given elsewhere meanwhile is not given twice."
                                   (overlook-agent--choose-at-point buffer)))
     map))
 
+(defun overlook-agent--wrap-prefix (depth)
+  "What starts an agent row's continuation lines, DEPTH forks deep."
+  (concat overlook-indent overlook-agent--wrap-indent (make-string (* 2 depth) ?\s)))
+
 (defun overlook-agent--choices-line (choices depth)
   "The line under an agent's row offering CHOICES, DEPTH forks deep."
-  (concat overlook-agent--wrap-indent (make-string (* 2 depth) ?\s)
+  (concat (overlook-agent--wrap-prefix depth)
           (mapconcat (pcase-lambda (`(,key ,label . ,_))
                        (propertize (concat (propertize key 'face 'help-key-binding) " "
                                            (truncate-string-to-width label 40 nil nil "…"))
@@ -696,10 +747,13 @@ the duration ends a column before it, so both line up across agents."
                 (context 5)
                 (t 0)))))
 
+(defun overlook-agent-label (name)
+  "Agent NAME's icon from `overlook-agent-icons', else NAME."
+  (or (alist-get name overlook-agent-icons nil nil #'equal) name))
+
 (defun overlook-agent--name-label (buffer)
   "Agent BUFFER's icon from `overlook-agent-icons', else its name."
-  (let ((name (or (overlook-agent-get buffer 'agent) "agent")))
-    (or (alist-get name overlook-agent-icons nil nil #'equal) name)))
+  (overlook-agent-label (or (overlook-agent-get buffer 'agent) "agent")))
 
 (defun overlook-agent--title (buffer)
   "Agent BUFFER's session title, as its frontend says, on one line, or nil."
@@ -847,8 +901,7 @@ it offers you sit on a line of their own under it."
                                                (if title (concat "\n" title) "")
                                                (if brief (concat "\n" brief) "")
                                                (overlook-agent--fork-echo session))
-                            wrap-prefix ,(concat overlook-agent--wrap-indent
-                                                 (make-string (* 2 depth) ?\s))
+                            wrap-prefix ,(overlook-agent--wrap-prefix depth)
                             ,@(when choices
                                 (list 'keymap (overlook-agent--choices-keymap buffer choices))))
                          line)
@@ -856,23 +909,33 @@ it offers you sit on a line of their own under it."
 
 (defun overlook-agent--saved-row (saved perspective &optional depth children)
   "Insert the row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
+It shows the agent's title and how long ago its last turn was.
 CHILDREN, a function, inserts the rows of its forks under it."
-  (let ((glyph (alist-get 'idle overlook-agent-status-glyphs))
-        (depth (or depth 0))
-        (session (alist-get 'session saved)))
+  (let ((depth (or depth 0))
+        (session (alist-get 'session saved))
+        (title (alist-get 'title saved))
+        (active (alist-get 'active saved)))
     (overlook-insert-row (propertize
                           (concat overlook-indent (overlook-agent--tree-prefix depth)
-                                  (overlook-glyph-cell (propertize (car glyph) 'face 'shadow))
-                                  (propertize (concat (alist-get 'agent saved) " saved") 'face 'shadow)
+                                  (overlook-glyph-cell (overlook-agent-idle-glyph))
+                                  (propertize (concat (alist-get 'agent saved) " saved"
+                                                      (overlook-agent--title-label title))
+                                              'face 'shadow)
                                   (overlook-agent--fork-label session depth)
                                   (overlook-agent--project-label (alist-get 'root saved) perspective)
+                                  (if active
+                                      (overlook-align-right
+                                       (propertize (overlook-format-duration (- (float-time) active))
+                                                   'face 'shadow)
+                                       6)
+                                    "")
                                   "\n")
                           'overlook-item (cons 'saved saved)
                           'overlook-action (lambda () (overlook-agent-resume-visit saved))
                           'help-echo (concat "Resume session " session
+                                             (if title (concat "\n" title) "")
                                              (overlook-agent--fork-echo session))
-                          'wrap-prefix (concat overlook-agent--wrap-indent
-                                               (make-string (* 2 depth) ?\s)))
+                          'wrap-prefix (overlook-agent--wrap-prefix depth))
                          children)))
 
 (defun overlook-agent--item-session (item)
@@ -977,8 +1040,9 @@ PERSPECTIVE's worktrees."
     (remove-function after-focus-change-function #'overlook-agent--acknowledge))
   (overlook-toggle-hooks
    overlook-agent-mode
-   '((overlook-perspective-functions overlook-agent--insert)
-     (overlook-worktree-functions overlook-agent--insert)
+   '((overlook-worktree-functions overlook-agent--insert)
+     (overlook-delete-functions overlook-agent--delete)
+     (overlook-folder-contents-functions overlook-agent--in-folder)
      (overlook-mode-line-functions overlook-agent--mode-line)
      (overlook-tick-hook overlook-agent--tick)
      (window-selection-change-functions overlook-agent--acknowledge)
@@ -987,7 +1051,6 @@ PERSPECTIVE's worktrees."
      (kill-emacs-hook overlook-agent-save)))
   (overlook-refresh))
 
-(overlook-define-key "x" #'overlook-agent-forget)
 
 (provide 'overlook-agent)
 ;;; overlook-agent.el ends here
