@@ -197,6 +197,15 @@
   (evil-define-key* 'normal xwidget-webkit-mode-map
     "f" #'xwwp-follow-link))
 
+(use-package iuiw-webkit-ai
+  :ensure nil
+  :after xwidget
+  :demand t
+  :config
+  (evil-define-key* 'normal xwidget-webkit-mode-map
+    "a" #'iuiw-webkit-ai-summarize
+    "t" #'iuiw-webkit-ai-translate))
+
 ;; Separate windows with background-colored space instead of lines.
 (use-package spacious-padding
   :demand t
