@@ -393,10 +393,11 @@ an event source FROM, which does not join."
   "Post BODY in room NAME for event SOURCE, such as \"ci\".
 The members it wakes, those asking to be woken by every post, take it.
 When it wakes nobody, agent FALLBACK, else `courier-room-publish-fallback',
-is sent it to find who should.  Returns the ids it reached."
+is sent it to find who should; FALLBACK `none' tells nobody.  Returns the
+ids it reached."
   (let* ((post (courier-room-post name source body t))
          (woke (plist-get post :woke))
-         (fallback (or fallback courier-room-publish-fallback)))
+         (fallback (unless (eq fallback 'none) (or fallback courier-room-publish-fallback))))
     (if (or woke (null fallback))
         woke
       (let ((name (courier-room--check-name name)))
@@ -523,13 +524,6 @@ Posts that woke it came in its prompts, so they are not counted."
                                      :worktree (cdr (assoc "--worktree" options))
                                      :wake (courier-room--wake-option options))))
          (format "Started %s in #%s." id (courier-room--check-name name))))
-      ((and `("publish" . ,rest)
-            (let `(,options ,name ,body) (courier-options rest '("--from" "--fallback"))))
-       (let ((reached (courier-room-publish name (or (cdr (assoc "--from" options)) from "event")
-                                            body (cdr (assoc "--fallback" options)))))
-         (format "Published in #%s; %s." (courier-room--check-name name)
-                 (if reached (concat "it reached " (string-join reached ", "))
-                   "nobody follows the room"))))
       (`("close" ,name)
        (courier-room-close name)
        (format "Closed #%s; its posts are archived." (courier-room--check-name name)))
@@ -537,13 +531,13 @@ Posts that woke it came in its prompts, so they are not counted."
        (courier-room-leave name (funcall me))
        (format "Left #%s." (courier-room--check-name name)))
       (`("list")
-       (or (mapconcat (lambda (name) (courier-room--describe (courier-room name) from))
+       (courier-or-empty (mapconcat (lambda (name) (courier-room--describe (courier-room name) from))
                       (courier-room-names) "\n")
            "No rooms."))
       (_ (user-error "Usage: courier room post NAME MESSAGE | read NAME [--last N] \
 | join NAME [--wake mention|all|none] | invite [--wake W] NAME ID \
 | spawn [--effort L] [--worktree BRANCH] [--wake W] NAME AGENT DIR [TASK] \
-| publish [--from SOURCE] [--fallback ID] NAME MESSAGE | leave NAME | close NAME | list")))))
+| leave NAME | close NAME | list")))))
 
 (defun courier-room--wake-option (options)
   "The --wake value in OPTIONS as a symbol, or nil."

@@ -166,7 +166,7 @@ room named after the branch is closed."
      (courier-worktree-remove dir branch (equal (cadr args) "--force"))
      (format "Removed the worktree of %s; the branch is kept." branch))
     (`("list" ,dir)
-     (or (mapconcat (lambda (name)
+     (courier-or-empty (mapconcat (lambda (name)
                       (format "%s  %s" name (abbreviate-file-name (courier-worktree-path dir name))))
                     (courier-worktree-list dir) "\n")
          "No worktrees."))

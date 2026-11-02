@@ -99,6 +99,7 @@ A function returns nil to add nothing.")
 
 (autoload 'courier-room-cli "courier-room")
 (autoload 'courier-worktree-cli "courier-worktree")
+(autoload 'courier-event-cli "courier-event")
 (autoload 'courier-worktree-add "courier-worktree")
 (autoload 'courier-room-join "courier-room")
 (autoload 'courier-room-name-for "courier-room")
@@ -280,6 +281,10 @@ Events about the branch, such as CI results, reach you from the room #%s."
                           (courier--hops from))
       (courier-note id briefing))
     id))
+
+(defun courier-or-empty (text default)
+  "TEXT, or DEFAULT when TEXT is empty."
+  (if (string-empty-p text) default text))
 
 (defun courier-options (args names)
   "Split ARGS into the options NAMES leading it and the rest.
@@ -530,10 +535,12 @@ gone.  End your turn now."
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
                      (`("room" . ,rest) (courier-room-cli from rest))
                      (`("worktree" . ,rest) (courier-worktree-cli rest))
+                     (`("event" . ,rest) (courier-event-cli from rest))
                      (`("persona" . ,rest) (courier-persona-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
 | spawn [--effort LEVEL] [--worktree BRANCH] AGENT DIR PROMPT | monitor ID \
-| list | whoami | room COMMAND | persona COMMAND | worktree COMMAND")))
+| list | whoami | room COMMAND | persona COMMAND | worktree COMMAND \
+| event COMMAND")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)

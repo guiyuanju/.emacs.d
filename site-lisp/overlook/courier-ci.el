@@ -23,12 +23,12 @@
 
 ;;; Commentary:
 
-;; While `courier-ci-mode' is on, the CI of each branch an agent works on
-;; in a worktree is watched, and each run that finishes is published in
-;; the room named after the branch, which that agent follows.  Only
-;; branches pushed to a remote are asked about, and only every
-;; `courier-ci-interval' seconds, in the background.  A run that had
-;; finished before the branch was first looked at is not announced.
+;; A source of courier events: while `courier-ci-mode' is on, the CI of
+;; each branch an agent works on in a worktree is watched, and each run
+;; that finishes is an event in the thread of the branch, whose room that
+;; agent follows.  Only branches pushed to a remote are asked about, and
+;; only every `courier-ci-interval' seconds, in the background.  A run that
+;; had finished before the branch was first looked at is not announced.
 ;; `courier-ci-backends' says how to ask each host: GitHub through gh,
 ;; GitLab through glab.
 
@@ -36,8 +36,7 @@
 
 (require 'cl-lib)
 (require 'seq)
-(require 'courier)
-(require 'courier-room)
+(require 'courier-event)
 (require 'courier-worktree)
 
 (defcustom courier-ci-interval 60
@@ -56,31 +55,8 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
   :type '(alist :key-type regexp :value-type function)
   :group 'courier)
 
-(defvar courier-ci--seen (make-hash-table :test #'equal)
-  "Latest run seen per checkout and branch, or `none' when it had none.")
-
 (defvar courier-ci--reading nil
   "Checkouts being looked at.")
-
-(defvar courier-ci--timer nil)
-
-(defun courier-ci--run (dir command then)
-  "Run COMMAND in DIR, calling THEN with its output, or nil when it fails."
-  (let ((output (generate-new-buffer " *courier-ci*"))
-        (errors (generate-new-buffer " *courier-ci-errors*"))
-        (default-directory (file-name-as-directory dir)))
-    (condition-case nil
-        (make-process
-         :name "courier-ci" :buffer output :stderr errors :noquery t :connection-type 'pipe
-         :command command
-         :sentinel (lambda (process _event)
-                     (unless (process-live-p process)
-                       (let ((text (and (eq (process-exit-status process) 0)
-                                        (with-current-buffer output (buffer-string)))))
-                         (kill-buffer output)
-                         (kill-buffer errors)
-                         (funcall then text)))))
-      (file-missing (kill-buffer output) (kill-buffer errors) (funcall then nil)))))
 
 (defun courier-ci--json (text)
   "TEXT parsed as JSON, or nil."
@@ -88,7 +64,7 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
 
 (defun courier-ci-github (dir branch then)
   "Call THEN with the latest GitHub Actions run of BRANCH, from checkout DIR."
-  (courier-ci--run
+  (courier-event-run
    dir (list "gh" "run" "list" "--branch" branch "--limit" "1" "--json"
              "databaseId,status,conclusion,workflowName,url,headSha")
    (lambda (text)
@@ -104,7 +80,7 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
 
 (defun courier-ci-gitlab (dir branch then)
   "Call THEN with the latest GitLab pipeline of BRANCH, from checkout DIR."
-  (courier-ci--run
+  (courier-event-run
    dir (list "glab" "ci" "list" "--ref" branch "--per-page" "1" "--output" "json")
    (lambda (text)
      (funcall then
@@ -144,25 +120,23 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
               ""))))
 
 (defun courier-ci-saw (checkout branch run)
-  "Note RUN, the latest on BRANCH of CHECKOUT, publishing it if it newly finished.
-Returns non-nil when it was published."
-  (let* ((key (concat checkout "\0" branch))
-         (before (gethash key courier-ci--seen)))
-    (puthash key (or run 'none) courier-ci--seen)
-    (when (and before run (plist-get run :done)
-               (not (and (consp before)
-                         (equal (plist-get before :id) (plist-get run :id))
-                         (plist-get before :done))))
-      (courier-room-publish (courier-room-name-for branch) "ci"
-                            (courier-ci--message checkout branch run))
-      t)))
+  "Note RUN, the latest on BRANCH of CHECKOUT, emitting it if it newly finished.
+Returns its entry in `courier-event-log' when it was emitted."
+  (let ((first (courier-event-first-look-p "ci" (concat checkout "\0" branch)))
+        (key (and run (plist-get run :done) (format "%s %s" checkout (plist-get run :id)))))
+    (cond ((null key) nil)
+          (first (courier-event-remember "ci" key) nil)
+          (t (let ((entry (courier-event-emit
+                           (list :source "ci" :thread branch :key key
+                                 :text (courier-ci--message checkout branch run)))))
+               (and (not (eq (plist-get entry :outcome) 'duplicate)) entry))))))
 
 (defun courier-ci--look (checkout)
   "Look at the CI of the branch checked out in CHECKOUT, if it is pushed."
   (unless (member checkout courier-ci--reading)
     (push checkout courier-ci--reading)
     (let ((done (lambda () (setq courier-ci--reading (delete checkout courier-ci--reading)))))
-      (courier-ci--run
+      (courier-event-run
        checkout (list (or (bound-and-true-p vc-git-program) "git")
                       "rev-parse" "--abbrev-ref" "HEAD" "@{upstream}")
        (lambda (text)
@@ -171,7 +145,7 @@ Returns non-nil when it was published."
                  (guard (string-match "\\`\\([^/]+\\)/\\(.+\\)\\'" upstream)))
             (let ((remote (match-string 1 upstream))
                   (remote-branch (match-string 2 upstream)))
-              (courier-ci--run
+              (courier-event-run
                checkout (list (or (bound-and-true-p vc-git-program) "git") "remote" "get-url" remote)
                (lambda (url)
                  (if-let* ((url)
@@ -191,13 +165,12 @@ Returns non-nil when it was published."
 
 ;;;###autoload
 (define-minor-mode courier-ci-mode
-  "Publish the CI results of the branches agents work on in their rooms."
+  "Emit the CI results of the branches agents work on as courier events."
   :global t
   :group 'courier
-  (when (timerp courier-ci--timer) (cancel-timer courier-ci--timer))
-  (setq courier-ci--timer
-        (and courier-ci-mode (run-with-timer courier-ci-interval courier-ci-interval
-                                             #'courier-ci-look))))
+  (if courier-ci-mode
+      (courier-event-add-source 'ci :interval courier-ci-interval :poll #'courier-ci-look)
+    (courier-event-remove-source 'ci)))
 
 (provide 'courier-ci)
 ;;; courier-ci.el ends here

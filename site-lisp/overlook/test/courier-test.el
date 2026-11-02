@@ -5,6 +5,7 @@
 (require 'courier-room)
 (require 'courier-persona)
 (require 'courier-worktree)
+(require 'courier-event)
 (require 'courier-ci)
 
 (defvar courier-test--inbox nil
@@ -724,6 +725,94 @@
 
 ;;; Events
 
+(defmacro courier-test-with-events (&rest body)
+  "Run BODY with no events seen, logged or polled."
+  `(let ((courier-event--keys (make-hash-table :test #'equal))
+         (courier-event--key-order nil)
+         (courier-event--looked (make-hash-table :test #'equal))
+         (courier-event-log nil)
+         (courier-event--sources nil)
+         (courier-event--timer nil)
+         (courier-event--running 0)
+         (courier-event--waiting nil)
+         (courier-event-filters nil))
+     (unwind-protect (progn ,@body)
+       (when (timerp courier-event--timer) (cancel-timer courier-event--timer)))))
+
+(ert-deftest courier-event-leaves-out-duplicates-and-filters ()
+  (courier-test-with-personas '("w@p" "r@p")
+    (courier-test-with-events
+      (courier-room-join "fix" "w@p" 'all)
+      (let ((event '(:source ci :thread "fix" :key "1" :text "red")))
+        (should (equal (plist-get (courier-event-emit event) :reached) '("w@p")))
+        (should (eq (plist-get (courier-event-emit event) :outcome) 'duplicate))
+        (let ((courier-event-filters
+               (list (lambda (e) (and (not (string-search "noise" (plist-get e :text))) e))
+                     (lambda (e) (plist-put (copy-sequence e) :text (upcase (plist-get e :text)))))))
+          (should (eq (plist-get (courier-event-emit '(:source ci :thread "fix" :text "noise"))
+                                 :outcome)
+                      'dropped))
+          (courier-event-emit '(:source ci :thread "fix" :text "green")))
+        (courier-deliver)
+        (should (string-suffix-p "GREEN" (car (last (courier-test--received "w@p")))))
+        (should (equal (mapcar (lambda (e) (plist-get e :outcome)) courier-event-log)
+                       '(delivered dropped duplicate delivered)))
+        (should (string-search "delivered ci #fix → w@p  GREEN"
+                               (courier-event-cli nil '("log" "1"))))))))
+
+(ert-deftest courier-event-fallback-may-be-none ()
+  (courier-test-with-personas '("r@p")
+    (courier-test-with-events
+      (let ((courier-room-publish-fallback "r@p"))
+        (should (eq (plist-get (courier-event-emit '(:thread "a" :text "x" :fallback none)) :outcome)
+                    'unclaimed))
+        (should (equal (plist-get (courier-event-emit '(:thread "a" :text "y")) :reached) '("r@p")))
+        (should (string-search "nobody follows it"
+                               (courier-event-cli nil '("emit" "--fallback" "none" "a" "z"))))
+        (should (string-search "Not posted: duplicate"
+                               (progn (courier-event-cli nil '("emit" "--key" "k" "a" "z"))
+                                      (courier-event-cli nil '("emit" "--key" "k" "a" "z")))))))))
+
+(ert-deftest courier-event-polls-due-sources ()
+  (courier-test-with-events
+    (let ((polls 0))
+      (courier-event-add-source 'x :interval 30 :poll (lambda () (cl-incf polls)))
+      (should (timerp courier-event--timer))
+      (courier-event--tick)
+      (should (= polls 0))
+      (plist-put (alist-get 'x courier-event--sources) :next 0)
+      (courier-event--tick)
+      (courier-event--tick)
+      (should (= polls 1))
+      (courier-event-poll 'x)
+      (should (= polls 2))
+      (courier-event-remove-source 'x)
+      (should-not courier-event--timer))))
+
+(ert-deftest courier-event-runs-few-processes-at-once ()
+  (courier-test-with-events
+    (let ((courier-event-max-processes 1)
+          (started nil)
+          (finish nil)
+          (outputs nil))
+      (cl-letf (((symbol-function 'courier-event--process)
+                 (lambda (_dir command then) (push command started) (setq finish then))))
+        (courier-event-run "/" '("a") (lambda (text) (push text outputs)))
+        (courier-event-run "/" '("b") (lambda (text) (push text outputs)))
+        (should (equal started '(("a"))))
+        (funcall finish "A")
+        (should (equal started '(("b") ("a"))))
+        (funcall finish "B")
+        (should (equal outputs '("B" "A")))
+        (should (= courier-event--running 0))))))
+
+(ert-deftest courier-event-first-look ()
+  (courier-test-with-events
+    (should (equal (courier-event-cli nil '("log")) "No events yet."))
+    (should (courier-event-first-look-p 'ci "x"))
+    (should-not (courier-event-first-look-p "ci" "x"))
+    (should (courier-event-first-look-p 'ci "y"))))
+
 (ert-deftest courier-room-name-for-a-branch ()
   (should (equal (courier-room-name-for "feature/Login_redirect") "feature-login_redirect"))
   (should (equal (courier-room-name-for "-x-") "x"))
@@ -764,15 +853,16 @@
     (should (string-search "Started codex@"
                            (courier-room-cli "a@p" '("spawn" "--wake" "none" "ops" "codex" "/w/p" "go"))))
     (should (eq (plist-get (courier-room-member (courier-room "ops") "codex@p") :wake) 'none))
-    (should (string-search "it reached b@p"
-                           (courier-room-cli nil '("publish" "--from" "ci" "ops" "green"))))))
+    (courier-test-with-events
+      (should (string-search "it reached b@p"
+                             (courier-event-cli nil '("emit" "--from" "ci" "ops" "green")))))))
 
 ;;; CI
 
 (ert-deftest courier-ci-publishes-runs-that-newly-finish ()
   (courier-test-with-personas '("w@p")
-    (let ((courier-ci--seen (make-hash-table :test #'equal))
-          (run (list :id 1 :done nil :result "" :name "test" :url "u" :sha "abcdef123" :hint "gh x")))
+    (courier-test-with-events
+    (let ((run (list :id 1 :done nil :result "" :name "test" :url "u" :sha "abcdef123" :hint "gh x")))
       (courier-room-join "fix" "w@p" 'all)
       ;; A run finished before the first look is not news.
       (should-not (courier-ci-saw "/r/" "fix" (append '(:id 0 :done t :result "failure") run)))
@@ -785,7 +875,7 @@
         (should (string-search "Read why with `gh x` in /r/." prompt)))
       ;; A branch first seen with no run announces its first one.
       (should-not (courier-ci-saw "/r/" "new" nil))
-      (should (courier-ci-saw "/r/" "new" (list :id 2 :done t :result "success" :sha "1"))))))
+      (should (courier-ci-saw "/r/" "new" (list :id 2 :done t :result "success" :sha "1")))))))
 
 (ert-deftest courier-ci-looks-at-pushed-worktree-branches ()
   (courier-test-with-tmp root
@@ -811,12 +901,13 @@
               (courier-register "w@p" :buffer (car buffers))
               (courier-register "l@p" :buffer (cadr buffers))
               (should (equal (courier-ci--checkouts) (list unpushed path)))
-              (let ((courier-ci--seen (make-hash-table :test #'equal))
-                    (courier-ci--reading nil)
+              (courier-test-with-events
+              (let* ((courier-ci--reading nil)
+                    (id 7)
                     (courier-ci-backends
                      `(("github\\.com" . ,(lambda (dir branch then)
                                             (push (cons dir branch) asked)
-                                            (funcall then (list :id 7 :done t :result "success"))))))
+                                            (funcall then (list :id id :done t :result "success"))))))
                     (courier-room-publish-fallback nil))
                 (cl-letf (((symbol-function 'courier-room-publish)
                            (lambda (&rest args) (push args published))))
@@ -825,11 +916,11 @@
                     (while courier-ci--reading (accept-process-output nil 0.05)))
                   (should (equal asked (list (cons path "fix"))))
                   (should-not published)
-                  (puthash (concat path "\0fix") 'none courier-ci--seen)
+                  (setq id 8)
                   (courier-ci-look)
                   (with-timeout (10 (error "Timed out"))
                     (while courier-ci--reading (accept-process-output nil 0.05)))
-                  (should (equal (car (car published)) "fix")))))
+                  (should (equal (car (car published)) "fix"))))))
           (mapc #'kill-buffer buffers))))))
 
 ;;; courier-test.el ends here

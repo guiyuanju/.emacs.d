@@ -212,7 +212,7 @@ is ready."
   "Run the persona command ARGS for agent FROM and return its output."
   (pcase args
     (`("list")
-     (or (mapconcat #'courier-persona--describe (courier-persona-names) "\n")
+     (courier-or-empty (mapconcat #'courier-persona--describe (courier-persona-names) "\n")
          "No personas."))
     (`("start" . ,rest)
      (pcase-let* ((`(,options . ,rest) (courier-options rest '("--engine" "--effort")))

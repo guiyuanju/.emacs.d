@@ -126,29 +126,56 @@ courier room close design                # archive the posts under archive/
 
 ### Events
 
-A room can stand for one stream of events, a thread: the CI runs of a
-branch, the comments on a pull request.  Agents working on it follow the
-room with `--wake all`; whatever publishes the events posts there:
+An event is something an agent may have to act on: a CI run that
+failed, a comment on a pull request.  Each belongs to a thread, a stream
+of events such as a branch's CI runs, and goes to the room named after
+the thread.  Agents working on the thread follow that room with
+`--wake all`; an agent spawned with `--worktree BRANCH` follows its
+branch's.  `courier-event-emit` (in `courier-event.el`) takes a plist:
+
+| | |
+|---|---|
+| `:source` | who saw it, such as `"ci"` |
+| `:thread` | the thread; its room is `(courier-room-name-for THREAD)` |
+| `:text` | what the agents are told |
+| `:key` | optional; an event of the same source and key again is a duplicate and left out |
+| `:fallback` | who hears of it when no agent follows the room: an id, `none`, or nil for `courier-room-publish-fallback` |
+
+It leaves out duplicates, runs `courier-event-filters` (each returns the
+event, changed or not, or nil to drop it), posts it in the room for a
+source that does not join it, and logs what became of it in
+`courier-event-log`: `delivered`, `unclaimed`, `dropped` or `duplicate`.
+An event that wakes nobody goes to the fallback, say a router agent,
+which may invite an agent to the room or start one there; so the router
+hears only of events no agent has claimed.  From a shell:
 
 ```sh
-courier room publish --from ci fix-login 'CI failed on fix-login: …'
+courier event emit --from ci --key run-42 fix-login 'CI failed on fix-login: …'
+courier event log 50                     # the latest events and what became of them
 ```
 
-`courier-room-publish` posts for an event source that does not join the
-room, and wakes the members as any post does.  When it wakes nobody, it
-tells `courier-room-publish-fallback` (or `--fallback ID`), say a router
-agent, which may invite an agent to the room or start one there.  So
-the router hears only of events no agent has claimed; the rest go
-straight to the agent following them.
+A source pushing events, from a hook say, calls `courier-event-emit`.
+One asking for them registers a poll, and all polls share one timer:
 
-`courier-ci-mode` publishes CI results this way.  Every
-`courier-ci-interval` (60) seconds it looks at the branch checked out in
-each worktree a registered agent works in, skips the ones with no
-upstream, and asks the remote's CI, through `gh` for GitHub and `glab`
-for GitLab (`courier-ci-backends`), for the branch's latest run.  A run
-that finishes is published, as from `ci`, in the room named after the
-branch, with its link and, when it failed, the command reading why.  A
-run that had finished before the branch was first looked at is not.
+```elisp
+(courier-event-add-source 'ci :interval 60 :poll #'courier-ci-look)
+(courier-event-remove-source 'ci)
+```
+
+A poll runs its commands with `courier-event-run`, which keeps all
+sources to `courier-event-max-processes` (4) processes at once, and may
+leave out what happened before it first looked at something with
+`courier-event-first-look-p`, remembering such an event's key with
+`courier-event-remember`.
+
+`courier-ci-mode` is such a source.  Every `courier-ci-interval` (60)
+seconds it looks at the branch checked out in each worktree a registered
+agent works in, skips the ones with no upstream, and asks the remote's
+CI, through `gh` for GitHub and `glab` for GitLab (`courier-ci-backends`),
+for the branch's latest run.  A run that finishes is an event from `ci`
+in the branch's thread, with its link and, when it failed, the command
+reading why.  A run that had finished before the branch was first looked
+at is not.  overlook's watchdog is another.
 
 ```elisp
 (require 'courier-ci)

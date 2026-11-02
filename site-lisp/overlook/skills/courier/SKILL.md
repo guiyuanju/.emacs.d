@@ -94,9 +94,10 @@ courier room close design                # archives the posts
 ```
 
 Some rooms carry events, such as CI results for a branch, posted with
-`courier room publish`; an agent spawned with `--worktree BRANCH`
+`courier event emit`; an agent spawned with `--worktree BRANCH`
 already follows the room of its branch.  An event that wakes nobody goes
-to the router, if one is set, to hand it to an agent.
+to the router, if one is set, to hand it to an agent.  `courier event log`
+lists the latest events and who got them.
 
 Name only the members who must act, since each one you wake spends a
 turn.  Do not answer a post that needs no answer, and close or leave rooms

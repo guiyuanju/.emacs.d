@@ -12,7 +12,8 @@
 #   courier room join ROOM         join it (--wake mention|all|none); room leave ROOM
 #   courier room invite ROOM ID    add agent ID to the room and tell it; @ID in a post does too
 #   courier room spawn ROOM AGENT DIR [TASK]  start AGENT in DIR as a member (--effort, --worktree, --wake first)
-#   courier room publish ROOM MESSAGE  post an event (--from SOURCE first); nobody following: to the router
+#   courier event emit THREAD MESSAGE  post an event in THREAD's room (--from S --key K --fallback ID|none first)
+#   courier event log [N]          the latest events and what became of them
 #   courier room close ROOM        close the room; its posts are archived
 #   courier room list              list the rooms
 #   courier persona list           list the personas: lasting identities with a memory
@@ -24,7 +25,7 @@
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 

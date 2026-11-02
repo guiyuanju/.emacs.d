@@ -33,14 +33,16 @@
 ;;   `overlook-watchdog-delivery-limit' though the agent is ready; the
 ;;   agent then gets no more mail, so it is let take mail again.
 ;;
-;; Each finding is published once, as from `watchdog', in the room
-;; `overlook-watchdog-room'.  When no agent follows that room, it goes to
-;; the stuck agent's parent, else to `courier-room-publish-fallback'.
+;; Each finding is a courier event, emitted once, from `watchdog' in the
+;; thread `overlook-watchdog-room'.  When no agent follows that room, it
+;; goes to the stuck agent's parent, else to
+;; `courier-room-publish-fallback'.
 
 ;;; Code:
 
 (require 'overlook-agent)
 (require 'overlook-courier)
+(require 'courier-event)
 
 (defcustom overlook-watchdog-interval 60
   "Seconds between checks of the agents."
@@ -67,21 +69,15 @@
   :type 'string
   :group 'overlook)
 
-(defvar overlook-watchdog--told (make-hash-table :test #'equal)
-  "Findings already published, as (ID KIND SINCE).")
-
 (defvar overlook-watchdog--waiting (make-hash-table :test #'eq)
   "Each agent buffer seen waiting, to when it was first seen so.")
 
-(defvar overlook-watchdog--timer nil)
-
 (defun overlook-watchdog--report (id kind since text)
-  "Publish TEXT about agent ID once for finding KIND that began at SINCE."
-  (let ((key (list id kind since)))
-    (unless (gethash key overlook-watchdog--told)
-      (puthash key t overlook-watchdog--told)
-      (courier-room-publish overlook-watchdog-room "watchdog" text
-                            (when-let* ((agent (courier-agent id))) (courier-agent-parent agent))))))
+  "Emit TEXT about agent ID once for finding KIND that began at SINCE."
+  (courier-event-emit
+   (list :source "watchdog" :thread overlook-watchdog-room :text text
+         :key (format "%s %s %s" id kind since)
+         :fallback (when-let* ((agent (courier-agent id))) (courier-agent-parent agent)))))
 
 (defun overlook-watchdog--minutes (seconds)
   "SECONDS as whole minutes."
@@ -131,20 +127,17 @@ whether it has it."
                   ((courier-agent-parent agent)))
         (overlook-watchdog--check-agent buffer now)))
     (dolist (buffer (hash-table-keys overlook-watchdog--waiting))
-      (unless (buffer-live-p buffer) (remhash buffer overlook-watchdog--waiting)))
-    (when (> (hash-table-count overlook-watchdog--told) 500)
-      (clrhash overlook-watchdog--told))))
+      (unless (buffer-live-p buffer) (remhash buffer overlook-watchdog--waiting)))))
 
 ;;;###autoload
 (define-minor-mode overlook-watchdog-mode
-  "Report agents that seem stuck, by fixed rules, in a courier room."
+  "Report agents that seem stuck, by fixed rules, as courier events."
   :global t
   :group 'overlook
-  (when (timerp overlook-watchdog--timer) (cancel-timer overlook-watchdog--timer))
-  (setq overlook-watchdog--timer
-        (and overlook-watchdog-mode
-             (run-with-timer overlook-watchdog-interval overlook-watchdog-interval
-                             #'overlook-watchdog-check))))
+  (if overlook-watchdog-mode
+      (courier-event-add-source 'watchdog :interval overlook-watchdog-interval
+                                :poll #'overlook-watchdog-check)
+    (courier-event-remove-source 'watchdog)))
 
 (provide 'overlook-watchdog)
 ;;; overlook-watchdog.el ends here
