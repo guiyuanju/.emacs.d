@@ -26,7 +26,8 @@
 ;; Plan usage rows at the top of the dashboard: how much of each agent's
 ;; subscription windows is used and when they reset.  Claude's windows come
 ;; from the rate limits claude-agent-acp forwards to agent-shell, kept in
-;; `overlook-usage-file' so they survive a restart; Codex's from its newest
+;; `overlook-usage-file' so they survive a restart, and those of another
+;; account in a file of its own beside it, shown as a row of its own; Codex's from its newest
 ;; session log.  Both are undocumented and may stop working.  Add a row by
 ;; pushing onto `overlook-usage-functions'.  The rows are re-read on every
 ;; `overlook-tick-hook'.  A row fetched over the network registers its
@@ -61,10 +62,10 @@
 
 (defcustom overlook-usage-functions '(overlook-usage-claude overlook-usage-codex)
   "Functions returning an agent's plan usage, shown on the dashboard.
-Each returns (NAME . WINDOWS), or nil when it knows none.  WINDOWS lists
-\(LABEL PERCENT RESETS-AT), like (\"5h\" 42 1790963218); RESETS-AT is
-seconds since the epoch, or nil.  PERCENT may instead be a formatted string
-for a metric without a bar."
+Each returns (NAME . WINDOWS), a list of them, or nil when it knows
+none.  WINDOWS lists (LABEL PERCENT RESETS-AT), like (\"5h\" 42
+1790963218); RESETS-AT is seconds since the epoch, or nil.  PERCENT may
+instead be a formatted string for a metric without a bar."
   :type '(repeat function)
   :group 'overlook)
 
@@ -78,7 +79,8 @@ for a metric without a bar."
   "Minute the reset countdowns were last drawn in.")
 
 (defvar overlook-usage--claude nil
-  "Claude's usage windows from the last file that carried any.")
+  "Alist of each Claude account to its windows from the last file that carried any.
+The account of `overlook-usage-file' is nil.")
 
 (defcustom overlook-usage-claude-url "https://claude.ai/settings/usage"
   "Page the dashboard's Claude usage row opens on RET."
@@ -90,37 +92,64 @@ for a metric without a bar."
   (interactive)
   (browse-url overlook-usage-claude-url))
 
-(defun overlook-usage-save-claude (usage)
-  "Save Claude's plan USAGE to `overlook-usage-file'.
+(defun overlook-usage--claude-file (account)
+  "File keeping the Claude usage of ACCOUNT, nil for `overlook-usage-file'."
+  (if account
+      (concat (file-name-sans-extension overlook-usage-file) "-" account
+              (if-let* ((extension (file-name-extension overlook-usage-file)))
+                  (concat "." extension)
+                ""))
+    overlook-usage-file))
+
+(defun overlook-usage--claude-accounts ()
+  "Accounts with a Claude usage file, nil for `overlook-usage-file' first."
+  (let ((base (file-name-nondirectory (file-name-sans-extension overlook-usage-file)))
+        (extension (file-name-extension overlook-usage-file t)))
+    (cons nil
+          (mapcar (lambda (file)
+                    (substring (file-name-nondirectory file) (1+ (length base))
+                               (- (length (file-name-nondirectory file)) (length extension))))
+                  (ignore-errors
+                    (directory-files (file-name-directory overlook-usage-file) t
+                                     (concat "\\`" (regexp-quote base) "-.+"
+                                             (regexp-quote extension) "\\'")))))))
+
+(defun overlook-usage-save-claude (usage &optional account)
+  "Save Claude's plan USAGE of ACCOUNT, nil for the one in `overlook-usage-file'.
 USAGE maps window keys like `five_hour' to alists with `used_percentage'
 and `resets_at'."
   (make-directory (file-name-directory overlook-usage-file) t)
   (let ((temp (make-temp-file (expand-file-name "claude-usage"
                                                 (file-name-directory overlook-usage-file)))))
     (with-temp-file temp (insert (json-encode usage)))
-    (rename-file temp overlook-usage-file t)))
+    (rename-file temp (overlook-usage--claude-file account) t)))
+
+(defun overlook-usage--claude-windows (account)
+  "Claude's usage windows of ACCOUNT as its file has them, or nil."
+  (when-let* ((usage (ignore-errors
+                       (with-temp-buffer
+                         (insert-file-contents (overlook-usage--claude-file account))
+                         (json-parse-buffer :object-type 'alist :null-object nil)))))
+    (cl-loop for (key . label) in '((five_hour . "5h") (seven_day . "7d"))
+             for window = (alist-get key usage)
+             when (alist-get 'used_percentage window)
+             collect (list label it (let ((resets (alist-get 'resets_at window)))
+                                      (and (numberp resets) resets))))))
 
 (defun overlook-usage-claude ()
-  "Claude's plan usage, as `overlook-usage-save-claude' saved it.
+  "Claude's plan usage of each account, as `overlook-usage-save-claude' saved it.
 A file without any windows, or none at all, keeps the last reading, so the
 row stays visible while Claude Code reconnects instead of dropping out."
-  (let ((usage (ignore-errors
-                 (with-temp-buffer
-                   (insert-file-contents overlook-usage-file)
-                   (json-parse-buffer :object-type 'alist :null-object nil)))))
-    (when-let* ((windows
-                 (when usage
-                   (cl-loop for (key . label) in '((five_hour . "5h") (seven_day . "7d"))
-                            for window = (alist-get key usage)
-                            when (alist-get 'used_percentage window)
-                            collect (list label it (let ((resets (alist-get 'resets_at window)))
-                                                     (and (numberp resets) resets)))))))
-      (setq overlook-usage--claude windows))
-    (when overlook-usage--claude
-      (cons (propertize "claude"
-                        'overlook-action #'overlook-usage-open-claude
-                        'help-echo "RET opens Claude's usage page")
-            overlook-usage--claude))))
+  (dolist (account (overlook-usage--claude-accounts))
+    (when-let* ((windows (overlook-usage--claude-windows account)))
+      (setf (alist-get account overlook-usage--claude nil nil #'equal) windows)))
+  (mapcar (pcase-lambda (`(,account . ,windows))
+            (cons (propertize (if account (concat "claude @" account) "claude")
+                              'overlook-action #'overlook-usage-open-claude
+                              'help-echo "RET opens Claude's usage page")
+                  windows))
+          (sort (copy-sequence overlook-usage--claude)
+                (lambda (a b) (and (null (car a)) (car b))))))
 
 (defcustom overlook-usage-codex-url "https://chatgpt.com/settings/usage?tab=overview"
   "Page the dashboard's Codex usage row opens on RET."
@@ -217,6 +246,16 @@ It turns `warning' from `overlook-usage-warning'."
             (propertize (make-string (- width filled) ?━) 'face 'overlook-usage-bar-track))))
 
 (defun overlook-usage--label (name)
+  "NAME as `overlook-agent-icons' draws it, keeping NAME's properties.
+In a NAME like \"claude @personal\", the agent's name before the space is drawn."
+  (if-let* ((space (string-search " " name))
+            (agent (substring name 0 space))
+            (icon (overlook-usage--label-1 agent))
+            ((not (eq icon agent))))
+      (concat icon (substring name space))
+    (overlook-usage--label-1 name)))
+
+(defun overlook-usage--label-1 (name)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties."
   (if-let* ((icon (alist-get (substring-no-properties name)
                              (bound-and-true-p overlook-agent-icons) nil nil #'equal)))
@@ -338,8 +377,10 @@ a started request."
 
 (defun overlook-usage-scan ()
   "Refresh plan usage and redraw the dashboard when it changed."
-  (let ((usage (delq nil (mapcar (lambda (function) (ignore-errors (funcall function)))
-                                 overlook-usage-functions))))
+  (let ((usage (mapcan (lambda (function)
+                         (let ((rows (ignore-errors (funcall function))))
+                           (if (stringp (car rows)) (list rows) (copy-sequence rows))))
+                       overlook-usage-functions)))
     (unless (and (equal usage overlook-usage--rows)
                  (or (null usage) (equal overlook-usage--minute
                                          (floor (float-time) 60))))

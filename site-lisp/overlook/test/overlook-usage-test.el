@@ -17,15 +17,15 @@
            file
            "{\"five_hour\":{\"used_percentage\":96,\"resets_at\":1791577800},\"seven_day\":{\"used_percentage\":6,\"resets_at\":1791950400}}")
           (should (equal (overlook-usage-claude)
-                         '("claude" ("5h" 96 1791577800) ("7d" 6 1791950400))))
+                         '(("claude" ("5h" 96 1791577800) ("7d" 6 1791950400)))))
           ;; A null file must not wipe the row while Claude reconnects.
           (overlook-usage-test--set-file file "null")
           (should (equal (overlook-usage-claude)
-                         '("claude" ("5h" 96 1791577800) ("7d" 6 1791950400))))
+                         '(("claude" ("5h" 96 1791577800) ("7d" 6 1791950400)))))
           ;; A deleted file keeps it too.
           (delete-file file)
           (should (equal (overlook-usage-claude)
-                         '("claude" ("5h" 96 1791577800) ("7d" 6 1791950400)))))
+                         '(("claude" ("5h" 96 1791577800) ("7d" 6 1791950400))))))
       (when (file-exists-p file) (delete-file file)))))
 
 (ert-deftest overlook-usage-claude-without-any-reading-stays-hidden ()
@@ -46,9 +46,27 @@
         (progn
           (overlook-usage-test--set-file
            file "{\"five_hour\":{\"used_percentage\":96,\"resets_at\":1791577800}}")
-          (should (eq (get-text-property 0 'overlook-action (car (overlook-usage-claude)))
+          (should (eq (get-text-property 0 'overlook-action (caar (overlook-usage-claude)))
                       #'overlook-usage-open-claude)))
       (delete-file file))))
+
+;; Another account's usage goes to a file of its own beside, and shows as a row of its own after.
+(ert-deftest overlook-usage-claude-keeps-a-row-per-account ()
+  (let* ((dir (make-temp-file "overlook-usage" t))
+         (overlook-usage-file (expand-file-name "claude-usage.json" dir))
+         (overlook-usage--claude nil))
+    (unwind-protect
+        (progn
+          (overlook-usage-save-claude '((five_hour (used_percentage . 100) (resets_at . 1791577800)))
+                                      "home")
+          (overlook-usage-save-claude '((five_hour (used_percentage . 40) (resets_at . 1791577800))))
+          (should (file-exists-p (expand-file-name "claude-usage-home.json" dir)))
+          (should (equal (overlook-usage-claude)
+                         '(("claude" ("5h" 40 1791577800))
+                           ("claude @home" ("5h" 100 1791577800)))))
+          (let ((overlook-agent-icons '(("claude" . "C"))))
+            (should (equal (overlook-usage--label "claude @home") "C @home"))))
+      (delete-directory dir t))))
 
 (ert-deftest overlook-usage-row-action-reaches-line-start ()
   (with-temp-buffer

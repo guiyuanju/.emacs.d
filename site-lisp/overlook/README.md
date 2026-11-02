@@ -158,6 +158,7 @@ Then:
 | `overlook-agent-switch` | pick any running agent and show it in its perspective |
 | `overlook-agent-send` | paste the region, or an `@` reference to the file, into this project's agent |
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
+| `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
 | `overlook-perspective-open-project` | open a project in its own perspective |
 
 On the dashboard:
@@ -243,6 +244,18 @@ Evil users can bind the same keys in normal state:
   agent-shell configs overlook starts them with when resuming, handing
   off or spawning.
 - `overlook-agent-shell-handoff-prompt`: the handoff draft.
+- `overlook-agent-shell-claude-accounts`: Claude accounts, each a name
+  and an OAuth token from `claude setup-token` (or a function returning
+  it).  The first may have none, keeping Claude Code's own login.
+  Agents on another account show `@NAME` after their name, and its plan
+  usage gets a row of its own, kept beside `overlook-usage-file`:
+
+  ```elisp
+  (setopt overlook-agent-shell-claude-accounts
+          `(("work")
+            ("personal" . ,(lambda () (auth-source-pick-first-password
+                                       :host "claude.ai" :user "personal")))))
+  ```
 
 ## Extending
 

@@ -43,6 +43,25 @@ each environment gathered says how many were gathered so far."
           (should (eq (overlook-agent-shell--add-environment args) args))
         (kill-buffer " other")))))
 
+;; A Claude agent runs as the account current when it starts; one other than the first gets its token and a mark.
+(ert-deftest overlook-agent-shell-claude-runs-as-the-current-account ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (let ((overlook-agent-environment-functions (list #'overlook-agent-shell--account-environment))
+          (overlook-agent-shell-claude-accounts `(("work") ("home" . ,(lambda () "tok"))))
+          (overlook-agent-shell-claude-account nil)
+          (args (list :context-buffer buffer)))
+      (should-not (plist-get (overlook-agent-shell--add-environment args) :environment-variables))
+      (should (equal overlook-agent-shell--claude-account "work"))
+      (should-not (overlook-agent-shell--account-mark buffer))
+      (overlook-agent-shell-claude-switch-account "home")
+      (should (equal (plist-get (overlook-agent-shell--add-environment args) :environment-variables)
+                     nil))
+      (setq overlook-agent-shell--environment nil)
+      (should (equal (plist-get (overlook-agent-shell--add-environment args) :environment-variables)
+                     '("CLAUDE_CODE_OAUTH_TOKEN=tok")))
+      (should (equal (substring-no-properties (overlook-agent-shell--account-mark buffer)) " @home"))
+      (should (equal (overlook-agent-shell--account-environment "codex" "/tmp/") nil)))))
+
 (ert-deftest overlook-agent-shell-tracks-a-shell-started-any-way ()
   (overlook-agent-shell-test-with-shell 'claude-code
     (overlook-agent-shell--add-environment (list :context-buffer buffer))
