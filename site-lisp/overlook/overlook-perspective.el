@@ -76,6 +76,17 @@ rebuilds the frame's windows, which hides and refocuses xwidgets."
       (persp-add-buffer buffer)
     (with-perspective name (persp-add-buffer buffer))))
 
+;; Showing a buffer adds it to the perspective, so a detached one is taken
+;; out each time it is shown.
+(defun overlook-perspective--detach (buffer)
+  "Remove BUFFER from every perspective of every frame, without switching."
+  (when (bound-and-true-p persp-mode)
+    (dolist (frame (frame-list))
+      (when-let* ((hash (frame-parameter frame 'persp--hash)))
+        (maphash (lambda (_ persp)
+                   (setf (persp-buffers persp) (delq buffer (persp-buffers persp))))
+                 hash)))))
+
 ;;;###autoload
 (defun overlook-perspective-open-project (directory)
   "Switch to the perspective of the project in DIRECTORY, named after it.
@@ -99,6 +110,7 @@ A new perspective opens the project's root in Dired."
                    (overlook-switch-perspective-function . persp-switch)
                    (overlook-perspective-buffers-function . overlook-perspective--buffers)
                    (overlook-add-to-perspective-function . overlook-perspective--add-buffer)
+                   (overlook-detach-function . overlook-perspective--detach)
                    (overlook-perspective-root-function . overlook-perspective--root)))
     (set variable (if overlook-perspective-mode function #'ignore)))
   (overlook-toggle-hooks

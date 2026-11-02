@@ -258,6 +258,9 @@ add to it:
   repos at 50.  Insert each row with `overlook-insert-row`, which can
   nest rows under it.  Under `overlook-orphans-perspective`, also insert
   the rows that belong to no perspective.
+- `overlook-detach`: keep a buffer out of every perspective, even once
+  shown; opening it from the dashboard shows it in the current one.
+  The courier module detaches the agents running a persona.
 - `overlook-usage-functions`: rows in the usage section.
 - `overlook-usage-add-poller`: refresh a row's data over the network, at most every few minutes while the dashboard is open.
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.

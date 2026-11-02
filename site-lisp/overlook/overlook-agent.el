@@ -285,10 +285,12 @@ A buffer shown in several perspectives belongs to the one of its project."
         (overlook-buffer-perspective buffer))))
 
 (defun overlook-agent-visit (buffer)
-  "Switch to agent BUFFER's perspective and show it there."
+  "Switch to agent BUFFER's perspective and show it there.
+A detached agent shows in the current perspective."
   (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
-  (overlook-show-elsewhere (or (overlook-agent-perspective buffer)
-                               (overlook-orphan-perspective))
+  (overlook-show-elsewhere (unless (buffer-local-value 'overlook-detached buffer)
+                             (or (overlook-agent-perspective buffer)
+                                 (overlook-orphan-perspective)))
                            (lambda () (overlook-agent-show buffer))))
 
 ;;; Status

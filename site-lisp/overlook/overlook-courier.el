@@ -33,7 +33,9 @@
 ;; Above the perspectives, a Rooms section lists courier's chat rooms with
 ;; the posts the user has not read; RET opens one.  A Personas section
 ;; lists courier's personas; RET starts one, or shows the agent running it.
-;; Agents running a persona are listed there only, not under a perspective.
+;; Agents running a persona are listed there only, and kept out of the
+;; perspectives: RET shows one in the current perspective.  What a persona
+;; spawns goes to the perspective of its project, else to the orphans'.
 ;; An agent resumed in a later Emacs keeps its courier id.
 
 ;;; Code:
@@ -115,9 +117,17 @@ A resumed agent gets its earlier id back unless another agent has it."
          :transcript (and transcript
                           (lambda () (with-current-buffer buffer (funcall transcript)))))))))
 
+(defun overlook-courier--detach-persona (buffer)
+  "Keep agent BUFFER out of the perspectives when it runs a persona."
+  (when (and (not (buffer-local-value 'overlook-detached buffer))
+             (overlook-courier--persona-item-p (cons 'agent buffer)))
+    (overlook-detach buffer)))
+
 (defun overlook-courier--sync ()
-  "Register the agents courier does not know yet."
-  (mapc #'overlook-courier--register (overlook-agent-buffers)))
+  "Register the agents courier does not know yet, and detach the personas."
+  (dolist (buffer (overlook-agent-buffers))
+    (overlook-courier--register buffer)
+    (overlook-courier--detach-persona buffer)))
 
 (defun overlook-courier--turn-started ()
   "Tell courier this agent started a turn."
@@ -148,16 +158,22 @@ A resumed agent gets its earlier id back unless another agent has it."
 (defun overlook-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
 It opens in the perspective of the project holding DIRECTORY, else in
-PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil."
+PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
+A persona opens in no perspective, and what a persona spawns outside the
+projects goes to `overlook-orphan-perspective'."
   (let* ((parent-buffer (when-let* ((agent (courier-agent parent))) (courier-agent-buffer agent)))
-         (perspective (or (overlook-courier--perspective-of directory)
-                          (and (buffer-live-p parent-buffer)
-                               (overlook-agent-perspective parent-buffer))))
+         (perspective (unless (and as (courier-persona as))
+                        (or (overlook-courier--perspective-of directory)
+                            (and (buffer-live-p parent-buffer)
+                                 (if (buffer-local-value 'overlook-detached parent-buffer)
+                                     (overlook-orphan-perspective)
+                                   (overlook-agent-perspective parent-buffer))))))
          (buffer (let ((overlook-courier--parent parent)
                        (overlook-courier--as as))
                    (overlook-agent--launch name directory nil t effort))))
     (when perspective (overlook-add-to-perspective perspective buffer))
     (let ((overlook-courier--parent parent)) (overlook-courier--register buffer))
+    (overlook-courier--detach-persona buffer)
     (buffer-local-value 'overlook-courier-id buffer)))
 
 (defun overlook-courier--mark (buffer)

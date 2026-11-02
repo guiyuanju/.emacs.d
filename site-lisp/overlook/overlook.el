@@ -143,6 +143,9 @@ Sections not listed follow, by hook depth."
 (defvar overlook-add-to-perspective-function #'ignore
   "Function of a NAME and a BUFFER adding BUFFER to that perspective.")
 
+(defvar overlook-detach-function #'ignore
+  "Function of a BUFFER removing it from every perspective.")
+
 (defun overlook-perspectives ()
   "Names of all perspectives."
   (funcall overlook-perspectives-function))
@@ -185,6 +188,23 @@ That is `overlook-orphan-perspective', or else the current one."
 (defun overlook-add-to-perspective (name buffer)
   "Add BUFFER to perspective NAME."
   (funcall overlook-add-to-perspective-function name buffer))
+
+(defvar-local overlook-detached nil
+  "Non-nil in a buffer `overlook-detach' keeps out of every perspective.")
+(put 'overlook-detached 'permanent-local t)
+
+(defun overlook-detach (buffer)
+  "Keep BUFFER out of every perspective, even once shown in one.
+Opening it from the dashboard shows it in the current perspective."
+  (with-current-buffer buffer
+    (setq overlook-detached t)
+    (add-hook 'window-buffer-change-functions #'overlook--detach-shown nil t))
+  (funcall overlook-detach-function buffer))
+
+(defun overlook--detach-shown (window)
+  "Take the buffer WINDOW now shows back out of the perspectives."
+  (funcall overlook-detach-function (window-buffer window)))
+(put 'overlook--detach-shown 'permanent-local-hook t)
 
 (defun overlook-buffer-perspective (buffer)
   "The perspective BUFFER belongs to, preferring the current one; or nil."
