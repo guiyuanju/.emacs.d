@@ -1123,6 +1123,13 @@
   (overlook-perspective-annotation #'iuiw-workspace-perspective-workspace)
   (overlook-perspective-filter #'iuiw-workspace-perspective-shown-p)
   (overlook-orphan-perspective "main")
+  (overlook-section-order '(overlook-usage--section
+                            overlook-courier--personas-section
+                            overlook-courier--rooms-section
+                            overlook--perspectives-section
+                            iuiw-workspace--todo-section
+                            iuiw-workspace--inbox-section
+                            iuiw-elfeed-sync--digest-section))
   (overlook-agent-shell-ignore-function #'iuiw-assistant-shell-p)
   (overlook-usage-file (expand-file-name "claude-usage.json" iuiw-state-directory))
   (overlook-agent-saved-file (expand-file-name "overlook-agents.eld" iuiw-state-directory))

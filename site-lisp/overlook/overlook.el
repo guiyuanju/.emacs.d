@@ -96,6 +96,11 @@ rows and is not current.  Without it, they are listed under the current
 perspective."
   :type '(choice (const :tag "The current perspective" nil) string))
 
+(defcustom overlook-section-order nil
+  "Functions of `overlook-sections' in the order the dashboard shows them.
+Sections not listed follow, by hook depth."
+  :type '(repeat function))
+
 (defcustom overlook-refresh-idle 0.5
   "Seconds input must pause before the dashboard redraws."
   :type 'number)
@@ -496,6 +501,14 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
 
 ;;; Perspectives section
 
+(defun overlook--sections ()
+  "Functions of `overlook-sections', sorted by `overlook-section-order'."
+  (let (functions)
+    (run-hook-wrapped 'overlook-sections (lambda (f) (push f functions) nil))
+    (seq-sort-by (lambda (f) (or (seq-position overlook-section-order f)
+                                 (length overlook-section-order)))
+                 #'< (nreverse functions))))
+
 (defun overlook--heading (name &optional current)
   "Heading line of perspective NAME, highlighted when CURRENT."
   (propertize (concat (propertize (concat name
@@ -614,7 +627,7 @@ After a perspective switch, point goes to the current perspective instead."
         (erase-buffer)
         (run-hooks 'overlook-before-render-hook)
         (magit-insert-section (overlook-section 'root)
-          (run-hooks 'overlook-sections))
+          (mapc #'funcall (overlook--sections)))
         (magit-section-show magit-root-section)
         (pcase-dolist (`(,window ,point ,start) places)
           (let ((point (overlook--redrawn-point point))

@@ -251,7 +251,8 @@ add to it:
 
 - `overlook-sections`: top level sections, by hook depth.  The
   perspectives section is at 0, usage at -50.  Insert through
-  `overlook-insert-section`.
+  `overlook-insert-section`.  `overlook-section-order` fixes the order
+  of the ones it lists, ahead of the rest.
 - `overlook-perspective-functions`: rows under each perspective, called
   with its name.  Insert each row with `overlook-insert-row`, which can
   nest rows under it.
