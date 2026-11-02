@@ -734,6 +734,9 @@
 
 (use-package dired
   :ensure nil
+  :custom
+  ;; 进目录时复用同一个 buffer，按一次 q 就退出。
+  (dired-kill-when-opening-new-dired-buffer t)
   :config
   (with-eval-after-load 'evil
     (evil-define-key* 'normal dired-mode-map ";" #'dired-up-directory))
