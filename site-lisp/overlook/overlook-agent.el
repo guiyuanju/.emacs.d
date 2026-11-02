@@ -903,16 +903,28 @@ DRAWN, a list in a cons, collects the items inserted, so none is twice."
       (`(agent . ,buffer) (overlook-agent--row buffer perspective depth children))
       (`(saved . ,saved) (overlook-agent--saved-row saved perspective depth children)))))
 
-(defun overlook-agent--insert (perspective)
+(defun overlook-agent--item-root (item)
+  "Folder ITEM, an (agent . BUFFER) or (saved . SAVED), works in."
+  (pcase item
+    (`(agent . ,buffer) (overlook-agent-get buffer 'root))
+    (`(saved . ,saved) (alist-get 'root saved))))
+
+(defun overlook-agent--insert (perspective &optional dir)
   "Insert the agents listed under PERSPECTIVE, then those saved there.
 Forks sit under the agent they were forked from when it is listed there
-too.  Under `overlook-orphans-perspective', those in none follow."
+too.  Under `overlook-orphans-perspective', those in none follow.  With
+DIR, a worktree, only those working in it; else those in none of
+PERSPECTIVE's worktrees."
   (overlook-agent--note-forks)
   (let* ((perspectives (if (equal perspective (overlook-orphans-perspective))
                            (list perspective nil)
                          (list perspective)))
-         (items (seq-remove
-                 (lambda (item) (run-hook-with-args-until-success 'overlook-agent-hide-functions item))
+         (worktrees (if dir (list dir) (overlook-worktrees perspective)))
+         (items (seq-filter
+                 (lambda (item)
+                   (and (equal (overlook-worktree-of (overlook-agent--item-root item) worktrees)
+                               dir)
+                        (not (run-hook-with-args-until-success 'overlook-agent-hide-functions item))))
                  (append (mapcar (lambda (buffer) (cons 'agent buffer))
                                  (overlook-agent-buffers
                                   (lambda (buffer)
@@ -966,6 +978,7 @@ too.  Under `overlook-orphans-perspective', those in none follow."
   (overlook-toggle-hooks
    overlook-agent-mode
    '((overlook-perspective-functions overlook-agent--insert)
+     (overlook-worktree-functions overlook-agent--insert)
      (overlook-mode-line-functions overlook-agent--mode-line)
      (overlook-tick-hook overlook-agent--tick)
      (window-selection-change-functions overlook-agent--acknowledge)

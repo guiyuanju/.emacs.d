@@ -40,8 +40,10 @@
 ;; to `mark', such a folder gets no row; a "*" after the perspective's
 ;; heading tells it has changes.
 ;;
-;; The repos in courier's worktrees of the project show while clean too,
-;; above the agents; the changed repos come after them.
+;; Each of courier's worktrees of the project gets a row, shown while
+;; clean too, above the agents: under it the agents working in it, then
+;; its changed files, or for a worktree of several repos, a row of each.
+;; The changed repos come after the agents.
 
 ;;; Code:
 
@@ -386,24 +388,23 @@ Past `overlook-project-files' the rest fold into one line with their totals."
                              t)))))
 
 (defun overlook-project--worktrees (root)
-  "Repos in the worktrees courier made in project ROOT, each as (DIR . LABEL).
-They show while clean too: their work may be committed but not merged."
+  "Worktrees courier made in project ROOT, each as (DIR . NAME)."
   (when (fboundp 'courier-worktree-list)
-    (mapcan (lambda (branch)
-              (let ((tree (courier-worktree-path root branch)))
-                (mapcar (lambda (dir)
-                          (cons dir (if (equal dir tree) branch
-                                      (concat branch "/" (directory-file-name
-                                                          (file-relative-name dir tree))))))
-                        (courier-worktree-repos tree))))
+    (mapcar (lambda (name) (cons (courier-worktree-path root name) name))
             (courier-worktree-list root))))
+
+(defun overlook-project--worktree-dirs (perspective)
+  "Folders of the worktrees of PERSPECTIVE's project."
+  (when-let* ((root (overlook-perspective-root perspective)))
+    (mapcar #'car (overlook-project--worktrees root))))
 
 (defun overlook-project--label (dir)
   "The name repo DIR shows by."
   (file-name-nondirectory (directory-file-name dir)))
 
-(defun overlook-project--row (dir perspective width &optional name)
-  "Insert the row of repo DIR in PERSPECTIVE, its NAME padded to WIDTH."
+(defun overlook-project--row (dir perspective width &optional name before)
+  "Insert the row of repo DIR in PERSPECTIVE, its NAME padded to WIDTH.
+BEFORE, a function, inserts rows under it ahead of the changed files."
   (pcase-let* ((`(,branch . ,files) (overlook-project--status dir))
                (total (overlook-project--total files))
                (name (or name (overlook-project--label dir))))
@@ -420,7 +421,9 @@ They show while clean too: their work may be committed but not merged."
                           'overlook-action (lambda ()
                                              (overlook-show-elsewhere
                                               perspective (lambda () (overlook-project-open dir)))))
-                         (lambda () (overlook-project--insert-files dir files perspective)))))
+                         (lambda ()
+                           (when before (funcall before))
+                           (overlook-project--insert-files dir files perspective)))))
 
 (defun overlook-project--folders (perspective)
   "Folders of PERSPECTIVE lying inside a larger repo."
@@ -441,13 +444,43 @@ They show while clean too: their work may be committed but not merged."
     (pcase-dolist (`(,dir . ,name) rows)
       (overlook-project--row dir perspective width name))))
 
+(defun overlook-project--worktree-row (tree name perspective width)
+  "Insert the row of worktree TREE of PERSPECTIVE, its NAME padded to WIDTH.
+Under it go the rows of `overlook-worktree-functions', then its repo's
+changed files, or a row of each of its repos when it has several."
+  (let ((repos (courier-worktree-repos tree))
+        (before (lambda () (run-hook-with-args 'overlook-worktree-functions perspective tree))))
+    (dolist (dir repos)
+      (cl-pushnew dir overlook-project--shown :test #'equal))
+    (if (equal repos (list tree))
+        (overlook-project--row tree perspective width name before)
+      (let ((total (overlook-project--total
+                    (mapcan (lambda (dir) (copy-sequence (cdr (overlook-project--status dir))))
+                            repos))))
+        (overlook-insert-row (propertize
+                              (concat overlook-indent
+                                      (propertize (concat (overlook-glyph-cell "⎇") name)
+                                                  'face 'overlook-project-repo)
+                                      (overlook-project--counts (car total) (cdr total))
+                                      "\n")
+                              'overlook-item (cons 'worktree tree)
+                              'help-echo tree
+                              'overlook-action (lambda ()
+                                                 (overlook-show-elsewhere
+                                                  perspective (lambda () (dired tree)))))
+                             (lambda ()
+                               (funcall before)
+                               (overlook-project--insert-rows
+                                (mapcar (lambda (dir) (cons dir (overlook-project--label dir))) repos)
+                                perspective)))))))
+
 (defun overlook-project--insert-worktrees (perspective)
-  "Insert the repos in the worktrees of PERSPECTIVE's project."
+  "Insert the worktrees of PERSPECTIVE's project, names in one column."
   (when-let* ((root (overlook-perspective-root perspective))
               (trees (overlook-project--worktrees root)))
-    (dolist (tree trees)
-      (cl-pushnew (car tree) overlook-project--shown :test #'equal))
-    (overlook-project--insert-rows trees perspective)))
+    (let ((width (apply #'max 0 (mapcar (lambda (tree) (string-width (cdr tree))) trees))))
+      (pcase-dolist (`(,tree . ,name) trees)
+        (overlook-project--worktree-row tree name perspective width)))))
 
 (defun overlook-project--insert (perspective)
   "Insert the changed repos and folders of PERSPECTIVE's project."
@@ -522,6 +555,7 @@ They show while clean too: their work may be committed but not merged."
   (overlook-toggle-hooks
    overlook-project-mode
    '((overlook-perspective-functions overlook-project--insert-worktrees -50)
+     (overlook-worktrees-functions overlook-project--worktree-dirs)
      (overlook-perspective-functions overlook-project--insert 50)
      (overlook-heading-mark-functions overlook-project--heading-mark)
      (overlook-before-render-hook overlook-project--forget)

@@ -99,7 +99,7 @@ else in its parent's, and its row shows
 LEVEL` starts it at that reasoning effort, through the session config
 option `overlook-agent-shell-effort-options` names for it (Claude's
 `effort`, Codex's `reasoning_effort`); `--worktree BRANCH` starts it in
-a Git worktree of its own, listed under the perspective.  Agents and you can also talk in shared chat
+a Git worktree of its own, listed under the perspective with the agents working in it.  Agents and you can also talk in shared chat
 rooms; `M-x overlook-room-open` shows one, and a Rooms section above
 the perspectives lists them with your unread posts (`✉N`), highlighted
 when one names you.  Personas, folders in `courier-persona-directories`, give
@@ -258,6 +258,11 @@ add to it:
   repos at 50.  Insert each row with `overlook-insert-row`, which can
   nest rows under it.  Under `overlook-orphans-perspective`, also insert
   the rows that belong to no perspective.
+- `overlook-worktrees-functions`: worktree folders listed under a
+  perspective; `overlook-worktree-functions`: rows under a worktree's
+  row, called with the perspective's name and the worktree's folder.  A
+  row of something in a worktree goes there instead of under the
+  perspective; `overlook-worktree-of` tells which worktree holds a folder.
 - `overlook-detach`: keep a buffer out of every perspective, even once
   shown; opening it from the dashboard shows it in the current one.
   The courier module detaches the agents running a persona.

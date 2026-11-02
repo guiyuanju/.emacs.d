@@ -1147,7 +1147,7 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha)
       (delete-directory root t))))
 
-;; Worktrees of the project show under it while clean, by their path in the worktree folder.
+;; Worktrees of the project show under it while clean; one of several repos has a row of each under its own.
 (ert-deftest overlook-project-lists-worktrees-while-clean ()
   (require 'courier-worktree)
   (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
@@ -1165,41 +1165,62 @@ Agents are listed; usage and repos are not."
                   (overlook-perspective-functions
                    (list #'overlook-project--insert-worktrees #'overlook-project--insert)))
               (overlook--render)
-              (should (string-match-p "⎇ +fix/api +fix" (buffer-string)))
-              (should (string-match-p "⎇ +fix/web +fix" (buffer-string)))
-              (should-not (string-match-p "⎇ +api " (buffer-string))))))
+              (should (string-match-p "^⎇ fix$" (buffer-substring-no-properties (point-min) (point-max))))
+              (should (string-match-p "⎇ +api +fix" (buffer-string)))
+              (should (string-match-p "⎇ +web +fix" (buffer-string)))
+              (should-not (string-search "main" (buffer-string)))
+              (goto-char (point-min))
+              (search-forward "web")
+              (should (equal (oref (oref (magit-current-section) parent) value)
+                             (cons 'worktree (expand-file-name ".worktrees/fix/" root)))))))
       (kill-buffer alpha)
       (delete-directory root t))))
 
-;; Under a perspective come its worktrees, then its agents with those of no perspective, then changed repos.
-(ert-deftest overlook-perspective-groups-worktrees-agents-changes ()
+;; Under a perspective come its worktrees, each holding the agents working in it and then its
+;; changed files, then the other agents with those of no perspective, then changed repos.
+(ert-deftest overlook-perspective-groups-by-worktree ()
   (require 'courier-worktree)
-  (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
-        (alpha (overlook-test--agent "alpha"))
-        (beta (overlook-test--agent "beta"))
-        (overlook-orphan-perspective "one")
-        (overlook-project--status (make-hash-table :test #'equal)))
+  (let* ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+         (tree (expand-file-name ".worktrees/fix/" root))
+         (alpha (overlook-test--agent "alpha"))
+         (beta (overlook-test--agent "beta"))
+         (gamma (overlook-test--agent "gamma"))
+         (overlook-orphan-perspective "one")
+         (overlook-project--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
-          (dolist (dir '("api/.git" ".worktrees/fix/api/.git"))
+          (with-current-buffer alpha
+            (setq overlook-agent-identity `((agent . "alpha") (root . ,(concat tree "sub/")))))
+          (dolist (dir '(".git" ".worktrees/fix/.git"))
             (make-directory (expand-file-name dir root) t))
-          (dolist (repo '(("api/" "main" ("a.el" " M" 3 1)) (".worktrees/fix/api/" "fix")))
-            (puthash (expand-file-name (car repo) root)
-                     (cons (float-time) (cdr repo)) overlook-project--status))
-          (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+          (puthash root (list (float-time) "main" '("a.el" " M" 3 1)) overlook-project--status)
+          (puthash tree (list (float-time) "fix" '("w.el" " M" 1 0)) overlook-project--status)
+          (overlook-test-with-dashboard `(("one" ,alpha ,gamma)) "one"
             (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions nil))
+                  (overlook-perspective-functions nil)
+                  (overlook-worktrees-functions nil)
+                  (overlook-worktree-functions nil))
               (overlook-toggle-hooks
                t '((overlook-perspective-functions overlook-project--insert 50)
                    (overlook-perspective-functions overlook-agent--insert)
+                   (overlook-worktree-functions overlook-agent--insert)
+                   (overlook-worktrees-functions overlook-project--worktree-dirs)
                    (overlook-perspective-functions overlook-project--insert-worktrees -50)))
               (overlook--render)
-              (should (< (overlook-test--line-of "fix/api")
+              (should (< (overlook-test--line-of "⎇ fix")
                          (overlook-test--line-of "alpha")
-                         (overlook-test--line-of "beta")
-                         (overlook-test--line-of "a.el"))))))
+                         (overlook-test--line-of "w.el")
+                         (min (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
+                         (max (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
+                         (overlook-test--line-of "a.el")))
+              (goto-char (point-min))
+              (search-forward "alpha")
+              (should (equal (oref (oref (magit-current-section) parent) value)
+                             (cons 'repo tree)))
+              (should (= (count-matches "alpha" (point-min) (point-max)) 1)))))
       (kill-buffer alpha)
       (kill-buffer beta)
+      (kill-buffer gamma)
       (delete-directory root t))))
 
 ;; A save or Magit refresh reads the repos it touched again, but not a separate repo nested in one.

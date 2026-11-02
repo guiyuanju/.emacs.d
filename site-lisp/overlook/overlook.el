@@ -271,7 +271,28 @@ sits at depth 0.")
 Each is called with the perspective's NAME in the dashboard buffer.
 Worktrees sit at depth -50, agents at 0 and changed repos at 50.  Under
 `overlook-orphans-perspective' a function also inserts its rows that
-belong to no perspective.")
+belong to no perspective.  Rows of something in a worktree go under the
+worktree's row instead, through `overlook-worktree-functions'.")
+
+(defvar overlook-worktrees-functions nil
+  "Functions of a perspective NAME returning the worktrees listed under it.
+Each returns a list of folders, each ending in a slash.")
+
+(defvar overlook-worktree-functions nil
+  "Functions inserting rows under a worktree's row, by hook depth.
+Each is called with the perspective's NAME and the worktree's folder
+DIR, and inserts the rows of what lies in DIR.  The worktree's changed
+files follow.")
+
+(defun overlook-worktrees (name)
+  "Folders of the worktrees listed under perspective NAME."
+  (seq-mapcat (lambda (fn) (funcall fn name)) overlook-worktrees-functions))
+
+(defun overlook-worktree-of (dir worktrees)
+  "The folder among WORKTREES holding DIR, or nil."
+  (when dir
+    (let ((dir (file-name-as-directory (expand-file-name dir))))
+      (seq-find (lambda (tree) (string-prefix-p tree dir)) worktrees))))
 
 (defvar overlook-heading-mark-functions nil
   "Functions of a perspective NAME returning a mark put right after its heading.
