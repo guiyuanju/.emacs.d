@@ -840,8 +840,10 @@
   (diff-hl-margin-mode 1)
   (diff-hl-flydiff-mode 1)
   (global-diff-hl-mode 1)
-  (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
-  (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh))
+  ;; Adding to the hooks before Magit defines them would drop Magit's own functions.
+  (with-eval-after-load 'magit-mode
+    (add-hook 'magit-pre-refresh-hook #'diff-hl-magit-pre-refresh)
+    (add-hook 'magit-post-refresh-hook #'diff-hl-magit-post-refresh)))
 
 (use-package iuiw-diff-hl
   :ensure nil
