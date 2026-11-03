@@ -965,6 +965,36 @@
   ;; Match swift-format's default indentation, which apheleia applies on save.
   (swift-mode:basic-offset 2))
 
+(use-package async)
+
+(use-package mode-line-hud
+  :ensure (:host github :repo "konrad1977/punch-line" :files ("mode-line-hud.el")))
+
+(use-package periphery
+  :ensure (:host github :repo "konrad1977/periphery" :files ("periphery*.el")))
+
+(use-package swift-development
+  :ensure (:host github :repo "konrad1977/swift-development"
+           :files (:defaults (:exclude "hacking-with-swift.el")))
+  :after swift-mode
+  :demand t
+  :config
+  (iuiw-leader-keys
+    :keymaps 'swift-development-mode-map
+    "m"  '(:ignore t :which-key "iOS")
+    "mm" '(swift-development-transient :which-key "menu")
+    "mr" '(swift-development-compile-and-run :which-key "build & run")
+    "mi" '(swift-incremental-build-compile-and-run :which-key "incremental run")
+    "mb" '(swift-development-compile-app :which-key "build")
+    "mR" '(swift-development-run :which-key "run last build")
+    "ms" '(ios-simulator-terminate-current-app :which-key "stop app")
+    "mt" '(swift-test-transient :which-key "test")
+    "md" '(swift-development-toggle-device-choice :which-key "simulator/device")
+    "mc" '(xcode-project-show-current-configuration :which-key "configuration")
+    "mK" '(xcode-project-clean-build-folder :which-key "clean")
+    "mp" '(swiftui-preview-generate :which-key "SwiftUI preview")
+    "me" '(swift-development--periphery-toggle-buffer :which-key "errors")))
+
 (use-package sql
   :ensure nil
   :hook (sql-mode . iuiw-sqlmesh-setup))
