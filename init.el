@@ -967,6 +967,8 @@
 
 (use-package async)
 
+(use-package spinner)
+
 (use-package mode-line-hud
   :ensure (:host github :repo "konrad1977/punch-line" :files ("mode-line-hud.el")))
 
@@ -979,6 +981,8 @@
   :after swift-mode
   :demand t
   :config
+  (advice-add 'swiftui-preview-setup--check-simulator :around
+              #'iuiw-swift-json-lists)
   (iuiw-leader-keys
     :keymaps 'swift-development-mode-map
     "m"  '(:ignore t :which-key "iOS")
