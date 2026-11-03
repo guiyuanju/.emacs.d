@@ -146,6 +146,35 @@ It also sets `iuiw-agent-shell-antigravity-config-options'."
 (iuiw-agent-shell-flat-faces)
 (add-hook 'modus-themes-after-load-theme-hook #'iuiw-agent-shell-flat-faces)
 
+(defcustom iuiw-agent-shell-apple-mcp-server
+  '((name . "mobilebuildmcp")
+    (command . "mobilebuildmcp")
+    (args . ("mcp"))
+    (env . (((name . "MOBILEBUILDMCP_ENABLED_WORKFLOWS")
+             (value . "simulator,ui-automation"))
+            ((name . "MOBILEBUILDMCP_SENTRY_DISABLED") (value . "true")))))
+  "MCP server given to agents working on an Xcode or Swift package project."
+  :type 'sexp
+  :group 'agent-shell)
+
+(defun iuiw-agent-shell--apple-project-p (dir)
+  "Return non-nil if DIR or a folder directly under it holds an Apple project."
+  (seq-some (lambda (pattern) (file-expand-wildcards (expand-file-name pattern dir)))
+            '("*.xcodeproj" "*.xcworkspace" "Package.swift"
+              "*/*.xcodeproj" "*/*.xcworkspace" "*/Package.swift")))
+
+(defun iuiw-agent-shell--add-apple-mcp (servers)
+  "Append `iuiw-agent-shell-apple-mcp-server' to SERVERS in Apple projects."
+  (if (and iuiw-agent-shell-apple-mcp-server
+           (iuiw-agent-shell--apple-project-p (agent-shell-cwd)))
+      (vconcat servers
+               (list (agent-shell--make-mcp-server
+                      :overrides iuiw-agent-shell-apple-mcp-server)))
+    servers))
+
+(advice-add 'agent-shell--mcp-servers :filter-return
+            #'iuiw-agent-shell--add-apple-mcp)
+
 (defun iuiw-agent-shell-dot-subdir (subdir)
   "Return SUBDIR of this project's agent-shell data, kept out of the repository."
   (expand-file-name
