@@ -969,6 +969,8 @@
 
 (use-package spinner)
 
+(use-package dash)
+
 (use-package mode-line-hud
   :ensure (:host github :repo "konrad1977/punch-line" :files ("mode-line-hud.el")))
 
