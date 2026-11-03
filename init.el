@@ -983,8 +983,6 @@
   :after swift-mode
   :demand t
   :config
-  (advice-add 'swiftui-preview-setup--check-simulator :around
-              #'iuiw-swift-json-lists)
   (iuiw-leader-keys
     :keymaps 'swift-development-mode-map
     "m"  '(:ignore t :which-key "iOS")
@@ -1000,6 +998,20 @@
     "mK" '(xcode-project-clean-build-folder :which-key "clean")
     "mp" '(swiftui-preview-generate :which-key "SwiftUI preview")
     "me" '(swift-development--periphery-toggle-buffer :which-key "errors")))
+
+(use-package iuiw-swift
+  :ensure nil
+  :after swift-development
+  :demand t
+  :config
+  (advice-add 'swiftui-preview-setup--check-simulator :around
+              #'iuiw-swift-json-lists)
+  (when iuiw-swift-devicehub-p
+    (advice-add 'make-process :filter-args #'iuiw-swift-activate-devicehub)
+    (advice-add 'ios-simulator-start-simulator-with-id :override
+                #'iuiw-swift-start-simulator)
+    (advice-add 'ios-simulator-restart :override
+                #'iuiw-swift-restart-simulator)))
 
 (use-package sql
   :ensure nil

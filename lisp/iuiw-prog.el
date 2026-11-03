@@ -132,11 +132,5 @@ retraces the skipped levels."
   "Format SQL buffers only on demand."
   (derived-mode-p 'sql-mode))
 
-(defun iuiw-swift-json-lists (fn &rest args)
-  "Call FN with ARGS, reading JSON arrays as lists.
-swiftui-preview-setup walks simctl's device arrays with `dolist'."
-  (let ((json-array-type 'list))
-    (apply fn args)))
-
 (provide 'iuiw-prog)
 ;;; iuiw-prog.el ends here
