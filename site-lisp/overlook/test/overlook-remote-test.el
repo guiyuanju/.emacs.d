@@ -350,6 +350,115 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
             (should-not overlook-remote--waiting))
         (delete-process proc)))))
 
+;; Replies
+
+(ert-deftest overlook-remote-sends-only-what-a-reply-gained ()
+  (overlook-remote-test-with-agent t
+    (let ((overlook-remote--seq 0)
+          (overlook-remote--waiting nil))
+      (overlook-remote--record agent '(:type text :text "On "))
+      (let* ((news (cdr (overlook-remote-test--call "GET" "/overlook/api/events" nil nil
+                                                    '(("id" "claude@shop") ("after" "0")))))
+             (epoch (alist-get 'epoch news)))
+        (should (equal (mapcar (lambda (item) (list (alist-get 'offset item) (alist-get 'text item)))
+                               (alist-get 'items news))
+                       '((0 "On "))))
+        (overlook-remote--record agent '(:type text :text "it"))
+        (overlook-remote--record agent '(:type text :text " now"))
+        (overlook-remote--record agent '(:type prompt :text "thanks"))
+        (let ((items (alist-get 'items (cdr (overlook-remote-test--call
+                                              "GET" "/overlook/api/events" nil nil
+                                              `(("id" "claude@shop") ("after" "1")
+                                                ("epoch" ,epoch)))))))
+          (should (equal (mapcar (lambda (item) (list (alist-get 'offset item) (alist-get 'text item)))
+                                 items)
+                         '((3 "it now") (0 "thanks")))))
+        ;; A page of another session gets all of it again.
+        (let ((news (cdr (overlook-remote-test--call "GET" "/overlook/api/events" nil nil
+                                                     '(("id" "claude@shop") ("after" "1")
+                                                       ("epoch" "other"))))))
+          (should (eq (alist-get 'reset news) t))
+          (should (equal (alist-get 'text (car (alist-get 'items news))) "On it now"))
+          (should (= (alist-get 'offset (car (alist-get 'items news))) 0)))))))
+
+;; Dashboard deltas
+
+(defun overlook-remote-test--same (nodes)
+  "Hashes NODES, and those under them, were sent as known."
+  (seq-mapcat (lambda (node)
+                (if (alist-get 'same node)
+                    (list (alist-get 'same node))
+                  (overlook-remote-test--same (alist-get 'children node))))
+              nodes))
+
+(ert-deftest overlook-remote-sends-the-dashboard-s-changes ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let* ((overlook-remote--dashboard nil)
+             (overlook-remote--versions nil)
+             (overlook-sections (list #'overlook--perspectives-section
+                                      (lambda () (overlook-section-row
+                                                  "Notes" (list (overlook-row :content "steady"))))))
+             (full (cdr (overlook-remote-test--call "GET" "/overlook/api/dashboard")))
+             (notes (nth 1 (alist-get 'sections full))))
+        (should-not (overlook-remote-test--same (alist-get 'sections full)))
+        (with-current-buffer agent (setq overlook-agent-status 'waiting))
+        (let* ((news (cdr (overlook-remote-test--call "GET" "/overlook/api/dashboard" nil nil
+                                                      `(("known" ,(alist-get 'known full))))))
+               (perspectives (car (alist-get 'sections news))))
+          ;; The section that did not change goes by its hash, the other in full.
+          (should (equal (overlook-remote-test--same (alist-get 'sections news))
+                         (list (alist-get 'hash notes))))
+          (should (equal (overlook-remote-test--text perspectives) "Perspectives"))
+          (should-not (equal (alist-get 'hash perspectives)
+                             (alist-get 'hash (car (alist-get 'sections full)))))
+          ;; A page knowing a dashboard long gone gets all of it.
+          (should-not (overlook-remote-test--same
+                       (alist-get 'sections (cdr (overlook-remote-test--call
+                                                  "GET" "/overlook/api/dashboard" nil nil
+                                                  '(("known" "gone"))))))))))))
+
+(ert-deftest overlook-remote-streams-the-dashboard ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let* ((overlook-remote--dashboard nil)
+             (overlook-remote--versions nil)
+             (overlook-remote--streams nil)
+             (overlook-remote--ping-timer nil)
+             (overlook-remote--waiting nil)
+             (overlook-remote--wake-timer nil)
+             (overlook-refresh-hook (list #'overlook-remote--refreshed))
+             (written nil)
+             (proc (make-pipe-process :name "overlook-remote-test" :noquery t)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'process-send-string)
+                       (lambda (_ text) (push text written))))
+              (overlook-remote--servlet proc "/overlook/api/dashboard/stream" nil
+                                        `(("GET" "/overlook/api/dashboard/stream" "HTTP/1.1")
+                                          ("Authorization"
+                                           ,(concat "Bearer " (overlook-remote--token)))))
+              (should (string-search "text/event-stream" (car (last written))))
+              (should (string-prefix-p "data: {\"sections\"" (car written)))
+              (should (equal (cdar overlook-remote--streams) (cdr (overlook-remote--dashboard))))
+              ;; Nothing changed: nothing sent.
+              (setq written nil)
+              (overlook-remote--answer-news)
+              (should-not written)
+              (with-current-buffer agent (setq overlook-agent-status 'working))
+              (overlook-refresh)
+              (should overlook-remote--wake-timer)
+              (overlook-remote--answer-news)
+              (should (string-prefix-p "data: " (car written)))
+              (should (equal (cdar overlook-remote--streams) (cdr (overlook-remote--dashboard))))
+              ;; A closed connection is dropped.
+              (delete-process proc)
+              (overlook-remote--ping)
+              (should-not overlook-remote--streams)
+              (should-not overlook-remote--ping-timer))
+          (when (process-live-p proc) (delete-process proc))
+          (when overlook-remote--ping-timer (cancel-timer overlook-remote--ping-timer))
+          (when overlook-remote--wake-timer (cancel-timer overlook-remote--wake-timer)))))))
+
 (defconst overlook-remote-test--png "\x89PNG\r\n\x1a\nfake"
   "Bytes passing for a PNG image.")
 

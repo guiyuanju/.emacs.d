@@ -156,7 +156,7 @@ Steering the agents from a browser, such as a phone's:
 ```
 
 The page shows the dashboard, drawn by the same modules as in Emacs and
-redrawn as it changes, with buttons for the answers each agent waits
+redrawn as it changes, streamed with only what changed, with buttons for the answers each agent waits
 for, such as a permission request; a tap on an agent opens its own page.
 Another view lists the agents, those waiting for you first.  An agent's own
 page follows its prompts, replies and tool calls as they come, with the

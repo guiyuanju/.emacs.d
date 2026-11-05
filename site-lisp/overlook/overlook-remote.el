@@ -257,27 +257,46 @@ wrap to lines starting where the first did."
 (defun overlook-remote--node (row parent)
   "ROW of the dashboard's model as the page shows it, under the node of id PARENT.
 An agent's row names it in :agent and gives the answers it offers in
-:choices."
+:choices.  :hash changes whenever the node or any under it does."
   (let* ((value (overlook-row-key row))
          (id (substring (secure-hash 'sha1 (concat parent
                                                    (let ((print-length nil) (print-level nil))
                                                      (prin1-to-string value))))
                         0 16))
-         (agent (pcase (overlook-row-id row) (`(agent . ,buffer) buffer))))
-    `(:id ,id
-      :spans ,(overlook-remote--spans row)
-      ,@(and (overlook-row-heading row) '(:heading t))
-      ,@(and (overlook-row-attention row) '(:attention t))
-      ,@(and (overlook-row-folded row) '(:folded t))
-      ,@(and (overlook-agent-p agent)
-             `(:agent ,(buffer-name agent)
-               :choices ,(overlook-remote--choices (overlook-row-choices row))))
-      :children ,(vconcat (mapcar (lambda (child) (overlook-remote--node child id))
-                                  (overlook-row-rows row))))))
+         (agent (pcase (overlook-row-id row) (`(agent . ,buffer) buffer)))
+         (children (vconcat (mapcar (lambda (child) (overlook-remote--node child id))
+                                    (overlook-row-rows row))))
+         (node `(:id ,id
+                 :spans ,(overlook-remote--spans row)
+                 ,@(and (overlook-row-heading row) '(:heading t))
+                 ,@(and (overlook-row-attention row) '(:attention t))
+                 ,@(and (overlook-row-folded row) '(:folded t))
+                 ,@(and (overlook-agent-p agent)
+                        `(:agent ,(buffer-name agent)
+                          :choices ,(overlook-remote--choices (overlook-row-choices row)))))))
+    `(:hash ,(substring (secure-hash
+                         'sha1 (json-serialize
+                                (append node `(:children ,(vconcat
+                                                          (mapcar (lambda (child)
+                                                                    (plist-get child :hash))
+                                                                  children))))))
+                        0 16)
+      ,@node
+      :children ,children)))
 
 (defvar overlook-remote--dashboard nil
   "The model the page's dashboard was last made of, and that dashboard.
 As (MODEL SECTIONS . HASH).")
+
+(defvar overlook-remote--versions nil
+  "The latest dashboards the page may know, newest first, each (HASH . NODES).
+NODES is a table of the hashes of their nodes.")
+
+(defvar overlook-remote--streams nil
+  "Dashboard streams open, each (PROCESS . HASH), HASH the dashboard last sent.")
+
+(defvar overlook-remote--ping-timer nil
+  "Timer keeping `overlook-remote--streams' alive, or nil.")
 
 (defvar overlook-remote--model nil
   "A cell holding the model the calls answered together share, or nil.")
@@ -301,11 +320,36 @@ Calls answered in one `overlook-remote--together' share a new one."
 Made once per model `overlook-remote--model' gives."
   (let ((model (overlook-remote--model)))
     (unless (eq model (car overlook-remote--dashboard))
-      (let ((sections (vconcat (mapcar (lambda (row) (overlook-remote--node row ""))
-                                       model))))
-        (setq overlook-remote--dashboard
-              (cons model (cons sections (secure-hash 'sha1 (json-serialize sections)))))))
+      (let* ((sections (vconcat (mapcar (lambda (row) (overlook-remote--node row ""))
+                                        model)))
+             (hash (secure-hash 'sha1 (mapconcat (lambda (node) (plist-get node :hash))
+                                                 sections "")))
+             (nodes (make-hash-table :test #'equal)))
+        (setq overlook-remote--dashboard (cons model (cons sections hash)))
+        (unless (assoc hash overlook-remote--versions)
+          (named-let walk ((children sections))
+            (seq-doseq (node children)
+              (puthash (plist-get node :hash) t nodes)
+              (walk (plist-get node :children))))
+          (setq overlook-remote--versions
+                (seq-take (cons (cons hash nodes) overlook-remote--versions) 8)))))
     (cdr overlook-remote--dashboard)))
+
+(defun overlook-remote--delta (nodes known)
+  "NODES with each one the table KNOWN holds the hash of sent as (:same HASH)."
+  (vconcat (seq-map (lambda (node)
+                      (if (gethash (plist-get node :hash) known)
+                          `(:same ,(plist-get node :hash))
+                        (plist-put (copy-sequence node) :children
+                                   (overlook-remote--delta (plist-get node :children) known))))
+                    nodes)))
+
+(defun overlook-remote--dashboard-news (known)
+  "The dashboard for a page knowing state KNOWN, with only what it lacks.
+What it knows goes as (:same HASH), when KNOWN is among the latest."
+  (pcase-let ((`(,sections . ,hash) (overlook-remote--dashboard))
+              (nodes (cdr (assoc known overlook-remote--versions))))
+    `(:sections ,(if nodes (overlook-remote--delta sections nodes) sections) :known ,hash)))
 
 (defun overlook-remote--dashboard-call (known)
   "A call for the dashboard from a page knowing state KNOWN.
@@ -315,9 +359,42 @@ the redraw gathers the model the page then shares."
   (cons (lambda ()
           (and (or (null known) (not (overlook-live-p)) (overlook-model-fresh-p))
                (not (equal known (cdr (overlook-remote--dashboard))))))
-        (lambda ()
-          (let ((dashboard (overlook-remote--dashboard)))
-            (overlook-remote--json 200 `(:sections ,(car dashboard) :known ,(cdr dashboard)))))))
+        (lambda () (overlook-remote--json 200 (overlook-remote--dashboard-news known)))))
+
+(defun overlook-remote--stream-write (stream text)
+  "Write TEXT to STREAM, dropping it when its connection is gone."
+  (unless (and (process-live-p (car stream))
+               (ignore-errors (process-send-string (car stream) text) t))
+    (setq overlook-remote--streams (delq stream overlook-remote--streams))))
+
+(defun overlook-remote--stream-news (stream)
+  "Send STREAM the dashboard, as an event, if it changed since the last."
+  (when (funcall (car (overlook-remote--dashboard-call (cdr stream))))
+    (let ((news (overlook-remote--dashboard-news (cdr stream))))
+      (setcdr stream (plist-get news :known))
+      (overlook-remote--stream-write
+       stream (concat "data: " (json-serialize news) "\n\n")))))
+
+(defun overlook-remote--ping ()
+  "Keep the streams' connections busy, so that dead ones show."
+  (dolist (stream overlook-remote--streams)
+    (overlook-remote--stream-write stream ": ping\n\n"))
+  (unless overlook-remote--streams
+    (cancel-timer overlook-remote--ping-timer)
+    (setq overlook-remote--ping-timer nil)))
+
+(defun overlook-remote--stream (proc known)
+  "Stream the dashboard to PROC as server-sent events, from state KNOWN on."
+  (let ((stream (cons proc known)))
+    (process-send-string proc (concat "HTTP/1.1 200 OK\r\n"
+                                      "Content-Type: text/event-stream\r\n"
+                                      "Cache-Control: no-store\r\n\r\n"
+                                      ": open\n\n"))
+    (push stream overlook-remote--streams)
+    (unless overlook-remote--ping-timer
+      (setq overlook-remote--ping-timer
+            (run-at-time overlook-remote-wait overlook-remote-wait #'overlook-remote--ping)))
+    (overlook-remote--stream-news stream)))
 
 ;;; Images
 
@@ -421,11 +498,15 @@ its contents' SHA-1: one picture gets one number, a file rewritten a new one.")
 (defvar overlook-remote--seq 0
   "Number of the latest change to any agent's items.")
 
+(defvar overlook-remote--epoch (format-time-string "%s%N")
+  "Name of this Emacs session's run of `overlook-remote--seq'.")
+
 (defvar-local overlook-remote--items nil
   "This agent's activity since `overlook-remote-mode' started, newest first.
 Each item is a plist: :item its number, :seq the change that last
 touched it, :type and the entries of the event that made it.  Pieces of
-one reply make one item, and so do the updates of one tool call.")
+one reply make one item, and so do the updates of one tool call; a reply
+keeps in :marks its text's length at each change, newest first.")
 (put 'overlook-remote--items 'permanent-local t)
 
 (defvar overlook-remote--waiting nil
@@ -489,18 +570,24 @@ gives the response.")
                                                               default-directory))))
        (plist-put item :files (delete-dups (append (plist-get item :files) files)))))))
 
-(defun overlook-remote--present (item root)
+(defun overlook-remote--present (item root after)
   "ITEM as the page reads it, with :images the numbers of the images it shows.
-Relative paths in its text are under ROOT."
-  (let ((images (delete-dups
+Relative paths in its text are under ROOT.  A reply a page knew at change
+AFTER comes as the text it lacks, after :offset characters."
+  (let ((offset (or (and after (<= (plist-get item :item) after)
+                         (cdr (seq-find (lambda (mark) (<= (car mark) after))
+                                        (plist-get item :marks))))
+                    0))
+        (images (delete-dups
                  (seq-keep #'overlook-remote--image
                            (append (plist-get item :files)
                                    (overlook-remote--image-files
                                     (concat (plist-get item :title) "\n" (plist-get item :text))
                                     root))))))
     (append (cl-loop for (key value) on item by #'cddr
-                     unless (eq key :files) append (list key value))
-            (list :images (vconcat images)))))
+                     unless (memq key '(:files :marks))
+                     append (list key (if (eq key :text) (substring value offset) value)))
+            (list :offset offset :images (vconcat images)))))
 
 (defun overlook-remote--record (buffer event)
   "Add EVENT of agent BUFFER to its items, and wake the calls waiting for news."
@@ -519,13 +606,20 @@ Relative paths in its text are under ROOT."
         (push item overlook-remote--items)
         (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
       (plist-put item :seq overlook-remote--seq)
-      (overlook-remote--update item event)))
+      (overlook-remote--update item event)
+      (when (equal (plist-get item :type) "text")
+        (plist-put item :marks (cons (cons overlook-remote--seq (length (plist-get item :text)))
+                                     (plist-get item :marks))))))
   (overlook-remote--wake))
 
 (defun overlook-remote--state (buffer)
   "Agent BUFFER as the page shows it, and a hash telling when that changes."
   (let ((agent (overlook-remote--agent buffer)))
     (cons agent (secure-hash 'sha1 (json-serialize agent)))))
+
+(defun overlook-remote--reset-p (after)
+  "Non-nil when change AFTER is not one this Emacs made; nil AFTER is none."
+  (or (null after) (> after overlook-remote--seq)))
 
 (defun overlook-remote--news (buffer after)
   "Agent BUFFER's state and its items changed after change AFTER.
@@ -535,23 +629,25 @@ marked :reset."
    ((not (buffer-live-p buffer))
     (overlook-remote--json 409 '(:error "The agent is gone")))
    (t
-    (let ((reset (> after overlook-remote--seq))
+    (let ((reset (overlook-remote--reset-p after))
           (state (overlook-remote--state buffer)))
       (overlook-remote--json
        200 `(:agent ,(car state) :known ,(cdr state) :seq ,overlook-remote--seq
-             :reset ,(if reset t :false)
+             :epoch ,overlook-remote--epoch :reset ,(if reset t :false)
              :items ,(let ((root (or (overlook-agent-get buffer 'root) default-directory)))
                        (vconcat
-                        (mapcar (lambda (item) (overlook-remote--present item root))
+                        (mapcar (lambda (item)
+                                  (overlook-remote--present item root (and (not reset) after)))
                                 (seq-filter (lambda (item)
                                               (or reset (> (plist-get item :seq) after)))
                                             (reverse (buffer-local-value 'overlook-remote--items
                                                                          buffer))))))))))))
 
 (defun overlook-remote--news-p (buffer after known)
-  "Non-nil when agent BUFFER has news for a page at change AFTER and state KNOWN."
+  "Non-nil when agent BUFFER has news for a page at change AFTER and state KNOWN.
+Nil AFTER is a change of another Emacs session."
   (or (not (buffer-live-p buffer))
-      (> after overlook-remote--seq)
+      (overlook-remote--reset-p after)
       (seq-some (lambda (item) (> (plist-get item :seq) after))
                 (buffer-local-value 'overlook-remote--items buffer))
       (not (equal known (cdr (overlook-remote--state buffer))))))
@@ -577,11 +673,13 @@ As (NEWS-P . ANSWER), what `overlook-remote--hold' takes."
     (dolist (waiting overlook-remote--waiting)
       (pcase-let ((`(,proc (,news-p . ,_) ,_) waiting))
         (when (or (not (process-live-p proc)) (funcall news-p))
-          (overlook-remote--answer waiting))))))
+          (overlook-remote--answer waiting))))
+    (mapc #'overlook-remote--stream-news overlook-remote--streams)))
 
 (defun overlook-remote--wake ()
   "Answer the held calls that have news, shortly, so that bursts go together."
-  (when (and overlook-remote--waiting (not overlook-remote--wake-timer))
+  (when (and (or overlook-remote--waiting overlook-remote--streams)
+             (not overlook-remote--wake-timer))
     (setq overlook-remote--wake-timer (run-at-time 0.2 nil #'overlook-remote--answer-news))))
 
 (defun overlook-remote--redrawn ()
@@ -621,7 +719,8 @@ CALL is (NEWS-P . ANSWER)."
 (defun overlook-remote--api (method route query request)
   "Answer METHOD on ROUTE with QUERY and REQUEST, as (STATUS MIME BODY).
 A call for news with none yet is answered (:hold CALL), as
-`overlook-remote--news-or-hold' gives."
+`overlook-remote--news-or-hold' gives, and one for the dashboard's
+stream (:stream KNOWN)."
   (pcase (list method route)
     ('("GET" "/api/agents")
      (overlook-remote--json
@@ -631,13 +730,17 @@ A call for news with none yet is answered (:hold CALL), as
       200 (overlook-remote--agent
            (overlook-remote--agent-buffer (cadr (assoc "id" query))) t)))
     ('("GET" "/api/events")
-     (let ((buffer (overlook-remote--agent-buffer (cadr (assoc "id" query))))
-           (after (string-to-number (or (cadr (assoc "after" query)) "0")))
-           (known (cadr (assoc "known" query))))
+     (let* ((buffer (overlook-remote--agent-buffer (cadr (assoc "id" query))))
+            (epoch (cadr (assoc "epoch" query)))
+            (after (and (member epoch (list nil "" overlook-remote--epoch))
+                        (string-to-number (or (cadr (assoc "after" query)) "0"))))
+            (known (cadr (assoc "known" query))))
        (overlook-remote--news-or-hold (overlook-remote--events-call buffer after known))))
     ('("GET" "/api/dashboard")
      (overlook-remote--news-or-hold
       (overlook-remote--dashboard-call (cadr (assoc "known" query)))))
+    ('("GET" "/api/dashboard/stream")
+     (list :stream (cadr (assoc "known" query))))
     ('("POST" "/api/prompt")
      (let* ((body (overlook-remote--body request))
             (text (string-trim (or (alist-get 'text body) ""))))
@@ -706,6 +809,7 @@ A call for news with none yet is answered (:hold CALL), as
   "Serve PATH with QUERY for REQUEST to PROC; simple-httpd's servlet for /overlook."
   (pcase (overlook-remote--together (overlook-remote--respond (caar request) path query request))
     (`(:hold ,call) (overlook-remote--hold proc call))
+    (`(:stream ,known) (overlook-remote--stream proc known))
     (response (overlook-remote--send proc response))))
 
 ;;; Mode
@@ -755,8 +859,13 @@ over simple-httpd's server, which serves one Emacs at a time."
     (remove-hook 'overlook-agent-changed-hook #'overlook-remote--wake)
     (remove-hook 'overlook-refresh-hook #'overlook-remote--refreshed)
     (remove-hook 'overlook-after-model-hook #'overlook-remote--redrawn)
-    (setq overlook-remote--dashboard nil)
+    (setq overlook-remote--dashboard nil
+          overlook-remote--versions nil)
     (mapc #'overlook-remote--answer overlook-remote--waiting)
+    (mapc (lambda (stream) (delete-process (car stream))) overlook-remote--streams)
+    (setq overlook-remote--streams nil)
+    (when overlook-remote--ping-timer (cancel-timer overlook-remote--ping-timer))
+    (setq overlook-remote--ping-timer nil)
     (when overlook-remote--off-timer (cancel-timer overlook-remote--off-timer))
     (setq overlook-remote--off-timer nil)
     (httpd-stop)

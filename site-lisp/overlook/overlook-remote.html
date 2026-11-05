@@ -384,6 +384,23 @@ function renderTool(node, item) {
   node.replaceChildren(...parts);
 }
 
+const atBottom = () => innerHeight + scrollY >= document.body.scrollHeight - 80;
+
+// A reply's markdown, drawn at most four times a second as it streams.
+function renderReply(node) {
+  const wait = node.drawn + 250 - Date.now();
+  if (wait > 0) {
+    node.timer ??= setTimeout(() => { node.timer = null; renderReply(node); }, wait);
+    return;
+  }
+  const bottom = atBottom();
+  node.drawn = Date.now();
+  node.innerHTML = markdown(node.source);
+  if (node.images.length) node.append(imageStrip(node.images));
+  if (bottom) scrollTo(0, document.body.scrollHeight);
+}
+
+// False when a reply's text does not follow on what the node holds.
 function renderItem(follow, item) {
   let node = follow.nodes.get(item.item);
   const fresh = !node;
@@ -393,13 +410,21 @@ function renderItem(follow, item) {
   }
   switch (item.type) {
     case "prompt": node.className = "item prompt"; node.textContent = item.text; break;
-    case "text": node.className = "item md"; node.innerHTML = markdown(item.text); break;
+    case "text":
+      if ((node.source ?? "").length !== item.offset) return false;
+      node.className = "item md";
+      node.source = (node.source ?? "") + item.text;
+      node.images = item.images;
+      node.drawn ??= 0;
+      renderReply(node);
+      break;
     case "tool": renderTool(node, item); break;
     case "end": node.className = "item end"; node.textContent = "turn ended"; break;
     case "error": node.className = "item error"; node.textContent = item.text; break;
   }
-  if (item.type !== "tool" && item.images.length) node.append(imageStrip(item.images));
+  if (!["tool", "text"].includes(item.type) && item.images.length) node.append(imageStrip(item.images));
   if (fresh) $("d-feed").append(node);
+  return true;
 }
 
 const folds = JSON.parse(localStorage.getItem("overlook-folds") || "{}");
@@ -489,8 +514,13 @@ function renderDashboard(sections) {
   document.title = waiting ? `(${waiting}) overlook` : "overlook";
 }
 
-// The long poll of the view shown: its url() and what it does with news().
+// The long poll of the view shown: its url() and what it does with news(),
+// which throws a Stale error when it must start over from nothing.
+// With stream(), news comes as server-sent events, and long polls only
+// where those fail.
 let poller = null;
+
+class Stale extends Error {}
 
 function stopPolling() {
   poller?.controller?.abort();
@@ -505,17 +535,65 @@ async function poll(mine) {
   const current = () => poller === mine && mine.controller === controller;
   while (current() && !document.hidden) {
     try {
+      if (mine.stream) {
+        await listen(mine, controller.signal, current);
+        continue;
+      }
       const news = await call("GET", mine.url(), undefined, controller.signal);
       if (!current()) return;
       mine.news(news);
       $("conn").textContent = "";
     } catch (error) {
+      if (error instanceof Stale) continue;
       if (!current() || error.name === "AbortError") return;
+      if (mine.stream && error.status) { mine.stream = null; continue; }
       $("conn").textContent = "offline";
       if (error.status === 409) { toast(error.message); return; }
       if (!(error instanceof TypeError)) toast(error.message);
       await sleep(3000);
     }
+  }
+}
+
+// Reads mine.stream()'s events until the connection ends or goes quiet.
+async function listen(mine, signal, current) {
+  const quiet = new AbortController();
+  signal.addEventListener("abort", () => quiet.abort());
+  let timer;
+  const wake = () => { clearTimeout(timer); timer = setTimeout(() => quiet.abort(), 60000); };
+  wake();
+  try {
+    const response = await fetch("/overlook/api/" + mine.stream(), {
+      headers: { "Authorization": "Bearer " + token }, signal: quiet.signal,
+    });
+    if (!response.ok || !response.body
+        || !response.headers.get("Content-Type")?.startsWith("text/event-stream")) {
+      const error = new Error("no stream");
+      error.status = response.status;
+      throw error;
+    }
+    $("conn").textContent = "";
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done || !current()) return;
+      wake();
+      buffer += value;
+      let end;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const data = buffer.slice(0, end).split("\n")
+          .filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("\n");
+        buffer = buffer.slice(end + 2);
+        if (data) mine.news(JSON.parse(data));
+      }
+    }
+  } catch (error) {
+    if (error.name === "AbortError" && !signal.aborted) return;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    quiet.abort();
   }
 }
 
@@ -525,27 +603,61 @@ function resume() {
   poll(poller);
 }
 
+// Nodes a dashboard sent as { same: hash } taken from what the page has.
+function expand(nodes, known) {
+  return nodes.map((node) => {
+    if (!node.same) return { ...node, children: expand(node.children, known) };
+    if (!known.has(node.same)) throw new Stale();
+    return known.get(node.same);
+  });
+}
+
+function index(nodes, known = new Map()) {
+  for (const node of nodes) {
+    known.set(node.hash, node);
+    index(node.children, known);
+  }
+  return known;
+}
+
 function watchDashboard() {
-  const mine = { known: "" };
+  const mine = { known: "", nodes: new Map() };
   mine.url = () => "dashboard?known=" + mine.known;
+  mine.stream = () => "dashboard/stream?known=" + mine.known;
   mine.news = (news) => {
-    if (news.known !== mine.known) renderDashboard(news.sections);
+    if (news.known === mine.known) return;
+    let sections;
+    try { sections = expand(news.sections, mine.nodes); }
+    catch (error) {
+      mine.known = "";
+      mine.nodes = new Map();
+      throw error;
+    }
+    renderDashboard(sections);
+    mine.nodes = index(sections);
     mine.known = news.known;
   };
   poll(mine);
 }
 
 async function followAgent(id) {
-  const mine = { id, after: 0, known: "", nodes: new Map() };
-  mine.url = () => `events?id=${encodeURIComponent(id)}&after=${mine.after}&known=${mine.known}`;
+  const mine = { id, after: 0, known: "", epoch: "", nodes: new Map() };
+  mine.url = () => `events?id=${encodeURIComponent(id)}&after=${mine.after}&known=${mine.known}`
+    + `&epoch=${mine.epoch}`;
   mine.news = (news) => {
     if (news.reset) {
       mine.nodes.clear();
       $("d-feed").replaceChildren();
     }
-    const bottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+    const bottom = atBottom();
     renderHeader(news.agent);
-    news.items.forEach((item) => renderItem(mine, item));
+    mine.epoch = news.epoch;
+    if (!news.items.every((item) => renderItem(mine, item))) {
+      mine.after = 0;
+      mine.nodes.clear();
+      $("d-feed").replaceChildren();
+      throw new Stale();
+    }
     $("d-earlier").hidden = mine.nodes.size > 0;
     if (bottom && news.items.length) scrollTo(0, document.body.scrollHeight);
     mine.after = news.seq;
