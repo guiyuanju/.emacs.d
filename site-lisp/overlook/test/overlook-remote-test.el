@@ -54,6 +54,23 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
       (should (equal (overlook-remote--token) token))
       (should-not (equal (overlook-remote-new-token) token)))))
 
+(ert-deftest overlook-remote-offers-tailscale-then-the-local-network ()
+  (cl-flet ((address (&rest interfaces)
+              (cl-letf (((symbol-function 'network-interface-list)
+                         (lambda (&rest _) interfaces)))
+                (overlook-remote--address))))
+    (let ((loopback '("lo0" . [127 0 0 1 0]))
+          (wifi '("en0" . [192 168 1 2 0]))
+          (tailscale '("utun6" . [100 111 224 2 0])))
+      (should (equal (address loopback wifi tailscale) "100.111.224.2"))
+      (should (equal (address '("utun1" . [10 0 0 2 0]) wifi) "192.168.1.2"))
+      ;; A public address in 100/8, below and above Tailscale's range.
+      (should (equal (address '("utun6" . [100 63 0 1 0]) wifi) "192.168.1.2"))
+      (should (equal (address '("utun6" . [100 128 0 1 0]) wifi) "192.168.1.2"))
+      (should (equal (address '("utun6" . [100 64 0 1 0]) wifi) "100.64.0.1"))
+      (should (equal (address '("utun6" . [100 127 0 1 0]) wifi) "100.127.0.1"))
+      (should-not (address loopback)))))
+
 (ert-deftest overlook-remote-page-needs-no-token-but-calls-do ()
   (overlook-remote-test-with-agent t
     (pcase-let ((`(,status ,mime ,_) (overlook-remote--respond "GET" "/overlook/" nil nil)))

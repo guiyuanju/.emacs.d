@@ -29,7 +29,8 @@
 ;; replies and a box to prompt it.  It runs on simple-httpd,
 ;; whose single server it takes over while on.  It listens on this
 ;; machine only until `overlook-remote-host' is set to "0.0.0.0", which
-;; serves the local network.
+;; serves every network it is on; `overlook-remote-url' then gives its
+;; Tailscale address if it has one, otherwise its local one.
 ;;
 ;; The page and its scripts hold nothing; its calls under /overlook/api/
 ;; carry the token kept in `overlook-remote-token-file'.  `overlook-remote-url'
@@ -968,16 +969,25 @@ with its question in :confirm instead."
   "Where the page is served, for `overlook-mode-line-functions'."
   overlook-remote--mode-line)
 
+(defconst overlook-remote--tailscale-address
+  "\\`100\\.\\(?:6[4-9]\\|[7-9][0-9]\\|1[01][0-9]\\|12[0-7]\\)\\."
+  "Matches an address in 100.64.0.0/10, the range Tailscale assigns from.")
+
 (defun overlook-remote--address ()
-  "This machine's IPv4 address on the local network, or nil.
-Prefers Ethernet and Wi-Fi interfaces, named en on macOS and Linux."
+  "The IPv4 address a phone should open, or nil.
+Prefers Tailscale's, in 100.64.0.0/10, which reaches this machine from
+any network; then Ethernet and Wi-Fi interfaces, named en on macOS and
+Linux."
   (let ((addresses
          (seq-keep (pcase-lambda (`(,interface . ,address))
                      (let ((ip (format-network-address address t)))
                        (unless (string-match-p "\\`\\(?:127\\|169\\.254\\)\\." ip)
                          (cons interface ip))))
                    (network-interface-list nil 'ipv4))))
-    (cdr (or (seq-find (lambda (entry) (string-prefix-p "en" (car entry))) addresses)
+    (cdr (or (seq-find (lambda (entry)
+                         (string-match-p overlook-remote--tailscale-address (cdr entry)))
+                       addresses)
+             (seq-find (lambda (entry) (string-prefix-p "en" (car entry))) addresses)
              (car addresses)))))
 
 ;;;###autoload

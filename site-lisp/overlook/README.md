@@ -274,7 +274,10 @@ The page listens on this machine only.  To reach it from a phone on the
 same network, set `overlook-remote-host` to `"0.0.0.0"` before turning the
 mode on; the mode line then shows the address, highlighted, and the mode
 turns itself off after `overlook-remote-network-minutes` (120; nil keeps
-it on).  `M-x overlook-remote-url` copies the address again.
+it on).  `M-x overlook-remote-url` copies the address again.  On a
+machine with a Tailscale address that is the address given, so a phone in
+the same tailnet reaches the page from any network, and on a Wi-Fi that
+keeps its devices apart.
 
 The page and its scripts are served to anyone; every call for data needs
 the token, which the address carries after `#`, so the browser keeps it
