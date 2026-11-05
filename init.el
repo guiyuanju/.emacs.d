@@ -1185,6 +1185,14 @@
   (add-hook 'overlook-remote-mode-hook #'iuiw-remote-sync-awake)
   (iuiw-remote-sync-awake))
 
+(use-package iuiw-iphone
+  :ensure nil
+  :after overlook
+  :demand t
+  :config
+  (add-hook 'overlook-perspective-command-functions #'iuiw-iphone--command)
+  (add-hook 'overlook-heading-mark-functions #'iuiw-iphone--mark))
+
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
   :ensure nil
