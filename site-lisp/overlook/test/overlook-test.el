@@ -30,7 +30,7 @@ Agents are listed; usage and repos are not."
           (overlook-sections (list #'overlook--perspectives-section))
           (overlook-perspective-functions nil)
           (overlook-worktrees-functions nil)
-          (overlook-worktree-functions (list #'overlook-agent--insert))
+          (overlook-worktree-functions (list #'overlook-agent--rows))
           (dashboard (get-buffer-create overlook-buffer-name)))
      (unwind-protect
          (with-current-buffer dashboard
@@ -72,7 +72,7 @@ Agents are listed; usage and repos are not."
     (add-hook 'overlook-sections #'overlook--perspectives-section)
     (add-hook 'overlook-sections #'overlook-usage--section -50)
     (add-hook 'overlook-sections
-              (lambda () (overlook-insert-section "Todo" (lambda () (insert "x\n"))))
+              (lambda () (overlook-section-row "Todo" (list (overlook-row :content "x"))))
               50)
     (unwind-protect
         (with-current-buffer dashboard
@@ -274,6 +274,115 @@ Agents are listed; usage and repos are not."
           (should (equal (with-selected-window window (overlook-item-at-point))
                          '(perspective . "p25"))))))))
 
+(ert-deftest overlook-model-is-data-for-every-view ()
+  (let* ((alpha (overlook-test--agent "alpha"))
+         (beta (overlook-test--agent "beta"))
+         (brief (concat "Running " (make-string 200 ?x)))
+         (overlook-test--perspectives `(("one" ,alpha) ("hidden" ,beta)))
+         (overlook-test--current "one")
+         (overlook-perspective-order 'backend)
+         (overlook-perspective-filter (lambda (name) (equal name "one")))
+         (overlook-perspectives-function (lambda () (mapcar #'car overlook-test--perspectives)))
+         (overlook-current-perspective-function (lambda () overlook-test--current))
+         (overlook-perspective-buffers-function
+          (lambda (name) (alist-get name overlook-test--perspectives nil nil #'equal)))
+         (overlook-perspective-root-function #'ignore)
+         (overlook-perspective-functions nil)
+         (overlook-worktrees-functions nil)
+         (overlook-worktree-functions (list #'overlook-agent--rows))
+         (asked 0)
+         (overlook-sections
+          (list (lambda ()
+                  (overlook-section-row
+                   "Extra"
+                   (list (overlook-row :content "folded" :folded t
+                                       :children (lambda ()
+                                                   (setq asked (1+ asked))
+                                                   (list (overlook-row :content "deep")))))))
+                (lambda () (overlook-section-row "Empty" nil))
+                #'overlook--perspectives-section)))
+    (unwind-protect
+        (progn
+          (with-current-buffer alpha
+            (setq overlook-agent-status 'working)
+            (push (cons 'brief (lambda () brief)) overlook-agent-identity))
+          (pcase-let (((and sections `(,extra ,perspectives)) (overlook-model)))
+            ;; A section with no rows is left out.
+            (should (= (length sections) 2))
+            (should-not (get-buffer overlook-buffer-name))
+            (should (equal (overlook-row-text extra) "Extra"))
+            (should (overlook-row-heading extra))
+            (should (overlook-row-gap extra))
+            ;; Rows put off until shown are gathered once.
+            (pcase-let ((`(,folded) (overlook-row-children extra)))
+              (should (overlook-row-folded folded))
+              (should (= asked 0))
+              (should (equal (mapcar #'overlook-row-text (overlook-row-rows folded)) '("deep")))
+              (should (equal (mapcar #'overlook-row-text (overlook-row-rows folded)) '("deep")))
+              (should (= asked 1)))
+            ;; The filtered perspective is gone; the agent's brief is whole.
+            (pcase-let* ((`(,one) (overlook-row-children perspectives))
+                         (`(,row) (overlook-row-children one)))
+              (should (equal (overlook-row-id one) '(perspective . "one")))
+              (should-not (overlook-row-gap one))
+              (should (equal (overlook-row-id row) (cons 'agent alpha)))
+              (should (string-search brief (overlook-row-text row))))))
+      (kill-buffer alpha)
+      (kill-buffer beta))))
+
+(ert-deftest overlook-model-keeps-a-hidden-perspective-needing-you ()
+  (let* ((alpha (overlook-test--agent "alpha"))
+         (beta (overlook-test--agent "beta")))
+    (with-current-buffer beta (setq overlook-agent-status 'waiting))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("two") ("three" ,beta)) "one"
+          (let* ((overlook-perspective-order 'backend)
+                 (overlook-perspective-filter (lambda (name) (equal name "one")))
+                 (rows (overlook--perspectives)))
+            (should (equal (mapcar #'overlook-row-id rows)
+                           '((perspective . "one") (perspective . "three"))))
+            ;; Each but the last ends with a blank line.
+            (should (equal (mapcar #'overlook-row-gap rows) '(t nil)))
+            (should (overlook-row-attention-p (car (last rows))))
+            (should-not (overlook-row-attention-p (car rows)))))
+      (mapc #'kill-buffer (list alpha beta)))))
+
+(ert-deftest overlook-rows-draw-dimmed-faced-and-lazily ()
+  (let ((asked 0))
+    (with-temp-buffer
+      (overlook-insert-rows
+       (list (overlook-row :id 'dim :content (propertize "dim" 'face 'bold) :dim t
+                           :nest t
+                           :children (list (overlook-row :content "child" :wrap "")))
+             (overlook-row :id 'faced :content (list "faced" (overlook-align-right "9m" 6))
+                           :face '(shadow error) :gap t)
+             (overlook-row :content "lazy" :folded t
+                           :children (lambda ()
+                                       (setq asked (1+ asked))
+                                       (list (overlook-row :content "deep")))))
+       " ")
+      (goto-char (point-min))
+      (should (equal (get-text-property (point) 'overlook-item) 'dim))
+      (should (equal (get-text-property (1+ (point)) 'face) '(shadow bold)))
+      (search-forward "child")
+      ;; Nested a step more, and continued under that indent.
+      (should (equal (buffer-substring-no-properties (line-beginning-position) (point))
+                     "   child"))
+      (should (equal (get-text-property (point) 'wrap-prefix) "   "))
+      (search-forward "faced")
+      (should (equal (get-text-property (1- (point)) 'face) '(shadow error)))
+      (should-not (get-text-property (line-beginning-position) 'face))
+      (should (get-text-property (point) 'display))
+      (forward-line 1)
+      (should (looking-at-p "$"))
+      (forward-line 1)
+      (should (looking-at-p " lazy"))
+      ;; Folded, its rows wait until it is first shown.
+      (should (= asked 0))
+      (magit-section-show (magit-current-section))
+      (should (= asked 1))
+      (should (search-forward "deep" nil t)))))
+
 (ert-deftest overlook-heading-switches-perspective ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
@@ -316,20 +425,19 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-hidden-rows-start-folded-and-nest ()
   (let ((overlook-sections
          (list (lambda ()
-                 (overlook-insert-section
+                 (overlook-section-row
                   "Todo"
-                  (lambda ()
-                    (overlook-insert-row
-                     "proj\n"
-                     (lambda ()
-                       (overlook-insert-row "   now\n")
-                       (overlook-insert-row
-                        "   2 more\n"
-                        (lambda ()
-                          (overlook-insert-row "   later\n"
-                                               (lambda () (overlook-insert-row "     sub\n")))
-                          (overlook-insert-row "   last\n"))
-                        t))))))))
+                  (list (overlook-row
+                         :content "proj"
+                         :children
+                         (list (overlook-row :content "   now")
+                               (overlook-row
+                                :content "   2 more"
+                                :folded t
+                                :children
+                                (list (overlook-row :content "   later"
+                                                    :children (list (overlook-row :content "     sub")))
+                                      (overlook-row :content "   last"))))))))))
         (dashboard (get-buffer-create overlook-buffer-name)))
     (unwind-protect
         (with-current-buffer dashboard
@@ -426,7 +534,7 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-heading-navigation-stops-at-section-titles ()
   (overlook-test-with-dashboard '(("one")) "one"
     (add-hook 'overlook-sections
-              (lambda () (overlook-insert-section "Extra" (lambda () (insert "row\n"))))
+              (lambda () (overlook-section-row "Extra" (list (overlook-row :content "row"))))
               10)
     (overlook--render)
     (goto-char (point-min))
@@ -1131,7 +1239,7 @@ Agents are listed; usage and repos are not."
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
             (let ((overlook-perspective-root-function (lambda (_) root))
                   (overlook-worktree-functions
-                   (list #'overlook-project--insert #'overlook-agent--insert)))
+                   (list #'overlook-project--changed-rows #'overlook-agent--rows)))
               (overlook--render)
               (let ((api (progn (goto-char (point-min)) (search-forward "api")
                                 (buffer-substring-no-properties (line-beginning-position)
@@ -1175,8 +1283,8 @@ Agents are listed; usage and repos are not."
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
             (cl-letf (((symbol-function 'overlook-project--divergence) #'ignore))
             (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions (list #'overlook-project--insert-worktrees))
-                  (overlook-worktree-functions (list #'overlook-project--insert))
+                  (overlook-perspective-functions (list #'overlook-project--checkout-rows))
+                  (overlook-worktree-functions (list #'overlook-project--changed-rows))
                   (overlook-worktrees-functions (list #'overlook-project--worktree-dirs)))
               (overlook--render)
               (should (string-match-p "^⎇ fix$" (buffer-substring-no-properties (point-min) (point-max))))
@@ -1217,10 +1325,10 @@ Agents are listed; usage and repos are not."
                   (overlook-worktrees-functions nil)
                   (overlook-worktree-functions nil))
               (overlook-toggle-hooks
-               t '((overlook-worktree-functions overlook-project--insert 50)
-                   (overlook-worktree-functions overlook-agent--insert)
+               t '((overlook-worktree-functions overlook-project--changed-rows 50)
+                   (overlook-worktree-functions overlook-agent--rows)
                    (overlook-worktrees-functions overlook-project--worktree-dirs)
-                   (overlook-perspective-functions overlook-project--insert-worktrees -50)))
+                   (overlook-perspective-functions overlook-project--checkout-rows -50)))
               (overlook--render)
               (should (< (overlook-test--line-of "  main")
                          (min (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
@@ -1280,11 +1388,11 @@ Agents are listed; usage and repos are not."
               (setq-local overlook-sections (list #'overlook-agent-courier--rooms-section
                                                   #'overlook--perspectives-section))
               (overlook-toggle-hooks
-               t '((overlook-worktree-functions overlook-project--insert 50)
-                   (overlook-worktree-functions overlook-agent--insert)
-                   (overlook-worktree-functions overlook-agent-courier--insert-worktree-room 50)
+               t '((overlook-worktree-functions overlook-project--changed-rows 50)
+                   (overlook-worktree-functions overlook-agent--rows)
+                   (overlook-worktree-functions overlook-agent-courier--worktree-room-rows 50)
                    (overlook-worktrees-functions overlook-project--worktree-dirs)
-                   (overlook-perspective-functions overlook-project--insert-worktrees -50)))
+                   (overlook-perspective-functions overlook-project--checkout-rows -50)))
               (overlook--render)
               (let ((text (buffer-substring-no-properties (point-min) (point-max))))
                 (should (string-match-p "\\`Rooms\n#ops" text))
@@ -1424,7 +1532,7 @@ Agents are listed; usage and repos are not."
                    overlook-project--status)
           (overlook-test-with-dashboard '(("one")) "one"
             (let ((overlook-perspective-root-function (lambda (_) card))
-                  (overlook-worktree-functions (list #'overlook-project--insert)))
+                  (overlook-worktree-functions (list #'overlook-project--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
               (should (string-match-p "⎇ +one +main \\+2"
@@ -1456,7 +1564,7 @@ Agents are listed; usage and repos are not."
                    overlook-project--status)
           (overlook-test-with-dashboard '(("one")) "one"
             (let ((overlook-perspective-root-function (lambda (_) card))
-                  (overlook-worktree-functions (list #'overlook-project--insert)))
+                  (overlook-worktree-functions (list #'overlook-project--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
               (should (search-forward "one*" nil t))

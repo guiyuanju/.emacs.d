@@ -40,15 +40,15 @@
 (declare-function persp-get-buffers "perspective")
 (declare-function overlook-agent-forget-perspective "overlook-agent")
 (declare-function overlook-refresh "overlook")
-(declare-function overlook-insert-section "overlook")
-(declare-function overlook-insert-row "overlook")
+(declare-function overlook-section-row "overlook")
+(declare-function overlook-row "overlook")
+(declare-function overlook-gaps "overlook")
 (declare-function overlook-ordered-perspectives "overlook")
 (declare-function overlook-current-perspective "overlook")
 (declare-function overlook-perspective-root "overlook")
 (declare-function overlook-main-window "overlook")
 (declare-function overlook-show-elsewhere "overlook")
 (declare-function overlook-agent-project-root "overlook-agent")
-(declare-function overlook-end-with-blank "overlook")
 (declare-function overlook-perspective-guess-root "overlook-perspective")
 (defvar overlook-sections)
 (defvar persp-sort)
@@ -848,49 +848,47 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
                                (goto-char (point-min))
                                (forward-line (1- line))))))
 
-(defun iuiw-workspace--insert-groups (groups mark)
-  "Insert GROUPS separated by blank lines, each item led by MARK of its text.
+(defun iuiw-workspace--group-rows (groups mark)
+  "Rows of GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
 NAME followed by the string COUNT, if any, that visits FILE, if any,
 highlighted when CURRENT, then ITEMS, folded until toggled when FOLDED, as
 \(TEXT LINE DEPTH), deeper ones under the item before them.  Visiting switches to
 PERSPECTIVE first when it is non-nil.  An item can be (TEXT LINE DEPTH
 FILE PERSPECTIVE BEFORE AFTER) instead, visiting its own FILE and showing
-the strings BEFORE and AFTER around its text.  Return the last group's
-section."
-  (let ((previous nil))
-    (pcase-dolist (`(,name ,file ,current ,items ,perspective ,count ,folded) groups)
-      (when previous (overlook-end-with-blank previous))
-      (cl-labels ((insert-items (items)
-                    (while items
-                      (pcase-let* ((`(,text ,line ,depth ,item-file ,item-perspective ,before ,after)
-                                    (pop items))
-                                   (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
-                                                             items))
-                                   (indent (make-string depth ?\s)))
-                        (setq items (nthcdr (length children) items))
-                        ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
-                        (overlook-insert-row
-                         (propertize (concat indent (funcall mark text) " "
-                                             before (iuiw-workspace--todo-display text) after "\n")
-                                     'overlook-action (iuiw-workspace--todo-visit
-                                                       (or item-perspective perspective)
-                                                       (or item-file file)
-                                                       line)
-                                     'wrap-prefix (concat indent "   "))
-                         (and children (lambda () (insert-items children))))))))
-        (setq previous (overlook-insert-row
-                        (concat (propertize name
-                                            'face (if current 'overlook-heading-current 'overlook-heading)
-                                            'overlook-heading t
-                                            'overlook-item (list 'todo-group name)
-                                            'overlook-action (and file (iuiw-workspace--todo-visit
-                                                                        perspective file 1)))
-                                (if count (propertize (concat " " count) 'face 'shadow) "")
-                                "\n")
-                        (lambda () (insert-items items))
-                        folded))))
-    previous))
+the strings BEFORE and AFTER around its text."
+  (overlook-gaps
+   (mapcar
+    (pcase-lambda (`(,name ,file ,current ,items ,perspective ,count ,folded))
+      (cl-labels ((item-rows (items)
+                    (let (rows)
+                      (while items
+                        (pcase-let* ((`(,text ,line ,depth ,item-file ,item-perspective ,before ,after)
+                                      (pop items))
+                                     (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
+                                                               items))
+                                     (indent (make-string depth ?\s)))
+                          (setq items (nthcdr (length children) items))
+                          ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
+                          (push (overlook-row
+                                 :content (list indent (funcall mark text) " "
+                                                before (iuiw-workspace--todo-display text) after)
+                                 :action (iuiw-workspace--todo-visit (or item-perspective perspective)
+                                                                     (or item-file file)
+                                                                     line)
+                                 :wrap (concat indent "   ")
+                                 :children (and children (item-rows children)))
+                                rows)))
+                      (nreverse rows))))
+        (overlook-row
+         :id (list 'todo-group name)
+         :content (list (propertize name 'face (if current 'overlook-heading-current 'overlook-heading))
+                        (and count (propertize (concat " " count) 'face 'shadow)))
+         :heading t
+         :action (and file (iuiw-workspace--todo-visit perspective file 1))
+         :children (item-rows items)
+         :folded folded)))
+    groups)))
 
 (defun iuiw-workspace--todo-ordered (cards)
   "CARDS, those with a perspective first in the dashboard's order."
@@ -900,7 +898,7 @@ section."
                  cards)))
 
 (defun iuiw-workspace--todo-groups (cards current)
-  "Groups for `iuiw-workspace--insert-groups' of CARDS, highlighting CURRENT.
+  "Groups for `iuiw-workspace--group-rows' of CARDS, highlighting CURRENT.
 Each counts the card's open #now, #waiting and top-level todos and lists
 them folded, leaving out #now todos.  A card without todos shows no count."
   (mapcar (lambda (card)
@@ -925,46 +923,43 @@ them folded, leaving out #now todos.  A card without todos shows no count."
           cards))
 
 (defun iuiw-workspace--todo-section ()
-  "Insert a Todo section with every ongoing project's open todos.
+  "A Todo section with every ongoing project's open todos.
 The #now todos of all of them come first, in a \"#now\" group.  Projects
 with status later go last, under a folded \"later\" line, and then the
 done projects under a folded \"done\" line."
-  (let ((current (overlook-current-perspective)))
-    (overlook-insert-section
+  (let* ((current (overlook-current-perspective))
+         (cards (iuiw-workspace--todo-ordered (iuiw-workspace--todo-cards)))
+         (later-p (lambda (card) (equal (plist-get card :status) "later")))
+         (now (iuiw-workspace--todo-now-items cards current))
+         (later (iuiw-workspace--todo-groups (seq-filter later-p cards) current))
+         (done (seq-filter (lambda (card) (and (equal (plist-get card :status) "done")
+                                               (iuiw-workspace--shown-p card)))
+                           (iuiw-workspace--cards))))
+    (overlook-section-row
      "Todo"
-     (lambda ()
-       (let* ((cards (iuiw-workspace--todo-ordered (iuiw-workspace--todo-cards)))
-              (later-p (lambda (card) (equal (plist-get card :status) "later")))
-              (now (iuiw-workspace--todo-now-items cards current))
-              (later (iuiw-workspace--todo-groups (seq-filter later-p cards) current))
-              (done (seq-filter (lambda (card) (and (equal (plist-get card :status) "done")
-                                                    (iuiw-workspace--shown-p card)))
-                                (iuiw-workspace--cards)))
-              (last (iuiw-workspace--insert-groups
-                     (append (and now (list (list "#now" nil nil now nil nil)))
-                             (iuiw-workspace--todo-groups (seq-remove later-p cards) current))
-                     #'iuiw-workspace--todo-mark)))
-         (when later
-           (when last (overlook-end-with-blank last))
-           (setq last (overlook-insert-row
-                       (propertize (format "later (%d)\n" (length later))
-                                   'face 'shadow
-                                   'overlook-item '(todo-later))
-                       (lambda () (iuiw-workspace--insert-groups later #'iuiw-workspace--todo-mark))
-                       t)))
-         (when done
-           (when last (overlook-end-with-blank last))
-           (overlook-insert-row
-            (propertize (format "done (%d)\n" (length done))
-                        'face 'shadow
-                        'overlook-item '(todo-done))
-            (lambda ()
-              (dolist (card done)
-                (overlook-insert-row
-                 (propertize (concat (plist-get card :id) "\n")
-                             'overlook-action (iuiw-workspace--todo-visit
-                                               nil (plist-get card :file) 1)))))
-            t)))))))
+     (overlook-gaps
+      (append
+       (iuiw-workspace--group-rows
+        (append (and now (list (list "#now" nil nil now nil nil)))
+                (iuiw-workspace--todo-groups (seq-remove later-p cards) current))
+        #'iuiw-workspace--todo-mark)
+       (and later
+            (list (overlook-row
+                   :id '(todo-later)
+                   :content (propertize (format "later (%d)" (length later)) 'face 'shadow)
+                   :children (iuiw-workspace--group-rows later #'iuiw-workspace--todo-mark)
+                   :folded t)))
+       (and done
+            (list (overlook-row
+                   :id '(todo-done)
+                   :content (propertize (format "done (%d)" (length done)) 'face 'shadow)
+                   :children (mapcar (lambda (card)
+                                       (overlook-row
+                                        :content (plist-get card :id)
+                                        :action (iuiw-workspace--todo-visit
+                                                 nil (plist-get card :file) 1)))
+                                     done)
+                   :folded t))))))))
 
 ;;; Dashboard inbox
 
@@ -991,7 +986,7 @@ Done items are left out together with their subitems."
       (nreverse items))))
 
 (defun iuiw-workspace--inbox-section ()
-  "Insert an Inbox section with each workspace's open inbox items.
+  "An Inbox section with each workspace's open inbox items.
 Only the inbox of `iuiw-workspace-filter' shows when it is set.  The
 workspace of the current perspective comes first."
   (let* ((current (iuiw-workspace-perspective-workspace (or (overlook-current-perspective) "")))
@@ -1000,15 +995,14 @@ workspace of the current perspective comes first."
                             (file-expand-wildcards (expand-file-name "*/inbox.md" (iuiw-workspace--base)))))
          (mine (lambda (file) (equal (iuiw-workspace--inbox-workspace file) current)))
          (files (append (seq-filter mine files) (seq-remove mine files))))
-    (overlook-insert-section
+    (overlook-section-row
      "Inbox"
-     (lambda ()
-       (iuiw-workspace--insert-groups
-        (seq-keep (lambda (file)
-                    (when-let* ((items (iuiw-workspace--inbox-items file)))
-                      (list (iuiw-workspace--inbox-workspace file) file nil items)))
-                  files)
-        (lambda (_) (propertize "☐" 'face 'shadow)))))))
+     (iuiw-workspace--group-rows
+      (seq-keep (lambda (file)
+                  (when-let* ((items (iuiw-workspace--inbox-items file)))
+                    (list (iuiw-workspace--inbox-workspace file) file nil items)))
+                files)
+      (lambda (_) (propertize "☐" 'face 'shadow))))))
 
 (defun iuiw-workspace--mode-line ()
   "`iuiw-workspace-filter' for the dashboard's mode line, or nil when unset."

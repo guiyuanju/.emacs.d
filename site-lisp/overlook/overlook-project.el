@@ -322,19 +322,15 @@ Their common folders are left out, and the name when only folders changed."
             (if state (propertize state 'face 'shadow) "")
             (if dir (propertize (concat " " dir) 'face 'shadow) ""))))
 
-(defun overlook-project--insert-file (dir file perspective)
-  "Insert the row of FILE changed in repo DIR, under its row in PERSPECTIVE."
-  (let ((action (lambda ()
-                  (overlook-show-elsewhere
-                   perspective (lambda () (overlook-project-open-file dir file))))))
-    (overlook-insert-row (propertize (concat overlook-indent
-                                             (overlook-project--file-label
-                                              file (overlook-project--prefix dir))
-                                             "\n")
-                                     'overlook-item (list 'repo-file dir (car file))
-                                     'overlook-action action
-                                     'help-echo (car file)
-                                     'wrap-prefix overlook-indent))))
+(defun overlook-project--file-row (dir file perspective)
+  "The row of FILE changed in repo DIR, under its row in PERSPECTIVE."
+  (overlook-row :id (list 'repo-file dir (car file))
+                :content (overlook-project--file-label file (overlook-project--prefix dir))
+                :action (lambda ()
+                          (overlook-show-elsewhere
+                           perspective (lambda () (overlook-project-open-file dir file))))
+                :help (car file)
+                :wrap ""))
 
 (defun overlook-project--worktrees (root)
   "Worktrees courier made in project ROOT, each as (DIR . NAME)."
@@ -357,25 +353,22 @@ Their common folders are left out, and the name when only folders changed."
    (mapcan (lambda (dir) (copy-sequence (cdr (overlook-project--status dir)))) dirs)))
 
 (defun overlook-project--heading (label total item action children)
-  "Insert a row of LABEL after ⎇ with TOTAL's line counts; return its section.
-ITEM is its `overlook-item', ACTION what RET does on it, and CHILDREN
-inserts the rows under it, indented."
-  (overlook-insert-row (propertize
-                        (concat overlook-indent
-                                (overlook-glyph-cell (propertize "⎇" 'face 'overlook-project-repo))
-                                label
-                                (overlook-project--counts (car total) (cdr total))
-                                "\n")
-                        'overlook-item item
-                        'help-echo (cdr item)
-                        'overlook-action action)
-                       (overlook-nested children)))
+  "A row of LABEL after ⎇ with TOTAL's line counts.
+ITEM is its id, ACTION what RET does on it, and CHILDREN the rows under
+it, indented."
+  (overlook-row :id item
+                :content (list (overlook-glyph-cell (propertize "⎇" 'face 'overlook-project-repo))
+                               label
+                               (overlook-project--counts (car total) (cdr total)))
+                :help (cdr item)
+                :action action
+                :children children
+                :nest t))
 
 (defun overlook-project--row (dir perspective &optional width name before marks)
-  "Insert the row of repo DIR in PERSPECTIVE, its NAME padded to WIDTH.
-BEFORE, a function, inserts rows under it ahead of the changed files.
-MARKS go after its branch.  A branch named as the row is left out.
-Returns the row's section."
+  "The row of repo DIR in PERSPECTIVE, its NAME padded to WIDTH.
+BEFORE are rows under it ahead of the changed files.  MARKS go after
+its branch.  A branch named as the row is left out."
   (pcase-let* ((`(,branch . ,files) (overlook-project--status dir))
                (name (or name (overlook-project--label dir)))
                (branch (and (not (equal branch name)) branch)))
@@ -387,24 +380,20 @@ Returns the row's section."
      (overlook-project--total files)
      (cons 'repo dir)
      (lambda () (overlook-show-elsewhere perspective (lambda () (overlook-project-open dir))))
-     (lambda ()
-       (when before (funcall before))
-       (dolist (file files)
-         (overlook-project--insert-file dir file perspective))))))
+     (append before
+             (mapcar (lambda (file) (overlook-project--file-row dir file perspective))
+                     files)))))
 
 (defun overlook-project--group-row (tree name perspective dirs before &optional marks)
-  "Insert the row of folder TREE of PERSPECTIVE by NAME, holding repos DIRS.
-Under it go the rows BEFORE, a function, inserts, then a row of each of
-DIRS, its line counts their total; MARKS is as for
-`overlook-project--insert-repos'.  Returns the row's section."
+  "The row of folder TREE of PERSPECTIVE by NAME, holding repos DIRS.
+Under it go the rows BEFORE, then a row of each of DIRS, its line counts
+their total; MARKS is as for `overlook-project--repo-rows'."
   (overlook-project--heading
    (propertize name 'face 'overlook-project-repo)
    (overlook-project--changes dirs)
    (cons 'worktree tree)
    (lambda () (overlook-show-elsewhere perspective (lambda () (dired tree))))
-   (lambda ()
-     (funcall before)
-     (overlook-project--insert-repos dirs perspective marks))))
+   (append before (overlook-project--repo-rows dirs perspective marks))))
 
 (defun overlook-project--folders (perspective)
   "Folders of PERSPECTIVE lying inside a larger repo."
@@ -419,13 +408,14 @@ DIRS, its line counts their total; MARKS is as for
                        (overlook-project--folders perspective)))
     "*"))
 
-(defun overlook-project--insert-repos (dirs perspective &optional marks)
-  "Insert a row of each repo or folder in DIRS in PERSPECTIVE, names aligned.
+(defun overlook-project--repo-rows (dirs perspective &optional marks)
+  "A row of each repo or folder in DIRS in PERSPECTIVE, names aligned.
 MARKS, a function of a DIR, returns the marks after its branch."
   (let ((width (apply #'max 0 (mapcar (lambda (dir) (string-width (overlook-project--label dir)))
                                       dirs))))
-    (dolist (dir dirs)
-      (overlook-project--row dir perspective width nil nil (and marks (funcall marks dir))))))
+    (mapcar (lambda (dir)
+              (overlook-project--row dir perspective width nil nil (and marks (funcall marks dir))))
+            dirs)))
 
 (defun overlook-project--base (checkout tree root)
   "Branch of the main checkout that CHECKOUT, in worktree TREE of ROOT, came from."
@@ -462,7 +452,7 @@ Reads it again in the background when stale, redrawing when it changed."
                  'face 'shadow))))
 
 (defun overlook-project--worktree-row (tree name root perspective)
-  "Insert the row of worktree TREE of ROOT in PERSPECTIVE, by NAME.
+  "The row of worktree TREE of ROOT in PERSPECTIVE, by NAME.
 Under it go the rows of `overlook-worktree-functions', then its repo's
 changed files, or a row of each of its repos when it has several.  Each
 repo shows its commits ahead of and behind the main checkout's branch.
@@ -475,23 +465,22 @@ commit is unmerged."
                               repos))
          (marks (lambda (dir)
                   (overlook-project--divergence-marks (alist-get dir divergences nil nil #'equal))))
-         (before (lambda () (run-hook-with-args 'overlook-worktree-functions perspective tree)))
-         (section (if (equal repos (list tree))
-                      (overlook-project--row tree perspective nil name before (funcall marks tree))
-                    (overlook-project--group-row tree name perspective repos before marks))))
+         (before (overlook-rows 'overlook-worktree-functions perspective tree))
+         (row (if (equal repos (list tree))
+                  (overlook-project--row tree perspective nil name before (funcall marks tree))
+                (overlook-project--group-row tree name perspective repos before marks))))
     (dolist (dir repos)
       (cl-pushnew dir overlook-project--shown :test #'equal))
-    (when (and (seq-every-p (lambda (divergence) (eql (cadr divergence) 0)) divergences)
+    (setf (overlook-row-dim row)
+          (and (seq-every-p (lambda (divergence) (eql (cadr divergence) 0)) divergences)
                (not (seq-some (lambda (dir) (cdr (overlook-project--status dir))) repos))
-               (null (overlook-folder-contents tree)))
-      (add-face-text-property (oref section start)
-                              (or (oref section content) (oref section end))
-                              'shadow))))
+               (null (overlook-folder-contents tree))))
+    row))
 
 (defun overlook-project--main-row (root perspective)
-  "Insert the row of PERSPECTIVE's main checkout ROOT.
+  "The row of PERSPECTIVE's main checkout ROOT.
 Under it go the rows of `overlook-worktree-functions' for no worktree."
-  (let ((before (lambda () (run-hook-with-args 'overlook-worktree-functions perspective nil))))
+  (let ((before (overlook-rows 'overlook-worktree-functions perspective nil)))
     (if (equal (overlook-project--top root) root)
         (overlook-project--row root perspective nil nil before)
       (overlook-project--heading
@@ -501,14 +490,16 @@ Under it go the rows of `overlook-worktree-functions' for no worktree."
        (lambda () (overlook-show-elsewhere perspective (lambda () (dired root))))
        before))))
 
-(defun overlook-project--insert-worktrees (perspective)
-  "Insert PERSPECTIVE's main checkout and worktrees.
+(defun overlook-project--checkout-rows (perspective)
+  "Rows of PERSPECTIVE's main checkout and worktrees.
 Neither shows while the project has no worktrees."
   (when-let* ((root (overlook-perspective-root perspective))
               (trees (overlook-worktrees perspective)))
-    (overlook-project--main-row root perspective)
-    (dolist (tree trees)
-      (overlook-project--worktree-row tree (overlook-project--label tree) root perspective))))
+    (cons (overlook-project--main-row root perspective)
+          (mapcar (lambda (tree)
+                    (overlook-project--worktree-row tree (overlook-project--label tree)
+                                                    root perspective))
+                  trees))))
 
 (defun overlook-project--changed (perspective)
   "The repos and folders of PERSPECTIVE's project with changes to show."
@@ -528,12 +519,12 @@ Neither shows while the project has no worktrees."
                                  (member dir folders)))))
                 dirs)))
 
-(defun overlook-project--insert (perspective dir)
-  "Insert the changed repos and folders of PERSPECTIVE's project, for DIR nil.
+(defun overlook-project--changed-rows (perspective dir)
+  "Rows of the changed repos and folders of PERSPECTIVE's project, for DIR nil.
 Under a main checkout that is a repo, its own files are on its row."
   (unless dir
     (let ((root (overlook-perspective-root perspective)))
-      (overlook-project--insert-repos
+      (overlook-project--repo-rows
        (if (and (overlook-worktrees perspective) (equal (overlook-project--top root) root))
            (remove root (overlook-project--changed perspective))
          (overlook-project--changed perspective))
@@ -635,9 +626,9 @@ Its branch stays."
   :group 'overlook
   (overlook-toggle-hooks
    overlook-project-mode
-   '((overlook-perspective-functions overlook-project--insert-worktrees -50)
+   '((overlook-perspective-functions overlook-project--checkout-rows -50)
      (overlook-worktrees-functions overlook-project--worktree-dirs)
-     (overlook-worktree-functions overlook-project--insert 50)
+     (overlook-worktree-functions overlook-project--changed-rows 50)
      (overlook-heading-mark-functions overlook-project--heading-mark)
      (overlook-delete-functions overlook-project--delete)
      (overlook-before-render-hook overlook-project--forget)

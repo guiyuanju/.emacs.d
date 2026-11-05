@@ -29,7 +29,7 @@
 
 ;; Overlook is a side window listing every perspective (a project with its
 ;; buffers and window layout) and what lives in it: its repos, its AI
-;; agents, and whatever else a module inserts.
+;; agents, and whatever else a module adds.
 ;;
 ;; The core only draws the dashboard.  Everything it shows comes from
 ;; modules:
@@ -42,15 +42,15 @@
 ;; - Top level sections come from `overlook-sections'; the perspectives
 ;;   section sits at depth 0, overlook-usage.el adds one above it.
 ;;
-;; Rows are plain text with properties the core understands:
-;; `overlook-item' identifies a row so point stays on it across redraws,
-;; `overlook-action' is called by RET, `overlook-heading' marks lines that
-;; \\[overlook-next-heading] stops at, section titles among them, and
-;; `overlook-attention' those that \\[overlook-next-attention] stops at.
+;; Modules give data, not text: each returns rows made by `overlook-row',
+;; holding what a row says as segments, what RET does, the rows under it
+;; and the like.  `overlook-model' gathers them into the dashboard's
+;; model, a list of sections, and views draw that model: the dashboard
+;; buffer, and other views such as overlook-remote's web page.
 ;;
 ;; The dashboard is a `magit-section-mode' buffer: each section and row is
 ;; a section, so \\[magit-section-toggle] folds the rows under one and
-;; Magit's section commands work.  Insert rows with `overlook-insert-row'.
+;; Magit's section commands work.
 
 ;;; Code:
 
@@ -68,6 +68,10 @@
   "Width of the dashboard side window.
 An integer is a number of columns; a float is a fraction of the frame width."
   :type '(choice (natnum :tag "Columns") (float :tag "Fraction of frame")))
+
+(defcustom overlook-agent-icons nil
+  "Icons shown in place of agents' names, keyed by name."
+  :type '(alist :key-type string :value-type string))
 
 (defcustom overlook-side 'right
   "Frame side the dashboard window is shown on."
@@ -143,9 +147,6 @@ The name is cut to `overlook-account-width' characters."
 (defcustom overlook-tick-interval 5
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
-
-(defvar overlook-indent ""
-  "Indent of the rows being inserted; `overlook-nested' adds to it.")
 
 (defconst overlook-buffer-name " *overlook*"
   "The dashboard buffer.  A leading space keeps it out of buffer lists.")
@@ -288,30 +289,31 @@ through overlook, since switching perspectives replaces the windows."
 ;;; Hooks
 
 (defvar overlook-sections nil
-  "Functions inserting the dashboard's top level sections, by hook depth.
-Each is called with no arguments in the dashboard buffer, and usually
-inserts through `overlook-insert-section'.  The perspectives section
-sits at depth 0.")
+  "Functions giving the dashboard's top level sections, by hook depth.
+Each is called with no arguments and returns a section, as made by
+`overlook-section-row', or nil.  The perspectives section sits at
+depth 0.")
 
 (defvar overlook-perspective-functions nil
-  "Functions inserting rows under a perspective's heading, by hook depth.
-Each is called with the perspective's NAME in the dashboard buffer.  The
-rows of what lies in a checkout come from `overlook-worktree-functions'
-instead.  Under `overlook-orphans-perspective' a function also inserts
-its rows that belong to no perspective.")
+  "Functions giving the rows under a perspective's heading, by hook depth.
+Each is called with the perspective's NAME and returns a list of rows,
+as made by `overlook-row'.  The rows of what lies in a checkout come
+from `overlook-worktree-functions' instead.  Under
+`overlook-orphans-perspective' a function also gives its rows that
+belong to no perspective.")
 
 (defvar overlook-worktrees-functions nil
   "Functions of a perspective NAME returning the worktrees listed under it.
 Each returns a list of folders, each ending in a slash.")
 
 (defvar overlook-worktree-functions nil
-  "Functions inserting the rows of what lies in a checkout, by hook depth.
+  "Functions giving the rows of what lies in a checkout, by hook depth.
 Each is called with the perspective's NAME and the worktree's folder
-DIR, or nil for what lies in none of its worktrees.  Agents sit at depth
-0 and changed repos at 50.  With DIR nil they go right under the
-perspective's heading while it lists no worktrees, else under the row
-of its main checkout, which a function of `overlook-perspective-functions'
-inserts with those of its worktrees.")
+DIR, or nil for what lies in none of its worktrees, and returns a list
+of rows.  Agents sit at depth 0 and changed repos at 50.  With DIR nil
+they go right under the perspective's heading while it lists no
+worktrees, else under the row of its main checkout, which a function of
+`overlook-perspective-functions' gives with those of its worktrees.")
 
 (defvar overlook--worktrees-cache nil
   "Worktrees looked up during one render, keyed by perspective name.")
@@ -341,7 +343,8 @@ thing, like \"agent claude\", and DELETE a function letting it go.")
   (seq-mapcat (lambda (fn) (funcall fn dir)) overlook-folder-contents-functions))
 
 (defvar overlook-delete-functions nil
-  "Functions of a row's `overlook-item' deleting what it stands for.
+  "Functions of a row's id, as `overlook-item-at-point' gives, deleting it.
+Each deletes what the row stands for.
 Each returns non-nil when it handled the item.")
 
 (defvar overlook-heading-mark-functions nil
@@ -352,7 +355,11 @@ Each returns a string, such as \"*\", or nil.")
   "Functions returning strings joined into the dashboard's mode line.")
 
 (defvar overlook-before-render-hook nil
-  "Hook run in the dashboard buffer before each redraw.")
+  "Hook run before `overlook-model' gathers the dashboard's rows.")
+
+(defvar overlook-after-model-hook nil
+  "Hook run once `overlook-model' has gathered the dashboard's rows afresh.
+For views drawing the model `overlook-latest-model' gives.")
 
 (defvar overlook-tick-hook nil
   "Hook run every `overlook-tick-interval' seconds while the dashboard is live.")
@@ -377,9 +384,18 @@ Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
 (defvar overlook--rendered 0
   "When the dashboard was last redrawn.")
 
+(defvar overlook-refresh-hook nil
+  "Hook run by `overlook-refresh', whether or not the dashboard is live.
+For other views of the dashboard; see `overlook-latest-model'.")
+
+(defvar overlook--generation 0
+  "Count of calls to `overlook-refresh', telling when a model is stale.")
+
 (defun overlook-refresh ()
   "Redraw the dashboard soon, at most once per burst, and not while the user types.
 Redraws are `overlook-refresh-gap' seconds apart at least."
+  (setq overlook--generation (1+ overlook--generation))
+  (run-hooks 'overlook-refresh-hook)
   (when (and (overlook-live-p) (not (timerp overlook--timer)))
     (setq overlook--timer
           (run-with-timer (max 0.1 (- (+ overlook--rendered overlook-refresh-gap) (float-time)))
@@ -462,11 +478,16 @@ The binding is recorded in `overlook-keys'."
                       (delq nil (mapcar #'funcall overlook-mode-line-functions)))
                 "   ")))
 
-;;; Drawing helpers
+;;; Faces
 
 (defface overlook-section
   '((t :inherit (font-lock-keyword-face bold)))
   "Face of section titles.")
+
+(defface overlook-tabular
+  '((t))
+  "Face of rows whose text lines up in columns.
+Views in proportional fonts draw such rows in a fixed-pitch one.")
 
 (defface overlook-heading
   '((t :inherit bold))
@@ -491,65 +512,121 @@ Emacs draws a wrap prefix in the default face, which would leave a gap."
                      'wrap-prefix (propertize prefix 'face 'magit-section-highlight)))
       (forward-line 1))))
 
-(defun overlook--row-id (line)
-  "What identifies row LINE across redraws: its `overlook-item', else its text."
-  (or (get-text-property 0 'overlook-item line)
-      (string-trim (substring-no-properties line))))
+;;; Rows
 
-(defun overlook-insert-row (line &optional children hide)
-  "Insert LINE, a row ending in a newline, and return its section.
-CHILDREN, a function, inserts the rows under it; they start folded when
-HIDE is non-nil, until the row is toggled.  CHILDREN can drop the row by
-calling `magit-cancel-section'; the section's end is then nil.  CHILDREN
-can wrap its insertion in `magit-insert-section-body' to put it off until
-the row is first unfolded."
-  (magit-insert-section (overlook-section (overlook--row-id line) hide)
-    (insert line)
-    (when children
-      (let ((heading-end (point)))
-        (magit-insert-heading)
-        (funcall children)
-        (when (and (= (point) heading-end)
-                   (not (oref magit-insert-section--current washer)))
-          (oset magit-insert-section--current content nil))))))
+(cl-defstruct (overlook-row (:constructor overlook-row) (:copier nil))
+  "A row of the dashboard, as data.
+Make one with `overlook-row', giving each slot as a keyword argument.
+ID identifies the row across redraws, like (agent . BUFFER); without
+one, the row goes by its text.  `overlook-item-at-point' and
+`overlook-delete-functions' get it.
 
-(defun overlook-end-with-blank (section)
-  "Insert a blank line at point, the end of SECTION, as part of SECTION.
-Like Magit's, it highlights and folds with SECTION."
-  (let ((start (point)))
-    (unless (oref section content)
-      (oset section content (copy-marker start)))
-    (insert "\n")
-    (put-text-property start (point) 'magit-section section)
-    (oset section end (point-marker))
-    (when (oref section hidden) (magit-section-hide section))))
+CONTENT is what the row says: a segment, or a list of them, nested
+lists and nils allowed.  A segment is
+  a string, its text properties giving its look, like `face';
+  (:right TEXT :columns N), TEXT ending N columns before the right
+          edge, as `overlook-align-right' makes;
+  (:cell GLYPH), GLYPH padded to three columns, as
+          `overlook-glyph-cell' makes;
+  (:fit TEXT :face FACE :before GAP :reserve N), TEXT in FACE after
+          GAP, cut with an ellipsis to fit before the last N columns,
+          or left out with GAP when hardly any fits;
+  (:pad TEXT :like TEXTS), TEXT padded as wide as the widest of
+          TEXTS, as each view measures them, so rows line up;
+  (:wrap PIECES :gap N), strings N columns apart, those that do not
+          fit going to lines below, which start where the first did.
+A string's `overlook-alt' property is its text for views without the
+fonts of icons.  CONTENT can also be a function of the columns the row
+has, or nil when unbounded, returning segments.
 
-(defun overlook-insert-section (title body)
-  "Insert section TITLE, then call BODY, a function, to fill it.
-The title is dropped when BODY inserts nothing.  TITLE's text properties,
-like `overlook-action', cover its whole line, which is a heading for
-\\[overlook-next-heading].  A blank line ends the section, folded with it."
-  (let ((line (concat title "\n")))
-    (add-face-text-property 0 (length title) 'overlook-section t line)
-    (put-text-property 0 (length line) 'overlook-heading t line)
-    (cl-loop for (prop value) on (text-properties-at 0 title) by #'cddr
-             unless (eq prop 'face)
-             do (put-text-property 0 (length line) prop value line))
-    (overlook-insert-row line (lambda ()
-                                (funcall body)
-                                (magit-cancel-section t)
-                                (insert "\n")))))
+HEADING and ATTENTION mark rows \\[overlook-next-heading] and
+\\[overlook-next-attention] stop at.  CHILDREN are the rows under it, or
+a function returning them once they show; FOLDED starts them folded.
+NEST indents them a step more.  GAP puts a blank line after the row and
+its children, folded with them.  DIM draws the row's line dimmed; FACE,
+a face or list of faces, is added under its own faces, past its indent.
 
-(defun overlook-nested (children)
-  "CHILDREN, a function inserting rows, with those rows indented a step more."
-  (lambda ()
-    (let ((overlook-indent (concat overlook-indent "  ")))
-      (funcall children))))
+ACTION is what RET does, HELP its tooltip, WRAP what starts its
+continuation lines after its indent, KEYMAP its keys.  CHOICES, a list
+of (KEY LABEL . _), are the answers it offers, on a line under the row, and CHOOSE a function of a
+KEY giving that answer."
+  id content heading attention folded children nest gap dim face
+  action help wrap keymap choices choose)
+
+(defun overlook-row-attention-p (row)
+  "Non-nil when ROW, or a row under it shown so far, needs attention."
+  (or (overlook-row-attention row)
+      (let ((children (overlook-row-children row)))
+        (and (not (functionp children)) (seq-some #'overlook-row-attention-p children)))))
+
+(defun overlook-row-rows (row)
+  "The rows under ROW, gathering those put off until shown."
+  (let ((children (overlook-row-children row)))
+    (if (functionp children)
+        (setf (overlook-row-children row) (funcall children))
+      children)))
+
+(defun overlook-gaps (rows)
+  "ROWS, each but the last followed by a blank line."
+  (dolist (row (butlast rows))
+    (setf (overlook-row-gap row) t))
+  rows)
+
+(defun overlook-section-row (title rows &optional action)
+  "A top level section TITLE over ROWS, or nil when ROWS is empty.
+ACTION is what RET on the title does; by default it folds the section."
+  (when rows
+    (let ((title (copy-sequence title)))
+      (add-face-text-property 0 (length title) 'overlook-section t title)
+      (overlook-row :content title :heading t :action action :children rows :gap t))))
+
+(defun overlook-rows (hook &rest args)
+  "The rows the functions of HOOK return given ARGS, in hook order.
+A function can return one row, or a list of them."
+  (let (rows)
+    (apply #'run-hook-wrapped hook
+           (lambda (function &rest args)
+             (push (ensure-list (apply function args)) rows)
+             nil)
+           args)
+    (apply #'append (nreverse rows))))
+
+(defun overlook-alt-text (string)
+  "STRING as views without icon fonts show it, each `overlook-alt' in place."
+  (let ((start 0) parts)
+    (while (< start (length string))
+      (let ((end (next-single-property-change start 'overlook-alt string (length string))))
+        (push (or (get-text-property start 'overlook-alt string) (substring string start end))
+              parts)
+        (setq start end)))
+    (apply #'concat (nreverse parts))))
+
+(defun overlook-icon (name)
+  "NAME's icon from `overlook-agent-icons', else NAME.
+The icon takes NAME's properties, its faces over the icon's own, and
+carries NAME as its `overlook-alt'."
+  (if-let* ((plain (substring-no-properties name))
+            (icon (alist-get plain overlook-agent-icons nil nil #'equal)))
+      (let ((icon (copy-sequence icon))
+            (face (get-text-property 0 'face name)))
+        (cl-loop for (property value) on (text-properties-at 0 name) by #'cddr
+                 unless (eq property 'face)
+                 do (put-text-property 0 (length icon) property value icon))
+        (when face (add-face-text-property 0 (length icon) face nil icon))
+        (put-text-property 0 (length icon) 'overlook-alt plain icon)
+        icon)
+    name))
 
 (defun overlook-align-right (text columns)
-  "TEXT aligned to end COLUMNS before the window's right edge."
-  (concat (propertize " " 'display `(space :align-to (- right ,(+ columns (string-width text)))))
-          text))
+  "A segment of TEXT aligned to end COLUMNS before the window's right edge."
+  (list :right text :columns columns))
+
+(defun overlook-glyph-cell (glyph)
+  "A segment of GLYPH padded to three columns, so the names after it line up.
+Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
+  (list :cell glyph))
+
+;;; Drawing
 
 (defun overlook-columns ()
   "Width of the dashboard window in columns, per `overlook-width'."
@@ -557,11 +634,15 @@ like `overlook-action', cover its whole line, which is a heading for
       (round (* overlook-width (frame-width)))
     overlook-width))
 
+(defun overlook--window-width (&optional pixels)
+  "Body width of the window showing the dashboard, in columns or PIXELS."
+  (if-let* ((window (get-buffer-window (current-buffer) t)))
+      (window-body-width window pixels)
+    (* (overlook-columns) (if pixels (frame-char-width) 1))))
+
 (defun overlook-window-pixels ()
   "Body width in pixels of the window showing the dashboard."
-  (if-let* ((window (get-buffer-window (current-buffer) t)))
-      (window-body-width window t)
-    (* (overlook-columns) (frame-char-width))))
+  (overlook--window-width t))
 
 (defun overlook-pixel-width (string)
   "Width of STRING in pixels, as drawn in the current buffer.
@@ -582,11 +663,224 @@ Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
     (when (>= pixels (* 4 (frame-char-width)))
       (propertize cut 'face face))))
 
-(defun overlook-glyph-cell (glyph)
-  "GLYPH padded to three columns, so the names after it line up.
-Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
-  (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
-    (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
+(defun overlook-string-columns (string)
+  "Columns STRING takes as drawn; fonts draw icons wider than `string-width'."
+  (max (string-width string)
+       (ceiling (overlook-pixel-width string) (frame-char-width))))
+
+(defvar overlook--pad-widths (make-hash-table :test #'eq :weakness 'key)
+  "Columns the widest of each `:pad' segment's texts takes as drawn.")
+
+(defun overlook--pad (text like fit)
+  "Spaces after TEXT making it as wide as the widest of LIKE.
+With FIT, as drawn in the current buffer; else by `overlook-alt-text'."
+  (let ((width (if fit
+                   #'overlook-string-columns
+                 (lambda (string) (string-width (overlook-alt-text string))))))
+    (make-string (max 0 (- (if fit
+                               (with-memoization (gethash like overlook--pad-widths)
+                                 (apply #'max 0 (mapcar width like)))
+                             (apply #'max 0 (mapcar width like)))
+                           (funcall width text)))
+                 ?\s)))
+
+(defun overlook--wrap (pieces gap head)
+  "PIECES joined by GAP after HEAD, wrapped to the window showing the buffer.
+Lines below start where the first piece did, and leave a column at the end."
+  (let* ((start (overlook-pixel-width head))
+         (limit (- (overlook-window-pixels) (frame-char-width)))
+         (gap-width (overlook-pixel-width gap))
+         (newline (concat "\n" (propertize " " 'display `(space :width (,start)))))
+         (x start)
+         (text ""))
+    (dolist (piece pieces)
+      (let ((width (overlook-pixel-width piece)))
+        (cond ((string-empty-p text)
+               (setq text piece x (+ start width)))
+              ((<= (+ x gap-width width) limit)
+               (setq text (concat text gap piece) x (+ x gap-width width)))
+              (t (setq text (concat text newline piece) x (+ start width))))))
+    text))
+
+(defun overlook-row-segments (row &optional columns)
+  "ROW's content as a flat list of segments, for COLUMNS as in `overlook-row'."
+  (overlook--segments (overlook-row-content row) columns))
+
+(defun overlook--segments (content columns)
+  "CONTENT, a row's, as a flat list of segments, for COLUMNS as in `overlook-row'."
+  (cond ((null content) nil)
+        ((stringp content) (list content))
+        ((functionp content) (overlook--segments (funcall content columns) columns))
+        ((keywordp (car content)) (list content))
+        (t (mapcan (lambda (part) (overlook--segments part columns)) content))))
+
+(defun overlook--segment (segment head fit)
+  "SEGMENT as text, after HEAD on its line.
+With FIT, it is laid out for the window showing the current buffer;
+else nothing is cut."
+  (pcase segment
+    ((pred stringp) segment)
+    (`(:right ,text . ,_)
+     (concat (propertize " " 'display
+                         `(space :align-to (- right ,(+ (plist-get segment :columns)
+                                                        (string-width text)))))
+             text))
+    (`(:pad ,text . ,_)
+     (concat text (overlook--pad text (plist-get segment :like) fit)))
+    (`(:wrap ,pieces . ,_)
+     (let ((gap (make-string (or (plist-get segment :gap) 1) ?\s)))
+       (if fit (overlook--wrap pieces gap head) (string-join pieces gap))))
+    (`(:cell ,glyph)
+     (concat glyph (if fit
+                       (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
+                         (propertize " " 'display `(space :width (,(max 1 pad)))))
+                     " ")))
+    (`(:fit ,text . ,_)
+     (let* ((face (plist-get segment :face))
+            (before (or (plist-get segment :before) ""))
+            (text (if fit
+                      (overlook-fit text
+                                    (- (overlook-window-pixels)
+                                       (overlook-pixel-width (concat head before))
+                                       (* (or (plist-get segment :reserve) 0)
+                                          (frame-char-width)))
+                                    face)
+                    (propertize text 'face face))))
+       (if text (concat before text) "")))
+    (_ "")))
+
+(defun overlook--line (row fit &optional indent)
+  "ROW's content as one string after INDENT, laid out as with FIT.
+See `overlook--segment'."
+  (let ((line (or indent "")))
+    (dolist (segment (overlook--segments
+                      (overlook-row-content row)
+                      (and fit (- (overlook--window-width) (length line)))))
+      (setq line (concat line (overlook--segment segment line fit))))
+    line))
+
+(defun overlook--add-faces (faces start end string &optional append)
+  "Add FACES, a face or list of faces, to STRING from START to END.
+They go under its own faces with APPEND, else over them."
+  (dolist (face (if (and (consp faces) (not (keywordp (car faces)))) faces (list faces)))
+    (add-face-text-property start end face append string)))
+
+(defun overlook--row-look (row text start end)
+  "Add ROW's face to TEXT past START, and dim it before END when ROW is dim."
+  (when (overlook-row-face row)
+    (overlook--add-faces (overlook-row-face row) start (length text) text t))
+  (when (overlook-row-dim row)
+    (add-face-text-property 0 end 'shadow nil text)))
+
+(defun overlook-row-text (row)
+  "ROW's content as one string with its look, nothing cut or aligned.
+For views other than the dashboard buffer."
+  (let ((text (overlook--line row nil)))
+    (overlook--row-look row text 0 (length text))
+    text))
+
+(defun overlook-row-key (row &optional text)
+  "What identifies ROW across redraws: its id, else its line TEXT, trimmed.
+TEXT defaults to `overlook-row-text'."
+  (or (overlook-row-id row)
+      (string-trim (substring-no-properties (or text (overlook-row-text row))))))
+
+(defun overlook--choose-at-point (choose)
+  "Call CHOOSE with the answer at point, or visit the row off any answer."
+  (if-let* ((key (get-text-property (point) 'overlook-choice)))
+      (funcall choose key)
+    (overlook-visit)))
+
+(defun overlook--keymap (row)
+  "Keymap of ROW: its own, under keys giving the answers it offers."
+  (if-let* ((choose (overlook-row-choose row))
+            ((overlook-row-choices row)))
+      (let ((map (make-sparse-keymap)))
+        (pcase-dolist (`(,key . ,_) (overlook-row-choices row))
+          (keymap-set map key (lambda () (interactive) (funcall choose key))))
+        (keymap-set map "RET" (lambda () (interactive) (overlook--choose-at-point choose)))
+        (keymap-set map "<mouse-1>" (lambda (event)
+                                      (interactive "e")
+                                      (mouse-set-point event)
+                                      (overlook--choose-at-point choose)))
+        (when (overlook-row-keymap row)
+          (set-keymap-parent map (overlook-row-keymap row)))
+        map)
+    (overlook-row-keymap row)))
+
+(defun overlook--choices-line (row prefix)
+  "The line under ROW offering its answers, after PREFIX, or an empty string."
+  (if-let* ((choices (overlook-row-choices row)))
+      (concat prefix
+              (mapconcat (pcase-lambda (`(,key ,label . ,_))
+                           (propertize (concat (propertize key 'face 'help-key-binding) " "
+                                               (truncate-string-to-width label 40 nil nil "…"))
+                                       'overlook-choice key
+                                       'mouse-face 'highlight))
+                         choices "  ")
+              "\n")
+    ""))
+
+(defun overlook--row-lines (row indent)
+  "ROW's text in the dashboard after INDENT, its line then its answers'.
+Returns (TEXT . ID), ID being the row's id, else its trimmed text."
+  (let* ((line (overlook--line row t indent))
+         (heading-end (1+ (length line)))
+         (wrap (and (overlook-row-wrap row)
+                    (concat indent (overlook-row-wrap row))))
+         (text (concat line "\n" (overlook--choices-line row (or wrap indent))))
+         (keymap (overlook--keymap row)))
+    (overlook--row-look row text (length indent) heading-end)
+    (when (overlook-row-heading row)
+      (put-text-property 0 heading-end 'overlook-heading t text))
+    (when (overlook-row-attention row)
+      (put-text-property 0 heading-end 'overlook-attention t text))
+    (add-text-properties
+     0 (length text)
+     `(,@(and (overlook-row-id row) (list 'overlook-item (overlook-row-id row)))
+       ,@(and (overlook-row-action row) (list 'overlook-action (overlook-row-action row)))
+       ,@(and (overlook-row-help row) (list 'help-echo (overlook-row-help row)))
+       ,@(and wrap (list 'wrap-prefix wrap))
+       ,@(and keymap (list 'keymap keymap)))
+     text)
+    (cons text (overlook-row-key row line))))
+
+(defun overlook--end-with-blank (section)
+  "Insert a blank line at point, the end of SECTION, as part of SECTION.
+Like Magit's, it highlights and folds with SECTION."
+  (let ((start (point)))
+    (unless (oref section content)
+      (oset section content (copy-marker start)))
+    (insert "\n")
+    (put-text-property start (point) 'magit-section section)
+    (oset section end (point-marker))
+    (when (oref section hidden) (magit-section-hide section))))
+
+(defun overlook--insert-row (row indent)
+  "Insert ROW after INDENT, with the rows under it, and return its section."
+  (pcase-let* ((`(,text . ,id) (overlook--row-lines row indent))
+               (children (overlook-row-children row))
+               (inner (if (overlook-row-nest row) (concat indent "  ") indent))
+               (section
+                (magit-insert-section (overlook-section id (overlook-row-folded row))
+                  (insert text)
+                  (when children
+                    (let ((heading-end (point)))
+                      (magit-insert-heading)
+                      (if (functionp children)
+                          (magit-insert-section-body
+                            (overlook-insert-rows (overlook-row-rows row) inner))
+                        (overlook-insert-rows children inner))
+                      (when (and (= (point) heading-end)
+                                 (not (oref magit-insert-section--current washer)))
+                        (oset magit-insert-section--current content nil)))))))
+    (when (overlook-row-gap row) (overlook--end-with-blank section))
+    section))
+
+(defun overlook-insert-rows (rows &optional indent)
+  "Insert ROWS at point as dashboard sections, each after INDENT."
+  (dolist (row rows)
+    (overlook--insert-row row (or indent ""))))
 
 (defun overlook-format-duration (seconds)
   "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
@@ -615,54 +909,81 @@ Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
   (mapconcat (lambda (function) (or (funcall function name) ""))
              overlook-heading-mark-functions))
 
-(defun overlook--heading (name marks &optional current)
-  "Heading line of perspective NAME and its MARKS, highlighted when CURRENT."
-  (propertize (concat (propertize (concat name marks)
-                                  'face (if current 'overlook-heading-current
-                                          'overlook-heading))
-                      (when-let* ((tag (and overlook-perspective-annotation
-                                            (funcall overlook-perspective-annotation name))))
-                        (propertize (concat " " tag) 'face 'shadow))
-                      "\n")
-              'overlook-item (cons 'perspective name)
-              'overlook-heading t
-              'overlook-action (lambda () (overlook-show-elsewhere name #'ignore))))
+(defun overlook--perspective-row (name current)
+  "The heading of perspective NAME over its rows, or nil when left out.
+CURRENT is the current perspective's name.  See `overlook--perspectives'."
+  (let* ((marks (overlook--heading-marks name))
+         (rows (append (overlook-rows 'overlook-perspective-functions name)
+                       (unless (overlook-worktrees name)
+                         (overlook-rows 'overlook-worktree-functions name nil))))
+         (row (overlook-row
+               :id (cons 'perspective name)
+               :content (list (propertize (concat name marks)
+                                          'face (if (equal name current)
+                                                    'overlook-heading-current
+                                                  'overlook-heading))
+                              (when-let* ((tag (and overlook-perspective-annotation
+                                                    (funcall overlook-perspective-annotation name))))
+                                (propertize (concat " " tag) 'face 'shadow)))
+               :heading t
+               :action (lambda () (overlook-show-elsewhere name #'ignore))
+               :children rows)))
+    (when (and (or rows (equal name current) overlook-show-empty-perspectives
+                   (not (string-empty-p marks)))
+               (or (equal name current)
+                   (null overlook-perspective-filter)
+                   (funcall overlook-perspective-filter name)
+                   (overlook-row-attention-p row)))
+      row)))
 
 (defun overlook--perspectives ()
-  "Insert each perspective's heading and rows.
+  "Each perspective's heading over its rows.
 One with no rows and no mark after its heading is left out unless
 current or `overlook-show-empty-perspectives' is set.  Those
 `overlook-perspective-filter' hides are left out unless current or
 needing attention."
-  (let* ((current (overlook-current-perspective))
-         (previous nil))
-    (dolist (name (overlook-ordered-perspectives))
-      (let* ((start (point))
-             (marks (overlook--heading-marks name)))
-        (when previous (overlook-end-with-blank previous))
-        (let ((section (overlook-insert-row
-                        (overlook--heading name marks (equal name current))
-                        (lambda ()
-                          (run-hook-with-args 'overlook-perspective-functions name)
-                          (unless (overlook-worktrees name)
-                            (run-hook-with-args 'overlook-worktree-functions name nil))
-                          (unless (or (equal name current)
-                                      overlook-show-empty-perspectives
-                                      (not (string-empty-p marks)))
-                            (magit-cancel-section t))))))
-          (if (and (oref section end)
-                   (or (equal name current)
-                       (null overlook-perspective-filter)
-                       (funcall overlook-perspective-filter name)
-                       (text-property-not-all start (point) 'overlook-attention nil)))
-              (setq previous section)
-            (delete-region start (point))))))))
+  (let ((current (overlook-current-perspective)))
+    (overlook-gaps (seq-keep (lambda (name) (overlook--perspective-row name current))
+                             (overlook-ordered-perspectives)))))
 
 (defun overlook--perspectives-section ()
-  "Insert the Perspectives section."
-  (overlook-insert-section "Perspectives" #'overlook--perspectives))
+  "The Perspectives section."
+  (overlook-section-row "Perspectives" (overlook--perspectives)))
 
 (add-hook 'overlook-sections #'overlook--perspectives-section)
+
+;;; Model
+
+(defvar overlook--model nil
+  "The model `overlook-model' last gathered, as (GENERATION . SECTIONS).")
+
+(defun overlook-model ()
+  "The dashboard as data, gathered afresh: a list of sections.
+Each is a row, as `overlook-row' describes, its children the rows of
+the section.  Views keep it as `overlook-latest-model' gives it."
+  (let* ((generation overlook--generation)
+         (overlook--buffers-cache (make-hash-table :test #'equal))
+         (overlook--roots-cache (make-hash-table :test #'equal))
+         (overlook--worktrees-cache (make-hash-table :test #'equal))
+         (sections (progn
+                     (run-hooks 'overlook-before-render-hook)
+                     (seq-mapcat (lambda (function) (ensure-list (funcall function)))
+                                 (overlook--sections)))))
+    (setq overlook--model (cons generation sections))
+    (run-hooks 'overlook-after-model-hook)
+    sections))
+
+(defun overlook-model-fresh-p ()
+  "Non-nil when no `overlook-refresh' came since the last model was gathered."
+  (and overlook--model (= (car overlook--model) overlook--generation)))
+
+(defun overlook-latest-model ()
+  "The dashboard's model: the last one gathered while fresh, else a new one.
+The dashboard gathers one each redraw, so other views of it share that
+one; see `overlook-after-model-hook'."
+  (if (overlook-model-fresh-p)
+      (cdr overlook--model)
+    (overlook-model)))
 
 ;;; Render
 
@@ -727,14 +1048,11 @@ After a perspective switch, point goes to the current perspective instead."
                                          (overlook--place (window-start window))))
                                  (reverse windows))
                        (list (list nil (overlook--place (point)) nil))))
-             (overlook--buffers-cache (make-hash-table :test #'equal))
-             (overlook--roots-cache (make-hash-table :test #'equal))
-             (overlook--worktrees-cache (make-hash-table :test #'equal))
              (inhibit-read-only t))
         (erase-buffer)
-        (run-hooks 'overlook-before-render-hook)
-        (magit-insert-section (overlook-section 'root)
-          (mapc #'funcall (overlook--sections)))
+        (let ((model (overlook-model)))
+          (magit-insert-section (overlook-section 'root)
+            (overlook-insert-rows model)))
         (magit-section-show magit-root-section)
         (pcase-dolist (`(,window ,point ,start) places)
           (let ((point (overlook--redrawn-point point))
@@ -814,7 +1132,7 @@ FORWARD picks the direction; WHAT names those lines when there is none."
   (overlook--step nil 'overlook-attention "row needing attention"))
 
 (defun overlook-item-at-point ()
-  "The `overlook-item' of the row at point, or nil."
+  "The id of the row at point, as given to `overlook-row', or nil."
   (get-text-property (line-beginning-position) 'overlook-item))
 
 (defun overlook-delete ()

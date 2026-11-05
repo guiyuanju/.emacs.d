@@ -155,7 +155,10 @@ Steering the agents from a browser, such as a phone's:
 (overlook-remote-mode 1)              ; copies the page's address, with its token
 ```
 
-The page lists the agents, those waiting for you first.  An agent's own
+The page shows the dashboard, drawn by the same modules as in Emacs and
+redrawn as it changes, with buttons for the answers each agent waits
+for, such as a permission request; a tap on an agent opens its own page.
+Another view lists the agents, those waiting for you first.  An agent's own
 page follows its prompts, replies and tool calls as they come, with the
 diff of each edit, from when the mode started; before that it shows the
 last reply and the end of the buffer.  It gives the answers an agent asks
@@ -317,22 +320,20 @@ Evil users can bind the same keys in normal state:
 ## Extending
 
 Everything on the dashboard comes from hooks, so a module of your own can
-add to it:
+add to it.  Modules return data, not text: rows made by `overlook-row`.
 
-- `overlook-sections`: top level sections, by hook depth.  The
-  perspectives section is at 0, usage at -50.  Insert through
-  `overlook-insert-section`.  `overlook-section-order` fixes the order
-  of the ones it lists, ahead of the rest.
+- `overlook-sections`: top level sections, by hook depth, each a function
+  returning one made by `overlook-section-row` (a title over rows), or
+  nil.  The perspectives section is at 0, usage at -50.
+  `overlook-section-order` fixes the order of the ones it lists, ahead
+  of the rest.
 - `overlook-perspective-functions`: rows under each perspective, called
-  with its name, by hook depth, such as the rows of its checkouts.
-  Insert each row with `overlook-insert-row`, which can nest rows under
-  it.  Under `overlook-orphans-perspective`, also insert the rows that
-  belong to no perspective.
+  with its name, by hook depth, such as the rows of its checkouts; each
+  returns a list of rows.  Under `overlook-orphans-perspective`, also
+  return the rows that belong to no perspective.
 - `overlook-delete-functions`: what `d d` does on a row, given its
   `overlook-item`; `overlook-folder-contents-functions`: what lies in a
   folder about to go, each with a function letting it go.
-- `overlook-nested`: wrap a function inserting rows to indent them a
-  step more.
 - `overlook-worktrees-functions`: worktree folders listed under a
   perspective; `overlook-worktree-functions`: rows of what lies in a
   checkout, called with the perspective's name and the worktree's
@@ -348,13 +349,47 @@ add to it:
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.
 - `overlook-tick-hook`: run every few seconds while the dashboard is live.
 
-Text properties on a row tell the dashboard about it: `overlook-action`
-is called by `RET`, `overlook-item` keeps point on the row across
-redraws, `overlook-heading` and `overlook-attention` mark the lines the
-motion commands stop at.  The dashboard is a
-[magit-section](https://github.com/magit/magit) buffer and every row a
+A row is plain data, so every view draws the same thing:
+
+```elisp
+(overlook-row
+ :id '(ticket . "OPS-12")          ; keeps point on it; what `d d' gets
+ :content (list (overlook-glyph-cell "●")
+                (propertize "OPS-12" 'face 'bold)
+                " deploy"
+                (list :fit "a long summary, cut to fit" :face 'shadow
+                      :before "  " :reserve 6)
+                (overlook-align-right (propertize "3m" 'face 'shadow) 1))
+ :action (lambda () (browse-url "https://example.com/OPS-12")) ; RET
+ :attention t                      ; a stop for C-S-j / ] a
+ :children (list (overlook-row :content "a row under it"))
+ :folded t)
+```
+
+Content is a list of segments: strings, whose text properties give
+their look, and parts each view lays out for itself: `:right` text
+aligned to the right edge, a glyph `:cell`, `:fit` text cut to the
+window, `:pad` text padded as wide as the widest of its `:like`, so
+rows line up however each view measures icons, and `:wrap` pieces that
+go to lines of their own, under the first, when the line is too narrow.
+Rows with the `overlook-tabular` face line up in columns, so the page
+draws them in a fixed-pitch font.  `overlook-icon` gives a
+name's icon from `overlook-agent-icons`, carrying the name for views
+without icon fonts.  A row also takes `:heading`, `:nest` (indent its children),
+`:gap` (a blank line after it), `:dim`, `:face`, `:help`, `:wrap`,
+`:keymap`, children as a function called once they show, and the
+`:choices` it offers with `:choose`, which gives an answer; see `overlook-row`'s docstring.  Filter or rearrange rows
+as data before returning them; `overlook-gaps` puts blank lines between
+them.
+
+`overlook-model` gathers all sections, the dashboard draws them in a
+[magit-section](https://github.com/magit/magit) buffer, every row a
 section, so Magit's section commands (`C-<tab>`, `1`–`4`, `^`, `n`/`p`)
 work too.  Call `overlook-refresh` when something you show changed.
+Other views draw the model too: `overlook-latest-model` gives the one
+the dashboard gathered on its last redraw while nothing has changed
+since, and `overlook-after-model-hook` and `overlook-refresh-hook` tell
+them when to look again, as overlook-remote does.
 
 Another perspective implementation can drive overlook by setting the
 `overlook-perspective-*-function` variables, as overlook-perspective.el

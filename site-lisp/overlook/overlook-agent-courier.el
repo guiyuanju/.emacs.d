@@ -188,7 +188,7 @@ projects goes to `overlook-orphan-perspective'."
               (if (> pending 0) (propertize (format " ✉%d" pending) 'face 'warning) "")))))
 
 (defun overlook-agent-courier--room-row (name &optional dim)
-  "Insert the row of room NAME: its unread posts, and whether one names the user.
+  "The row of room NAME: its unread posts, and whether one names the user.
 With DIM, its name is dimmed; unread posts still stand out."
   (let* ((room (overlook-courier-room name))
          (read (plist-get (overlook-courier-room-member room overlook-courier-room-user) :read))
@@ -204,63 +204,50 @@ With DIM, its name is dimmed; unread posts still stand out."
          (members (length (overlook-courier-room-members room)))
          (last (car (overlook-courier-room-posts room)))
          (meta (propertize (format "%d member%s" members (if (= members 1) "" "s"))
-                           'face 'shadow))
-         (line (concat overlook-indent "#" name
-                       (if unread (propertize (format " ✉%d" (length unread)) 'face 'warning) "")
-                       (overlook-align-right meta 1)
-                       "\n")))
-    (when dim
-      (add-face-text-property (length overlook-indent) (length line) 'shadow t line))
-    (when named
-      (add-face-text-property (length overlook-indent) (length line) 'overlook-agent-waiting t line))
-    (add-text-properties 0 (length line)
-                         `( overlook-item (room . ,name)
-                            overlook-action ,(lambda () (overlook-room-open name))
-                            overlook-attention ,named
-                            help-echo ,(if last (overlook-courier-room-format last) "No posts yet"))
-                         line)
-    (overlook-insert-row line)))
+                           'face 'shadow)))
+    (overlook-row :id (cons 'room name)
+                  :content (list "#" name
+                                 (and unread (propertize (format " ✉%d" (length unread))
+                                                         'face 'warning))
+                                 (overlook-align-right meta 1))
+                  :face (append (and dim '(shadow)) (and named '(overlook-agent-waiting)))
+                  :attention (and named t)
+                  :action (lambda () (overlook-room-open name))
+                  :help (if last (overlook-courier-room-format last) "No posts yet"))))
 
 (defun overlook-agent-courier--persona-row (name)
-  "Insert the row of persona NAME: whether it runs, its engine's icon, its name."
+  "The row of persona NAME: whether it runs, its engine's icon, its name."
   (let* ((persona (overlook-courier-persona name))
          (agent (overlook-courier-agent name))
          (buffer (and agent (overlook-courier-agent-buffer agent)))
          (running (buffer-live-p buffer))
-         (meta (propertize (if running "" "offline") 'face 'shadow))
-         (line (concat overlook-indent
-                       (overlook-glyph-cell
-                        (if running
-                            (overlook-agent-glyph buffer)
-                          (overlook-agent-idle-glyph)))
-                       (overlook-agent-label (or (plist-get persona :engine) "?"))
-                       " " (plist-get persona :name)
-                       (overlook-align-right meta 1)
-                       "\n")))
-    (add-text-properties 0 (length line)
-                         `( overlook-item (persona . ,name)
-                            overlook-action ,(if running
-                                                 (lambda () (overlook-agent-visit buffer))
-                                               (lambda () (overlook-persona-start name)))
-                            help-echo ,(concat (if-let* ((description (plist-get persona :description)))
-                                                   (concat description "\n")
-                                                 "")
-                                               (if running "RET: show it" "RET: start it; e: edit it")))
-                         line)
-    (overlook-insert-row line)))
+         (meta (propertize (if running "" "offline") 'face 'shadow)))
+    (overlook-row :id (cons 'persona name)
+                  :content (list (overlook-glyph-cell
+                                  (if running
+                                      (overlook-agent-glyph buffer)
+                                    (overlook-agent-idle-glyph)))
+                                 (overlook-icon (or (plist-get persona :engine) "?"))
+                                 " " (plist-get persona :name)
+                                 (overlook-align-right meta 1))
+                  :action (if running
+                              (lambda () (overlook-agent-visit buffer))
+                            (lambda () (overlook-persona-start name)))
+                  :help (concat (if-let* ((description (plist-get persona :description)))
+                                    (concat description "\n")
+                                  "")
+                                (if running "RET: show it" "RET: start it; e: edit it")))))
 
 (defun overlook-agent-courier--personas-section ()
-  "Insert the Personas section: a row per persona, or one to make the first."
+  "The Personas section: a row per persona, or one to make the first."
   (when overlook-courier-persona-directories
-    (overlook-insert-section
-     (propertize "Personas" 'overlook-action #'overlook-persona-new)
-     (lambda ()
-       (if-let* ((names (overlook-courier-persona-names)))
-           (mapc #'overlook-agent-courier--persona-row names)
-         (overlook-insert-row
-          (propertize (concat overlook-indent "No personas yet; RET makes one\n")
-                      'face 'shadow
-                      'overlook-action #'overlook-persona-new)))))))
+    (overlook-section-row
+     "Personas"
+     (if-let* ((names (overlook-courier-persona-names)))
+         (mapcar #'overlook-agent-courier--persona-row names)
+       (list (overlook-row :content (propertize "No personas yet; RET makes one" 'face 'shadow)
+                           :action #'overlook-persona-new)))
+     #'overlook-persona-new)))
 
 (defun overlook-persona-start (name &optional directory engine effort)
   "Start persona NAME, by default in its own directory on its own engine.
@@ -330,11 +317,11 @@ Opens its persona.md to fill in."
   "Name of the room of worktree DIR's branch."
   (overlook-courier-worktree-room (file-name-nondirectory (directory-file-name dir))))
 
-(defun overlook-agent-courier--insert-worktree-room (_perspective dir)
-  "Insert the dimmed row of the room of worktree DIR's branch, when it has one."
+(defun overlook-agent-courier--worktree-room-rows (_perspective dir)
+  "The dimmed row of the room of worktree DIR's branch, when it has one."
   (when-let* ((name (and dir (overlook-agent-courier--worktree-room dir)))
               ((overlook-courier-room name)))
-    (overlook-agent-courier--room-row name t)))
+    (list (overlook-agent-courier--room-row name t))))
 
 (defun overlook-agent-courier--delete (item)
   "Close the room ITEM stands for, once confirmed, moving its posts to the archive."
@@ -346,14 +333,15 @@ Opens its persona.md to fill in."
      t)))
 
 (defun overlook-agent-courier--rooms-section ()
-  "Insert the Rooms section: a row per courier room not under a worktree."
+  "The Rooms section: a row per courier room not under a worktree."
   (let ((under (mapcar #'overlook-agent-courier--worktree-room
                        (seq-mapcat #'overlook-worktrees (overlook-perspectives)))))
-    (overlook-insert-section
-     (propertize "Rooms" 'overlook-action (lambda () (call-interactively #'overlook-room-open)))
-     (lambda ()
-       (dolist (name (overlook-courier-room-names))
-         (unless (member name under) (overlook-agent-courier--room-row name)))))))
+    (overlook-section-row
+     "Rooms"
+     (seq-keep (lambda (name)
+                 (unless (member name under) (overlook-agent-courier--room-row name)))
+               (overlook-courier-room-names))
+     (lambda () (call-interactively #'overlook-room-open)))))
 
 ;;;###autoload
 (define-minor-mode overlook-agent-courier-mode
@@ -370,7 +358,7 @@ Opens its persona.md to fill in."
      (overlook-agent-row-marks overlook-agent-courier--mark)
      (overlook-agent-hide-functions overlook-agent-courier--persona-item-p)
      (overlook-sections overlook-agent-courier--rooms-section -10)
-     (overlook-worktree-functions overlook-agent-courier--insert-worktree-room 50)
+     (overlook-worktree-functions overlook-agent-courier--worktree-room-rows 50)
      (overlook-delete-functions overlook-agent-courier--delete)
      (overlook-sections overlook-agent-courier--personas-section -9)
      (overlook-agent-save-functions overlook-agent-courier--saved)

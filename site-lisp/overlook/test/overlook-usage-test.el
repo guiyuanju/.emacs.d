@@ -80,13 +80,13 @@
     (let ((overlook-usage--rows
            (list (cons (propertize "deepseek" 'overlook-action #'ignore)
                        (list (list "balance" "¥1.00" nil))))))
-      (overlook-usage--insert)
+      (overlook-insert-rows (overlook-usage--dashboard-rows))
       (should (eq (get-text-property (point-min) 'overlook-action) #'ignore)))))
 
 (ert-deftest overlook-usage-plain-row-has-no-action ()
   (with-temp-buffer
     (let ((overlook-usage--rows (list (cons "claude" (list (list "5h" 96 1791577800))))))
-      (overlook-usage--insert)
+      (overlook-insert-rows (overlook-usage--dashboard-rows))
       (should-not (get-text-property (point-min) 'overlook-action)))))
 
 (ert-deftest overlook-usage-rows-fit-the-window ()
@@ -96,7 +96,7 @@
              (list (list "antigravity" (list "5h" 43 (+ (float-time) 66000)) (list "7d" 50 (+ (float-time) 902000)))
                    (list "deepseek" (list "balance" "¥14.15" nil) (list "today" "~¥0.1600" nil)))))
         (cl-letf (((symbol-function 'overlook-columns) (lambda () columns)))
-          (overlook-usage--insert))
+          (overlook-insert-rows (overlook-usage--dashboard-rows)))
         (dolist (line (split-string (buffer-string) "\n" t))
           (should (< (string-width line) columns)))))))
 
@@ -106,7 +106,7 @@
            (list (list "claude" (list "5h" 43 (+ (float-time) 66000)))
                  (list "deepseek" (list "balance" "¥14.15" nil)))))
       (cl-letf (((symbol-function 'overlook-columns) (lambda () 69)))
-        (overlook-usage--insert))
+        (overlook-insert-rows (overlook-usage--dashboard-rows)))
       (pcase-let ((`(,meter ,text) (split-string (buffer-string) "\n" t)))
         (should (= (+ (string-search "%" meter) 1)
                    (+ (string-search "¥14.15" text) (length "¥14.15"))))))))
@@ -117,7 +117,7 @@
           (overlook-usage--rows
            (list (cons (propertize "claude" 'overlook-action #'ignore)
                        (list (list "5h" 43 nil))))))
-      (overlook-usage--insert)
+      (overlook-insert-rows (overlook-usage--dashboard-rows))
       (should (string-prefix-p "C  5h" (buffer-string)))
       (should (eq (get-text-property (point-min) 'overlook-action) #'ignore)))))
 
@@ -129,9 +129,35 @@
                  (cons "codex" (list (list "5h" 10 nil))))))
       (cl-letf (((symbol-function 'overlook-pixel-width)
                  (lambda (string) (if (equal string "C") 2 (string-width string)))))
-        (overlook-usage--insert))
+        (overlook-insert-rows (overlook-usage--dashboard-rows)))
       (pcase-let ((`(,claude ,codex) (split-string (buffer-string) "\n" t)))
         (should (= (1+ (string-search "5h" claude)) (string-search "5h" codex)))))))
+
+(ert-deftest overlook-usage-lines-up-names-where-icons-do-not-show ()
+  (let ((overlook-agent-icons '(("claude" . "C")))
+        (overlook-usage--rows
+         (list (cons "claude" (list (list "5h" 43 nil)))
+               (cons "codex" (list (list "5h" 10 nil))))))
+    (pcase-let ((`(,claude ,codex)
+                 (mapcar (lambda (row) (overlook-alt-text (overlook-row-text row)))
+                         (overlook-usage--dashboard-rows))))
+      (should (string-prefix-p "claude  5h" claude))
+      (should (= (string-search "5h" claude) (string-search "5h" codex))))))
+
+(ert-deftest overlook-usage-narrow-window-puts-windows-on-lines-of-their-own ()
+  (with-temp-buffer
+    (let ((overlook-usage--rows
+           (list (list "claude" (list "5h" 43 (+ (float-time) 66000))
+                       (list "7d" 50 (+ (float-time) 902000))))))
+      (cl-letf (((symbol-function 'overlook-columns) (lambda () 40)))
+        (overlook-insert-rows (overlook-usage--dashboard-rows)))
+      (pcase-let ((`(,first ,second) (split-string (buffer-string) "\n" t)))
+        (should (string-search "5h" first))
+        (should-not (string-search "7d" first))
+        ;; The second starts where the first window did.
+        (should (equal (get-text-property 0 'display second)
+                       `(space :width (,(string-search "5h" first)))))
+        (should (string-prefix-p " 7d" second))))))
 
 (provide 'overlook-usage-test)
 

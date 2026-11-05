@@ -69,7 +69,7 @@
                           ("deepseek" ("balance" "¥4.34" nil) ("today" "~¥0.0123" nil))))
           (overlook-width width))
       (with-temp-buffer
-        (overlook-usage--insert)
+        (overlook-insert-rows (overlook-usage--dashboard-rows))
         (goto-char (point-min))
         (search-forward "7d")
         (let ((second-column (- (current-column) 2)))

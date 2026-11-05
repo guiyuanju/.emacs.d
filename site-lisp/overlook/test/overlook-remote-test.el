@@ -117,6 +117,160 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                                                 '((id . "claude@shop") (key . "!"))))
                409))))
 
+(defmacro overlook-remote-test-with-dashboard (&rest body)
+  "Run BODY with the agent of `overlook-remote-test-with-agent' under \"shop\"."
+  (declare (indent 0))
+  `(let ((overlook-perspectives-function (lambda () '("shop")))
+         (overlook-current-perspective-function (lambda () "shop"))
+         (overlook-perspective-buffers-function (lambda (_) (list agent)))
+         (overlook-perspective-root-function (lambda (_) "/work/shop/"))
+         (overlook-perspective-functions nil)
+         (overlook-worktrees-functions nil)
+         (overlook-worktree-functions (list #'overlook-agent--rows))
+         (overlook-sections (list #'overlook--perspectives-section)))
+     ,@body))
+
+(defun overlook-remote-test--text (node)
+  "The text of NODE from the dashboard call, its spans joined."
+  (mapconcat (lambda (span) (alist-get 'text span)) (alist-get 'spans node) ""))
+
+(ert-deftest overlook-remote-serves-the-dashboard-with-the-agents-choices ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (with-current-buffer agent (setq overlook-agent-status 'waiting))
+      (pcase-let* ((`(,status . ,data) (overlook-remote-test--call "GET" "/overlook/api/dashboard"))
+                   (`(,section) (alist-get 'sections data))
+                   (`(,shop) (alist-get 'children section))
+                   (`(,row) (alist-get 'children shop)))
+        (should (= status 200))
+        (should (equal (overlook-remote-test--text section) "Perspectives"))
+        (should (eq (alist-get 'heading section) t))
+        (should (member "overlook-section" (alist-get 'faces (car (alist-get 'spans section)))))
+        (should (equal (overlook-remote-test--text shop) "shop"))
+        ;; The agent's row names it and carries its answers.
+        (should (equal (alist-get 'agent row) "claude@shop"))
+        (should (eq (alist-get 'attention row) t))
+        (should (equal (mapcar (lambda (c) (alist-get 'key c)) (alist-get 'choices row))
+                       '("y" "n")))
+        (should (string-prefix-p "▲" (overlook-remote-test--text row)))
+        (should-not (string-search "Allow" (overlook-remote-test--text row)))
+        (should-not (alist-get 'agent shop))
+        (should (= (length (alist-get 'id row)) 16))
+        ;; Nothing changed: the call is held, until the agent stops asking.
+        (let ((known (alist-get 'known data)))
+          (should (eq (car (overlook-remote--respond
+                            "GET" "/overlook/api/dashboard" `(("known" ,known))
+                            `(("GET" "/overlook/api/dashboard" "HTTP/1.1")
+                              ("Authorization" ,(concat "Bearer " (overlook-remote--token))))))
+                      :hold))
+          (should (= (car (overlook-remote-test--call "POST" "/overlook/api/choose"
+                                                      '((id . "claude@shop") (key . "y"))))
+                     200))
+          (with-current-buffer agent
+            (setf (alist-get 'choices overlook-agent-identity) (lambda () nil)))
+          (pcase-let ((`(,status . ,news) (overlook-remote-test--call
+                                           "GET" "/overlook/api/dashboard" nil nil
+                                           `(("known" ,known)))))
+            (should (= status 200))
+            (should-not (equal (alist-get 'known news) known))))
+        ;; The answer it no longer offers is refused.
+        (should (= (car (overlook-remote-test--call "POST" "/overlook/api/choose"
+                                                    '((id . "claude@shop") (key . "y"))))
+                   409))))))
+
+(ert-deftest overlook-remote-wakes-a-held-dashboard-call-on-a-refresh ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let* ((overlook-remote--waiting nil)
+             (overlook-remote--wake-timer nil)
+             (overlook-refresh-hook (list #'overlook-remote--refreshed))
+             (sent nil)
+             (proc (make-pipe-process :name "overlook-remote-test" :noquery t))
+             (known (cdr (overlook-remote--dashboard))))
+        (unwind-protect
+            (cl-letf (((symbol-function 'overlook-remote--send)
+                       (lambda (p response) (push (cons p response) sent))))
+              (overlook-remote--hold proc (overlook-remote--dashboard-call known))
+              (overlook-remote--answer-news)
+              (should-not sent)
+              (with-current-buffer agent (setq overlook-agent-status 'working))
+              (overlook-refresh)
+              (should overlook-remote--wake-timer)
+              (overlook-remote--answer-news)
+              (should (eq (caar sent) proc))
+              (should (string-search "\"sections\"" (nth 3 (car sent))))
+              (should-not overlook-remote--waiting))
+          (delete-process proc))))))
+
+(defun overlook-remote-test--faces ()
+  "Check `overlook-remote--faces' follows inheritance."
+  (overlook-remote--faces '(overlook-heading-current (:foreground "red"))))
+
+(ert-deftest overlook-remote-names-faces-with-what-they-inherit ()
+  (should (equal (overlook-remote-test--faces) '("overlook-heading-current" "success" "bold")))
+  (should (equal (append (overlook-remote--spans
+                          (overlook-row :content (list (propertize "a" 'face 'shadow)
+                                                       (propertize "b" 'face 'shadow)
+                                                       (overlook-align-right "5m" 6)
+                                                       (overlook-align-right "" 1))))
+                         nil)
+                 '((:text "ab" :faces ["shadow"]) (:text "" :faces [] :right t)
+                   (:text "5m" :faces []))))
+  ;; Icons go by their names, as the page lacks their fonts.
+  (should (equal (append (overlook-remote--spans
+                          (overlook-row :content (let ((overlook-agent-icons '(("claude" . "C"))))
+                                                   (concat (overlook-icon "claude") " x"))))
+                         nil)
+                 '((:text "claude x" :faces [])))))
+
+(ert-deftest overlook-remote-keeps-wrapping-pieces-apart ()
+  (should (equal (append (overlook-remote--spans
+                          (overlook-row :content (list "name  " (list :wrap '("a" "b") :gap 3))))
+                         nil)
+                 '((:text "name  " :faces []) (:wrap [[(:text "a" :faces [])]
+                                                      [(:text "b" :faces [])]]
+                                               :gap 3)))))
+
+(ert-deftest overlook-remote-shares-the-live-dashboard-s-model ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let ((gathered 0)
+            (overlook-remote--dashboard nil)
+            (overlook-remote--waiting nil)
+            (overlook-remote--wake-timer nil)
+            (overlook-before-render-hook nil)
+            (dashboard (get-buffer-create overlook-buffer-name)))
+        (add-hook 'overlook-before-render-hook (lambda () (setq gathered (1+ gathered))))
+        (unwind-protect
+            (with-current-buffer dashboard
+              (overlook-mode)
+              (overlook--render)
+              (should (= gathered 1))
+              ;; The page's dashboard is made of the model the redraw gathered.
+              (pcase-let ((`(,status . ,data) (overlook-remote-test--call
+                                               "GET" "/overlook/api/dashboard")))
+                (should (= status 200))
+                (should (= gathered 1))
+                (should (equal (alist-get 'known data) (cdr (overlook-remote--dashboard))))
+                ;; After a change, a page that knows the dashboard waits for the redraw.
+                (let ((known (alist-get 'known data)))
+                  (with-current-buffer agent (setq overlook-agent-status 'waiting))
+                  (overlook-refresh)
+                  (should-not (funcall (car (overlook-remote--dashboard-call known))))
+                  (should (= gathered 1))
+                  (overlook--render)
+                  (should (= gathered 2))
+                  (should (funcall (car (overlook-remote--dashboard-call known))))
+                  (should (= gathered 2))))
+              ;; Without the dashboard, each call gathers its own.
+              (kill-buffer dashboard)
+              (overlook-remote--dashboard)
+              (overlook-remote--dashboard)
+              (should (= gathered 4)))
+          (when (buffer-live-p dashboard) (kill-buffer dashboard))
+          (when (timerp overlook--timer) (cancel-timer overlook--timer))
+          (setq overlook--timer nil))))))
+
 (ert-deftest overlook-remote-keeps-one-item-per-reply-and-tool-call ()
   (overlook-remote-test-with-agent t
     (let ((overlook-remote--seq 0)
@@ -155,12 +309,12 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (equal (alist-get 'status (alist-get 'agent news)) "idle"))
         (should (eq (alist-get 'reset news) :false))
         ;; Nothing new: the call is held.
-        (should (equal (overlook-remote--respond
-                        "GET" "/overlook/api/events"
-                        `(("id" "claude@shop") ("after" "2") ("known" ,known))
-                        `(("GET" "/overlook/api/events" "HTTP/1.1")
-                          ("Authorization" ,(concat "Bearer " (overlook-remote--token)))))
-                       (list :hold agent 2 known)))
+        (should (eq (car (overlook-remote--respond
+                          "GET" "/overlook/api/events"
+                          `(("id" "claude@shop") ("after" "2") ("known" ,known))
+                          `(("GET" "/overlook/api/events" "HTTP/1.1")
+                            ("Authorization" ,(concat "Bearer " (overlook-remote--token))))))
+                    :hold))
         ;; Its state changed: news at once, with no items.
         (should (equal (alist-get 'items (cdr (overlook-remote-test--call
                                                 "GET" "/overlook/api/events" nil nil
@@ -185,7 +339,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
       (unwind-protect
           (cl-letf (((symbol-function 'overlook-remote--send)
                      (lambda (p response) (push (cons p response) sent))))
-            (overlook-remote--hold proc agent 0 known)
+            (overlook-remote--hold proc (overlook-remote--events-call agent 0 known))
             (overlook-remote--answer-news)
             (should-not sent)
             (overlook-remote--record agent '(:type text :text "hi"))

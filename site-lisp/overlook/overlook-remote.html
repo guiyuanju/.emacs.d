@@ -126,16 +126,55 @@
   #attach {
     font-size: 22px; border: 0; background: none; color: var(--accent); padding: 0 4px;
   }
+  #switch { margin-left: 4px; font-size: 15px; }
+  #dash { padding: 4px 10px 40px; }
+  .section { margin: 10px 0 14px; }
+  .section > .line { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); padding: 6px 4px; }
+  .section > .line .f-overlook-section { color: var(--dim); font-weight: 600; }
+  .node > .children { margin-left: 10px; padding-left: 8px; border-left: 1px solid var(--line); }
+  .section > .children { margin-left: 0; padding-left: 0; border-left: 0; }
+  .node.folded > .children { display: none; }
+  .line {
+    display: flex; gap: 6px; align-items: baseline; padding: 4px 6px; border-radius: 8px;
+    font-size: 15px; overflow-wrap: anywhere;
+  }
+  .line .twist { flex: none; width: 12px; color: var(--dim); font-size: 11px; }
+  .line .text { flex: 1; min-width: 0; white-space: pre-line; }
+  .line .right { flex: none; white-space: nowrap; color: var(--dim); font-size: 13px; }
+  .line:has(.f-overlook-tabular) { font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  .f-overlook-tabular { white-space: pre; }
+  .line .text:has(> .wrap) { display: flex; align-items: baseline; }
+  .line .lead { flex: none; }
+  .line .wrap { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; }
+  .line.link { cursor: pointer; }
+  .line.heading .text { font-weight: 600; }
+  .line.attention { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
+  .line:has(.f-overlook-agent-done) { box-shadow: inset 3px 0 var(--done); background: var(--done-bg); }
+  .line.agent .text::after { content: " ›"; color: var(--dim); }
+  .node > .choices { margin: 2px 0 6px 24px; }
+  .f-shadow, .f-font-lock-comment-face { color: var(--dim); }
+  .f-warning { color: var(--working); }
+  .f-error { color: var(--failed); }
+  .f-success { color: var(--done); }
+  .f-bold { font-weight: 600; }
+  .f-italic, .f-font-lock-doc-face { font-style: italic; }
+  .f-font-lock-keyword-face, .f-link { color: var(--accent); }
+  .f-font-lock-string-face { color: var(--done); }
+  .f-font-lock-function-name-face, .f-font-lock-type-face { color: #8a3ffc; }
+  .f-overlook-usage-bar-track { opacity: .3; }
+  .f-help-key-binding { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
-  <button id="back" hidden>‹ Agents</button>
+  <button id="back" hidden>‹ Back</button>
   <h1 id="heading">overlook</h1>
   <span id="conn"></span>
+  <button id="switch"></button>
 </header>
-<main id="list"></main>
+<main id="dash"></main>
+<main id="list" hidden></main>
 <main id="detail" hidden>
   <div id="detail-card" class="card">
     <div class="row"><span class="name" id="d-name"></span><span class="meta" id="d-project"></span><span class="status" id="d-status"></span></div>
@@ -252,7 +291,7 @@ function choiceButtons(agent, container) {
     button.onclick = async (event) => {
       event.stopPropagation();
       button.disabled = true;
-      try { await call("POST", "choose", { id: agent.id, key: choice.key }); if (!current()) refresh(); }
+      try { await call("POST", "choose", { id: agent.id, key: choice.key }); if (view() === "agents") refresh(); }
       catch (error) { toast(error.message); button.disabled = false; }
     };
     return button;
@@ -363,45 +402,115 @@ function renderItem(follow, item) {
   if (fresh) $("d-feed").append(node);
 }
 
-let follow = null;
+const folds = JSON.parse(localStorage.getItem("overlook-folds") || "{}");
 
-async function followAgent(id) {
-  const mine = { id, after: 0, known: "", nodes: new Map(), controller: new AbortController() };
-  follow = mine;
-  $("d-feed").replaceChildren();
-  $("d-earlier").hidden = true;
-  try {
-    const agent = await call("GET", "agent?id=" + encodeURIComponent(id));
-    if (follow !== mine) return;
-    renderHeader(agent);
-    $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "<p>(none yet)</p>";
-    $("d-transcript").textContent = agent.transcript;
-  } catch (error) {
-    toast(error.message);
-  }
-  listen(mine);
+function saveFolds() {
+  localStorage.setItem("overlook-folds", JSON.stringify(folds));
 }
 
-async function listen(mine) {
-  while (follow === mine) {
+function run(span) {
+  const node = el("span", "", span.text);
+  for (const face of span.faces) node.classList.add("f-" + face.replace(/[^A-Za-z0-9_-]/g, "-"));
+  return node;
+}
+
+// Pieces that wrap, under what came before them, lines starting where the first did.
+function wrapInto(text, span) {
+  const lead = el("span", "lead");
+  lead.append(...text.childNodes);
+  const wrap = el("span", "wrap");
+  wrap.style.columnGap = span.gap + "ch";
+  for (const piece of span.wrap) {
+    const node = el("span", "piece");
+    node.append(...piece.map(run));
+    wrap.append(node);
+  }
+  text.append(lead, wrap);
+}
+
+function spansInto(container, spans) {
+  const text = el("span", "text");
+  let right = null;
+  for (const span of spans) {
+    if (span.right) right = right || el("span", "right");
+    else if (span.wrap) wrapInto(text, span);
+    else (right || text).append(run(span));
+  }
+  container.append(text);
+  if (right) container.append(right);
+}
+
+function renderNode(node, top) {
+  const box = el("div", top ? "section node" : "node");
+  const line = el("div", "line");
+  const kids = node.children.length > 0;
+  const folded = node.id in folds ? folds[node.id] : !!node.folded;
+  if (folded && kids) box.classList.add("folded");
+  if (node.heading) line.classList.add("heading");
+  if (node.attention) line.classList.add("attention");
+  if (!top) line.append(el("span", "twist", kids ? (folded ? "▸" : "▾") : ""));
+  spansInto(line, node.spans);
+  if (node.agent) {
+    line.classList.add("link", "agent");
+    line.onclick = () => open(node.agent);
+  } else if (kids) {
+    line.classList.add("link");
+    line.onclick = () => {
+      const now = !box.classList.contains("folded");
+      box.classList.toggle("folded", now);
+      folds[node.id] = now;
+      saveFolds();
+      const twist = line.querySelector(".twist");
+      if (twist) twist.textContent = now ? "▸" : "▾";
+    };
+  }
+  box.append(line);
+  if (node.agent && node.choices.length) {
+    const choices = el("div", "choices");
+    choiceButtons({ id: node.agent, choices: node.choices }, choices);
+    box.append(choices);
+  }
+  if (kids) {
+    const children = el("div", "children");
+    children.append(...node.children.map((child) => renderNode(child, false)));
+    box.append(children);
+  }
+  return box;
+}
+
+function renderDashboard(sections) {
+  const dash = $("dash");
+  if (!sections.length) {
+    dash.replaceChildren(el("p", "empty", "The dashboard is empty."));
+    return;
+  }
+  dash.replaceChildren(...sections.map((section) => renderNode(section, true)));
+  const waiting = dash.querySelectorAll(".choices").length;
+  document.title = waiting ? `(${waiting}) overlook` : "overlook";
+}
+
+// The long poll of the view shown: its url() and what it does with news().
+let poller = null;
+
+function stopPolling() {
+  poller?.controller?.abort();
+  poller = null;
+}
+
+// Polls until another poller takes over or the page hides; resume() picks it up again.
+async function poll(mine) {
+  const controller = new AbortController();
+  mine.controller = controller;
+  poller = mine;
+  const current = () => poller === mine && mine.controller === controller;
+  while (current() && !document.hidden) {
     try {
-      const news = await call("GET", `events?id=${encodeURIComponent(mine.id)}&after=${mine.after}`
-                              + `&known=${mine.known}`, undefined, mine.controller.signal);
-      if (follow !== mine) return;
-      if (news.reset) {
-        mine.nodes.clear();
-        $("d-feed").replaceChildren();
-      }
-      const bottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
-      renderHeader(news.agent);
-      news.items.forEach((item) => renderItem(mine, item));
-      $("d-earlier").hidden = mine.nodes.size > 0;
-      if (bottom && news.items.length) scrollTo(0, document.body.scrollHeight);
-      mine.after = news.seq;
-      mine.known = news.known;
+      const news = await call("GET", mine.url(), undefined, controller.signal);
+      if (!current()) return;
+      mine.news(news);
       $("conn").textContent = "";
     } catch (error) {
-      if (follow !== mine || error.name === "AbortError") return;
+      if (!current() || error.name === "AbortError") return;
       $("conn").textContent = "offline";
       if (error.status === 409) { toast(error.message); return; }
       if (!(error instanceof TypeError)) toast(error.message);
@@ -410,16 +519,59 @@ async function listen(mine) {
   }
 }
 
-function relisten() {
-  if (!follow || document.hidden) return;
-  follow.controller.abort();
-  const mine = { ...follow, controller: new AbortController() };
-  follow = mine;
-  listen(mine);
+function resume() {
+  if (!poller || document.hidden) return;
+  poller.controller?.abort();
+  poll(poller);
+}
+
+function watchDashboard() {
+  const mine = { known: "" };
+  mine.url = () => "dashboard?known=" + mine.known;
+  mine.news = (news) => {
+    if (news.known !== mine.known) renderDashboard(news.sections);
+    mine.known = news.known;
+  };
+  poll(mine);
+}
+
+async function followAgent(id) {
+  const mine = { id, after: 0, known: "", nodes: new Map() };
+  mine.url = () => `events?id=${encodeURIComponent(id)}&after=${mine.after}&known=${mine.known}`;
+  mine.news = (news) => {
+    if (news.reset) {
+      mine.nodes.clear();
+      $("d-feed").replaceChildren();
+    }
+    const bottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+    renderHeader(news.agent);
+    news.items.forEach((item) => renderItem(mine, item));
+    $("d-earlier").hidden = mine.nodes.size > 0;
+    if (bottom && news.items.length) scrollTo(0, document.body.scrollHeight);
+    mine.after = news.seq;
+    mine.known = news.known;
+  };
+  poller = mine;
+  $("d-feed").replaceChildren();
+  $("d-earlier").hidden = true;
+  try {
+    const agent = await call("GET", "agent?id=" + encodeURIComponent(id));
+    if (poller !== mine) return;
+    renderHeader(agent);
+    $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "<p>(none yet)</p>";
+    $("d-transcript").textContent = agent.transcript;
+  } catch (error) {
+    toast(error.message);
+  }
+  if (poller === mine) poll(mine);
 }
 
 function current() {
   return new URLSearchParams(location.search).get("agent");
+}
+
+function view() {
+  return current() ? "agent" : new URLSearchParams(location.search).get("view") === "agents" ? "agents" : "dashboard";
 }
 
 function open(id) {
@@ -429,27 +581,31 @@ function open(id) {
 
 function show() {
   const id = current();
-  $("list").hidden = !!id;
+  const shown = view();
+  $("dash").hidden = shown !== "dashboard";
+  $("list").hidden = shown !== "agents";
   $("detail").hidden = !id;
   $("compose").hidden = !id;
   $("back").hidden = !id;
-  if (follow) follow.controller.abort();
-  follow = null;
+  $("switch").hidden = !!id;
+  $("switch").textContent = shown === "agents" ? "Dashboard" : "Agents";
+  stopPolling();
   shownList = shownHeader = "";
   if (!token) {
-    $("list").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
+    $("dash").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
     return;
   }
   if (id) followAgent(id);
   else {
     $("heading").textContent = "overlook";
-    refresh();
+    if (shown === "agents") refresh();
+    else watchDashboard();
   }
 }
 
 let busy = false;
 async function refresh() {
-  if (!token || current() || busy || document.hidden) return;
+  if (!token || view() !== "agents" || busy || document.hidden) return;
   busy = true;
   try {
     const { agents } = await call("GET", "agents");
@@ -466,8 +622,12 @@ async function refresh() {
 }
 
 $("back").onclick = () => history.back();
+$("switch").onclick = () => {
+  history.replaceState(null, "", view() === "agents" ? location.pathname : "?view=agents");
+  show();
+};
 window.onpopstate = show;
-document.addEventListener("visibilitychange", () => { refresh(); relisten(); });
+document.addEventListener("visibilitychange", () => { refresh(); resume(); });
 
 $("text").addEventListener("input", (event) => {
   event.target.style.height = "44px";

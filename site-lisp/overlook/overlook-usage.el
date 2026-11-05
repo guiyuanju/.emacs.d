@@ -42,7 +42,6 @@
 (require 'seq)
 (require 'subr-x)
 
-(defvar overlook-agent-icons)
 
 (defcustom overlook-usage-file (locate-user-emacs-file "overlook-claude-usage.json")
   "File keeping Claude's last plan usage.
@@ -263,34 +262,17 @@ the account `overlook-usage-accounts' gives."
                       (substring-no-properties name (+ at 2))
                     (alist-get (substring-no-properties name) overlook-usage-accounts
                                nil nil #'equal))))
-    (concat (overlook-usage--label-1 agent)
+    (concat (overlook-icon agent)
             (and account (concat " " (overlook-account-name account))))))
 
-(defun overlook-usage--label-1 (name)
-  "NAME as `overlook-agent-icons' draws it, keeping NAME's properties."
-  (if-let* ((icon (alist-get (substring-no-properties name)
-                             (bound-and-true-p overlook-agent-icons) nil nil #'equal)))
-      (let ((icon (copy-sequence icon))
-            (face (get-text-property 0 'face name)))
-        (cl-loop for (property value) on (text-properties-at 0 name) by #'cddr
-                 unless (eq property 'face)
-                 do (put-text-property 0 (length icon) property value icon))
-        (when face (add-face-text-property 0 (length icon) face nil icon))
-        icon)
-    name))
-
-(defun overlook-usage--columns (string)
-  "Columns STRING takes as drawn; fonts draw icons wider than `string-width'."
-  (max (string-width string)
-       (ceiling (overlook-pixel-width string) (frame-char-width))))
-
-(defun overlook-usage--insert ()
-  "Insert a row per agent in `overlook-usage--rows', with a bar per usage window.
+(defun overlook-usage--dashboard-rows ()
+  "A row per agent in `overlook-usage--rows', with a bar per usage window.
 A window past its reset counts as empty, and a row with no windows is
 left out; anything the agent ever reported stays listed.  A row whose
 name carries `overlook-action' runs it when the line is visited.
 Columns are as wide as their widest entry, and the bars take what the
-window has left, so a row never wraps."
+window has left; where that is too little, each window takes a line of
+its own, under the first."
   (let* ((now (float-time))
          (rows (mapcar (lambda (row)
                          (cons (car row)
@@ -318,47 +300,58 @@ window has left, so a row never wraps."
                                               (+ (string-width (car window)) 1
                                                  (string-width (nth 1 window))))
                                             texts)))
-         (name-width (apply #'max 0 (mapcar #'overlook-usage--columns shown)))
          (count (apply #'max 1 (mapcar (lambda (row) (length (cdr row))) rows)))
-         (window (get-buffer-window (current-buffer) t))
-         (columns (if window (window-body-width window) (overlook-columns)))
-         ;; Windows are 3 columns apart, and the row leaves 1 at its end.
-         (bar (max 4 (- text-width fixed)
-                   (min 20 (/ (- columns (length overlook-indent) name-width 2 1
-                                 (* count fixed) (* (1- count) 3))
-                              count)))))
+         ;; Measured as drawn, so once the first row is drawn.
+         (name-width nil)
+         ;; Windows are 3 columns apart, and the row leaves 1 at its end;
+         ;; bars shorter than 8 to share a line get a line each.
+         (bar (lambda (columns)
+                (max 4 (- text-width fixed)
+                     (if (not columns)
+                         12
+                       (let* ((room (- columns 2 1
+                                       (with-memoization name-width
+                                         (apply #'max 0 (mapcar #'overlook-string-columns
+                                                                shown)))))
+                              (shared (- (/ (- room (* (1- count) 3)) count) fixed)))
+                         (min 20 (if (>= shared 8) shared (- room fixed)))))))))
     (cl-loop
      for (name . windows) in rows
      for icon in shown
-     do
-     (overlook-insert-row
-       (propertize
-        (concat
-         (if-let* ((action (get-text-property 0 'overlook-action name)))
-             (propertize overlook-indent 'overlook-action action)
-           overlook-indent)
-         icon (make-string (- (+ name-width 2) (overlook-usage--columns icon)) ?\s)
-         (mapconcat
-          (pcase-lambda (`(,label ,percentage ,resets))
-            (if (stringp percentage)
-                (let* ((room (- (+ bar fixed) (string-width label) (string-width percentage)))
-                       (trailing (max 0 (min tail (1- room)))))
-                  (concat (propertize label 'face 'shadow)
-                          (make-string (max 1 (- room trailing)) ?\s)
-                          percentage
-                          (make-string trailing ?\s)))
-              (concat (propertize (string-pad label label-width) 'face 'shadow) " "
-                      (overlook-usage--bar percentage bar)
-                      (propertize (format " %3d%%" (floor percentage))
-                                  'face (if (>= percentage overlook-usage-warning)
-                                            'warning
-                                          'default))
-                      (propertize (concat " " (string-pad (funcall countdown (list label percentage resets))
-                                                          countdown-width))
-                                  'face 'shadow))))
-          windows "   ")
-         "\n")
-        'overlook-item (cons 'usage (substring-no-properties name)))))))
+     collect
+     (let ((windows windows) (icon icon))
+       (overlook-row
+        :id (cons 'usage (substring-no-properties name))
+        :action (get-text-property 0 'overlook-action name)
+        :face 'overlook-tabular
+        :content
+        (lambda (columns)
+          (let ((bar (funcall bar columns)))
+            (list
+             (list :pad icon :like shown) "  "
+             (list
+              :wrap
+              (mapcar
+               (pcase-lambda (`(,label ,percentage ,resets))
+                 (if (stringp percentage)
+                     (let* ((room (- (+ bar fixed) (string-width label) (string-width percentage)))
+                            (trailing (max 0 (min tail (1- room)))))
+                       (concat (propertize label 'face 'shadow)
+                               (make-string (max 1 (- room trailing)) ?\s)
+                               percentage
+                               (make-string trailing ?\s)))
+                   (concat (propertize (string-pad label label-width) 'face 'shadow) " "
+                           (overlook-usage--bar percentage bar)
+                           (propertize (format " %3d%%" (floor percentage))
+                                       'face (if (>= percentage overlook-usage-warning)
+                                                 'warning
+                                               'default))
+                           (propertize (concat " " (string-pad (funcall countdown
+                                                                        (list label percentage resets))
+                                                               countdown-width))
+                                       'face 'shadow))))
+               windows)
+              :gap 3)))))))))
 
 ;;; Pollers
 
@@ -400,8 +393,8 @@ a started request."
       (overlook-refresh))))
 
 (defun overlook-usage--section ()
-  "Insert the Usage section of the dashboard."
-  (overlook-insert-section "Usage" #'overlook-usage--insert))
+  "The Usage section of the dashboard."
+  (overlook-section-row "Usage" (overlook-usage--dashboard-rows)))
 
 ;;;###autoload
 (define-minor-mode overlook-usage-mode

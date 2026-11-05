@@ -87,11 +87,6 @@ frontend can.")
   :type 'natnum
   :group 'overlook)
 
-(defcustom overlook-agent-icons nil
-  "Icons shown in place of agents' names on their rows, keyed by name."
-  :type '(alist :key-type string :value-type string)
-  :group 'overlook)
-
 (defcustom overlook-agent-title-width 30
   "Columns an agent's session title takes at most on its row."
   :type 'natnum
@@ -705,39 +700,9 @@ Looked up afresh, so an answer given elsewhere meanwhile is not given twice."
         (overlook-agent--set-status 'working)))
     (overlook-agent-changed)))
 
-(defun overlook-agent--choose-at-point (buffer)
-  "Give agent BUFFER the answer at point, or visit it off any answer."
-  (if-let* ((key (get-text-property (point) 'overlook-agent-choice)))
-      (overlook-agent-choose buffer key)
-    (overlook-visit)))
-
-(defun overlook-agent--choices-keymap (buffer choices)
-  "Keymap of an agent BUFFER's row giving it CHOICES by their keys."
-  (let ((map (make-sparse-keymap))
-        (at-point (lambda () (interactive) (overlook-agent--choose-at-point buffer))))
-    (pcase-dolist (`(,key . ,_) choices)
-      (keymap-set map key (lambda () (interactive) (overlook-agent-choose buffer key))))
-    (keymap-set map "RET" at-point)
-    (keymap-set map "<mouse-1>" (lambda (event)
-                                  (interactive "e")
-                                  (mouse-set-point event)
-                                  (overlook-agent--choose-at-point buffer)))
-    map))
-
 (defun overlook-agent--wrap-prefix (depth)
   "What starts an agent row's continuation lines, DEPTH forks deep."
-  (concat overlook-indent overlook-agent--wrap-indent (make-string (* 2 depth) ?\s)))
-
-(defun overlook-agent--choices-line (choices depth)
-  "The line under an agent's row offering CHOICES, DEPTH forks deep."
-  (concat (overlook-agent--wrap-prefix depth)
-          (mapconcat (pcase-lambda (`(,key ,label . ,_))
-                       (propertize (concat (propertize key 'face 'help-key-binding) " "
-                                           (truncate-string-to-width label 40 nil nil "…"))
-                                   'overlook-agent-choice key
-                                   'mouse-face 'highlight))
-                     choices "  ")
-          "\n"))
+  (concat overlook-agent--wrap-indent (make-string (* 2 depth) ?\s)))
 
 ;;; Rows
 
@@ -757,24 +722,22 @@ Looked up afresh, so an answer given elsewhere meanwhile is not given twice."
 
 (defun overlook-agent--meta (buffer)
   "Turn duration and context usage of agent BUFFER, aligned to the right edge.
-Returns (TEXT . COLUMNS), COLUMNS being how far from the edge TEXT starts.
+Returns (SEGMENTS . COLUMNS), COLUMNS being how far from the edge they start.
 Context takes the last four columns but one, left free for the wrap mark;
 the duration ends a column before it, so both line up across agents."
   (let ((turn (overlook-agent--turn-label buffer))
         (context (overlook-agent--context-label buffer)))
-    (cons (concat (if turn (overlook-align-right turn 6) "")
-                  (if context (overlook-align-right context 1) ""))
+    (cons (list (and turn (overlook-align-right turn 6))
+                (and context (overlook-align-right context 1)))
           (cond (turn (+ 6 (string-width turn)))
                 (context 5)
                 (t 0)))))
 
-(defun overlook-agent-label (name)
-  "Agent NAME's icon from `overlook-agent-icons', else NAME."
-  (or (alist-get name overlook-agent-icons nil nil #'equal) name))
+(define-obsolete-function-alias 'overlook-agent-label #'overlook-icon "0.2.0")
 
 (defun overlook-agent--name-label (buffer)
   "Agent BUFFER's icon from `overlook-agent-icons', else its name."
-  (overlook-agent-label (or (overlook-agent-get buffer 'agent) "agent")))
+  (overlook-icon (or (overlook-agent-get buffer 'agent) "agent")))
 
 (defun overlook-agent--title (buffer)
   "Agent BUFFER's session title, as its frontend says, on one line, or nil."
@@ -847,21 +810,18 @@ Once its turn has ended, what its last reply comes to."
               ((not (string-empty-p text))))
     text))
 
-(defun overlook-agent--brief-label (buffer brief head meta)
-  "BRIEF fit to the dashboard between HEAD and META columns at the right.
+(defun overlook-agent--brief-segment (buffer brief meta)
+  "BRIEF, a segment fit to the dashboard before META columns at the right.
 Highlighted while agent BUFFER waits, set apart from its name while it
 works, dimmed otherwise."
-  (let* ((gap "  ")
-         (face (pcase (buffer-local-value 'overlook-agent-status buffer)
-                 ('waiting 'warning)
-                 ('failed 'error)
-                 ('working 'font-lock-doc-face)
-                 (_ 'shadow)))
-         (room (- (overlook-window-pixels)
-                  (overlook-pixel-width (concat head gap))
-                  (* (1+ meta) (frame-char-width))))
-         (text (overlook-fit brief room face)))
-    (if text (concat gap text) "")))
+  (list :fit brief
+        :face (pcase (buffer-local-value 'overlook-agent-status buffer)
+                ('waiting 'warning)
+                ('failed 'error)
+                ('working 'font-lock-doc-face)
+                (_ 'shadow))
+        :before "  "
+        :reserve (1+ meta)))
 
 (defun overlook-agent--tree-prefix (depth)
   "What starts a row DEPTH forks below a row listed under a perspective."
@@ -882,82 +842,72 @@ works, dimmed otherwise."
     ""))
 
 (defun overlook-agent--row (buffer perspective &optional depth children)
-  "Insert the row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
-CHILDREN, a function, inserts the rows of its forks under it.  What it
-is doing shows unless it is idle with no question for you; the answers
-it offers you sit on a line of their own under it."
+  "The row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
+CHILDREN are the rows of its forks.  What it is doing shows unless it
+is idle with no question for you; the answers it offers you sit on a
+line of their own under it."
   (let* ((depth (or depth 0))
          (session (overlook-agent--session buffer))
-         (choices (overlook-agent--choices buffer))
          (title (overlook-agent--title buffer))
-         (head (concat overlook-indent (overlook-agent--tree-prefix depth)
-                       (overlook-glyph-cell (overlook-agent-glyph buffer))
-                       (overlook-agent--name-label buffer)
-                       (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
-                                                      overlook-agent-row-marks)))
-                       (overlook-agent--title-label title)
-                       (overlook-agent--fork-label session depth)
-                       (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)))
          (meta (overlook-agent--meta buffer))
          (brief (overlook-agent--brief buffer))
-         (status (buffer-local-value 'overlook-agent-status buffer))
-         (line (concat (propertize (concat head
-                                           (if (and brief (or (not (eq status 'idle))
-                                                            (overlook-agent--reply-question buffer)))
-                                               (overlook-agent--brief-label buffer brief head (cdr meta))
-                                             "")
-                                           (car meta)
-                                           "\n")
-                                   'overlook-attention (memq status '(waiting failed done)))
-                       (if choices (overlook-agent--choices-line choices depth) "")))
-         (highlight (pcase status
-                      ((or 'waiting 'failed) 'overlook-agent-waiting)
-                      ('done 'overlook-agent-done))))
-    (when highlight
-      (add-face-text-property (length overlook-indent) (length line) highlight t line))
-    (add-text-properties 0 (length line)
-                         `( overlook-item ,(cons 'agent buffer)
-                            overlook-action ,(lambda () (overlook-agent-visit buffer))
-                            help-echo ,(concat (buffer-name buffer)
-                                               (if title (concat "\n" title) "")
-                                               (if brief (concat "\n" brief) "")
-                                               (overlook-agent--fork-echo session))
-                            wrap-prefix ,(overlook-agent--wrap-prefix depth)
-                            ,@(when choices
-                                (list 'keymap (overlook-agent--choices-keymap buffer choices))))
-                         line)
-    (overlook-insert-row line children)))
+         (status (buffer-local-value 'overlook-agent-status buffer)))
+    (overlook-row
+     :id (cons 'agent buffer)
+     :content (list (overlook-agent--tree-prefix depth)
+                    (overlook-glyph-cell (overlook-agent-glyph buffer))
+                    (overlook-agent--name-label buffer)
+                    (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
+                                                   overlook-agent-row-marks)))
+                    (overlook-agent--title-label title)
+                    (overlook-agent--fork-label session depth)
+                    (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)
+                    (and brief (or (not (eq status 'idle))
+                                   (overlook-agent--reply-question buffer))
+                         (overlook-agent--brief-segment buffer brief (cdr meta)))
+                    (car meta))
+     :attention (and (memq status '(waiting failed done)) t)
+     :face (pcase status
+             ((or 'waiting 'failed) 'overlook-agent-waiting)
+             ('done 'overlook-agent-done))
+     :action (lambda () (overlook-agent-visit buffer))
+     :help (concat (buffer-name buffer)
+                   (if title (concat "\n" title) "")
+                   (if brief (concat "\n" brief) "")
+                   (overlook-agent--fork-echo session))
+     :wrap (overlook-agent--wrap-prefix depth)
+     :choices (overlook-agent--choices buffer)
+     :choose (lambda (key) (overlook-agent-choose buffer key))
+     :children children)))
 
 (defun overlook-agent--saved-row (saved perspective &optional depth children)
-  "Insert the row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
+  "The row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
 It shows the agent's title and how long ago its last turn was.
-CHILDREN, a function, inserts the rows of its forks under it."
+CHILDREN are the rows of its forks."
   (let ((depth (or depth 0))
         (session (alist-get 'session saved))
         (title (alist-get 'title saved))
         (active (alist-get 'active saved)))
-    (overlook-insert-row (propertize
-                          (concat overlook-indent (overlook-agent--tree-prefix depth)
-                                  (overlook-glyph-cell (overlook-agent-idle-glyph))
-                                  (propertize (concat (alist-get 'agent saved) " saved"
-                                                      (overlook-agent--title-label title))
-                                              'face 'shadow)
-                                  (overlook-agent--fork-label session depth)
-                                  (overlook-agent--project-label (alist-get 'root saved) perspective)
-                                  (if active
-                                      (overlook-align-right
-                                       (propertize (overlook-format-duration (- (float-time) active))
-                                                   'face 'shadow)
-                                       6)
-                                    "")
-                                  "\n")
-                          'overlook-item (cons 'saved saved)
-                          'overlook-action (lambda () (overlook-agent-resume-visit saved))
-                          'help-echo (concat "Resume session " session
-                                             (if title (concat "\n" title) "")
-                                             (overlook-agent--fork-echo session))
-                          'wrap-prefix (overlook-agent--wrap-prefix depth))
-                         children)))
+    (overlook-row
+     :id (cons 'saved saved)
+     :content (list (overlook-agent--tree-prefix depth)
+                    (overlook-glyph-cell (overlook-agent-idle-glyph))
+                    (propertize (concat (alist-get 'agent saved) " saved"
+                                        (overlook-agent--title-label title))
+                                'face 'shadow)
+                    (overlook-agent--fork-label session depth)
+                    (overlook-agent--project-label (alist-get 'root saved) perspective)
+                    (and active
+                         (overlook-align-right
+                          (propertize (overlook-format-duration (- (float-time) active))
+                                      'face 'shadow)
+                          6)))
+     :action (lambda () (overlook-agent-resume-visit saved))
+     :help (concat "Resume session " session
+                   (if title (concat "\n" title) "")
+                   (overlook-agent--fork-echo session))
+     :wrap (overlook-agent--wrap-prefix depth)
+     :children children)))
 
 (defun overlook-agent--item-session (item)
   "Session id of ITEM, an (agent . BUFFER) or (saved . SAVED), or nil."
@@ -965,9 +915,9 @@ CHILDREN, a function, inserts the rows of its forks under it."
     (`(agent . ,buffer) (overlook-agent--session buffer))
     (`(saved . ,saved) (alist-get 'session saved))))
 
-(defun overlook-agent--insert-tree (item items perspective depth drawn)
-  "Insert ITEM under PERSPECTIVE, DEPTH forks deep, then its forks among ITEMS.
-DRAWN, a list in a cons, collects the items inserted, so none is twice."
+(defun overlook-agent--tree (item items perspective depth drawn)
+  "The row of ITEM under PERSPECTIVE, DEPTH forks deep, over its forks among ITEMS.
+DRAWN, a list in a cons, collects the items given rows, so none is twice."
   (setcar drawn (cons item (car drawn)))
   (let* ((session (overlook-agent--item-session item))
          (forks (and session
@@ -977,12 +927,10 @@ DRAWN, a list in a cons, collects the items inserted, so none is twice."
                                                 (overlook-agent--item-session other))
                                                session)))
                                  items)))
-         (children (and forks
-                        (lambda ()
-                          (dolist (fork forks)
-                            (unless (memq fork (car drawn))
-                              (overlook-agent--insert-tree fork items perspective
-                                                           (1+ depth) drawn)))))))
+         (children (seq-keep (lambda (fork)
+                               (unless (memq fork (car drawn))
+                                 (overlook-agent--tree fork items perspective (1+ depth) drawn)))
+                             forks)))
     (pcase item
       (`(agent . ,buffer) (overlook-agent--row buffer perspective depth children))
       (`(saved . ,saved) (overlook-agent--saved-row saved perspective depth children)))))
@@ -993,8 +941,8 @@ DRAWN, a list in a cons, collects the items inserted, so none is twice."
     (`(agent . ,buffer) (overlook-agent-get buffer 'root))
     (`(saved . ,saved) (alist-get 'root saved))))
 
-(defun overlook-agent--insert (perspective &optional dir)
-  "Insert the agents listed under PERSPECTIVE, then those saved there.
+(defun overlook-agent--rows (perspective &optional dir)
+  "Rows of the agents listed under PERSPECTIVE, then of those saved there.
 Forks sit under the agent they were forked from when it is listed there
 too.  Under `overlook-orphans-perspective', those in none follow.  With
 DIR, a worktree, only those working in it; else those in none of
@@ -1019,15 +967,20 @@ PERSPECTIVE's worktrees."
                                                        perspectives))
                                              overlook-agent-saved)))))
          (sessions (delq nil (mapcar #'overlook-agent--item-session items)))
-         (drawn (list nil)))
-    (dolist (item items)
-      (unless (or (memq item (car drawn))
-                  (member (overlook-agent--parent (overlook-agent--item-session item)) sessions))
-        (overlook-agent--insert-tree item items perspective 0 drawn)))
-    ;; Left over only when the forks recorded form a loop.
-    (dolist (item items)
-      (unless (memq item (car drawn))
-        (overlook-agent--insert-tree item items perspective 0 drawn)))))
+         (drawn (list nil))
+         (rows (seq-keep (lambda (item)
+                           (unless (or (memq item (car drawn))
+                                       (member (overlook-agent--parent
+                                                (overlook-agent--item-session item))
+                                               sessions))
+                             (overlook-agent--tree item items perspective 0 drawn)))
+                         items)))
+    (append rows
+            ;; Left over only when the forks recorded form a loop.
+            (seq-keep (lambda (item)
+                        (unless (memq item (car drawn))
+                          (overlook-agent--tree item items perspective 0 drawn)))
+                      items))))
 
 (defun overlook-agent--mode-line ()
   "A count of agents by state, like \"3 agents · 1 working\"."
@@ -1061,7 +1014,7 @@ PERSPECTIVE's worktrees."
     (remove-function after-focus-change-function #'overlook-agent--acknowledge))
   (overlook-toggle-hooks
    overlook-agent-mode
-   '((overlook-worktree-functions overlook-agent--insert)
+   '((overlook-worktree-functions overlook-agent--rows)
      (overlook-delete-functions overlook-agent--delete)
      (overlook-folder-contents-functions overlook-agent--in-folder)
      (overlook-mode-line-functions overlook-agent--mode-line)

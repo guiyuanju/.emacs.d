@@ -16,8 +16,8 @@
 
 (declare-function alert "alert")
 (declare-function overlook-refresh "overlook")
-(declare-function overlook-insert-section "overlook")
-(declare-function overlook-insert-row "overlook")
+(declare-function overlook-section-row "overlook")
+(declare-function overlook-row "overlook")
 
 (defgroup iuiw-elfeed-sync nil
   "Sync elfeed state across machines through git."
@@ -457,16 +457,15 @@ The digested entries are marked read."
         (nreverse points)))))
 
 (defun iuiw-elfeed-sync--digest-section ()
-  "Insert a section with the points of the latest digest, for overlook."
+  "A section with the points of the latest digest, for overlook."
   (when-let* ((file (iuiw-elfeed-sync--latest-digest)))
-    (overlook-insert-section
+    (overlook-section-row
      (concat "Elfeed " (propertize (file-name-base file) 'face 'shadow))
-     (lambda ()
-       (dolist (point (iuiw-elfeed-sync--digest-points file))
-         (overlook-insert-row
-          (propertize (concat (propertize "•" 'face 'shadow) " " point "\n")
-                      'overlook-action #'iuiw-elfeed-sync-open-digest
-                      'wrap-prefix "  ")))))))
+     (mapcar (lambda (point)
+               (overlook-row :content (list (propertize "•" 'face 'shadow) " " point)
+                             :action #'iuiw-elfeed-sync-open-digest
+                             :wrap "  "))
+             (iuiw-elfeed-sync--digest-points file)))))
 
 ;;; Mode
 
