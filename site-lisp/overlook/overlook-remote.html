@@ -20,26 +20,31 @@
     }
   }
   * { box-sizing: border-box; }
+  html { height: 100%; overflow: hidden; }
   body {
-    position: relative; min-height: 100dvh; margin: 0; background: var(--bg); color: var(--fg);
+    position: fixed; top: 0; left: 0; right: 0; height: 100dvh; margin: 0; overflow: hidden;
+    display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    padding-top: env(safe-area-inset-top);
   }
   header {
-    position: sticky; top: 0; z-index: 1; background: var(--bg);
+    position: relative; flex: none; z-index: 1; background: var(--bg);
     display: flex; align-items: center; gap: 8px;
     padding: 10px 14px; border-bottom: 1px solid var(--line);
   }
   header h1 { font-size: 17px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header button { font-size: 17px; background: none; border: 0; color: var(--accent); padding: 4px 0; }
   #conn { font-size: 12px; color: var(--dim); }
-  #connection { padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 13px; }
+  #connection { flex: none; padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 13px; }
   #connection button { margin-left: 10px; color: var(--accent); }
   #context { flex: none; font-size: 12px; color: var(--dim); white-space: nowrap; }
   .icon { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; object-fit: contain; }
   #heading .icon { margin-right: 6px; }
   #context .icon { width: 15px; height: 15px; margin-right: 4px; }
-  main { padding: 8px 12px max(120px, calc(var(--compose-reserve, 104px) + 16px)); }
+  main {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+  }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 18px 4px 6px; }
   .card {
     background: var(--card); border-radius: 12px; padding: 10px 12px; margin: 6px 0;
@@ -80,7 +85,7 @@
   .md hr { border: 0; border-top: 1px solid var(--line); }
   details summary { color: var(--dim); font-size: 14px; padding: 8px 4px; }
   footer {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: var(--bg);
+    position: relative; flex: none; z-index: 3; background: var(--bg);
     border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-end;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   }
@@ -96,7 +101,7 @@
   footer button:disabled { opacity: .5; }
   #attach, #send, #steer { flex: none; height: 44px; white-space: nowrap; }
   #toast {
-    position: fixed; left: 12px; right: 12px; bottom: 80px; padding: 10px 12px; border-radius: 10px;
+    position: absolute; left: 12px; right: 12px; bottom: 80px; padding: 10px 12px; border-radius: 10px;
     background: #333; color: #fff; font-size: 14px; display: none;
   }
   .empty { color: var(--dim); text-align: center; margin-top: 40px; }
@@ -530,31 +535,29 @@ function draft(id) {
 function saveCompose() {
   if (composeId) draft(composeId).text = $("text").value;
 }
-// Keep document scrolling native; only the composer follows the visual viewport.
-function positionCompose() {
-  const footer = $("compose");
-  if (footer.hidden) {
-    document.documentElement.style.setProperty("--compose-reserve", "0px");
-    return;
-  }
+// iOS never resizes the layout for the keyboard, so the page itself stays still and fits the
+// visual viewport; only the content inside it scrolls.
+function fitShell() {
   const viewport = window.visualViewport;
-  const height = footer.getBoundingClientRect().height;
-  const visibleHeight = viewport?.height || innerHeight;
-  const visibleTop = viewport?.pageTop ?? (scrollY + (viewport?.offsetTop || 0));
-  footer.style.position = viewport ? "absolute" : "fixed";
-  footer.style.top = viewport ? Math.max(0, visibleTop + visibleHeight - height) + "px" : "auto";
-  footer.style.bottom = viewport ? "auto" : "0px";
-  const obscured = Math.max(0, innerHeight - visibleHeight,
-    (document.documentElement.clientHeight || innerHeight) - visibleHeight);
-  document.documentElement.style.setProperty("--compose-reserve", (height + obscured) + "px");
+  if (!viewport || viewport.scale > 1) return;
+  document.body.style.height = viewport.height + "px";
+  document.body.style.top = Math.max(0, viewport.offsetTop) + "px";
 }
+const keyboardOpen = () => {
+  const viewport = window.visualViewport;
+  return !!viewport && !(viewport.scale > 1) && innerHeight - viewport.height >= 1;
+};
 if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", positionCompose);
-  window.visualViewport.addEventListener("scroll", positionCompose);
+  window.visualViewport.addEventListener("resize", fitShell);
+  window.visualViewport.addEventListener("scroll", fitShell);
 }
-window.addEventListener("resize", positionCompose);
-window.addEventListener("scroll", positionCompose, {passive: true});
-if (window.ResizeObserver) new window.ResizeObserver(positionCompose).observe($("compose"));
+fitShell();
+// With the keyboard up iOS pans the page on any drag that nothing inside can absorb.
+document.addEventListener("touchmove", (event) => {
+  if (!keyboardOpen()) return;
+  const scroller = event.target.closest?.("main, textarea, #slash-commands");
+  if (!scroller || scroller.scrollHeight <= scroller.clientHeight) event.preventDefault();
+}, {passive: false});
 function resizeCompose() {
   if (!composing) {
     const box = $("text");
@@ -565,7 +568,6 @@ function resizeCompose() {
     box.style.height = height + "px";
     box.style.overflowY = height > limit ? "auto" : "hidden";
   }
-  positionCompose();
 }
 function syncCompose() {
   if (!composeId) return;
@@ -703,13 +705,15 @@ function renderTool(node, item) {
 }
 
 const atBottom = () => {
-  const viewport = window.visualViewport;
-  const bottom = (viewport?.pageTop ?? scrollY) + (viewport?.height || innerHeight);
-  return bottom >= document.documentElement.scrollHeight - 80;
+  const detail = $("detail");
+  return detail.scrollTop + detail.clientHeight >= detail.scrollHeight - 80;
 };
 function scrollToBottom() {
-  scrollTo(0, document.documentElement.scrollHeight);
+  $("detail").scrollTop = $("detail").scrollHeight;
 }
+let pinned = true;
+$("detail").addEventListener("scroll", () => { pinned = atBottom(); }, {passive: true});
+if (window.ResizeObserver) new window.ResizeObserver(() => { if (pinned) scrollToBottom(); }).observe($("detail"));
 
 // A reply's markdown, drawn at most four times a second as it streams.
 function renderReply(node) {
@@ -1180,7 +1184,6 @@ function show() {
   $("detail").hidden = !id;
   $("compose").hidden = !id;
   if (id) syncCompose();
-  else positionCompose();
   $("back").hidden = !id;
   $("switch").hidden = !!id;
   $("switch").textContent = shown === "agents" ? "Dashboard" : "Agents";
