@@ -44,6 +44,7 @@
 (declare-function overlook-insert-row "overlook")
 (declare-function overlook-ordered-perspectives "overlook")
 (declare-function overlook-current-perspective "overlook")
+(declare-function overlook-perspective-root "overlook")
 (declare-function overlook-main-window "overlook")
 (declare-function overlook-show-elsewhere "overlook")
 (declare-function overlook-agent-project-root "overlook-agent")
@@ -663,14 +664,17 @@ opened from the repository's Magit status buffer, where its suffixes run."
 ;;; Overlook
 
 (defun iuiw-workspace-agent-root ()
-  "Return the project's root when inside its folder or root.
-A project in `iuiw-workspace-project-roots' has its root there.  Outside
-any project, return the version-control root."
-  (if-let* ((folder (iuiw-workspace-project-root)))
-      (or (iuiw-workspace--root (iuiw-workspace--file-id folder)) folder)
-    (if-let* ((id (iuiw-workspace--root-id)))
-        (iuiw-workspace--root id)
-      (overlook-agent-project-root))))
+  "Return the current perspective's root, whatever buffer is current.
+Without one, the project's root when inside its folder or root: a project
+in `iuiw-workspace-project-roots' has its root there.  Outside any
+project, return the version-control root."
+  (or (when-let* ((name (overlook-current-perspective)))
+        (overlook-perspective-root name))
+      (if-let* ((folder (iuiw-workspace-project-root)))
+          (or (iuiw-workspace--root (iuiw-workspace--file-id folder)) folder)
+        (if-let* ((id (iuiw-workspace--root-id)))
+            (iuiw-workspace--root id)
+          (overlook-agent-project-root)))))
 
 (defun iuiw-workspace-perspective-root (name)
   "Root of perspective NAME: the root or project folder of that id, else a guess."
