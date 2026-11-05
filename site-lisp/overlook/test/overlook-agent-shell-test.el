@@ -136,6 +136,42 @@ each environment gathered says how many were gathered so far."
         (should (eq overlook-agent-status 'done))
         (should (= ended 2))))))
 
+(ert-deftest overlook-agent-shell-forwards-events-in-overlook-terms ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (let* ((events nil)
+           (overlook-agent-notify nil)
+           (overlook-perspectives-function #'ignore)
+           (overlook-agent-event-functions
+            (list (lambda (buffer event)
+                    (should (eq buffer (current-buffer)))
+                    (push event events)))))
+      (overlook-agent-shell--on-event '((:event . input-submitted) (:data (:prompt . "fix it"))))
+      (overlook-agent-shell--on-event '((:event . agent-message-chunk) (:data (:text-chunk . "On it"))))
+      (overlook-agent-shell--on-event
+       '((:event . tool-call-update)
+         (:data (:tool-call-id . "t1")
+                (:tool-call (:title . "Edit") (:description . "Edit a.el")
+                            (:status . "pending") (:kind . "edit")
+                            (:diffs ((:old . "a") (:new . "b") (:file . "/x/a.el")))
+                            (:content . [((type . "content")
+                                          (content (type . "text") (text . "Saved /tmp/a.png")))
+                                         ((type . "content")
+                                          (content (type . "image") (data . "iVBOR")
+                                                   (mimeType . "image/png")))
+                                         ((type . "content")
+                                          (content (type . "image")
+                                                   (uri . "file:///tmp/my%20shot.png")))])))))
+      (overlook-agent-shell--on-event '((:event . turn-complete)))
+      (should (equal (nreverse events)
+                     '((:type prompt :text "fix it")
+                       (:type text :text "On it")
+                       (:type tool :id "t1" :title "Edit a.el" :status "pending" :kind "edit"
+                              :diffs ((:file "/x/a.el" :old "a" :new "b"))
+                              :output "Saved /tmp/a.png"
+                              :images ((:data "iVBOR" :mime "image/png")
+                                       (:file "/tmp/my shot.png")))
+                       (:type end)))))))
+
 (ert-deftest overlook-agent-shell-restored-session-is-idle ()
   (overlook-agent-shell-test-with-shell 'claude-code
     (let ((ended 0)

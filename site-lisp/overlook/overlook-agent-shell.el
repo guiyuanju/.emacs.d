@@ -56,6 +56,7 @@
 (require 'acp)
 (require 'json)
 (require 'map)
+(require 'url-util)
 
 (declare-function overlook-usage-save-claude "overlook-usage" (usage &optional account))
 
@@ -316,7 +317,62 @@ Prefers its description, as the title of a shell command is the command."
     ('error
      (setq overlook-agent-error
            (or (map-nested-elt event '(:data :message)) "Agent request failed"))
-     (overlook-agent-report 'failed))))
+     (overlook-agent-report 'failed)))
+  (overlook-agent-shell--forward event))
+
+(defun overlook-agent-shell--tool-content (tool-call)
+  "The text and images in TOOL-CALL's content, as (TEXT . IMAGES).
+Each image is (:data BASE64 :mime TYPE), or (:file F) for a local one."
+  (let ((content (map-elt tool-call :content))
+        texts images)
+    (dolist (item (if (vectorp content) (append content nil) (and content (list content))))
+      (let ((block (if (equal (map-elt item 'type) "content") (map-elt item 'content) item)))
+        (pcase (map-elt block 'type)
+          ("text" (push (map-elt block 'text) texts))
+          ("image"
+           (let ((data (map-elt block 'data))
+                 (uri (map-elt block 'uri)))
+             (cond (data (push (list :data data :mime (map-elt block 'mimeType)) images))
+                   ((and (stringp uri) (string-prefix-p "file://" uri))
+                    (push (list :file (url-unhex-string (string-remove-prefix "file://" uri)))
+                          images))))))))
+    (cons (string-join (seq-filter #'stringp (nreverse texts)) "\n")
+          (nreverse images))))
+
+(defun overlook-agent-shell--attach (name data)
+  "Save DATA as NAME among this shell's screenshots; return its @ mention."
+  (let ((file (expand-file-name name (agent-shell--dot-subdir "screenshots")))
+        (coding-system-for-write 'no-conversion))
+    (write-region data nil file nil 'silent)
+    (agent-shell--file-mention file)))
+
+(defun overlook-agent-shell--forward (event)
+  "Send agent-shell EVENT on to `overlook-agent-event', in its terms."
+  (let ((data (map-elt event :data)))
+    (pcase (map-elt event :event)
+      ('input-submitted
+       (overlook-agent-event 'prompt :text (or (map-elt data :prompt) "")))
+      ('agent-message-chunk
+       (when-let* ((text (map-elt data :text-chunk)))
+         (overlook-agent-event 'text :text text)))
+      ('tool-call-update
+       (let* ((tool-call (map-elt data :tool-call))
+              (content (overlook-agent-shell--tool-content tool-call)))
+         (overlook-agent-event
+          'tool :id (map-elt data :tool-call-id)
+          :title (or (overlook-agent-shell--tool-title data) "tool")
+          :status (map-elt tool-call :status)
+          :kind (map-elt tool-call :kind)
+          :diffs (mapcar (lambda (diff)
+                           (list :file (map-elt diff :file)
+                                 :old (map-elt diff :old) :new (map-elt diff :new)))
+                         (map-elt tool-call :diffs))
+          :output (car content)
+          :images (cdr content))))
+      ('turn-complete (overlook-agent-event 'end))
+      ('error
+       (overlook-agent-event 'error :text (or (map-nested-elt event '(:data :message))
+                                              "Agent request failed"))))))
 
 (defun overlook-agent-shell--context ()
   "The context window percentage in use, from the shell's usage state."
@@ -485,7 +541,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (submit . overlook-agent-shell--submit)
               (ready . overlook-agent-shell--ready)
               (reply . overlook-agent-shell--last-reply)
-              (transcript . overlook-agent-shell--transcript)))
+              (transcript . overlook-agent-shell--transcript)
+              (attach . overlook-agent-shell--attach)))
       (agent-shell-subscribe-to :shell-buffer buffer :on-event #'overlook-agent-shell--on-event)
       (when-let* ((client (map-elt agent-shell--state :client)))
         (acp-subscribe-to-notifications :client client :buffer buffer

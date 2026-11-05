@@ -1161,6 +1161,19 @@
   :load-path "site-lisp/overlook"
   :commands overlook-room-open)
 
+;; overlook-remote 的网页服务器；只开 overlook 的页面，不把 httpd-root 下的文件放出去。
+(use-package simple-httpd
+  :defer t
+  :custom (httpd-serve-files nil))
+
+;; 浏览器里看 agent、批准、发 prompt：M-x overlook-remote-mode，地址带 token 复制到剪贴板。先只开 localhost。
+(use-package overlook-remote
+  :ensure nil
+  :load-path "site-lisp/overlook"
+  :commands (overlook-remote-mode overlook-remote-url overlook-remote-new-token)
+  :custom
+  (overlook-remote-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory)))
+
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
   :ensure nil

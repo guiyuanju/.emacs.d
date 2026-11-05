@@ -147,6 +147,27 @@ And keeping the agents themselves working:
 (add-hook 'overlook-mode-hook #'overlook-agent-rules-check-once)
 ```
 
+Steering the agents from a browser, such as a phone's:
+
+```elisp
+(setopt httpd-serve-files nil)        ; simple-httpd serves only overlook's page
+(require 'overlook-remote)
+(overlook-remote-mode 1)              ; copies the page's address, with its token
+```
+
+The page lists the agents, those waiting for you first.  An agent's own
+page follows its prompts, replies and tool calls as they come, with the
+diff of each edit, from when the mode started; before that it shows the
+last reply and the end of the buffer.  It gives the answers an agent asks
+for and prompts an idle one, with images from the phone attached.  Images
+a tool call returns, or that a prompt, reply or tool call names by path,
+show as thumbnails; the page fetches them by number, never by path.  It
+listens on this machine only; set `overlook-remote-host` to `"0.0.0.0"`
+to serve the local network, over plain HTTP, so only a network you trust.
+There it turns itself off after `overlook-remote-network-minutes` (120).  `M-x overlook-remote-url`
+copies the address again, `M-x overlook-remote-new-token` shuts out pages
+opened before.
+
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:
 
@@ -340,7 +361,10 @@ Another perspective implementation can drive overlook by setting the
 does; another agent frontend by describing each of its buffers in
 `overlook-agent-identity`, handing it to `overlook-agent-register`, and
 setting `overlook-agent-start-function` for the agents overlook starts
-itself, as overlook-agent-shell.el does.
+itself, as overlook-agent-shell.el does.  A frontend that also sends its
+prompts, reply text and tool calls through `overlook-agent-event` lets
+views such as overlook-remote follow them live; see
+`overlook-agent-event-functions`.
 
 ## Caveats
 

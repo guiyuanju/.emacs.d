@@ -141,7 +141,9 @@ recording its session, or nil; `choices' a function returning the answers it
 offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
 in its buffer, or nil; `forked-from' a function returning the session id
 its session was forked from, or nil; `environment' the entries of
-`overlook-agent-make-environment' its process started with, or nil.")
+`overlook-agent-make-environment' its process started with, or nil;
+`attach' a function of a file NAME and its bytes DATA, saving them where
+the agent reads them and returning the text naming that file in a prompt.")
 (put 'overlook-agent-identity 'permanent-local t)
 
 (defvar-local overlook-agent-status 'idle
@@ -207,6 +209,19 @@ and `title' and `active', the time of its last turn, when known.")
 (defvar overlook-agent-attention-hook nil
   "Hook run in an agent's buffer when it asks the user for permission or an answer.")
 
+(defvar overlook-agent-event-functions nil
+  "Functions of an agent buffer and an EVENT in it, for views following it live.
+EVENT is a plist whose :type is one of
+  `prompt': a prompt was submitted, :text;
+  `text': the next piece of the agent's reply, :text;
+  `tool': a tool call started or changed, :id, :title, :status as the
+    agent says it, :kind, :diffs, each (:file F :old OLD :new NEW),
+    :output its text so far, and :images, each (:file F) or (:data
+    BASE64 :mime TYPE);
+  `end': the turn ended;
+  `error': the turn failed, :text.
+Frontends send them with `overlook-agent-event'.")
+
 (defvar overlook-agent-save-functions nil
   "Functions of an agent buffer returning entries to keep in its saved alist.")
 
@@ -226,6 +241,12 @@ Each returns a list of \"VAR=value\" strings, gathered by
   "Entries for the environment of agent NAME starting in ROOT.
 A frontend calls it once per agent, before starting its process."
   (seq-mapcat (lambda (fn) (funcall fn name root)) overlook-agent-environment-functions))
+
+(defun overlook-agent-event (type &rest properties)
+  "Tell the views following the current agent buffer of event TYPE.
+PROPERTIES are the event's other entries; see `overlook-agent-event-functions'."
+  (run-hook-with-args 'overlook-agent-event-functions (current-buffer)
+                      (cons :type (cons type properties))))
 
 (defun overlook-agent-changed ()
   "Tell the views that some agent's state changed."

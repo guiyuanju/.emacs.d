@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="overlook">
+<meta name="color-scheme" content="light dark">
+<title>overlook</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --dim: #6e6e73; --line: #e5e5ea; --card: #f5f5f7;
+    --accent: #0a66d8; --working: #b07d00; --waiting: #d1242f; --failed: #d1242f;
+    --done: #1a7f37; --idle: #8e8e93; --wait-bg: #fbe4e4; --done-bg: #e2f5e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --fg: #f2f2f7; --dim: #98989d; --line: #2c2c2e; --card: #1c1c1e;
+      --accent: #4c9bff; --wait-bg: #3d1c20; --done-bg: #1b3324;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  header {
+    position: sticky; top: 0; z-index: 1; background: var(--bg);
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header button { font-size: 17px; background: none; border: 0; color: var(--accent); padding: 4px 0; }
+  #conn { font-size: 12px; color: var(--dim); }
+  main { padding: 8px 12px 120px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 18px 4px 6px; }
+  .card {
+    background: var(--card); border-radius: 12px; padding: 10px 12px; margin: 6px 0;
+    border-left: 4px solid var(--idle);
+  }
+  .card.working { border-left-color: var(--working); }
+  .card.waiting { border-left-color: var(--waiting); background: var(--wait-bg); }
+  .card.failed  { border-left-color: var(--failed); }
+  .card.done    { border-left-color: var(--done); background: var(--done-bg); }
+  .row { display: flex; gap: 6px; align-items: baseline; }
+  .name { font-weight: 600; }
+  .meta { color: var(--dim); font-size: 13px; }
+  .status { margin-left: auto; font-size: 12px; color: var(--dim); }
+  .brief { margin-top: 4px; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .choices button {
+    font-size: 15px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); max-width: 100%; text-align: left;
+  }
+  .choices button b { color: var(--accent); margin-right: 4px; }
+  pre {
+    white-space: pre-wrap; word-break: break-word; font: 13px/1.45 ui-monospace, Menlo, monospace;
+    background: var(--card); border-radius: 10px; padding: 10px; margin: 6px 0;
+  }
+  .md { background: var(--card); border-radius: 10px; padding: 2px 12px; margin: 6px 0; font-size: 15px; overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3, .md h4 { font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 14px 0 6px; }
+  .md p, .md ul, .md ol, .md blockquote { margin: 8px 0; }
+  .md ul, .md ol { padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md code { font: 13px ui-monospace, Menlo, monospace; background: var(--bg); border-radius: 4px; padding: 1px 4px; }
+  .md pre { background: var(--bg); overflow-x: auto; white-space: pre; word-break: normal; }
+  .md pre code { padding: 0; }
+  .md table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+  .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; min-width: 4em; }
+  .md th { background: var(--bg); text-align: left; }
+  .md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--dim); }
+  .md a { color: var(--accent); }
+  .md hr { border: 0; border-top: 1px solid var(--line); }
+  details summary { color: var(--dim); font-size: 14px; padding: 8px 4px; }
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg);
+    border-top: 1px solid var(--line); display: flex; gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  }
+  footer textarea {
+    flex: 1; font: inherit; font-size: 16px; resize: none; height: 44px; max-height: 40vh;
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--card); color: var(--fg);
+  }
+  footer button {
+    font-size: 16px; border: 0; border-radius: 10px; padding: 0 16px;
+    background: var(--accent); color: #fff;
+  }
+  footer button:disabled { opacity: .5; }
+  #toast {
+    position: fixed; left: 12px; right: 12px; bottom: 80px; padding: 10px 12px; border-radius: 10px;
+    background: #333; color: #fff; font-size: 14px; display: none;
+  }
+  .empty { color: var(--dim); text-align: center; margin-top: 40px; }
+  #detail-card { position: sticky; top: 49px; z-index: 1; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+  .item { margin: 10px 0; }
+  .prompt {
+    margin-left: 15%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--accent); color: #fff; font-size: 15px;
+  }
+  .tool { font-size: 13px; color: var(--dim); }
+  .tool-head { display: flex; gap: 6px; align-items: baseline; }
+  .tool-head span:nth-child(2) { color: var(--fg); overflow-wrap: anywhere; }
+  .tool-head .meta { margin-left: auto; white-space: nowrap; }
+  .tool.failed .tool-mark { color: var(--failed); }
+  .tool.completed .tool-mark { color: var(--done); }
+  .tool.pending .tool-mark, .tool.in_progress .tool-mark { color: var(--working); }
+  .tool details summary { padding: 4px 0 0 18px; font-size: 13px; }
+  pre.diff { white-space: pre; overflow-x: auto; word-break: normal; font-size: 12px; }
+  .diff .add { color: var(--done); }
+  .diff .del { color: var(--failed); }
+  .diff .hunk { color: var(--accent); }
+  .end { text-align: center; color: var(--dim); font-size: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .error { color: var(--failed); font-size: 14px; }
+  .images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .images img {
+    max-height: 140px; max-width: 45%; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); cursor: zoom-in;
+  }
+  .images img.full { max-height: none; max-width: 100%; cursor: zoom-out; }
+  .prompt .images img { border-color: rgba(255,255,255,.4); }
+  footer { flex-wrap: wrap; }
+  #previews { width: 100%; margin-top: 0; }
+  #previews:empty { display: none; }
+  #previews img { max-height: 64px; cursor: default; }
+  #attach {
+    font-size: 22px; border: 0; background: none; color: var(--accent); padding: 0 4px;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <button id="back" hidden>‹ Agents</button>
+  <h1 id="heading">overlook</h1>
+  <span id="conn"></span>
+</header>
+<main id="list"></main>
+<main id="detail" hidden>
+  <div id="detail-card" class="card">
+    <div class="row"><span class="name" id="d-name"></span><span class="meta" id="d-project"></span><span class="status" id="d-status"></span></div>
+    <div class="brief" id="d-brief"></div>
+    <div class="choices" id="d-choices"></div>
+  </div>
+  <div id="d-earlier" hidden>
+    <h2>Last reply</h2>
+    <div id="d-reply" class="md"></div>
+    <details>
+      <summary>Transcript (end)</summary>
+      <pre id="d-transcript"></pre>
+    </details>
+  </div>
+  <div id="d-feed"></div>
+</main>
+<footer id="compose" hidden>
+  <div id="previews" class="images"></div>
+  <button id="attach" title="Attach images">＋</button>
+  <input id="files" type="file" accept="image/*" multiple hidden>
+  <textarea id="text" placeholder="Prompt this agent" rows="1"></textarea>
+  <button id="send">Send</button>
+</footer>
+<div id="toast"></div>
+<script src="/overlook/vendor/marked.js"></script>
+<script src="/overlook/vendor/purify.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const order = { waiting: 0, failed: 1, done: 2, working: 3, idle: 4 };
+
+if (location.hash.length > 1) {
+  localStorage.setItem("overlook-token", location.hash.slice(1));
+  history.replaceState(null, "", location.pathname + location.search);
+}
+const token = localStorage.getItem("overlook-token");
+
+function toast(message) {
+  const el = $("toast");
+  el.textContent = message;
+  el.style.display = "block";
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { el.style.display = "none"; }, 4000);
+}
+
+async function call(method, path, body, signal) {
+  const response = await fetch("/overlook/api/" + path, {
+    method,
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+    body: body && JSON.stringify(body),
+    signal,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const error = new Error(data.error || response.statusText);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A") {
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+});
+
+function markdown(text) {
+  return DOMPurify.sanitize(marked.parse(text, { gfm: true }), { FORBID_TAGS: ["style", "form", "img"] });
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+const imageUrls = new Map();
+
+function imageUrl(n) {
+  if (!imageUrls.has(n)) {
+    imageUrls.set(n, fetch("/overlook/api/image?n=" + n, { headers: { "Authorization": "Bearer " + token } })
+      .then((response) => response.ok ? response.blob() : Promise.reject(new Error("image " + n)))
+      .then((blob) => URL.createObjectURL(blob))
+      .catch((error) => { imageUrls.delete(n); throw error; }));
+  }
+  return imageUrls.get(n);
+}
+
+function zoomable(img) {
+  img.onclick = (event) => { event.stopPropagation(); img.classList.toggle("full"); };
+  return img;
+}
+
+function imageStrip(numbers) {
+  const strip = el("div", "images");
+  for (const n of numbers) {
+    const img = zoomable(el("img"));
+    img.alt = "image " + n;
+    imageUrl(n).then((url) => { img.src = url; }, () => img.remove());
+    strip.append(img);
+  }
+  return strip;
+}
+
+function choiceButtons(agent, container) {
+  container.replaceChildren(...agent.choices.map((choice) => {
+    const button = el("button");
+    button.append(el("b", "", choice.key), choice.label);
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      button.disabled = true;
+      try { await call("POST", "choose", { id: agent.id, key: choice.key }); if (!current()) refresh(); }
+      catch (error) { toast(error.message); button.disabled = false; }
+    };
+    return button;
+  }));
+}
+
+function card(agent) {
+  const node = el("div", "card " + agent.status);
+  const row = el("div", "row");
+  row.append(el("span", "name", agent.agent + (agent.title ? " · " + agent.title : "")),
+             el("span", "meta", agent.project),
+             el("span", "status", agent.status));
+  node.append(row);
+  if (agent.brief) node.append(el("div", "brief", agent.brief));
+  if (agent.choices.length) {
+    const choices = el("div", "choices");
+    choiceButtons(agent, choices);
+    node.append(choices);
+  }
+  node.onclick = () => open(agent.id);
+  return node;
+}
+
+let shownList = "";
+function renderList(agents) {
+  const key = JSON.stringify(agents);
+  if (key === shownList) return;
+  shownList = key;
+  const list = $("list");
+  if (!agents.length) {
+    list.replaceChildren(el("p", "empty", "No agents running."));
+    return;
+  }
+  const attention = agents.filter((a) => order[a.status] < 2)
+    .sort((a, b) => order[a.status] - order[b.status]);
+  const groups = new Map();
+  for (const agent of agents) {
+    if (order[agent.status] < 2) continue;
+    const name = agent.perspective || "(no perspective)";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(agent);
+  }
+  const nodes = [];
+  if (attention.length) nodes.push(el("h2", "", "Waiting for you"), ...attention.map(card));
+  for (const [name, members] of groups) {
+    members.sort((a, b) => order[a.status] - order[b.status]);
+    nodes.push(el("h2", "", name), ...members.map(card));
+  }
+  list.replaceChildren(...nodes);
+}
+
+let shownHeader = "";
+function renderHeader(agent) {
+  const key = JSON.stringify(agent);
+  if (key === shownHeader) return;
+  shownHeader = key;
+  $("heading").textContent = agent.agent + (agent.title ? " · " + agent.title : "");
+  $("detail-card").className = "card " + agent.status;
+  $("d-name").textContent = agent.agent;
+  $("d-project").textContent = agent.project;
+  $("d-status").textContent = agent.status;
+  $("d-brief").textContent = agent.brief;
+  choiceButtons(agent, $("d-choices"));
+}
+
+const toolMarks = { pending: "○", in_progress: "◐", completed: "✓", failed: "✗" };
+
+function renderTool(node, item) {
+  const wasOpen = node.querySelector("details")?.open;
+  node.className = "item tool " + item.status;
+  const head = el("div", "tool-head");
+  head.append(el("span", "tool-mark", toolMarks[item.status] || "•"),
+              el("span", "", item.title || item.kind || "tool"),
+              el("span", "meta", item.status));
+  const parts = [head];
+  if (item.diff) {
+    const details = el("details");
+    details.open = !!wasOpen;
+    const pre = el("pre", "diff");
+    for (const line of item.diff.split("\n")) {
+      const kind = line.startsWith("@@") ? "hunk"
+            : line.startsWith("+") && !line.startsWith("+++") ? "add"
+            : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
+      pre.append(el("span", kind, line + "\n"));
+    }
+    details.append(el("summary", "", "diff"), pre);
+    parts.push(details);
+  }
+  if (item.images.length) parts.push(imageStrip(item.images));
+  node.replaceChildren(...parts);
+}
+
+function renderItem(follow, item) {
+  let node = follow.nodes.get(item.item);
+  const fresh = !node;
+  if (fresh) {
+    node = el("div");
+    follow.nodes.set(item.item, node);
+  }
+  switch (item.type) {
+    case "prompt": node.className = "item prompt"; node.textContent = item.text; break;
+    case "text": node.className = "item md"; node.innerHTML = markdown(item.text); break;
+    case "tool": renderTool(node, item); break;
+    case "end": node.className = "item end"; node.textContent = "turn ended"; break;
+    case "error": node.className = "item error"; node.textContent = item.text; break;
+  }
+  if (item.type !== "tool" && item.images.length) node.append(imageStrip(item.images));
+  if (fresh) $("d-feed").append(node);
+}
+
+let follow = null;
+
+async function followAgent(id) {
+  const mine = { id, after: 0, known: "", nodes: new Map(), controller: new AbortController() };
+  follow = mine;
+  $("d-feed").replaceChildren();
+  $("d-earlier").hidden = true;
+  try {
+    const agent = await call("GET", "agent?id=" + encodeURIComponent(id));
+    if (follow !== mine) return;
+    renderHeader(agent);
+    $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "<p>(none yet)</p>";
+    $("d-transcript").textContent = agent.transcript;
+  } catch (error) {
+    toast(error.message);
+  }
+  listen(mine);
+}
+
+async function listen(mine) {
+  while (follow === mine) {
+    try {
+      const news = await call("GET", `events?id=${encodeURIComponent(mine.id)}&after=${mine.after}`
+                              + `&known=${mine.known}`, undefined, mine.controller.signal);
+      if (follow !== mine) return;
+      if (news.reset) {
+        mine.nodes.clear();
+        $("d-feed").replaceChildren();
+      }
+      const bottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+      renderHeader(news.agent);
+      news.items.forEach((item) => renderItem(mine, item));
+      $("d-earlier").hidden = mine.nodes.size > 0;
+      if (bottom && news.items.length) scrollTo(0, document.body.scrollHeight);
+      mine.after = news.seq;
+      mine.known = news.known;
+      $("conn").textContent = "";
+    } catch (error) {
+      if (follow !== mine || error.name === "AbortError") return;
+      $("conn").textContent = "offline";
+      if (error.status === 409) { toast(error.message); return; }
+      if (!(error instanceof TypeError)) toast(error.message);
+      await sleep(3000);
+    }
+  }
+}
+
+function relisten() {
+  if (!follow || document.hidden) return;
+  follow.controller.abort();
+  const mine = { ...follow, controller: new AbortController() };
+  follow = mine;
+  listen(mine);
+}
+
+function current() {
+  return new URLSearchParams(location.search).get("agent");
+}
+
+function open(id) {
+  history.pushState(null, "", "?agent=" + encodeURIComponent(id));
+  show();
+}
+
+function show() {
+  const id = current();
+  $("list").hidden = !!id;
+  $("detail").hidden = !id;
+  $("compose").hidden = !id;
+  $("back").hidden = !id;
+  if (follow) follow.controller.abort();
+  follow = null;
+  shownList = shownHeader = "";
+  if (!token) {
+    $("list").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
+    return;
+  }
+  if (id) followAgent(id);
+  else {
+    $("heading").textContent = "overlook";
+    refresh();
+  }
+}
+
+let busy = false;
+async function refresh() {
+  if (!token || current() || busy || document.hidden) return;
+  busy = true;
+  try {
+    const { agents } = await call("GET", "agents");
+    renderList(agents);
+    const waiting = agents.filter((a) => a.status === "waiting").length;
+    document.title = waiting ? `(${waiting}) overlook` : "overlook";
+    $("conn").textContent = "";
+  } catch (error) {
+    $("conn").textContent = "offline";
+    if (!(error instanceof TypeError)) toast(error.message);
+  } finally {
+    busy = false;
+  }
+}
+
+$("back").onclick = () => history.back();
+window.onpopstate = show;
+document.addEventListener("visibilitychange", () => { refresh(); relisten(); });
+
+$("text").addEventListener("input", (event) => {
+  event.target.style.height = "44px";
+  event.target.style.height = event.target.scrollHeight + 2 + "px";
+});
+
+const sendable = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+async function prepare(file) {
+  if (sendable.includes(file.type) && file.size <= 2500000) return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+}
+
+function base64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.slice(reader.result.indexOf(",") + 1));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+let uploading = 0;
+async function attach(file) {
+  uploading++;
+  $("send").disabled = true;
+  const preview = el("img");
+  preview.src = URL.createObjectURL(file);
+  preview.style.opacity = ".4";
+  $("previews").append(preview);
+  try {
+    const blob = await prepare(file);
+    const { text } = await call("POST", "upload", { id: current(), mime: blob.type, data: await base64(blob) });
+    const box = $("text");
+    box.value = (box.value.trim() ? box.value.replace(/\s*$/, " ") : "") + text + " ";
+    box.dispatchEvent(new Event("input"));
+    preview.style.opacity = "1";
+  } catch (error) {
+    preview.remove();
+    toast(error.message);
+  } finally {
+    if (--uploading === 0) $("send").disabled = false;
+  }
+}
+
+$("attach").onclick = () => $("files").click();
+$("files").onchange = (event) => {
+  [...event.target.files].forEach(attach);
+  event.target.value = "";
+};
+
+$("send").onclick = async () => {
+  const text = $("text").value.trim();
+  if (!text) return;
+  $("send").disabled = true;
+  try {
+    await call("POST", "prompt", { id: current(), text });
+    $("text").value = "";
+    $("text").style.height = "44px";
+    $("previews").replaceChildren();
+    toast("Sent");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    $("send").disabled = uploading > 0;
+  }
+};
+
+show();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

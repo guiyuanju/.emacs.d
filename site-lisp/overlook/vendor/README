@@ -1,0 +1,4 @@
+Browser libraries for overlook-remote.html, unmodified but for the source map line.
+
+- marked.js: marked 18.1.1, lib/marked.umd.js (MIT, marked-LICENSE)
+- purify.js: DOMPurify 3.4.17, dist/purify.min.js (Apache-2.0 or MPL-2.0, purify-LICENSE)
