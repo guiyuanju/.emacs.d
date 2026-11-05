@@ -1166,13 +1166,16 @@
   :defer t
   :custom (httpd-serve-files nil))
 
-;; 浏览器里看 agent、批准、发 prompt：M-x overlook-remote-mode，地址带 token 复制到剪贴板。先只开 localhost。
+;; 浏览器里看 agent、批准、发 prompt：M-x overlook-remote-mode，地址带 token 复制到剪贴板。
 (use-package overlook-remote
   :ensure nil
   :load-path "site-lisp/overlook"
   :commands (overlook-remote-mode overlook-remote-url overlook-remote-new-token)
   :custom
-  (overlook-remote-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory)))
+  (overlook-remote-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory))
+  ;; "127.0.0.1" 只有本机能开；"0.0.0.0" 同一 Wi-Fi 的手机也能开（明文 HTTP，只在信任的网络用）。
+  (overlook-remote-host "0.0.0.0")
+  (overlook-remote-network-minutes nil))
 
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
