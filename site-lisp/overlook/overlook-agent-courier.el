@@ -213,7 +213,16 @@ With DIM, its name is dimmed; unread posts still stand out."
                   :face (append (and dim '(shadow)) (and named '(overlook-agent-waiting)))
                   :attention (and named t)
                   :action (lambda () (overlook-room-open name))
-                  :help (if last (overlook-courier-room-format last) "No posts yet"))))
+                  :help (if last (overlook-courier-room-format last) "No posts yet")
+                  :commands (list (list :name "post" :label "Post"
+                                        :input (format "Post to #%s" name)
+                                        :run (lambda (text)
+                                               (overlook-courier-room-post
+                                                name overlook-courier-room-user text)
+                                               nil))
+                                  (list :name "close" :label "Close"
+                                        :confirm (overlook-agent-courier--close-question name)
+                                        :run (lambda () (overlook-courier-room-close name)))))))
 
 (defun overlook-agent-courier--persona-row (name)
   "The row of persona NAME: whether it runs, its engine's icon, its name."
@@ -233,6 +242,13 @@ With DIM, its name is dimmed; unread posts still stand out."
                   :action (if running
                               (lambda () (overlook-agent-visit buffer))
                             (lambda () (overlook-persona-start name)))
+                  :commands (list (if running
+                                      (list :name "open" :label "Open" :run (lambda () buffer))
+                                    (list :name "start" :label "Start"
+                                          :run (lambda ()
+                                                 (overlook-courier-agent-buffer
+                                                  (overlook-courier-agent
+                                                   (overlook-courier-persona-start name)))))))
                   :help (concat (if-let* ((description (plist-get persona :description)))
                                     (concat description "\n")
                                   "")
@@ -323,11 +339,15 @@ Opens its persona.md to fill in."
               ((overlook-courier-room name)))
     (list (overlook-agent-courier--room-row name t))))
 
+(defun overlook-agent-courier--close-question (name)
+  "The question confirming that room NAME is to be closed."
+  (format "Close room #%s, archiving its posts? " name))
+
 (defun overlook-agent-courier--delete (item)
   "Close the room ITEM stands for, once confirmed, moving its posts to the archive."
   (pcase item
     (`(room . ,name)
-     (when (yes-or-no-p (format "Close room #%s, archiving its posts? " name))
+     (when (yes-or-no-p (overlook-agent-courier--close-question name))
        (overlook-courier-room-close name)
        (message "Closed room #%s" name))
      t)))

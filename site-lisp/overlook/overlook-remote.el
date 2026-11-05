@@ -295,10 +295,26 @@ that start where the first did."
           (_ (add (overlook--segment segment "" nil))))))
     (vconcat (nreverse spans))))
 
+(defvar overlook-remote--rows nil
+  "Table of the rows of the dashboard last made, by their node's id.")
+
+(defun overlook-remote--commands (commands)
+  "COMMANDS of a row, as the page shows them."
+  (vconcat (mapcar (lambda (command)
+                     `(:name ,(plist-get command :name)
+                       :label ,(overlook-remote--text (plist-get command :label))
+                       ,@(and (plist-get command :input)
+                              `(:input ,(overlook-remote--text (plist-get command :input))))
+                       ,@(and (plist-get command :options)
+                              `(:options ,(vconcat (plist-get command :options))))
+                       ,@(and (plist-get command :confirm) '(:confirm t))))
+                   commands)))
+
 (defun overlook-remote--node (row parent)
   "ROW of the dashboard's model as the page shows it, under the node of id PARENT.
 An agent's row names it in :agent and gives the answers it offers in
-:choices.  :hash changes whenever the node or any under it does."
+:choices; :commands are the row's, run through /api/command by the
+node's id.  :hash changes whenever the node or any under it does."
   (let* ((value (overlook-row-key row))
          (id (substring (secure-hash 'sha1 (concat parent
                                                    (let ((print-length nil) (print-level nil))
@@ -314,7 +330,10 @@ An agent's row names it in :agent and gives the answers it offers in
                  ,@(and (overlook-row-folded row) '(:folded t))
                  ,@(and (overlook-agent-p agent)
                         `(:agent ,(buffer-name agent)
-                          :choices ,(overlook-remote--choices (overlook-row-choices row)))))))
+                          :choices ,(overlook-remote--choices (overlook-row-choices row))))
+                 ,@(and (overlook-row-commands row)
+                        `(:commands ,(overlook-remote--commands (overlook-row-commands row)))))))
+    (when overlook-remote--rows (puthash id row overlook-remote--rows))
     `(:hash ,(substring (secure-hash
                          'sha1 (json-serialize
                                 (append node `(:children ,(vconcat
@@ -361,6 +380,7 @@ Calls answered in one `overlook-remote--together' share a new one."
 Made once per model `overlook-remote--model' gives."
   (let ((model (overlook-remote--model)))
     (unless (eq model (car overlook-remote--dashboard))
+      (setq overlook-remote--rows (make-hash-table :test #'equal))
       (let* ((sections (vconcat (mapcar (lambda (row) (overlook-remote--node row ""))
                                         model)))
              (hash (secure-hash 'sha1 (mapconcat (lambda (node) (plist-get node :hash))
@@ -816,12 +836,40 @@ stream (:stream KNOWN)."
                                                 (format-time-string "%Y%m%d-%H%M%S-%3N")
                                                 extension)
                                  data)))))))
+    ('("POST" "/api/command")
+     (overlook-remote--command (overlook-remote--body request)))
     ('("POST" "/api/choose")
      (let ((body (overlook-remote--body request)))
        (overlook-agent-choose (overlook-remote--agent-buffer (alist-get 'id body))
                               (alist-get 'key body))
        (overlook-remote--json 200 '(:ok t))))
     (_ (overlook-remote--json 404 `(:error ,(format "No %s %s" method route))))))
+
+(defun overlook-remote--command (body)
+  "Run the command BODY names on a row of the dashboard, once confirmed.
+A command needing confirmation that BODY does not confirm is answered
+with its question in :confirm instead."
+  (overlook-remote--dashboard)
+  (let* ((row (or (gethash (alist-get 'node body) overlook-remote--rows)
+                  (user-error "That row is gone")))
+         (command (or (overlook-row-command row (alist-get 'name body))
+                      (user-error "That row no longer offers %s" (alist-get 'name body))))
+         (text (string-trim (or (alist-get 'text body) "")))
+         (option (alist-get 'option body))
+         (confirm (plist-get command :confirm))
+         (question (if (functionp confirm) (funcall confirm) confirm)))
+    (when (and (plist-get command :input) (string-empty-p text))
+      (user-error "Nothing to send"))
+    (when (and (plist-get command :options) (not (member option (plist-get command :options))))
+      (user-error "Pick one of %s" (string-join (plist-get command :options) ", ")))
+    (if (and question (not (eq (alist-get 'confirmed body) t)))
+        (overlook-remote--json 200 `(:confirm ,(overlook-remote--text question)))
+      (let ((result (apply (plist-get command :run)
+                           (append (and (plist-get command :input) (list text))
+                                   (and (plist-get command :options) (list option))))))
+        (overlook-refresh)
+        (overlook-remote--json
+         200 `(:ok t ,@(and (overlook-agent-p result) `(:agent ,(buffer-name result)))))))))
 
 (defun overlook-remote--respond (method path query request)
   "Answer METHOD on PATH with QUERY and REQUEST, as (STATUS MIME BODY)."
@@ -901,7 +949,8 @@ over simple-httpd's server, which serves one Emacs at a time."
     (remove-hook 'overlook-refresh-hook #'overlook-remote--refreshed)
     (remove-hook 'overlook-after-model-hook #'overlook-remote--redrawn)
     (setq overlook-remote--dashboard nil
-          overlook-remote--versions nil)
+          overlook-remote--versions nil
+          overlook-remote--rows nil)
     (mapc #'overlook-remote--answer overlook-remote--waiting)
     (mapc (lambda (stream) (delete-process (car stream))) overlook-remote--streams)
     (setq overlook-remote--streams nil)

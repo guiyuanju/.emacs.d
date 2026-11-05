@@ -391,6 +391,66 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
           (should (equal (alist-get 'text (car (alist-get 'items news))) "On it now"))
           (should (= (alist-get 'offset (car (alist-get 'items news))) 0)))))))
 
+;; Commands
+
+(defun overlook-remote-test--find (nodes pred)
+  "The first of NODES, or of the nodes under them, satisfying PRED."
+  (seq-some (lambda (node)
+              (if (funcall pred node) node
+                (overlook-remote-test--find (alist-get 'children node) pred)))
+            nodes))
+
+(ert-deftest overlook-remote-runs-a-row-s-commands ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let* ((ran nil)
+             (overlook-remote--dashboard nil)
+             (overlook-remote--versions nil)
+             (overlook-sections
+              (list #'overlook--perspectives-section
+                    (lambda ()
+                      (overlook-section-row
+                       "Notes"
+                       (list (overlook-row
+                              :content "note"
+                              :commands (list (list :name "post" :label "Post" :input "Say"
+                                                    :options '("me" "okj")
+                                                    :run (lambda (text option)
+                                                           (push (list text option) ran)
+                                                           nil))
+                                              (list :name "show" :label "Show"
+                                                    :run (lambda () agent)))))))))
+             (sections (alist-get 'sections (cdr (overlook-remote-test--call
+                                                   "GET" "/overlook/api/dashboard"))))
+             (note (overlook-remote-test--find
+                    sections (lambda (node) (equal (overlook-remote-test--text node) "note"))))
+             (row (overlook-remote-test--find
+                   sections (lambda (node) (equal (alist-get 'agent node) "claude@shop"))))
+             (run (lambda (node &rest body)
+                    (overlook-remote-test--call "POST" "/overlook/api/command"
+                                                `((node . ,(alist-get 'id node)) ,@body)))))
+        (should (equal (alist-get 'commands note)
+                       '(((name . "post") (label . "Post") (input . "Say") (options "me" "okj"))
+                         ((name . "show") (label . "Show")))))
+        ;; It runs with the text and option given, which must be there.
+        (should (equal (funcall run note '(name . "post") '(text . " hi ") '(option . "okj"))
+                       '(200 (ok . t))))
+        (should (equal ran '(("hi" "okj"))))
+        (should (= (car (funcall run note '(name . "post") '(text . "  ") '(option . "me"))) 409))
+        (should (= (car (funcall run note '(name . "post") '(text . "hi") '(option . "x"))) 409))
+        (should (= (car (funcall run note '(name . "gone"))) 409))
+        ;; One returning an agent sends the page to it.
+        (should (equal (alist-get 'agent (cdr (funcall run note '(name . "show")))) "claude@shop"))
+        ;; Killing an agent asks first, and only then kills it.
+        (should (equal (mapcar (lambda (c) (alist-get 'name c)) (alist-get 'commands row))
+                       '("kill")))
+        (should (eq (alist-get 'confirm (car (alist-get 'commands row))) t))
+        (should (string-match-p "Kill agent claude@shop"
+                                (alist-get 'confirm (cdr (funcall run row '(name . "kill"))))))
+        (should (buffer-live-p agent))
+        (should (equal (funcall run row '(name . "kill") '(confirmed . t)) '(200 (ok . t))))
+        (should-not (buffer-live-p agent))))))
+
 ;; Dashboard deltas
 
 (defun overlook-remote-test--same (nodes)

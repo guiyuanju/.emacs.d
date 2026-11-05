@@ -475,6 +475,11 @@ commit is unmerged."
           (and (seq-every-p (lambda (divergence) (eql (cadr divergence) 0)) divergences)
                (not (seq-some (lambda (dir) (cdr (overlook-project--status dir))) repos))
                (null (overlook-folder-contents tree))))
+    (when (and (fboundp 'overlook-courier-worktree-at) (overlook-courier-worktree-at tree))
+      (setf (overlook-row-commands row)
+            (list (list :name "delete" :label "Delete"
+                        :confirm (lambda () (overlook-project--delete-question tree))
+                        :run (lambda () (overlook-project--delete-worktree tree) nil)))))
     row))
 
 (defun overlook-project--main-row (root perspective)
@@ -537,35 +542,45 @@ Under a main checkout that is a repo, its own files are on its row."
                       (or (ignore-errors (overlook-courier-worktree--git dir "status" "--porcelain")) ""))))
               (overlook-courier-worktree-repos tree)))
 
-(defun overlook-project-delete-worktree (tree)
-  "Delete worktree TREE with what lies in it, such as its agents, once confirmed.
-Its branch stays."
-  (pcase-let* ((`(,root . ,name) (or (overlook-courier-worktree-at tree)
-                                     (user-error "Not a worktree: %s" tree)))
+(defun overlook-project--delete-question (tree)
+  "The question confirming that worktree TREE, and what lies in it, is to go."
+  (pcase-let* ((`(,_ . ,name) (or (overlook-courier-worktree-at tree)
+                                  (user-error "Not a worktree: %s" tree)))
                (contents (overlook-folder-contents tree))
                (changed (overlook-project--uncommitted tree))
                ;; From the last read; reading again would outlive the worktree.
                (unmerged (seq-some (lambda (dir)
                                      (> (or (nth 2 (gethash dir overlook-project--diverged)) 0) 0))
                                    (overlook-courier-worktree-repos tree))))
-    (when (yes-or-no-p
-           (concat (format "Delete worktree %s" name)
-                   (if contents (format " and %s" (mapconcat #'car contents ", ")) "")
-                   (if changed
-                       (format "; uncommitted changes in %s are lost"
-                               (mapconcat #'overlook-project--label changed ", "))
-                     "")
-                   (if unmerged "; its branch keeps commits not merged" "")
-                   "? "))
-      (pcase-dolist (`(,_ . ,delete) contents) (funcall delete))
-      (let ((kill-buffer-query-functions nil))
-        (dolist (buffer (buffer-list))
-          (when (file-in-directory-p (buffer-local-value 'default-directory buffer) tree)
-            (with-current-buffer buffer (set-buffer-modified-p nil))
-            (kill-buffer buffer))))
-      (overlook-courier-worktree-remove root name t)
-      (overlook-refresh)
-      (message "Deleted worktree %s" name))))
+    (concat (format "Delete worktree %s" name)
+            (if contents (format " and %s" (mapconcat #'car contents ", ")) "")
+            (if changed
+                (format "; uncommitted changes in %s are lost"
+                        (mapconcat #'overlook-project--label changed ", "))
+              "")
+            (if unmerged "; its branch keeps commits not merged" "")
+            "? ")))
+
+(defun overlook-project--delete-worktree (tree)
+  "Delete worktree TREE with what lies in it, such as its agents.
+Its branch stays."
+  (pcase-let ((`(,root . ,name) (or (overlook-courier-worktree-at tree)
+                                    (user-error "Not a worktree: %s" tree))))
+    (pcase-dolist (`(,_ . ,delete) (overlook-folder-contents tree)) (funcall delete))
+    (let ((kill-buffer-query-functions nil))
+      (dolist (buffer (buffer-list))
+        (when (file-in-directory-p (buffer-local-value 'default-directory buffer) tree)
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (kill-buffer buffer))))
+    (overlook-courier-worktree-remove root name t)
+    (overlook-refresh)
+    (message "Deleted worktree %s" name)))
+
+(defun overlook-project-delete-worktree (tree)
+  "Delete worktree TREE with what lies in it, such as its agents, once confirmed.
+Its branch stays."
+  (when (yes-or-no-p (overlook-project--delete-question tree))
+    (overlook-project--delete-worktree tree)))
 
 (defun overlook-project--delete (item)
   "Delete the worktree ITEM stands for, if it is one."

@@ -591,6 +591,15 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                (overlook-orphan-perspective))
                            (lambda () (overlook-agent-show (overlook-agent--resume saved)))))
 
+(defun overlook-agent-resume (saved)
+  "Resume SAVED agent in its perspective, without showing it; return its buffer."
+  (let ((perspective (or (overlook-agent--saved-perspective saved)
+                         (overlook-orphan-perspective)
+                         (overlook-current-perspective)))
+        (buffer (overlook-agent--resume saved)))
+    (when perspective (overlook-add-to-perspective perspective buffer))
+    buffer))
+
 (defun overlook-agent-forget (saved)
   "Forget SAVED agent."
   (setq overlook-agent-saved (delq saved overlook-agent-saved))
@@ -608,13 +617,17 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
   (let ((kill-buffer-query-functions nil))
     (kill-buffer buffer)))
 
+(defun overlook-agent--kill-question (buffer)
+  "The question confirming that agent BUFFER is to be killed."
+  (format "Kill agent %s%s? " (buffer-name buffer)
+          (if (eq (buffer-local-value 'overlook-agent-status buffer) 'working)
+              ", still working" "")))
+
 (defun overlook-agent--delete (item)
   "Kill the agent ITEM stands for, once confirmed, or forget the saved one."
   (pcase item
     (`(agent . ,buffer)
-     (when (yes-or-no-p (format "Kill agent %s%s? " (buffer-name buffer)
-                                (if (eq (buffer-local-value 'overlook-agent-status buffer) 'working)
-                                    ", still working" "")))
+     (when (yes-or-no-p (overlook-agent--kill-question buffer))
        (overlook-agent-kill buffer))
      t)
     (`(saved . ,saved) (overlook-agent-forget saved) t)))
@@ -878,6 +891,9 @@ line of their own under it."
      :wrap (overlook-agent--wrap-prefix depth)
      :choices (overlook-agent--choices buffer)
      :choose (lambda (key) (overlook-agent-choose buffer key))
+     :commands (list (list :name "kill" :label "Kill"
+                           :confirm (lambda () (overlook-agent--kill-question buffer))
+                           :run (lambda () (overlook-agent-kill buffer))))
      :children children)))
 
 (defun overlook-agent--saved-row (saved perspective &optional depth children)
@@ -907,6 +923,12 @@ CHILDREN are the rows of its forks."
                    (if title (concat "\n" title) "")
                    (overlook-agent--fork-echo session))
      :wrap (overlook-agent--wrap-prefix depth)
+     :commands (list (list :name "resume" :label "Resume"
+                           :run (lambda () (overlook-agent-resume saved)))
+                     (list :name "forget" :label "Forget"
+                           :confirm (format "Forget saved agent %s%s? " (alist-get 'agent saved)
+                                            (overlook-agent--title-label title))
+                           :run (lambda () (overlook-agent-forget saved))))
      :children children)))
 
 (defun overlook-agent--item-session (item)

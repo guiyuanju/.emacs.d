@@ -347,6 +347,10 @@ thing, like \"agent claude\", and DELETE a function letting it go.")
 Each deletes what the row stands for.
 Each returns non-nil when it handled the item.")
 
+(defvar overlook-perspective-command-functions nil
+  "Functions of a perspective NAME returning commands for its heading.
+Each returns a list of commands, as `overlook-row' describes.")
+
 (defvar overlook-heading-mark-functions nil
   "Functions of a perspective NAME returning a mark put right after its heading.
 Each returns a string, such as \"*\", or nil.")
@@ -549,9 +553,26 @@ a face or list of faces, is added under its own faces, past its indent.
 ACTION is what RET does, HELP its tooltip, WRAP what starts its
 continuation lines after its indent, KEYMAP its keys.  CHOICES, a list
 of (KEY LABEL . _), are the answers it offers, on a line under the row, and CHOOSE a function of a
-KEY giving that answer."
+KEY giving that answer.
+
+COMMANDS are what views without the dashboard's keys, such as
+overlook-remote's page, offer on the row.  Each is a plist:
+  :name     its name, one of the row's;
+  :label    what its button says;
+  :input    when non-nil, what to ask for as text;
+  :options  strings to pick one of;
+  :confirm  a question to confirm first, or a function returning one,
+            or nil when none is needed;
+  :run      a function of the text, when :input, and then the option,
+            when :options.  It must not ask in the minibuffer; returning
+            an agent's buffer shows that agent."
   id content heading attention folded children nest gap dim face
-  action help wrap keymap choices choose)
+  action help wrap keymap choices choose commands)
+
+(defun overlook-row-command (row name)
+  "ROW's command NAME, or nil."
+  (seq-find (lambda (command) (equal (plist-get command :name) name))
+            (overlook-row-commands row)))
 
 (defun overlook-row-attention-p (row)
   "Non-nil when ROW, or a row under it shown so far, needs attention."
@@ -572,13 +593,15 @@ KEY giving that answer."
     (setf (overlook-row-gap row) t))
   rows)
 
-(defun overlook-section-row (title rows &optional action)
+(defun overlook-section-row (title rows &optional action commands)
   "A top level section TITLE over ROWS, or nil when ROWS is empty.
-ACTION is what RET on the title does; by default it folds the section."
+ACTION is what RET on the title does; by default it folds the section.
+COMMANDS are the title's, as `overlook-row' describes."
   (when rows
     (let ((title (copy-sequence title)))
       (add-face-text-property 0 (length title) 'overlook-section t title)
-      (overlook-row :content title :heading t :action action :children rows :gap t))))
+      (overlook-row :content title :heading t :action action :children rows :gap t
+                    :commands commands))))
 
 (defun overlook-rows (hook &rest args)
   "The rows the functions of HOOK return given ARGS, in hook order.
@@ -927,6 +950,8 @@ CURRENT is the current perspective's name.  See `overlook--perspectives'."
                                 (propertize (concat " " tag) 'face 'shadow)))
                :heading t
                :action (lambda () (overlook-show-elsewhere name #'ignore))
+               :commands (seq-mapcat (lambda (function) (funcall function name))
+                                     overlook-perspective-command-functions)
                :children rows)))
     (when (and (or rows (equal name current) overlook-show-empty-perspectives
                    (not (string-empty-p marks)))

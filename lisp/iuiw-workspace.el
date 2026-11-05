@@ -848,6 +848,28 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
                                (goto-char (point-min))
                                (forward-line (1- line))))))
 
+(defun iuiw-workspace--tick (file line text)
+  "Tick item TEXT on LINE of FILE as done, and save FILE."
+  (with-current-buffer (find-file-noselect file)
+    (when (buffer-modified-p)
+      (user-error "%s has unsaved changes" (buffer-name)))
+    (save-excursion
+      (goto-char (point-min))
+      (forward-line (1- line))
+      (unless (looking-at (concat "\\( *- \\)\\(\\[ \\] \\)?" (regexp-quote text) "$"))
+        (user-error "%s changed since the dashboard read it" (buffer-name)))
+      (if (match-beginning 2)
+          (replace-match "[x] " t t nil 2)
+        (goto-char (match-end 1))
+        (insert "[x] "))
+      (save-buffer)))
+  (overlook-refresh)
+  nil)
+
+(defun iuiw-workspace--done-command (file line text)
+  "A command ticking item TEXT on LINE of FILE as done."
+  (list :name "done" :label "Done" :run (lambda () (iuiw-workspace--tick file line text))))
+
 (defun iuiw-workspace--group-rows (groups mark)
   "Rows of GROUPS separated by blank lines, each item led by MARK of its text.
 Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
@@ -876,6 +898,8 @@ the strings BEFORE and AFTER around its text."
                                  :action (iuiw-workspace--todo-visit (or item-perspective perspective)
                                                                      (or item-file file)
                                                                      line)
+                                 :commands (list (iuiw-workspace--done-command
+                                                  (or item-file file) line text))
                                  :wrap (concat indent "   ")
                                  :children (and children (item-rows children)))
                                 rows)))
@@ -1002,7 +1026,30 @@ workspace of the current perspective comes first."
                   (when-let* ((items (iuiw-workspace--inbox-items file)))
                     (list (iuiw-workspace--inbox-workspace file) file nil items)))
                 files)
-      (lambda (_) (propertize "☐" 'face 'shadow))))))
+      (lambda (_) (propertize "☐" 'face 'shadow)))
+     nil
+     (list (list :name "add" :label "Add"
+                 :input "New inbox item"
+                 :options (mapcar #'iuiw-workspace--inbox-workspace files)
+                 :run (lambda (text workspace)
+                        (iuiw-workspace-inbox-add
+                         (seq-find (lambda (file)
+                                     (equal (iuiw-workspace--inbox-workspace file) workspace))
+                                   files)
+                         text)))))))
+
+(defun iuiw-workspace-inbox-add (file text)
+  "Add TEXT as an item at the end of inbox FILE, and save it."
+  (with-current-buffer (find-file-noselect file)
+    (when (buffer-modified-p)
+      (user-error "%s has unsaved changes" (buffer-name)))
+    (save-excursion
+      (goto-char (point-max))
+      (unless (bolp) (insert "\n"))
+      (insert "- " (string-trim (replace-regexp-in-string "\n+" " " text)) "\n")
+      (save-buffer)))
+  (overlook-refresh)
+  nil)
 
 (defun iuiw-workspace--mode-line ()
   "`iuiw-workspace-filter' for the dashboard's mode line, or nil when unset."

@@ -49,7 +49,7 @@
   .status { margin-left: auto; font-size: 12px; color: var(--dim); }
   .brief { margin-top: 4px; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .choices button {
+  .choices button, .commands button {
     font-size: 15px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
     background: var(--bg); color: var(--fg); max-width: 100%; text-align: left;
   }
@@ -155,6 +155,15 @@
   .line:has(.s-waiting) { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
   .line.agent .text::after { content: " ›"; color: var(--dim); }
   .node > .choices { margin: 2px 0 6px 24px; }
+  .line .more { flex: none; border: 0; background: none; color: var(--dim); font-size: 17px; padding: 0 4px; line-height: 1; }
+  .node > .commands { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px 24px; }
+  .commands .danger { color: var(--failed); }
+  .commands .primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .commands textarea, .commands select {
+    width: 100%; font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px; background: var(--card); color: var(--fg);
+  }
+  .commands textarea { min-height: 64px; resize: vertical; }
   .s-dim { color: var(--dim); }
   .s-warning { color: var(--working); }
   .s-error { color: var(--failed); }
@@ -498,6 +507,15 @@ function renderNode(node, top) {
     };
   }
   box.append(line);
+  if (node.commands?.length) {
+    const more = el("button", "more", "⋯");
+    more.onclick = (event) => {
+      event.stopPropagation();
+      if (panel?.node.id === node.id) closePanel();
+      else openPanel(box, node);
+    };
+    line.append(more);
+  }
   if (node.agent && node.choices.length) {
     const choices = el("div", "choices");
     choiceButtons({ id: node.agent, choices: node.choices }, choices);
@@ -511,7 +529,88 @@ function renderNode(node, top) {
   return box;
 }
 
+// The commands shown under a row of the dashboard: { node, box, name, text,
+// option }, name set once one that asks for more is picked.  The dashboard
+// is not redrawn while it shows, so what is typed stays.
+let panel = null;
+let pendingSections = null;
+
+function closePanel() {
+  panel?.box.querySelector(":scope > .commands")?.remove();
+  panel = null;
+  if (pendingSections) {
+    const sections = pendingSections;
+    pendingSections = null;
+    renderDashboard(sections);
+  }
+}
+
+function openPanel(box, node, state = {}) {
+  if (panel && panel.box !== box) panel.box.querySelector(":scope > .commands")?.remove();
+  panel = { text: "", option: null, ...state, node, box };
+  box.querySelector(":scope > .commands")?.remove();
+  const container = el("div", "commands");
+  const button = (label, className, onclick) => {
+    const b = el("button", className, label);
+    b.onclick = (event) => { event.stopPropagation(); onclick(b); };
+    return b;
+  };
+  const command = node.commands.find((c) => c.name === panel.name);
+  if (!command) {
+    for (const c of node.commands) {
+      container.append(button(c.label, c.confirm ? "danger" : "", (b) => {
+        if (c.input || c.options) openPanel(box, node, { name: c.name });
+        else runCommand(node, c, {}, b);
+      }));
+    }
+  } else if (!command.input) {
+    for (const option of command.options) {
+      container.append(button(option, "", (b) => runCommand(node, command, { option }, b)));
+    }
+  } else {
+    let select = null;
+    if (command.options) {
+      select = el("select");
+      for (const option of command.options) select.append(new Option(option, option));
+      if (panel.option) select.value = panel.option;
+      select.onchange = () => { panel.option = select.value; };
+      container.append(select);
+    }
+    const text = el("textarea");
+    text.placeholder = command.input;
+    text.value = panel.text;
+    text.oninput = () => { panel.text = text.value; };
+    container.append(text, button("Send", "primary", (b) =>
+      runCommand(node, command, { text: text.value, option: select?.value }, b)));
+  }
+  container.append(button("Cancel", "", closePanel));
+  box.querySelector(":scope > .line").after(container);
+  container.querySelector("textarea")?.focus();
+}
+
+async function runCommand(node, command, args, button) {
+  button.disabled = true;
+  try {
+    const body = { node: node.id, name: command.name, ...args };
+    let result = await call("POST", "command", body);
+    if (result.confirm) {
+      if (!confirm(result.confirm)) { button.disabled = false; return; }
+      result = await call("POST", "command", { ...body, confirmed: true });
+    }
+    closePanel();
+    if (result.agent) open(result.agent);
+    else toast(command.label + ": done");
+  } catch (error) {
+    toast(error.message);
+    button.disabled = false;
+  }
+}
+
 function renderDashboard(sections) {
+  if (panel) {
+    pendingSections = sections;
+    return;
+  }
   const dash = $("dash");
   if (!sections.length) {
     dash.replaceChildren(el("p", "empty", "The dashboard is empty."));
@@ -711,6 +810,7 @@ function show() {
   $("switch").textContent = shown === "agents" ? "Dashboard" : "Agents";
   stopPolling();
   shownList = shownHeader = "";
+  panel = pendingSections = null;
   if (!token) {
     $("dash").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
     return;

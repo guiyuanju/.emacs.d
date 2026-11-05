@@ -158,6 +158,10 @@ Steering the agents from a browser, such as a phone's:
 The page shows the dashboard, drawn by the same modules as in Emacs and
 redrawn as it changes, streamed with only what changed, with buttons for the answers each agent waits
 for, such as a permission request; a tap on an agent opens its own page.
+A row's ⋯ offers the commands it declares: kill an agent, resume or
+forget a saved one, start a persona, start an agent in a perspective,
+post to a room or close it, delete a worktree, each asking first where
+that loses something.
 Another view lists the agents, those waiting for you first.  An agent's own
 page follows its prompts, replies and tool calls as they come, with the
 diff of each edit, from when the mode started; before that it shows the
@@ -378,7 +382,9 @@ name's icon from `overlook-agent-icons`, carrying the name for views
 without icon fonts.  A row also takes `:heading`, `:nest` (indent its children),
 `:gap` (a blank line after it), `:dim`, `:face`, `:help`, `:wrap`,
 `:keymap`, children as a function called once they show, and the
-`:choices` it offers with `:choose`, which gives an answer; see `overlook-row`'s docstring.  Filter or rearrange rows
+`:choices` it offers with `:choose`, which gives an answer, and the
+`:commands` views without the dashboard's keys offer on it, each maybe
+asking for text, an option or confirmation; see `overlook-row`'s docstring.  Filter or rearrange rows
 as data before returning them; `overlook-gaps` puts blank lines between
 them.
 
