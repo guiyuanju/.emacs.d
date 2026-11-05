@@ -145,7 +145,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (= status 200))
         (should (equal (overlook-remote-test--text section) "Perspectives"))
         (should (eq (alist-get 'heading section) t))
-        (should (member "overlook-section" (alist-get 'faces (car (alist-get 'spans section)))))
+        (should (equal (alist-get 'styles (car (alist-get 'spans section))) '("section")))
         (should (equal (overlook-remote-test--text shop) "shop"))
         ;; The agent's row names it and carries its answers.
         (should (equal (alist-get 'agent row) "claude@shop"))
@@ -202,34 +202,44 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
               (should-not overlook-remote--waiting))
           (delete-process proc))))))
 
-(defun overlook-remote-test--faces ()
-  "Check `overlook-remote--faces' follows inheritance."
-  (overlook-remote--faces '(overlook-heading-current (:foreground "red"))))
-
-(ert-deftest overlook-remote-names-faces-with-what-they-inherit ()
-  (should (equal (overlook-remote-test--faces) '("overlook-heading-current" "success" "bold")))
+(ert-deftest overlook-remote-styles-faces-by-what-they-mean ()
+  ;; A face with a style keeps it; one without takes what it inherits.
+  (should (equal (overlook-remote--styles '(overlook-section shadow)) '("section" "dim")))
+  (should (equal (overlook-remote--styles '(overlook-heading-current (:foreground "red")))
+                 '("success" "bold")))
+  (should (equal (overlook-remote--styles '((:slant italic) default)) '("italic")))
   (should (equal (append (overlook-remote--spans
                           (overlook-row :content (list (propertize "a" 'face 'shadow)
                                                        (propertize "b" 'face 'shadow)
                                                        (overlook-align-right "5m" 6)
-                                                       (overlook-align-right "" 1))))
+                                                       (overlook-align-right "" 1)
+                                                       (overlook-align-right "9%" 1))))
                          nil)
-                 '((:text "ab" :faces ["shadow"]) (:text "" :faces [] :right t)
-                   (:text "5m" :faces []))))
+                 '((:text "ab" :styles ["dim"])
+                   (:right [(:text "5m" :styles [])])
+                   (:right [(:text "9%" :styles [])]))))
   ;; Icons go by their names, as the page lacks their fonts.
   (should (equal (append (overlook-remote--spans
                           (overlook-row :content (let ((overlook-agent-icons '(("claude" . "C"))))
                                                    (concat (overlook-icon "claude") " x"))))
                          nil)
-                 '((:text "claude x" :faces [])))))
+                 '((:text "claude x" :styles [])))))
 
 (ert-deftest overlook-remote-keeps-wrapping-pieces-apart ()
   (should (equal (append (overlook-remote--spans
                           (overlook-row :content (list "name  " (list :wrap '("a" "b") :gap 3))))
                          nil)
-                 '((:text "name  " :faces []) (:wrap [[(:text "a" :faces [])]
-                                                      [(:text "b" :faces [])]]
-                                               :gap 3)))))
+                 '((:text "name  " :styles []) (:wrap [[(:text "a" :styles [])]
+                                                       [(:text "b" :styles [])]]
+                                                :gap 3)))))
+
+(ert-deftest overlook-remote-sends-what-may-be-cut-apart ()
+  (should (equal (append (overlook-remote--spans
+                          (overlook-row :content (list "name" (list :fit "a long brief" :face 'warning
+                                                                    :before "  " :reserve 4))))
+                         nil)
+                 '((:text "name  " :styles [])
+                   (:fit [(:text "a long brief" :styles ["warning"])])))))
 
 (ert-deftest overlook-remote-shares-the-live-dashboard-s-model ()
   (overlook-remote-test-with-agent t

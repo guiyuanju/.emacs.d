@@ -130,7 +130,7 @@
   #dash { padding: 4px 10px 40px; }
   .section { margin: 10px 0 14px; }
   .section > .line { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); padding: 6px 4px; }
-  .section > .line .f-overlook-section { color: var(--dim); font-weight: 600; }
+  .section > .line .s-section { color: var(--dim); font-weight: 600; }
   .node > .children { margin-left: 10px; padding-left: 8px; border-left: 1px solid var(--line); }
   .section > .children { margin-left: 0; padding-left: 0; border-left: 0; }
   .node.folded > .children { display: none; }
@@ -140,29 +140,31 @@
   }
   .line .twist { flex: none; width: 12px; color: var(--dim); font-size: 11px; }
   .line .text { flex: 1; min-width: 0; white-space: pre-line; }
-  .line .right { flex: none; white-space: nowrap; color: var(--dim); font-size: 13px; }
-  .line:has(.f-overlook-tabular) { font: 13px/1.5 ui-monospace, Menlo, monospace; }
-  .f-overlook-tabular { white-space: pre; }
-  .line .text:has(> .wrap) { display: flex; align-items: baseline; }
+  .line .right { flex: none; display: flex; gap: 1ch; white-space: nowrap; color: var(--dim); font-size: 13px; }
+  .line:has(.s-tabular) { font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  .s-tabular { white-space: pre; }
+  .line .text:has(> .wrap), .line .text:has(> .fit) { display: flex; align-items: baseline; }
+  .line .text:has(> .fit) > * { flex: none; white-space: pre; }
+  .line .text > .fit { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line .lead { flex: none; }
   .line .wrap { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; }
   .line.link { cursor: pointer; }
   .line.heading .text { font-weight: 600; }
   .line.attention { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
-  .line:has(.f-overlook-agent-done) { box-shadow: inset 3px 0 var(--done); background: var(--done-bg); }
+  .line:has(.s-done) { box-shadow: inset 3px 0 var(--done); background: var(--done-bg); }
+  .line:has(.s-waiting) { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
   .line.agent .text::after { content: " ›"; color: var(--dim); }
   .node > .choices { margin: 2px 0 6px 24px; }
-  .f-shadow, .f-font-lock-comment-face { color: var(--dim); }
-  .f-warning { color: var(--working); }
-  .f-error { color: var(--failed); }
-  .f-success { color: var(--done); }
-  .f-bold { font-weight: 600; }
-  .f-italic, .f-font-lock-doc-face { font-style: italic; }
-  .f-font-lock-keyword-face, .f-link { color: var(--accent); }
-  .f-font-lock-string-face { color: var(--done); }
-  .f-font-lock-function-name-face, .f-font-lock-type-face { color: #8a3ffc; }
-  .f-overlook-usage-bar-track { opacity: .3; }
-  .f-help-key-binding { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .s-dim { color: var(--dim); }
+  .s-warning { color: var(--working); }
+  .s-error { color: var(--failed); }
+  .s-success, .s-string { color: var(--done); }
+  .s-bold { font-weight: 600; }
+  .s-italic { font-style: italic; }
+  .s-accent { color: var(--accent); }
+  .s-name { color: #8a3ffc; }
+  .s-track { opacity: .3; }
+  .s-key { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -435,7 +437,7 @@ function saveFolds() {
 
 function run(span) {
   const node = el("span", "", span.text);
-  for (const face of span.faces) node.classList.add("f-" + face.replace(/[^A-Za-z0-9_-]/g, "-"));
+  for (const style of span.styles) node.classList.add("s-" + style.replace(/[^A-Za-z0-9_-]/g, "-"));
   return node;
 }
 
@@ -446,20 +448,26 @@ function wrapInto(text, span) {
   const wrap = el("span", "wrap");
   wrap.style.columnGap = span.gap + "ch";
   for (const piece of span.wrap) {
-    const node = el("span", "piece");
-    node.append(...piece.map(run));
-    wrap.append(node);
+    wrap.append(runs("piece", piece));
   }
   text.append(lead, wrap);
+}
+
+function runs(className, spans) {
+  const node = el("span", className);
+  node.append(...spans.map(run));
+  return node;
 }
 
 function spansInto(container, spans) {
   const text = el("span", "text");
   let right = null;
   for (const span of spans) {
-    if (span.right) right = right || el("span", "right");
+    if (span.right) (right ??= el("span", "right")).append(runs("", span.right));
     else if (span.wrap) wrapInto(text, span);
-    else (right || text).append(run(span));
+    else if (span.fit) (right || text).append(runs("fit", span.fit));
+    else if (right) right.lastChild.append(run(span));
+    else text.append(run(span));
   }
   container.append(text);
   if (right) container.append(right);

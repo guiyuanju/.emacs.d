@@ -94,6 +94,21 @@ Nil keeps it on."
   :type '(choice (natnum :tag "Minutes") (const :tag "Never" nil))
   :group 'overlook)
 
+(defcustom overlook-remote-styles
+  '((overlook-section . "section") (overlook-tabular . "tabular")
+    (overlook-usage-bar-track . "track") (overlook-agent-done . "done")
+    (overlook-agent-waiting . "waiting") (help-key-binding . "key")
+    (shadow . "dim") (font-lock-comment-face . "dim") (completions-annotations . "dim")
+    (warning . "warning") (error . "error") (success . "success")
+    (link . "accent") (font-lock-keyword-face . "accent")
+    (font-lock-string-face . "string") (font-lock-function-name-face . "name")
+    (font-lock-type-face . "name") (font-lock-doc-face . "italic")
+    (bold . "bold") (italic . "italic"))
+  "Styles the page draws faces in, each (FACE . STYLE).
+The faces a face inherits from count only when it has no style here."
+  :type '(alist :key-type face :value-type string)
+  :group 'overlook)
+
 (defconst overlook-remote--directory
   (file-name-directory (or load-file-name buffer-file-name ""))
   "Directory of the files the page is made of.")
@@ -195,63 +210,89 @@ With DETAIL, its last reply and the end of its transcript too."
 
 ;;; Dashboard
 
-(defun overlook-remote--faces (face)
-  "Names of FACE, a face or list of faces, and of those they inherit from."
+(defun overlook-remote--styles (face)
+  "Styles of FACE, a face or list of faces, from `overlook-remote-styles'.
+A face without one takes those of the faces it inherits from, and
+\"bold\" or \"italic\" when it sets that itself."
   (let ((todo (list face))
-        names)
+        seen styles)
     (while todo
       (let ((face (pop todo)))
         (cond ((and (symbolp face) face (not (keywordp face)) (facep face)
-                    (not (member (symbol-name face) names)))
-               (push (symbol-name face) names)
-               (push (face-attribute face :inherit nil) todo))
-              ((keywordp (car-safe face)) (push (plist-get face :inherit) todo))
+                    (not (memq face seen)))
+               (push face seen)
+               (if-let* ((style (alist-get face overlook-remote-styles)))
+                   (push style styles)
+                 (setq styles (append (overlook-remote--own-styles
+                                       (face-attribute face :weight nil)
+                                       (face-attribute face :slant nil))
+                                      styles))
+                 (push (face-attribute face :inherit nil) todo)))
+              ((keywordp (car-safe face))
+               (setq styles (append (overlook-remote--own-styles (plist-get face :weight)
+                                                                 (plist-get face :slant))
+                                    styles))
+               (push (plist-get face :inherit) todo))
               ((proper-list-p face) (setq todo (append face todo))))))
-    (nreverse names)))
+    (delete-dups (nreverse styles))))
 
-(defun overlook-remote--runs (row text spans)
-  "SPANS, newest first, with TEXT's runs of one look and ROW's look added.
+(defun overlook-remote--own-styles (weight slant)
+  "Styles a face of WEIGHT and SLANT sets itself."
+  (append (and (memq weight '(semi-bold bold extra-bold ultra-bold heavy black ultra-heavy))
+               '("bold"))
+          (and (memq slant '(italic oblique)) '("italic"))))
+
+(defun overlook-remote--runs (row text)
+  "TEXT's runs of one look, ROW's look added, each (:text T :styles NAMES).
 A string with an `overlook-alt' shows that instead, like an icon's name."
   (let ((text (copy-sequence text))
-        (start 0))
+        (start 0)
+        runs)
     (overlook--row-look row text 0 (length text))
     (while (< start (length text))
       (let* ((alt (get-text-property start 'overlook-alt text))
              (end (if alt
                       (next-single-property-change start 'overlook-alt text (length text))
                     (next-property-change start text (length text))))
-             (faces (vconcat (overlook-remote--faces (get-text-property start 'face text))))
-             (piece (or alt (substring-no-properties text start end)))
-             (last (car spans)))
-        (if (and last (not (plist-get last :right)) (not (plist-get last :wrap))
-                 (equal (plist-get last :faces) faces))
-            (plist-put last :text (concat (plist-get last :text) piece))
-          (push (list :text piece :faces faces) spans))
+             (styles (vconcat (overlook-remote--styles (get-text-property start 'face text))))
+             (piece (or alt (substring-no-properties text start end))))
+        (if (equal (plist-get (car runs) :styles) styles)
+            (plist-put (car runs) :text (concat (plist-get (car runs) :text) piece))
+          (push (list :text piece :styles styles) runs))
         (setq start end)))
-    spans))
+    (nreverse runs)))
 
 (defun overlook-remote--spans (row)
-  "ROW's content as runs of one look, each (:text T :faces NAMES), in order.
-An empty run marked :right starts what is aligned to the right edge; a
-run (:wrap PIECES :gap N) holds pieces, each a vector of runs, that
-wrap to lines starting where the first did."
+  "ROW's content as the page lays it out, a vector of spans in order.
+A span is a run of one look, (:text T :styles NAMES); (:right RUNS),
+aligned to the right edge; (:fit RUNS), cut to fit its line; or
+\(:wrap PIECES :gap N), pieces, each a vector of runs, wrapping to lines
+that start where the first did."
   (let (spans)
-    (dolist (segment (overlook-row-segments row))
-      (pcase segment
-        (`(:right ,text . ,_)
-         (unless (string-blank-p text)
-           (push (list :text "" :faces [] :right t) spans)
-           (setq spans (overlook-remote--runs row text spans))))
-        (`(:wrap ,pieces . ,_)
-         (push (list :wrap (vconcat (mapcar (lambda (piece)
-                                              (vconcat (nreverse
-                                                        (overlook-remote--runs row piece nil))))
-                                            pieces))
-                     :gap (or (plist-get segment :gap) 1))
-               spans))
-        (_ (let ((text (overlook--segment segment "" nil)))
-             (setq spans (overlook-remote--runs
-                          row (if spans text (string-trim-left text)) spans))))))
+    (cl-flet ((add (text)
+                (dolist (run (overlook-remote--runs row (if spans text (string-trim-left text))))
+                  (if (and (plist-get (car spans) :text)
+                           (equal (plist-get (car spans) :styles) (plist-get run :styles)))
+                      (plist-put (car spans) :text (concat (plist-get (car spans) :text)
+                                                           (plist-get run :text)))
+                    (push run spans)))))
+      (dolist (segment (overlook-row-segments row))
+        (pcase segment
+          (`(:right ,text . ,_)
+           (unless (string-blank-p text)
+             (push (list :right (vconcat (overlook-remote--runs row text))) spans)))
+          (`(:fit ,text . ,_)
+           (add (or (plist-get segment :before) ""))
+           (push (list :fit (vconcat (overlook-remote--runs
+                                      row (propertize text 'face (plist-get segment :face)))))
+                 spans))
+          (`(:wrap ,pieces . ,_)
+           (push (list :wrap (vconcat (mapcar (lambda (piece)
+                                                (vconcat (overlook-remote--runs row piece)))
+                                              pieces))
+                       :gap (or (plist-get segment :gap) 1))
+                 spans))
+          (_ (add (overlook--segment segment "" nil))))))
     (vconcat (nreverse spans))))
 
 (defun overlook-remote--node (row parent)
