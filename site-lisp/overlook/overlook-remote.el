@@ -957,6 +957,17 @@ with its question in :confirm instead."
 (defvar overlook-remote--off-timer nil
   "Timer turning the mode off while it serves beyond this machine, or nil.")
 
+(defvar overlook-remote--mode-line nil
+  "What the dashboard's mode line says of the page while it is served.")
+
+(defun overlook-remote--local-p ()
+  "Non-nil when `overlook-remote-host' serves this machine only."
+  (member overlook-remote-host '("127.0.0.1" "localhost" "::1")))
+
+(defun overlook-remote--mode-line ()
+  "Where the page is served, for `overlook-mode-line-functions'."
+  overlook-remote--mode-line)
+
 (defun overlook-remote--address ()
   "This machine's IPv4 address on the local network, or nil.
 Prefers Ethernet and Wi-Fi interfaces, named en on macOS and Linux."
@@ -999,6 +1010,8 @@ over simple-httpd's server, which serves one Emacs at a time."
     (remove-hook 'overlook-agent-changed-hook #'overlook-remote--wake)
     (remove-hook 'overlook-refresh-hook #'overlook-remote--refreshed)
     (remove-hook 'overlook-after-model-hook #'overlook-remote--redrawn)
+    (remove-hook 'overlook-mode-line-functions #'overlook-remote--mode-line)
+    (force-mode-line-update t)
     (setq overlook-remote--dashboard nil
           overlook-remote--versions nil
           overlook-remote--rows nil)
@@ -1028,8 +1041,15 @@ over simple-httpd's server, which serves one Emacs at a time."
     (let ((httpd-host overlook-remote-host)
           (httpd-port overlook-remote-port))
       (httpd-start))
-    (when (and overlook-remote-network-minutes
-               (not (member overlook-remote-host '("127.0.0.1" "localhost" "::1"))))
+    (setq overlook-remote--mode-line
+          (if (overlook-remote--local-p)
+              (propertize "remote" 'help-echo "overlook-remote serves this machine only")
+            (propertize (concat "remote " (or (overlook-remote--address) overlook-remote-host))
+                        'face 'warning
+                        'help-echo "overlook-remote serves the local network")))
+    (add-hook 'overlook-mode-line-functions #'overlook-remote--mode-line)
+    (force-mode-line-update t)
+    (when (and overlook-remote-network-minutes (not (overlook-remote--local-p)))
       (setq overlook-remote--off-timer
             (run-at-time (* 60 overlook-remote-network-minutes) nil
                          (lambda ()

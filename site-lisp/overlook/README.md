@@ -174,7 +174,8 @@ listens on this machine only; set `overlook-remote-host` to `"0.0.0.0"`
 to serve the local network, over plain HTTP, so only a network you trust.
 There it turns itself off after `overlook-remote-network-minutes` (120).  `M-x overlook-remote-url`
 copies the address again, `M-x overlook-remote-new-token` shuts out pages
-opened before.
+opened before.  While it serves, the dashboard's mode line says `remote`, followed by
+the address in the warning face when the network can reach it.
 
 Folders of several repos are projects through their own mode, which needs
 nothing else of overlook, so turn it on at startup:

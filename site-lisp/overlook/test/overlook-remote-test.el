@@ -687,11 +687,17 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                   ((symbol-function 'httpd-stop) #'ignore))
           (overlook-remote-mode 1)
           (should (timerp overlook-remote--off-timer))
+          ;; The dashboard tells it serves the network.
+          (should (string-prefix-p "remote " (overlook-remote--mode-line)))
+          (should (eq (get-text-property 0 'face (overlook-remote--mode-line)) 'warning))
+          (should (memq #'overlook-remote--mode-line overlook-mode-line-functions))
           (overlook-remote-mode -1)
           (should-not overlook-remote--off-timer)
+          (should-not (memq #'overlook-remote--mode-line overlook-mode-line-functions))
           (let ((overlook-remote-host "127.0.0.1"))
             (overlook-remote-mode 1)
             (should-not overlook-remote--off-timer)
+            (should (equal (overlook-remote--mode-line) "remote"))
             (overlook-remote-mode -1)))
       (delete-file overlook-remote-token-file))))
 
