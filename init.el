@@ -982,6 +982,8 @@
            :files (:defaults (:exclude "hacking-with-swift.el")))
   :after swift-mode
   :demand t
+  :custom
+  (swift-development-auto-launch-simulator nil)
   :config
   (iuiw-leader-keys
     :keymaps 'swift-development-mode-map
