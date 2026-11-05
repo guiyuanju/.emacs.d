@@ -193,20 +193,64 @@ With DETAIL, its last reply and the end of its transcript too."
       :project ,(if root (file-name-nondirectory (directory-file-name root)) "")
       :brief ,(overlook-remote--text (overlook-agent--brief buffer))
       :choices ,(overlook-remote--choices (overlook-agent--choices buffer))
+      :queued ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
       ,@(when detail
           `(:reply ,(overlook-remote--text (overlook-agent--reply buffer))
             :transcript ,(overlook-remote--tail buffer))))))
 
+(defvar-local overlook-remote--queue nil
+  "Prompts from the page waiting for this agent to take one, oldest first.")
+(put 'overlook-remote--queue 'permanent-local t)
+
+(defvar overlook-remote--queue-timer nil
+  "Timer sending queued prompts while some wait, or nil.")
+
+(defun overlook-remote--ready-p (buffer)
+  "Non-nil when agent BUFFER can take a prompt now."
+  (with-current-buffer buffer
+    (if-let* ((ready (overlook-agent-get buffer 'ready)))
+        (funcall ready)
+      (not (memq overlook-agent-status '(working waiting))))))
+
 (defun overlook-remote--prompt (buffer text)
-  "Submit TEXT to agent BUFFER, unless it cannot take a prompt now."
+  "Submit TEXT to agent BUFFER, or queue it while the agent is busy.
+Return non-nil when it was queued."
   (let ((submit (or (overlook-agent-get buffer 'submit)
-                    (user-error "%s cannot take a prompt" (buffer-name buffer))))
-        (ready (overlook-agent-get buffer 'ready)))
+                    (user-error "%s cannot take a prompt" (buffer-name buffer)))))
     (with-current-buffer buffer
-      (unless (if ready (funcall ready)
-                (not (memq overlook-agent-status '(working waiting))))
-        (user-error "%s is busy, or has text in its input" (buffer-name buffer)))
-      (funcall submit text))))
+      (if (and (null overlook-remote--queue) (overlook-remote--ready-p buffer))
+          (progn (funcall submit text) nil)
+        (setq overlook-remote--queue (append overlook-remote--queue (list text)))
+        (unless overlook-remote--queue-timer
+          (setq overlook-remote--queue-timer (run-at-time 1 1 #'overlook-remote--send-queued)))
+        (overlook-remote--wake)
+        t))))
+
+(defun overlook-remote--send-queued ()
+  "Submit to each agent ready for it the first prompt queued for it.
+Stop looking once no prompt is queued."
+  (let ((waiting (seq-filter (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer))
+                             (overlook-agent-buffers))))
+    (dolist (buffer waiting)
+      (when (overlook-remote--ready-p buffer)
+        (with-current-buffer buffer
+          (let ((text (pop overlook-remote--queue)))
+            (condition-case err
+                (funcall (overlook-agent-get buffer 'submit) text)
+              (error (message "overlook remote: could not send to %s: %s"
+                              (buffer-name buffer) (error-message-string err))))))
+        (overlook-remote--wake)))
+    (unless (seq-some (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer)) waiting)
+      (cancel-timer overlook-remote--queue-timer)
+      (setq overlook-remote--queue-timer nil))))
+
+(defun overlook-remote--unqueue (buffer text)
+  "Take the first prompt TEXT out of agent BUFFER's queue."
+  (with-current-buffer buffer
+    (unless (member text overlook-remote--queue)
+      (user-error "That prompt was sent already"))
+    (setq overlook-remote--queue (cl-remove text overlook-remote--queue :count 1 :test #'equal)))
+  (overlook-remote--wake))
 
 ;;; Dashboard
 
@@ -620,16 +664,16 @@ gives the response.")
        (when-let* ((value (plist-get event key)))
          (plist-put item key value)))
      (when (and (string-empty-p (plist-get item :diff)) (plist-get event :diffs))
-       (plist-put item :diff (overlook-remote--diff (plist-get event :diffs))))
-     (when-let* ((files (append (seq-keep (lambda (image)
-                                            (if (plist-get image :data)
-                                                (overlook-remote--image-data
-                                                 (plist-get image :data) (plist-get image :mime))
-                                              (plist-get image :file)))
-                                          (plist-get event :images))
-                                (overlook-remote--image-files (plist-get event :output)
-                                                              default-directory))))
-       (plist-put item :files (delete-dups (append (plist-get item :files) files)))))))
+       (plist-put item :diff (overlook-remote--diff (plist-get event :diffs))))))
+  (when-let* ((files (append (seq-keep (lambda (image)
+                                         (if (plist-get image :data)
+                                             (overlook-remote--image-data
+                                              (plist-get image :data) (plist-get image :mime))
+                                           (plist-get image :file)))
+                                       (plist-get event :images))
+                             (overlook-remote--image-files (plist-get event :output)
+                                                           default-directory))))
+    (plist-put item :files (delete-dups (append (plist-get item :files) files)))))
 
 (defun overlook-remote--present (item root after)
   "ITEM as the page reads it, with :images the numbers of the images it shows.
@@ -806,7 +850,14 @@ stream (:stream KNOWN)."
      (let* ((body (overlook-remote--body request))
             (text (string-trim (or (alist-get 'text body) ""))))
        (when (string-empty-p text) (user-error "Nothing to send"))
-       (overlook-remote--prompt (overlook-remote--agent-buffer (alist-get 'id body)) text)
+       (overlook-remote--json
+        200 `(:ok t :queued ,(if (overlook-remote--prompt
+                                  (overlook-remote--agent-buffer (alist-get 'id body)) text)
+                                 t :false)))))
+    ('("POST" "/api/unqueue")
+     (let ((body (overlook-remote--body request)))
+       (overlook-remote--unqueue (overlook-remote--agent-buffer (alist-get 'id body))
+                                 (or (alist-get 'text body) ""))
        (overlook-remote--json 200 '(:ok t))))
     ('("GET" "/api/image")
      (let ((file (nth 1 (assq (string-to-number (or (cadr (assoc "n" query)) ""))
@@ -956,6 +1007,10 @@ over simple-httpd's server, which serves one Emacs at a time."
     (setq overlook-remote--streams nil)
     (when overlook-remote--ping-timer (cancel-timer overlook-remote--ping-timer))
     (setq overlook-remote--ping-timer nil)
+    (when overlook-remote--queue-timer (cancel-timer overlook-remote--queue-timer))
+    (setq overlook-remote--queue-timer nil)
+    (dolist (buffer (overlook-agent-buffers))
+      (with-current-buffer buffer (setq overlook-remote--queue nil)))
     (when overlook-remote--off-timer (cancel-timer overlook-remote--off-timer))
     (setq overlook-remote--off-timer nil)
     (httpd-stop)

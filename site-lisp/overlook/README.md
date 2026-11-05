@@ -166,8 +166,9 @@ Another view lists the agents, those waiting for you first.  An agent's own
 page follows its prompts, replies and tool calls as they come, with the
 diff of each edit, from when the mode started; before that it shows the
 last reply and the end of the buffer.  It gives the answers an agent asks
-for and prompts an idle one, with images from the phone attached.  Images
-a tool call returns, or that a prompt, reply or tool call names by path,
+for and prompts it, with images from the phone attached; prompts sent
+while it is busy wait in a queue until it is free.  Images a reply or
+tool call returns, or that a prompt, reply or tool call names by path,
 show as thumbnails; the page fetches them by number, never by path.  It
 listens on this machine only; set `overlook-remote-host` to `"0.0.0.0"`
 to serve the local network, over plain HTTP, so only a network you trust.

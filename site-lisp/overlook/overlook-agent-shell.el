@@ -320,22 +320,25 @@ Prefers its description, as the title of a shell command is the command."
      (overlook-agent-report 'failed)))
   (overlook-agent-shell--forward event))
 
+(defun overlook-agent-shell--image (block)
+  "ACP image content BLOCK as (:data BASE64 :mime TYPE) or (:file F), or nil."
+  (let ((data (map-elt block 'data))
+        (uri (map-elt block 'uri)))
+    (cond (data (list :data data :mime (map-elt block 'mimeType)))
+          ((and (stringp uri) (string-prefix-p "file://" uri))
+           (list :file (url-unhex-string (string-remove-prefix "file://" uri)))))))
+
 (defun overlook-agent-shell--tool-content (tool-call)
   "The text and images in TOOL-CALL's content, as (TEXT . IMAGES).
-Each image is (:data BASE64 :mime TYPE), or (:file F) for a local one."
+Each image is as `overlook-agent-shell--image' gives it."
   (let ((content (map-elt tool-call :content))
         texts images)
     (dolist (item (if (vectorp content) (append content nil) (and content (list content))))
       (let ((block (if (equal (map-elt item 'type) "content") (map-elt item 'content) item)))
         (pcase (map-elt block 'type)
           ("text" (push (map-elt block 'text) texts))
-          ("image"
-           (let ((data (map-elt block 'data))
-                 (uri (map-elt block 'uri)))
-             (cond (data (push (list :data data :mime (map-elt block 'mimeType)) images))
-                   ((and (stringp uri) (string-prefix-p "file://" uri))
-                    (push (list :file (url-unhex-string (string-remove-prefix "file://" uri)))
-                          images))))))))
+          ("image" (when-let* ((image (overlook-agent-shell--image block)))
+                     (push image images))))))
     (cons (string-join (seq-filter #'stringp (nreverse texts)) "\n")
           (nreverse images))))
 
@@ -446,7 +449,11 @@ Each image is (:data BASE64 :mime TYPE), or (:file F) for a local one."
       ("tool_call" (setq overlook-agent-shell--reply ""
                          overlook-agent-shell--reply-over nil))
       ("agent_message_chunk"
-       (overlook-agent-shell--add-reply (map-nested-elt update '(content text))))
+       (overlook-agent-shell--add-reply (map-nested-elt update '(content text)))
+       ;; agent-shell's own event carries only text.
+       (when-let* (((equal (map-nested-elt update '(content type)) "image"))
+                   (image (overlook-agent-shell--image (map-elt update 'content))))
+         (overlook-agent-event 'text :text "" :images (list image))))
       ("usage_update"
        (overlook-agent-shell--save-plan-usage
         (map-nested-elt update '(_meta _claude/rateLimit unifiedWindows)))

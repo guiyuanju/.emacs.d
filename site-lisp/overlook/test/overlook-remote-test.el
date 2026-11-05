@@ -98,14 +98,44 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                200))
     (should (equal overlook-remote-test--submitted '("继续")))))
 
-(ert-deftest overlook-remote-refuses-to-prompt-a-busy-agent ()
-  (overlook-remote-test-with-agent nil
-    (pcase-let ((`(,status . ,data) (overlook-remote-test--call
-                                     "POST" "/overlook/api/prompt"
-                                     '((id . "claude@shop") (text . "go on")))))
-      (should (= status 409))
-      (should (string-match-p "busy" (alist-get 'error data))))
-    (should-not overlook-remote-test--submitted)))
+(defvar overlook-remote-test--ready nil
+  "Whether the fake agent takes a prompt now.")
+
+(ert-deftest overlook-remote-queues-prompts-for-a-busy-agent ()
+  (overlook-remote-test-with-agent overlook-remote-test--ready
+    (let ((overlook-remote-test--ready nil)
+          (overlook-remote--queue-timer nil)
+          (overlook-remote--waiting nil)
+          (prompt (lambda (text)
+                    (cdr (overlook-remote-test--call "POST" "/overlook/api/prompt"
+                                                     `((id . "claude@shop") (text . ,text)))))))
+      (unwind-protect
+          (progn
+            (should (eq (alist-get 'queued (funcall prompt "one")) t))
+            (funcall prompt "two")
+            (funcall prompt "three")
+            (should overlook-remote--queue-timer)
+            (should (equal (plist-get (overlook-remote--agent agent) :queued) ["one" "two" "three"]))
+            (should (= (car (overlook-remote-test--call "POST" "/overlook/api/unqueue"
+                                                        '((id . "claude@shop") (text . "two"))))
+                       200))
+            ;; Busy: nothing goes.
+            (overlook-remote--send-queued)
+            (should-not overlook-remote-test--submitted)
+            ;; Ready: one prompt a turn, the oldest first.
+            (setq overlook-remote-test--ready t)
+            (overlook-remote--send-queued)
+            (should (equal overlook-remote-test--submitted '("one")))
+            ;; While some wait, a new one waits behind them.
+            (should (eq (alist-get 'queued (funcall prompt "four")) t))
+            (overlook-remote--send-queued)
+            (overlook-remote--send-queued)
+            (should (equal overlook-remote-test--submitted '("four" "three" "one")))
+            (should-not overlook-remote--queue-timer)
+            (should (= (car (overlook-remote-test--call "POST" "/overlook/api/unqueue"
+                                                        '((id . "claude@shop") (text . "two"))))
+                       409)))
+        (when overlook-remote--queue-timer (cancel-timer overlook-remote--queue-timer))))))
 
 (ert-deftest overlook-remote-answers-what-an-agent-asks ()
   (overlook-remote-test-with-agent t
@@ -601,6 +631,23 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
           (should (= (car (overlook-remote-test--call "GET" "/overlook/api/image" nil nil
                                                       '(("n" "999"))))
                      409)))))))
+
+(ert-deftest overlook-remote-shows-the-images-of-a-reply ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-images
+      (let ((overlook-remote--seq 0)
+            (overlook-remote--waiting nil))
+        (overlook-remote--record agent '(:type text :text "Here it is:"))
+        (overlook-remote--record
+         agent `(:type text :text ""
+                 :images ((:data ,(base64-encode-string overlook-remote-test--png) :mime "image/png"))))
+        (overlook-remote--record agent '(:type text :text " done"))
+        (pcase-let* ((news (cdr (overlook-remote-test--call "GET" "/overlook/api/events" nil nil
+                                                            '(("id" "claude@shop") ("after" "0")))))
+                     (`(,item) (alist-get 'items news)))
+          ;; The image goes with the reply it came in.
+          (should (equal (alist-get 'text item) "Here it is: done"))
+          (should (= (length (alist-get 'images item)) 1)))))))
 
 (ert-deftest overlook-remote-takes-images-from-the-phone ()
   (overlook-remote-test-with-agent t

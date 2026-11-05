@@ -208,7 +208,8 @@ and `title' and `active', the time of its last turn, when known.")
   "Functions of an agent buffer and an EVENT in it, for views following it live.
 EVENT is a plist whose :type is one of
   `prompt': a prompt was submitted, :text;
-  `text': the next piece of the agent's reply, :text;
+  `text': the next piece of the agent's reply, :text, and :images as
+    for `tool';
   `tool': a tool call started or changed, :id, :title, :status as the
     agent says it, :kind, :diffs, each (:file F :old OLD :new NEW),
     :output its text so far, and :images, each (:file F) or (:data

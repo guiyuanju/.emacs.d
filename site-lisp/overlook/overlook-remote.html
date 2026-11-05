@@ -79,7 +79,8 @@
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   }
   footer textarea {
-    flex: 1; font: inherit; font-size: 16px; resize: none; height: 44px; max-height: 40vh;
+    flex: 1; font: inherit; font-size: 16px; line-height: 22px; resize: none; height: 44px; max-height: 40vh;
+    overflow-y: hidden;
     border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--card); color: var(--fg);
   }
   footer button {
@@ -92,7 +93,18 @@
     background: #333; color: #fff; font-size: 14px; display: none;
   }
   .empty { color: var(--dim); text-align: center; margin-top: 40px; }
-  #detail-card { position: sticky; top: 49px; z-index: 1; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+  #d-live .choices { margin: 10px 0; }
+  .working { display: flex; align-items: center; gap: 5px; margin: 14px 4px; color: var(--dim); font-size: 13px; min-width: 0; }
+  .working i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working); animation: pulse 1.2s infinite ease-in-out both; }
+  .working i:nth-child(2) { animation-delay: .15s; }
+  .working i:nth-child(3) { animation-delay: .3s; }
+  .working span { margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @keyframes pulse { 0%, 80%, 100% { opacity: .25; transform: scale(.75); } 40% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .working i { animation: none; opacity: .6; } }
+  .prompt.queued { opacity: .6; display: flex; gap: 8px; align-items: baseline; }
+  .prompt.queued span { flex: 1; }
+  .prompt.queued small { flex: none; font-size: 12px; }
+  .unqueue { flex: none; border: 0; background: none; color: #fff; font-size: 15px; padding: 0 2px; }
   .item { margin: 10px 0; }
   .prompt {
     margin-left: 15%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
@@ -190,7 +202,6 @@
   <div id="detail-card" class="card">
     <div class="row"><span class="name" id="d-name"></span><span class="meta" id="d-project"></span><span class="status" id="d-status"></span></div>
     <div class="brief" id="d-brief"></div>
-    <div class="choices" id="d-choices"></div>
   </div>
   <div id="d-earlier" hidden>
     <h2>Last reply</h2>
@@ -201,6 +212,7 @@
     </details>
   </div>
   <div id="d-feed"></div>
+  <div id="d-live"></div>
 </main>
 <footer id="compose" hidden>
   <div id="previews" class="images"></div>
@@ -365,7 +377,38 @@ function renderHeader(agent) {
   $("d-project").textContent = agent.project;
   $("d-status").textContent = agent.status;
   $("d-brief").textContent = agent.brief;
-  choiceButtons(agent, $("d-choices"));
+  renderLive(agent);
+}
+
+// What happens now, under the feed: the answers the agent waits for, or
+// that it works, then the prompts queued for it.
+function renderLive(agent) {
+  const bottom = atBottom();
+  const parts = [];
+  if (agent.choices.length) {
+    const choices = el("div", "choices");
+    choiceButtons(agent, choices);
+    parts.push(choices);
+  } else if (agent.status === "working") {
+    const working = el("div", "working");
+    working.append(el("i"), el("i"), el("i"));
+    if (agent.brief) working.append(el("span", "", agent.brief));
+    parts.push(working);
+  }
+  for (const text of agent.queued) {
+    const node = el("div", "item prompt queued");
+    const cancel = el("button", "unqueue", "✕");
+    cancel.title = "Do not send";
+    cancel.onclick = async () => {
+      cancel.disabled = true;
+      try { await call("POST", "unqueue", { id: agent.id, text }); }
+      catch (error) { toast(error.message); cancel.disabled = false; }
+    };
+    node.append(el("span", "", text), el("small", "", "queued"), cancel);
+    parts.push(node);
+  }
+  $("d-live").replaceChildren(...parts);
+  if (bottom) scrollTo(0, document.body.scrollHeight);
 }
 
 const toolMarks = { pending: "○", in_progress: "◐", completed: "✓", failed: "✗" };
@@ -850,8 +893,10 @@ window.onpopstate = show;
 document.addEventListener("visibilitychange", () => { refresh(); resume(); });
 
 $("text").addEventListener("input", (event) => {
-  event.target.style.height = "44px";
-  event.target.style.height = event.target.scrollHeight + 2 + "px";
+  const box = event.target;
+  box.style.height = "44px";
+  box.style.height = box.scrollHeight + 2 + "px";
+  box.style.overflowY = box.scrollHeight + 2 > innerHeight * 0.4 ? "auto" : "hidden";
 });
 
 const sendable = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -910,11 +955,12 @@ $("send").onclick = async () => {
   if (!text) return;
   $("send").disabled = true;
   try {
-    await call("POST", "prompt", { id: current(), text });
+    const { queued } = await call("POST", "prompt", { id: current(), text });
     $("text").value = "";
     $("text").style.height = "44px";
+    $("text").style.overflowY = "hidden";
     $("previews").replaceChildren();
-    toast("Sent");
+    toast(queued ? "Queued; it goes once the agent is free" : "Sent");
   } catch (error) {
     toast(error.message);
   } finally {
