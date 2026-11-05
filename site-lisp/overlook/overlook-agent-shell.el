@@ -259,6 +259,44 @@ other form is answered in the shell."
   "Submit TEXT as this shell's next prompt."
   (agent-shell-insert :text text :submit t :no-focus t :shell-buffer (current-buffer)))
 
+(defun overlook-agent-shell--controls ()
+  "Controls available for this shell's remote client."
+  (list :slash (mapcar (lambda (command)
+                         (list :name (map-elt command 'name)
+                               :description (or (map-elt command 'description) "")))
+                       (map-elt agent-shell--state :available-commands))
+        :steer (agent-shell-steering-supported-p)
+        :actions (append '("stop" "reload" "restart")
+                         (when (map-elt agent-shell--state :supports-session-fork)
+                           '("fork")))))
+
+(defun overlook-agent-shell--start-session (command &optional forked)
+  "Run COMMAND, which starts a session, returning that session's shell.
+It is the shell of this buffer's name, or with FORKED a new one.  This
+buffer keeps its directory cleanup when COMMAND stops halfway."
+  (let ((name (buffer-name))
+        (original (current-buffer))
+        (cleanup agent-shell--pending-directory-cleanup)
+        (before (buffer-list)))
+    (unwind-protect
+        (save-window-excursion (funcall command))
+      (when (buffer-live-p original)
+        (with-current-buffer original
+          (setq-local agent-shell--pending-directory-cleanup cleanup))))
+    (or (and (not forked) (get-buffer name))
+        (seq-find (lambda (buffer) (not (memq buffer before))) (agent-shell-buffers))
+        (user-error "No resulting agent shell"))))
+
+(defun overlook-agent-shell--remote-action (action text)
+  "Run remote ACTION with TEXT, returning the resulting shell buffer."
+  (pcase action
+    ("stop" (agent-shell-interrupt t) (current-buffer))
+    ("steer" (agent-shell-prompt-steer text) (current-buffer))
+    ("reload" (overlook-agent-shell--start-session #'agent-shell-reload))
+    ("restart" (overlook-agent-shell--start-session #'agent-shell-restart))
+    ("fork" (overlook-agent-shell--start-session #'agent-shell-fork t))
+    (_ (user-error "Unknown session action: %s" action))))
+
 (defun overlook-agent-shell--tool-title (data)
   "What the tool call in event DATA does, or nil when it does not say.
 Prefers its description, as the title of a shell command is the command."
@@ -546,6 +584,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (session . overlook-agent-shell--session)
               (forked-from . overlook-agent-shell--forked-from)
               (submit . overlook-agent-shell--submit)
+              (remote-controls . overlook-agent-shell--controls)
+              (remote-action . overlook-agent-shell--remote-action)
               (ready . overlook-agent-shell--ready)
               (reply . overlook-agent-shell--last-reply)
               (transcript . overlook-agent-shell--transcript)

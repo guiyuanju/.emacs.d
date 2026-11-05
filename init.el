@@ -1177,6 +1177,14 @@
   (overlook-remote-host "0.0.0.0")
   (overlook-remote-network-minutes nil))
 
+(use-package iuiw-remote
+  :ensure nil
+  :after overlook-remote
+  :demand t
+  :config
+  (add-hook 'overlook-remote-mode-hook #'iuiw-remote-sync-awake)
+  (iuiw-remote-sync-awake))
+
 ;; 不字节编译，改了源码重新加载即生效。
 (use-package overlook
   :ensure nil

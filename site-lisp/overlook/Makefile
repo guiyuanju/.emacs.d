@@ -7,6 +7,7 @@ DEPS = $(if $(OVERLOOK_INSTALL_DEPS),-l test/deps.el)
 .PHONY: test lint
 test:
 	$(EMACS) -Q --batch $(DEPS) -l test/run.el
+	@if command -v node >/dev/null; then node test/overlook-remote-ui-test.cjs; fi
 
 lint:
 	$(EMACS) -Q --batch $(DEPS) -l test/lint.el

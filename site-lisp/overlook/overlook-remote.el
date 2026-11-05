@@ -34,8 +34,8 @@
 ;;
 ;; The page and its scripts hold nothing; its calls under /overlook/api/
 ;; carry the token kept in `overlook-remote-token-file'.  `overlook-remote-url'
-;; gives the address with the token after #, which the page stores and
-;; strips.  Replies show as markdown, through marked, and DOMPurify strips
+;; gives the address with the token after #, which the page keeps for
+;; Home Screen launches.  Replies show as markdown, through marked, and DOMPurify strips
 ;; what could run in the page and so get at the token.
 ;; The calls travel as plain HTTP, so anyone watching the network can read
 ;; the token: serve only a network you trust.
@@ -160,10 +160,13 @@ The faces a face inherits from count only when it has no style here."
 
 ;;; Agents
 
+(define-error 'overlook-remote-missing-agent "Agent no longer exists" 'user-error)
+
 (defun overlook-remote--agent-buffer (id)
   "The agent buffer named ID."
   (let ((buffer (and (stringp id) (get-buffer id))))
-    (if (overlook-agent-p buffer) buffer (user-error "No agent %s" id))))
+    (if (overlook-agent-p buffer) buffer
+      (signal 'overlook-remote-missing-agent (list (format "No agent %s" id))))))
 
 (defun overlook-remote--text (text)
   "TEXT without properties, or an empty string for nil."
@@ -182,6 +185,11 @@ The faces a face inherits from count only when it has no style here."
                      `(:key ,key :label ,(overlook-remote--text label)))
                    choices)))
 
+(defun overlook-remote--controls (buffer)
+  "What agent BUFFER's `remote-controls' offers, or nil."
+  (when-let* ((controls (overlook-agent-get buffer 'remote-controls)))
+    (with-current-buffer buffer (funcall controls))))
+
 (defun overlook-remote--agent (buffer &optional detail)
   "Agent BUFFER as the page shows it.
 With DETAIL, its last reply and the end of its transcript too."
@@ -189,12 +197,18 @@ With DETAIL, its last reply and the end of its transcript too."
     `(:id ,(buffer-name buffer)
       :agent ,(overlook-remote--text (overlook-agent-get buffer 'agent))
       :status ,(symbol-name (buffer-local-value 'overlook-agent-status buffer))
+      :context ,(buffer-local-value 'overlook-agent-context buffer)
       :title ,(overlook-remote--text (overlook-agent--title buffer))
       :perspective ,(overlook-remote--text (ignore-errors (overlook-agent-perspective buffer)))
       :project ,(if root (file-name-nondirectory (directory-file-name root)) "")
       :brief ,(overlook-remote--text (overlook-agent--brief buffer))
       :choices ,(overlook-remote--choices (overlook-agent--choices buffer))
       :queued ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
+      :queueError ,(or (buffer-local-value 'overlook-remote--queue-error buffer) :null)
+      ,@(when-let* ((controls (overlook-remote--controls buffer)))
+          `(:controls (:slash ,(vconcat (plist-get controls :slash))
+                       :steer ,(if (plist-get controls :steer) t :false)
+                       :actions ,(vconcat (plist-get controls :actions)))))
       ,@(when detail
           `(:reply ,(overlook-remote--text (overlook-agent--reply buffer))
             :transcript ,(overlook-remote--tail buffer))))))
@@ -202,6 +216,10 @@ With DETAIL, its last reply and the end of its transcript too."
 (defvar-local overlook-remote--queue nil
   "Prompts from the page waiting for this agent to take one, oldest first.")
 (put 'overlook-remote--queue 'permanent-local t)
+
+(defvar-local overlook-remote--queue-error nil
+  "Last queue submission error; blocks delivery until explicitly retried.")
+(put 'overlook-remote--queue-error 'permanent-local t)
 
 (defvar overlook-remote--queue-timer nil
   "Timer sending queued prompts while some wait, or nil.")
@@ -233,13 +251,15 @@ Stop looking once no prompt is queued."
   (let ((waiting (seq-filter (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer))
                              (overlook-agent-buffers))))
     (dolist (buffer waiting)
-      (when (overlook-remote--ready-p buffer)
+      (when (and (not (buffer-local-value 'overlook-remote--queue-error buffer))
+                 (overlook-remote--ready-p buffer))
         (with-current-buffer buffer
-          (let ((text (pop overlook-remote--queue)))
+          (let ((text (car overlook-remote--queue)))
             (condition-case err
-                (funcall (overlook-agent-get buffer 'submit) text)
-              (error (message "overlook remote: could not send to %s: %s"
-                              (buffer-name buffer) (error-message-string err))))))
+                (progn
+                  (funcall (overlook-agent-get buffer 'submit) text)
+                  (pop overlook-remote--queue))
+              (error (setq overlook-remote--queue-error (error-message-string err))))))
         (overlook-remote--wake)))
     (unless (seq-some (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer)) waiting)
       (cancel-timer overlook-remote--queue-timer)
@@ -251,6 +271,11 @@ Stop looking once no prompt is queued."
     (unless (member text overlook-remote--queue)
       (user-error "That prompt was sent already"))
     (setq overlook-remote--queue (cl-remove text overlook-remote--queue :count 1 :test #'equal)))
+  (overlook-remote--clear-queue-error buffer))
+
+(defun overlook-remote--clear-queue-error (buffer)
+  "Let agent BUFFER's queue go on after an error."
+  (with-current-buffer buffer (setq overlook-remote--queue-error nil))
   (overlook-remote--wake))
 
 ;;; Dashboard
@@ -287,9 +312,18 @@ A face without one takes those of the faces it inherits from, and
                '("bold"))
           (and (memq slant '(italic oblique)) '("italic"))))
 
+(defun overlook-remote--merge-run (head run)
+  "Add RUN's text to run HEAD when both are text of one look.
+Return non-nil when it did; HEAD may be nil or not a run."
+  (when (and (plist-get head :text)
+             (not (plist-get head :icon))
+             (not (plist-get run :icon))
+             (equal (plist-get head :styles) (plist-get run :styles)))
+    (plist-put head :text (concat (plist-get head :text) (plist-get run :text)))))
+
 (defun overlook-remote--runs (row text)
   "TEXT's runs of one look, ROW's look added, each (:text T :styles NAMES).
-A string with an `overlook-alt' shows that instead, like an icon's name."
+A string with an `overlook-alt' carries that name as :icon and fallback text."
   (let ((text (copy-sequence text))
         (start 0)
         runs)
@@ -299,11 +333,12 @@ A string with an `overlook-alt' shows that instead, like an icon's name."
              (end (if alt
                       (next-single-property-change start 'overlook-alt text (length text))
                     (next-property-change start text (length text))))
-             (styles (vconcat (overlook-remote--styles (get-text-property start 'face text))))
-             (piece (or alt (substring-no-properties text start end))))
-        (if (equal (plist-get (car runs) :styles) styles)
-            (plist-put (car runs) :text (concat (plist-get (car runs) :text) piece))
-          (push (list :text piece :styles styles) runs))
+             (run (append (list :text (or alt (substring-no-properties text start end))
+                                :styles (vconcat (overlook-remote--styles
+                                                  (get-text-property start 'face text))))
+                          (and alt (list :icon alt)))))
+        (unless (overlook-remote--merge-run (car runs) run)
+          (push run runs))
         (setq start end)))
     (nreverse runs)))
 
@@ -316,13 +351,16 @@ that start where the first did."
   (let (spans)
     (cl-flet ((add (text)
                 (dolist (run (overlook-remote--runs row (if spans text (string-trim-left text))))
-                  (if (and (plist-get (car spans) :text)
-                           (equal (plist-get (car spans) :styles) (plist-get run :styles)))
-                      (plist-put (car spans) :text (concat (plist-get (car spans) :text)
-                                                           (plist-get run :text)))
+                  (unless (overlook-remote--merge-run (car spans) run)
                     (push run spans)))))
       (dolist (segment (overlook-row-segments row))
         (pcase segment
+          (`(:pad ,text . ,_)
+           (push (list :pad (vconcat (overlook-remote--runs row text))
+                       :labels (vconcat (mapcar (lambda (label)
+                                                  (vconcat (overlook-remote--runs row label)))
+                                                (plist-get segment :like))))
+                 spans))
           (`(:right ,text . ,_)
            (unless (string-blank-p text)
              (push (list :right (vconcat (overlook-remote--runs row text))) spans)))
@@ -463,7 +501,8 @@ As (NEWS-P . ANSWER), what `overlook-remote--hold' takes.  A page
 knowing it waits for the live dashboard to redraw after a change, as
 the redraw gathers the model the page then shares."
   (cons (lambda ()
-          (and (or (null known) (not (overlook-live-p)) (overlook-model-fresh-p))
+          (and (or (null known) (equal known "")
+                   (not (overlook-live-p)) (overlook-model-fresh-p))
                (not (equal known (cdr (overlook-remote--dashboard))))))
         (lambda () (overlook-remote--json 200 (overlook-remote--dashboard-news known)))))
 
@@ -822,6 +861,35 @@ CALL is (NEWS-P . ANSWER)."
   "A response of STATUS carrying DATA as JSON."
   (list status "application/json" (decode-coding-string (json-serialize data) 'utf-8)))
 
+(defvar overlook-remote--receipts (make-hash-table :test #'equal)
+  "Successful message requests retained for the lifetime of this Emacs.")
+
+(defun overlook-remote--once (route body send)
+  "Call SEND with message BODY for ROUTE, once for BODY's `requestId'.
+A retry gets the response of the first call that succeeded."
+  (let* ((key (alist-get 'requestId body))
+         (signature (list route (alist-get 'id body) (alist-get 'action body)
+                          (alist-get 'text body)))
+         (receipt (and key (gethash key overlook-remote--receipts))))
+    (when (and key (not (and (stringp key) (<= 1 (length key) 128))))
+      (user-error "Invalid request ID"))
+    (if receipt
+        (if (equal signature (car receipt)) (cdr receipt)
+          (user-error "Request ID already used for a different message"))
+      (let ((response (funcall send body)))
+        (when (and key (alist-get 'ok (json-parse-string (nth 2 response) :object-type 'alist)))
+          (puthash key (cons signature response) overlook-remote--receipts))
+        response))))
+
+(defun overlook-remote--send-prompt (body)
+  "Give the agent BODY names the prompt in it."
+  (let ((text (string-trim (or (alist-get 'text body) ""))))
+    (when (string-empty-p text) (user-error "Nothing to send"))
+    (overlook-remote--json
+     200 `(:ok t :queued ,(if (overlook-remote--prompt
+                               (overlook-remote--agent-buffer (alist-get 'id body)) text)
+                              t :false)))))
+
 (defun overlook-remote--api (method route query request)
   "Answer METHOD on ROUTE with QUERY and REQUEST, as (STATUS MIME BODY).
 A call for news with none yet is answered (:hold CALL), as
@@ -848,18 +916,21 @@ stream (:stream KNOWN)."
     ('("GET" "/api/dashboard/stream")
      (list :stream (cadr (assoc "known" query))))
     ('("POST" "/api/prompt")
-     (let* ((body (overlook-remote--body request))
-            (text (string-trim (or (alist-get 'text body) ""))))
-       (when (string-empty-p text) (user-error "Nothing to send"))
-       (overlook-remote--json
-        200 `(:ok t :queued ,(if (overlook-remote--prompt
-                                  (overlook-remote--agent-buffer (alist-get 'id body)) text)
-                                 t :false)))))
+     (overlook-remote--once route (overlook-remote--body request)
+                            #'overlook-remote--send-prompt))
     ('("POST" "/api/unqueue")
      (let ((body (overlook-remote--body request)))
        (overlook-remote--unqueue (overlook-remote--agent-buffer (alist-get 'id body))
                                  (or (alist-get 'text body) ""))
        (overlook-remote--json 200 '(:ok t))))
+    ('("POST" "/api/retry")
+     (let ((body (overlook-remote--body request)))
+       (overlook-remote--clear-queue-error
+        (overlook-remote--agent-buffer (alist-get 'id body)))
+       (overlook-remote--json 200 '(:ok t))))
+    ('("POST" "/api/session")
+     (overlook-remote--once route (overlook-remote--body request)
+                            #'overlook-remote--session))
     ('("GET" "/api/image")
      (let ((file (nth 1 (assq (string-to-number (or (cadr (assoc "n" query)) ""))
                               overlook-remote--images))))
@@ -896,6 +967,36 @@ stream (:stream KNOWN)."
                               (alist-get 'key body))
        (overlook-remote--json 200 '(:ok t))))
     (_ (overlook-remote--json 404 `(:error ,(format "No %s %s" method route))))))
+
+(defun overlook-remote--session (body)
+  "Run the allowlisted session action in BODY, confirming in the browser."
+  (let* ((buffer (overlook-remote--agent-buffer (alist-get 'id body)))
+         (action (alist-get 'action body))
+         (text (string-trim (or (alist-get 'text body) "")))
+         (run (or (overlook-agent-get buffer 'remote-action)
+                  (user-error "This agent has no session controls")))
+         (controls (overlook-remote--controls buffer))
+         (confirmed (append (alist-get 'confirmations body) nil))
+         (question (pcase action
+                     ("reload" "Reload this session? Unsent prompts may be lost.")
+                     ("restart" "Start a fresh conversation? Unsent prompts may be lost.")))
+         (ask (lambda (prompt &rest _)
+                (unless (member prompt confirmed) (throw 'confirm prompt))
+                t)))
+    (unless (or (and (equal action "steer") (plist-get controls :steer))
+                (member action (plist-get controls :actions)))
+      (user-error "This agent does not support %s" action))
+    (when (and (equal action "steer") (string-empty-p text))
+      (user-error "Nothing to steer"))
+    (let ((result
+           (catch 'confirm
+             (when question (funcall ask question))
+             (cl-letf (((symbol-function 'y-or-n-p) ask)
+                       ((symbol-function 'yes-or-no-p) ask))
+               (with-current-buffer buffer (funcall run action text))))))
+      (if (stringp result)
+          (overlook-remote--json 200 `(:confirm ,result))
+        (overlook-remote--json 200 `(:ok t :agent ,(buffer-name result)))))))
 
 (defun overlook-remote--command (body)
   "Run the command BODY names on a row of the dashboard, once confirmed.
@@ -936,6 +1037,8 @@ with its question in :confirm instead."
       (overlook-remote--json 401 '(:error "Open the page from M-x overlook-remote-url")))
      (t (condition-case err
             (overlook-remote--api method route query request)
+          (overlook-remote-missing-agent
+           (overlook-remote--json 404 `(:error ,(error-message-string err) :code "agent_missing")))
           (user-error (overlook-remote--json 409 `(:error ,(error-message-string err)))))))))
 
 (defun overlook-remote--send (proc response)

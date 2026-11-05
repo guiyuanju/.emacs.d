@@ -3,6 +3,46 @@
 (require 'ert)
 (require 'overlook-agent-shell)
 
+(ert-deftest overlook-agent-shell-remote-stop-uses-native-interrupt ()
+  (with-temp-buffer
+    (let (interrupted)
+      (cl-letf (((symbol-function 'agent-shell-interrupt)
+                 (lambda (force) (setq interrupted force))))
+        (should (eq (current-buffer) (overlook-agent-shell--remote-action "stop" "")))
+        (should interrupted)))))
+
+(ert-deftest overlook-agent-shell-remote-controls-follow-capabilities ()
+  (with-temp-buffer
+    (setq-local agent-shell--state
+                '((:available-commands . [((name . "compact") (description . "Compact context"))])
+                  (:supports-steering . t) (:supports-session-fork . t)))
+    (let ((controls (overlook-agent-shell--controls)))
+      (should (plist-get controls :steer))
+      (should (member "fork" (plist-get controls :actions)))
+      (should (member "stop" (plist-get controls :actions)))
+      (should (equal (plist-get (car (plist-get controls :slash)) :name) "compact")))
+    (setq-local agent-shell--state nil)
+    (let ((controls (overlook-agent-shell--controls)))
+      (should-not (plist-get controls :steer))
+      (should-not (member "fork" (plist-get controls :actions))))))
+
+(ert-deftest overlook-agent-shell-remote-fork-returns-the-new-shell ()
+  (let ((original (generate-new-buffer "original-shell")) child)
+    (unwind-protect
+        (with-current-buffer original
+          (cl-letf (((symbol-function 'agent-shell-fork)
+                     (lambda ()
+                       (setq child (generate-new-buffer "forked-shell"))
+                       (with-current-buffer child
+                         (setq major-mode 'agent-shell-mode)
+                         (setq-local shell-maker--config t))
+                       (display-buffer child))))
+            (let ((result (overlook-agent-shell--remote-action "fork" "")))
+              (should (eq child result)))
+            (should (buffer-live-p original))))
+      (when (buffer-live-p child) (kill-buffer child))
+      (kill-buffer original))))
+
 (defmacro overlook-agent-shell-test-with-shell (identifier &rest body)
   "Run BODY in a fake shell buffer whose config has IDENTIFIER.
 Agent \"claude\" is the config `claude-code', roots are /tmp/shop/, and

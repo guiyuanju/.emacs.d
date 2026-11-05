@@ -46,6 +46,61 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                       `(("Content" ,(encode-coding-string (json-encode body) 'utf-8))))))))
     (cons status (json-parse-string text :object-type 'alist :array-type 'list))))
 
+(ert-deftest overlook-remote-session-controls-confirm-and-allowlist ()
+  (overlook-remote-test-with-agent t
+    (let ((ran nil))
+      (with-current-buffer agent
+        (setf (alist-get 'remote-controls overlook-agent-identity)
+              (lambda () '(:actions ("restart"))))
+        (setf (alist-get 'remote-action overlook-agent-identity)
+              (lambda (action _text)
+                (when (y-or-n-p "Agent is busy. Restart anyway?")
+                  (setq ran action))
+                agent)))
+      (let* ((body `((id . ,(buffer-name agent)) (action . "restart")))
+             (first (cdr (overlook-remote-test--call "POST" "/api/session" body)))
+             (question (alist-get 'confirm first)))
+        (should (stringp question))
+        (should-not ran)
+        (push (cons 'confirmations (vector question)) body)
+        (let ((second (cdr (overlook-remote-test--call "POST" "/api/session" body))))
+          (should (equal (alist-get 'confirm second) "Agent is busy. Restart anyway?"))
+          (should-not ran)
+          (setf (alist-get 'confirmations body)
+                (vector question (alist-get 'confirm second)))
+          (should (equal (alist-get 'agent (cdr (overlook-remote-test--call
+                                                "POST" "/api/session" body)))
+                         (buffer-name agent)))
+          (should (equal ran "restart"))))
+      (dolist (action '("eval" "fork" "steer"))
+        (should (= 409 (car (overlook-remote-test--call
+                             "POST" "/api/session"
+                             `((id . ,(buffer-name agent)) (action . ,action) (text . "hello"))))))))))
+
+(ert-deftest overlook-remote-steers-without-draining-the-queue ()
+  (overlook-remote-test-with-agent nil
+    (let (steered)
+      (with-current-buffer agent
+        (setq overlook-remote--queue '("later"))
+        (setf (alist-get 'remote-controls overlook-agent-identity)
+              (lambda () '(:steer t :slash ((:name "compact"))))
+              (alist-get 'remote-action overlook-agent-identity)
+              (lambda (action text)
+                (should (equal action "steer"))
+                (setq steered text)
+                agent)))
+      (let ((body `((id . ,(buffer-name agent)) (action . "steer") (text . "change course"))))
+        (should (= 200 (car (overlook-remote-test--call "POST" "/api/session" body)))))
+      (should (equal steered "change course"))
+      (should-not overlook-remote-test--submitted)
+      (should (equal (buffer-local-value 'overlook-remote--queue agent) '("later")))
+      (should (= 409 (car (overlook-remote-test--call
+                           "POST" "/api/session"
+                           `((id . ,(buffer-name agent)) (action . "steer") (text . " "))))))
+      (let ((controls (plist-get (overlook-remote--agent agent) :controls)))
+        (should (eq (plist-get controls :steer) t))
+        (should (equal (plist-get (aref (plist-get controls :slash) 0) :name) "compact"))))))
+
 (ert-deftest overlook-remote-token-is-kept-private-and-reused ()
   (overlook-remote-test-with-agent t
     (let ((token (overlook-remote--token)))
@@ -53,6 +108,22 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
       (should (= (file-modes overlook-remote-token-file) #o600))
       (should (equal (overlook-remote--token) token))
       (should-not (equal (overlook-remote-new-token) token)))))
+
+(ert-deftest overlook-remote-identifies-missing-sessions ()
+  (overlook-remote-test-with-agent t
+    (let ((response (overlook-remote-test--call "GET" "/api/agent" nil nil
+                                              '(("id" "missing-agent")))))
+      (should (= 404 (car response)))
+      (should (equal "agent_missing" (alist-get 'code (cdr response)))))))
+
+(ert-deftest overlook-remote-serializes-no-queue-error-as-null ()
+  (overlook-remote-test-with-agent nil
+    (with-current-buffer agent (setq overlook-remote--queue '("later")))
+    (let* ((response (cdr (overlook-remote-test--call "GET" "/api/agent" nil nil
+                                                    `(("id" ,(buffer-name agent))))))
+           (error (alist-get 'queueError response)))
+      (should (eq error :null))
+      (should (equal (alist-get 'queued response) '("later"))))))
 
 (ert-deftest overlook-remote-offers-tailscale-then-the-local-network ()
   (cl-flet ((address (&rest interfaces)
@@ -106,7 +177,50 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
       (should (string-suffix-p "latest output" (alist-get 'transcript agent))))
     (should (= (car (overlook-remote-test--call "GET" "/overlook/api/agent" nil nil
                                                 '(("id" "nobody"))))
-               409))))
+               404))))
+
+(ert-deftest overlook-remote-deduplicates-message-retries ()
+  (overlook-remote-test-with-agent t
+    (let* ((overlook-remote--receipts (make-hash-table :test #'equal))
+           (body `((id . ,(buffer-name agent)) (text . "once") (requestId . "retry-1")))
+           (first (overlook-remote-test--call "POST" "/api/prompt" body)))
+      (should (equal first (overlook-remote-test--call "POST" "/api/prompt" body)))
+      (should (equal overlook-remote-test--submitted '("once")))
+      (setf (alist-get 'text body) "different")
+      (should (= 409 (car (overlook-remote-test--call "POST" "/api/prompt" body)))))))
+
+(ert-deftest overlook-remote-keeps-older-message-receipts ()
+  (let ((overlook-remote--receipts (make-hash-table :test #'equal))
+        (submitted 0))
+    (let ((send (lambda (_body)
+                  (setq submitted (1+ submitted))
+                  (overlook-remote--json 200 '(:ok t)))))
+      (dotimes (index 300)
+        (overlook-remote--once "/api/prompt" `((requestId . ,(number-to-string index))) send))
+      (overlook-remote--once "/api/prompt" '((requestId . "0")) send)
+      (should (= submitted 300)))))
+
+(ert-deftest overlook-remote-preserves-failed-queue-until-retry ()
+  (overlook-remote-test-with-agent t
+    (let ((overlook-remote--queue-timer (run-at-time 3600 nil #'ignore)))
+      (unwind-protect
+          (progn
+            (with-current-buffer agent
+              (setq overlook-remote--queue '("keep" "later"))
+              (setf (alist-get 'submit overlook-agent-identity) (lambda (_) (error "Unavailable"))))
+            (overlook-remote--send-queued)
+            (should (equal (buffer-local-value 'overlook-remote--queue agent) '("keep" "later")))
+            (should (equal (plist-get (overlook-remote--agent agent) :queueError) "Unavailable"))
+            (with-current-buffer agent
+              (setf (alist-get 'submit overlook-agent-identity)
+                    (lambda (text) (push text overlook-remote-test--submitted))))
+            (overlook-remote--send-queued)
+            (should-not overlook-remote-test--submitted)
+            (overlook-remote-test--call "POST" "/api/retry" `((id . ,(buffer-name agent))))
+            (overlook-remote--send-queued)
+            (should (equal overlook-remote-test--submitted '("keep")))
+            (should (equal (buffer-local-value 'overlook-remote--queue agent) '("later"))))
+        (when overlook-remote--queue-timer (cancel-timer overlook-remote--queue-timer))))))
 
 (ert-deftest overlook-remote-prompts-a-ready-agent ()
   (overlook-remote-test-with-agent t
@@ -265,12 +379,13 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                  '((:text "ab" :styles ["dim"])
                    (:right [(:text "5m" :styles [])])
                    (:right [(:text "9%" :styles [])]))))
-  ;; Icons go by their names, as the page lacks their fonts.
+  ;; Icon names stay separate from adjacent text for the browser's SVGs.
   (should (equal (append (overlook-remote--spans
                           (overlook-row :content (let ((overlook-agent-icons '(("claude" . "C"))))
                                                    (concat (overlook-icon "claude") " x"))))
                          nil)
-                 '((:text "claude x" :styles [])))))
+                 '((:text "claude" :styles [] :icon "claude")
+                   (:text " x" :styles [])))))
 
 (ert-deftest overlook-remote-keeps-wrapping-pieces-apart ()
   (should (equal (append (overlook-remote--spans
@@ -280,6 +395,16 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                                                        [(:text "b" :styles [])]]
                                                 :gap 3)))))
 
+(ert-deftest overlook-remote-keeps-padded-icon-columns ()
+  (let* ((overlook-agent-icons '(("claude" . "C") ("codex" . "X")))
+         (labels (list (overlook-icon "claude") (overlook-icon "codex"))))
+    (dolist (label labels)
+      (let* ((spans (overlook-remote--spans
+                     (overlook-row :content (list (list :pad label :like labels) "  42%"))))
+             (column (aref spans 0)))
+        (should (plist-get (aref (plist-get column :pad) 0) :icon))
+        (should (equal (plist-get (aref spans 1) :text) "  42%"))))))
+
 (ert-deftest overlook-remote-sends-what-may-be-cut-apart ()
   (should (equal (append (overlook-remote--spans
                           (overlook-row :content (list "name" (list :fit "a long brief" :face 'warning
@@ -287,6 +412,15 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                          nil)
                  '((:text "name  " :styles [])
                    (:fit [(:text "a long brief" :styles ["warning"])])))))
+
+(ert-deftest overlook-remote-first-dashboard-does-not-wait-for-redraw ()
+  (let ((overlook-remote--dashboard nil))
+    (cl-letf (((symbol-function 'overlook-live-p) (lambda () t))
+              ((symbol-function 'overlook-model-fresh-p) (lambda () nil))
+              ((symbol-function 'overlook-remote--dashboard)
+               (lambda () (cons [] "current"))))
+      (should (funcall (car (overlook-remote--dashboard-call ""))))
+      (should-not (funcall (car (overlook-remote--dashboard-call "older")))))))
 
 (ert-deftest overlook-remote-shares-the-live-dashboard-s-model ()
   (overlook-remote-test-with-agent t

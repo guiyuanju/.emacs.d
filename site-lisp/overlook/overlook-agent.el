@@ -137,6 +137,10 @@ offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
 in its buffer, or nil; `forked-from' a function returning the session id
 its session was forked from, or nil; `environment' the entries of
 `overlook-agent-make-environment' its process started with, or nil;
+`remote-controls' a function returning a plist of :slash, a list of
+\(:name N :description D), :steer, non-nil when it can be steered, and
+:actions, a list of names; `remote-action' a function of ACTION and TEXT
+returning the resulting agent buffer;
 `attach' a function of a file NAME and its bytes DATA, saving them where
 the agent reads them and returning the text naming that file in a prompt.")
 (put 'overlook-agent-identity 'permanent-local t)

@@ -267,6 +267,12 @@ The page, plain HTML with no build step, shows:
   the mode started; before that, its last reply.  You prompt it from
   there, with photos attached.  Prompts sent while it is busy wait in a
   queue, which you can take them back out of, until it is free.
+  With agent-shell, typing `/` lists the commands advertised by the agent.
+  **Steer**, when supported, sends the prompt into the running turn instead
+  of the queue, or starts a new turn when idle.  The button remains available
+  when the running turn ends.  Steering while the agent awaits user action asks first.
+  The session menu offers reload, a fresh conversation and, when supported,
+  fork; reload and restart ask for confirmation.
 
 While the mode is on, the dashboard's mode line says `remote`.
 
@@ -285,6 +291,11 @@ and never sends it in the address.  The calls then carry it in a header
 over plain HTTP, which anyone watching the network can read: serve only a
 network you trust, or reach it over a VPN such as Tailscale.  `M-x
 overlook-remote-new-token` shuts out every page opened before.
+
+On iOS, open that address in Safari, then add it to the Home Screen.  The
+page keeps `#token` in its address so the Home Screen app can authenticate
+with its own storage.  If an older shortcut opens without a token, delete
+it and add it again from the address copied by `overlook-remote-url`.
 
 ### Keeping the agents up to date
 

@@ -21,7 +21,7 @@
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--fg);
+    position: relative; min-height: 100dvh; margin: 0; background: var(--bg); color: var(--fg);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
   }
@@ -33,7 +33,13 @@
   header h1 { font-size: 17px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header button { font-size: 17px; background: none; border: 0; color: var(--accent); padding: 4px 0; }
   #conn { font-size: 12px; color: var(--dim); }
-  main { padding: 8px 12px 120px; }
+  #connection { padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 13px; }
+  #connection button { margin-left: 10px; color: var(--accent); }
+  #context { flex: none; font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .icon { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; object-fit: contain; }
+  #heading .icon { margin-right: 6px; }
+  #context .icon { width: 15px; height: 15px; margin-right: 4px; }
+  main { padding: 8px 12px max(120px, calc(var(--compose-reserve, 104px) + 16px)); }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 18px 4px 6px; }
   .card {
     background: var(--card); border-radius: 12px; padding: 10px 12px; margin: 6px 0;
@@ -74,20 +80,21 @@
   .md hr { border: 0; border-top: 1px solid var(--line); }
   details summary { color: var(--dim); font-size: 14px; padding: 8px 4px; }
   footer {
-    position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg);
-    border-top: 1px solid var(--line); display: flex; gap: 8px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: var(--bg);
+    border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-end;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   }
   footer textarea {
-    flex: 1; font: inherit; font-size: 16px; line-height: 22px; resize: none; height: 44px; max-height: 40vh;
+    flex: 1; min-width: 0; min-height: 44px; font: inherit; font-size: 16px; line-height: 22px; resize: none; height: 44px;
     overflow-y: hidden;
     border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--card); color: var(--fg);
   }
   footer button {
-    font-size: 16px; border: 0; border-radius: 10px; padding: 0 16px;
+    font-size: 16px; border: 0; border-radius: 10px; padding: 0 10px;
     background: var(--accent); color: #fff;
   }
   footer button:disabled { opacity: .5; }
+  #attach, #send, #steer { flex: none; height: 44px; white-space: nowrap; }
   #toast {
     position: fixed; left: 12px; right: 12px; bottom: 80px; padding: 10px 12px; border-radius: 10px;
     background: #333; color: #fff; font-size: 14px; display: none;
@@ -139,6 +146,19 @@
     font-size: 22px; border: 0; background: none; color: var(--accent); padding: 0 4px;
   }
   #switch { margin-left: 4px; font-size: 15px; }
+  #session-menu { position: relative; flex: none; }
+  #session-menu > summary { list-style: none; cursor: pointer; color: var(--accent); font-size: 24px; line-height: 24px; padding: 4px 8px; }
+  #session-menu > summary::-webkit-details-marker { display: none; }
+  #session-actions { position: absolute; right: 0; top: calc(100% + 8px); min-width: 190px; padding: 4px; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 16px #0002; }
+  #session-actions button { padding: 12px; text-align: left; white-space: nowrap; font-size: 15px; border-radius: 6px; }
+  #session-actions button:active { background: var(--bg); }
+  #slash-commands { position: absolute; bottom: 100%; left: 0; right: 0; max-height: 35vh; overflow-y: auto; padding: 4px 12px; background: var(--bg); border-top: 1px solid var(--line); }
+  #slash-commands .command-group { padding: 8px 10px 4px; color: var(--dim); font-size: 12px; }
+  #slash-commands button { display: block; width: 100%; margin: 0; padding: 8px 10px; border-radius: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--fg); text-align: left; font: inherit; }
+  #slash-commands button:active { background: var(--card); }
+  #slash-commands .command-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
+  #slash-commands .command-description { display: block; margin-top: 2px; color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #slash-commands:empty { display: none; }
   #dash { padding: 4px 10px 40px; }
   .section { margin: 10px 0 14px; }
   .section > .line { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); padding: 6px 4px; }
@@ -155,11 +175,21 @@
   .line .right { flex: none; display: flex; gap: 1ch; white-space: nowrap; color: var(--dim); font-size: 13px; }
   .line:has(.s-tabular) { font: 13px/1.5 ui-monospace, Menlo, monospace; }
   .s-tabular { white-space: pre; }
+  .line .pad { display: inline-block; flex: none; }
+  .line .pad .icon { width: 2ch; }
   .line .text:has(> .wrap), .line .text:has(> .fit) { display: flex; align-items: baseline; }
   .line .text:has(> .fit) > * { flex: none; white-space: pre; }
   .line .text > .fit { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line.agent .text { display: flex; flex-wrap: wrap; align-items: baseline; overflow: hidden; }
+  .line.agent .text > * { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line.agent .text > span:has(> .icon) { flex: none; margin-inline: 6px; }
+  .line.agent .text > .fit { flex: 1 1 100%; }
+  .line.agent .right { align-self: flex-start; }
   .line .lead { flex: none; }
   .line .wrap { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; }
+  .line .wrap .piece:has(> .meter), .line .wrap .piece.metric { flex: 1 1 24ch; display: flex; align-items: baseline; white-space: pre; }
+  .line .wrap .metric-gap { flex: 1; }
+  .line .wrap .meter { min-width: 0; height: 2px; align-self: center; background: currentColor; font-size: 0; }
   .line.link { cursor: pointer; }
   .line.heading .text { font-weight: 600; }
   .line.attention { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
@@ -194,15 +224,21 @@
   <button id="back" hidden>‹ Back</button>
   <h1 id="heading">overlook</h1>
   <span id="conn"></span>
+  <span id="context" hidden title="Context window used"></span>
   <button id="switch"></button>
+  <details id="session-menu" hidden>
+    <summary aria-label="Session menu" title="Session menu">⋯</summary>
+    <div id="session-actions"></div>
+  </details>
 </header>
+<div id="connection" role="status" hidden>
+  <span id="connection-message"></span>
+  <button id="reconnect">Reconnect</button>
+  <button id="return-dashboard" hidden>Dashboard</button>
+</div>
 <main id="dash"></main>
 <main id="list" hidden></main>
 <main id="detail" hidden>
-  <div id="detail-card" class="card">
-    <div class="row"><span class="name" id="d-name"></span><span class="meta" id="d-project"></span><span class="status" id="d-status"></span></div>
-    <div class="brief" id="d-brief"></div>
-  </div>
   <div id="d-earlier" hidden>
     <h2>Last reply</h2>
     <div id="d-reply" class="md"></div>
@@ -215,10 +251,12 @@
   <div id="d-live"></div>
 </main>
 <footer id="compose" hidden>
+  <div id="slash-commands" aria-label="Available slash commands"></div>
   <div id="previews" class="images"></div>
   <button id="attach" title="Attach images">＋</button>
   <input id="files" type="file" accept="image/*" multiple hidden>
   <textarea id="text" placeholder="Prompt this agent" rows="1"></textarea>
+  <button id="steer" hidden title="Steer the running turn, or start a new turn when idle">Steer</button>
   <button id="send">Send</button>
 </footer>
 <div id="toast"></div>
@@ -231,9 +269,12 @@ const order = { waiting: 0, failed: 1, done: 2, working: 3, idle: 4 };
 
 if (location.hash.length > 1) {
   localStorage.setItem("overlook-token", location.hash.slice(1));
-  history.replaceState(null, "", location.pathname + location.search);
 }
 const token = localStorage.getItem("overlook-token");
+// Home Screen apps have their own storage; keep the credential in their launch URL.
+if (token && !location.hash) {
+  history.replaceState(null, "", location.pathname + location.search + "#" + token);
+}
 
 function toast(message) {
   const el = $("toast");
@@ -243,20 +284,58 @@ function toast(message) {
   toast.timer = setTimeout(() => { el.style.display = "none"; }, 4000);
 }
 
+let lastSync = null;
+let connectionBlocked = false;
+let viewGeneration = 0;
+function connected() {
+  lastSync = new Date();
+  connectionBlocked = false;
+  $("conn").textContent = lastSync.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  $("conn").title = "Last synced: " + lastSync.toLocaleString();
+  $("connection").hidden = true;
+}
+function connectionFailure(error) {
+  const auth = error.status === 401;
+  const missing = error.code === "agent_missing";
+  connectionBlocked = auth || missing;
+  const message = auth ? "Credential expired. Open a fresh link from Emacs: M-x overlook-remote-url."
+    : missing ? "This session no longer exists. Return to the dashboard to choose a session."
+    : "Connection lost. Reconnecting…";
+  $("conn").textContent = auth ? "Sign in" : missing ? "Session gone" : "Reconnecting";
+  $("connection-message").textContent = message + (lastSync ? " Last synced: " + lastSync.toLocaleTimeString() : " No successful sync yet.");
+  $("connection").hidden = false;
+  $("return-dashboard").hidden = !missing;
+  return connectionBlocked;
+}
+
 async function call(method, path, body, signal) {
-  const response = await fetch("/overlook/api/" + path, {
-    method,
-    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-    body: body && JSON.stringify(body),
-    signal,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.error || response.statusText);
-    error.status = response.status;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, {once: true});
+  if (signal?.aborted) controller.abort();
+  const timeout = setTimeout(abort, 40000);
+  try {
+    const response = await fetch("/overlook/api/" + path, {
+      method,
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: body && JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.error || response.statusText);
+      error.status = response.status;
+      error.code = data.code;
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError" && !signal?.aborted) throw new TypeError("Request timed out; retry to check delivery");
     throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
-  return data;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -277,6 +356,28 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
+}
+
+const iconPaths = {
+  claude: '<g stroke="#d97757" stroke-width="2.4"><path d="M12 2v20M2 12h20M5 5l14 14M5 19L19 5M8 3l8 18M3 8l18 8M3 16l18-8M8 21l8-18"/></g>',
+  // OpenAI mark from lobe-icons; license in vendor/lobe-icons-LICENSE.
+  codex: '<path fill="#10a37f" fill-rule="evenodd" d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"/>',
+  gemini: '<path fill="#4285f4" d="M12 1C11 8 8 11 1 12c7 1 10 4 11 11 1-7 4-10 11-11C16 11 13 8 12 1Z"/>',
+  antigravity: '<g fill="#8b5cf6"><path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/><path d="m20 1 1 2 2 1-2 1-1 2-1-2-2-1 2-1Z"/></g>',
+  deepseek: '<g fill="none" stroke="#4d6bfe" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2-5 8-6 13-2l5-3-1 6c-1 6-11 9-16 3l-2-1m6-6 3-4 1 4"/><path d="M8 13h.01M4 19c4 2 9 2 13 0"/></g>',
+  context: '<g fill="none" stroke="#888" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v9h9"/></g>',
+};
+
+const iconPath = (name) => iconPaths[String(name).toLowerCase()];
+
+function icon(name, title = name) {
+  const path = iconPath(name);
+  if (!path) return el("span", "", name);
+  const image = el("img", "icon");
+  image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' + path + '</svg>');
+  image.alt = name;
+  image.title = title;
+  return image;
 }
 
 const imageUrls = new Map();
@@ -324,7 +425,9 @@ function choiceButtons(agent, container) {
 function card(agent) {
   const node = el("div", "card " + agent.status);
   const row = el("div", "row");
-  row.append(el("span", "name", agent.agent + (agent.title ? " · " + agent.title : "")),
+  const name = el("span", "name");
+  name.append(icon(agent.agent), agent.title ? " · " + agent.title : "");
+  row.append(name,
              el("span", "meta", agent.project),
              el("span", "status", agent.status));
   node.append(row);
@@ -367,17 +470,175 @@ function renderList(agents) {
 }
 
 let shownHeader = "";
+let agentControls = {};
 function renderHeader(agent) {
   const key = JSON.stringify(agent);
   if (key === shownHeader) return;
   shownHeader = key;
-  $("heading").textContent = agent.agent + (agent.title ? " · " + agent.title : "");
-  $("detail-card").className = "card " + agent.status;
-  $("d-name").textContent = agent.agent;
-  $("d-project").textContent = agent.project;
-  $("d-status").textContent = agent.status;
-  $("d-brief").textContent = agent.brief;
+  $("heading").replaceChildren(icon(agent.agent), agent.title || "");
+  $("context").hidden = !Number.isFinite(agent.context);
+  $("context").replaceChildren(...(Number.isFinite(agent.context)
+    ? [icon("context", "Context window used"), `${Math.round(agent.context)}%`] : []));
+  agentControls = agent.controls || {};
+  $("steer").hidden = !agentControls.steer;
+  const actions = agentControls.actions || [];
+  $("session-menu").hidden = !actions.length;
+  $("session-actions").replaceChildren(...actions.map((action) => {
+    const labels = { stop: "Stop current task", reload: "Reload", restart: "New conversation", fork: "Fork" };
+    const item = el("button", "", labels[action] || action);
+    item.onclick = () => sessionAction(action, item);
+    return item;
+  }));
+  renderSlashCommands();
   renderLive(agent);
+}
+
+function renderSlashCommands() {
+  if (composing) return;
+  const text = $("text").value;
+  const commands = text.startsWith("/") && !/\s/.test(text)
+    ? (agentControls.slash || []).filter((command) =>
+      command.name.replace(/^\$/, "").startsWith(text.slice(1).replace(/^\$/, ""))) : [];
+  const rows = [];
+  for (const skill of [false, true]) {
+    const group = commands.filter((command) => command.name.startsWith("$") === skill);
+    if (!group.length) continue;
+    rows.push(el("div", "command-group", skill ? "Skills" : "Commands"));
+    for (const command of group) {
+      const item = el("button");
+      item.append(el("span", "command-name", skill ? command.name.slice(1) : "/" + command.name));
+      if (command.description) item.append(el("span", "command-description", command.description));
+      item.title = command.description;
+      item.onclick = () => {
+        $("text").value = "/" + command.name + " ";
+        $("text").dispatchEvent(new Event("input"));
+        $("text").focus();
+      };
+      rows.push(item);
+    }
+  }
+  $("slash-commands").replaceChildren(...rows);
+}
+
+const drafts = new Map();
+let composeId = null;
+let composing = false;
+function draft(id) {
+  if (!drafts.has(id)) drafts.set(id, { text: "", revision: 0, previews: [], uploading: 0, pending: false, attempts: new Map(), pendingAttachments: [] });
+  return drafts.get(id);
+}
+function saveCompose() {
+  if (composeId) draft(composeId).text = $("text").value;
+}
+// Keep document scrolling native; only the composer follows the visual viewport.
+function positionCompose() {
+  const footer = $("compose");
+  if (footer.hidden) {
+    document.documentElement.style.setProperty("--compose-reserve", "0px");
+    return;
+  }
+  const viewport = window.visualViewport;
+  const height = footer.getBoundingClientRect().height;
+  const visibleHeight = viewport?.height || innerHeight;
+  const visibleTop = viewport?.pageTop ?? (scrollY + (viewport?.offsetTop || 0));
+  footer.style.position = viewport ? "absolute" : "fixed";
+  footer.style.top = viewport ? Math.max(0, visibleTop + visibleHeight - height) + "px" : "auto";
+  footer.style.bottom = viewport ? "auto" : "0px";
+  const obscured = Math.max(0, innerHeight - visibleHeight,
+    (document.documentElement.clientHeight || innerHeight) - visibleHeight);
+  document.documentElement.style.setProperty("--compose-reserve", (height + obscured) + "px");
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", positionCompose);
+  window.visualViewport.addEventListener("scroll", positionCompose);
+}
+window.addEventListener("resize", positionCompose);
+window.addEventListener("scroll", positionCompose, {passive: true});
+if (window.ResizeObserver) new window.ResizeObserver(positionCompose).observe($("compose"));
+function resizeCompose() {
+  if (!composing) {
+    const box = $("text");
+    box.style.height = "44px";
+    const height = Math.max(44, box.scrollHeight + 2);
+    const limit = Math.max(44, (window.visualViewport?.height || innerHeight) * 0.4);
+    box.style.maxHeight = limit + "px";
+    box.style.height = height + "px";
+    box.style.overflowY = height > limit ? "auto" : "hidden";
+  }
+  positionCompose();
+}
+function syncCompose() {
+  if (!composeId) return;
+  const state = draft(composeId);
+  if (!composing && $("text").value !== state.text) $("text").value = state.text;
+  $("previews").replaceChildren(...state.previews);
+  resizeCompose();
+  $("send").disabled = $("steer").disabled = state.pending || state.uploading > 0;
+  renderSlashCommands();
+}
+function appendText(state, text) {
+  state.text = (state.text.trim() ? state.text.replace(/\s*$/, " ") : "") + text + " ";
+}
+function requestId(state, action, text) {
+  const key = JSON.stringify([action, text]);
+  if (!state.attempts.has(key)) state.attempts.set(key,
+    Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join(""));
+  return state.attempts.get(key);
+}
+function acknowledge(id, state, revision, text) {
+  state.attempts.clear();
+  if (state.revision === revision && state.text.trim() === text) {
+    state.text = "";
+    state.previews.forEach(node => URL.revokeObjectURL(node.src));
+    state.previews = [];
+  }
+  if (composeId === id) syncCompose();
+}
+let sessionPending = false;
+async function sessionAction(action, button) {
+  if (sessionPending) return;
+  saveCompose();
+  const id = current();
+  const state = draft(id);
+  if (state.pending || state.uploading) return;
+  const revision = state.revision;
+  const text = action === "steer" ? state.text.trim() : "";
+  if (action === "steer" && (!text || composing)) return;
+  sessionPending = true;
+  state.pending = true;
+  syncCompose();
+  button.disabled = true;
+  try {
+    const body = { id, action, text, confirmations: [],
+      requestId: requestId(state, action, text) };
+    let result;
+    for (;;) {
+      result = await call("POST", "session", body);
+      if (!result.confirm) break;
+      if (!confirm(result.confirm)) return;
+      body.confirmations.push(result.confirm);
+    }
+    state.attempts.clear();
+    if (action === "steer") {
+      saveCompose();
+      acknowledge(id, state, revision, text);
+      toast("Steer sent");
+    } else if (action === "stop") {
+      toast("Stop requested");
+    } else if (current() === id) {
+      $("session-menu").open = false;
+      open(result.agent);
+    }
+  } catch (error) { toast(error.message); }
+  finally { sessionPending = false; state.pending = false; button.disabled = false; syncCompose(); }
+}
+
+function postOnClick(button, path, body) {
+  button.onclick = async () => {
+    button.disabled = true;
+    try { await call("POST", path, body); }
+    catch (error) { toast(error.message); button.disabled = false; }
+  };
 }
 
 // What happens now, under the feed: the answers the agent waits for, or
@@ -385,6 +646,13 @@ function renderHeader(agent) {
 function renderLive(agent) {
   const bottom = atBottom();
   const parts = [];
+  if (typeof agent.queueError === "string" && agent.queueError) {
+    const failure = el("div", "item error", "Not sent: " + agent.queueError);
+    const retry = el("button", "", "Retry");
+    postOnClick(retry, "retry", { id: agent.id });
+    failure.append(retry);
+    parts.push(failure);
+  }
   if (agent.choices.length) {
     const choices = el("div", "choices");
     choiceButtons(agent, choices);
@@ -399,16 +667,12 @@ function renderLive(agent) {
     const node = el("div", "item prompt queued");
     const cancel = el("button", "unqueue", "✕");
     cancel.title = "Do not send";
-    cancel.onclick = async () => {
-      cancel.disabled = true;
-      try { await call("POST", "unqueue", { id: agent.id, text }); }
-      catch (error) { toast(error.message); cancel.disabled = false; }
-    };
+    postOnClick(cancel, "unqueue", { id: agent.id, text });
     node.append(el("span", "", text), el("small", "", "queued"), cancel);
     parts.push(node);
   }
   $("d-live").replaceChildren(...parts);
-  if (bottom) scrollTo(0, document.body.scrollHeight);
+  if (bottom) scrollToBottom();
 }
 
 const toolMarks = { pending: "○", in_progress: "◐", completed: "✓", failed: "✗" };
@@ -438,7 +702,14 @@ function renderTool(node, item) {
   node.replaceChildren(...parts);
 }
 
-const atBottom = () => innerHeight + scrollY >= document.body.scrollHeight - 80;
+const atBottom = () => {
+  const viewport = window.visualViewport;
+  const bottom = (viewport?.pageTop ?? scrollY) + (viewport?.height || innerHeight);
+  return bottom >= document.documentElement.scrollHeight - 80;
+};
+function scrollToBottom() {
+  scrollTo(0, document.documentElement.scrollHeight);
+}
 
 // A reply's markdown, drawn at most four times a second as it streams.
 function renderReply(node) {
@@ -451,7 +722,7 @@ function renderReply(node) {
   node.drawn = Date.now();
   node.innerHTML = markdown(node.source);
   if (node.images.length) node.append(imageStrip(node.images));
-  if (bottom) scrollTo(0, document.body.scrollHeight);
+  if (bottom) scrollToBottom();
 }
 
 // False when a reply's text does not follow on what the node holds.
@@ -488,19 +759,59 @@ function saveFolds() {
 }
 
 function run(span) {
-  const node = el("span", "", span.text);
+  const node = el("span", "", span.icon ? "" : span.text);
+  if (span.icon) node.append(icon(span.icon));
   for (const style of span.styles) node.classList.add("s-" + style.replace(/[^A-Za-z0-9_-]/g, "-"));
+  return node;
+}
+
+// A piece whose runs of ━ stretch, sharing its width by their lengths.
+function meterPiece(piece) {
+  const node = el("span", "piece");
+  for (const part of piece) {
+    for (const text of part.icon ? [part.text] : part.text.split(/(━+)/).filter(Boolean)) {
+      const segment = run({ ...part, text });
+      if (!part.icon && /^━+$/.test(text)) {
+        segment.classList.add("meter");
+        segment.style.flex = text.length + " 1 0";
+      }
+      node.append(segment);
+    }
+  }
+  return node;
+}
+
+// A piece whose wide gaps stretch; spaces ending it keep their width.
+function metricPiece(piece) {
+  const node = el("span", "piece metric");
+  for (const [index, part] of piece.entries()) {
+    const last = index === piece.length - 1;
+    const value = last ? part.text.trimEnd() : part.text;
+    for (const text of part.icon ? [value] : value.split(/(\s{2,})/).filter(Boolean)) {
+      const segment = run({ ...part, text });
+      if (/^\s{2,}$/.test(text)) segment.classList.add("metric-gap");
+      node.append(segment);
+    }
+    const tail = last && part.text.match(/\s+$/)?.[0];
+    if (tail) {
+      const reserved = el("span", "", tail);
+      reserved.style.flex = "none";
+      node.append(reserved);
+    }
+  }
   return node;
 }
 
 // Pieces that wrap, under what came before them, lines starting where the first did.
 function wrapInto(text, span) {
+  const usage = !!text.querySelector(".pad");
   const lead = el("span", "lead");
   lead.append(...text.childNodes);
   const wrap = el("span", "wrap");
   wrap.style.columnGap = span.gap + "ch";
   for (const piece of span.wrap) {
-    wrap.append(runs("piece", piece));
+    const metric = usage && !piece.some(part => part.text.includes("━"));
+    wrap.append(metric ? metricPiece(piece) : meterPiece(piece));
   }
   text.append(lead, wrap);
 }
@@ -515,7 +826,14 @@ function spansInto(container, spans) {
   const text = el("span", "text");
   let right = null;
   for (const span of spans) {
-    if (span.right) (right ??= el("span", "right")).append(runs("", span.right));
+    if (span.pad) {
+      const padded = runs("pad", span.pad);
+      const widths = span.labels.map((label) => label.reduce((width, part) =>
+        width + (part.icon && iconPath(part.icon) ? 2 : [...part.text].length), 0));
+      padded.style.width = Math.max(0, ...widths) + "ch";
+      text.append(padded);
+    }
+    else if (span.right) (right ??= el("span", "right")).append(runs("", span.right));
     else if (span.wrap) wrapInto(text, span);
     else if (span.fit) (right || text).append(runs("fit", span.fit));
     else if (right) right.lastChild.append(run(span));
@@ -682,25 +1000,25 @@ async function poll(mine) {
   const controller = new AbortController();
   mine.controller = controller;
   poller = mine;
+  let failures = 0;
   const current = () => poller === mine && mine.controller === controller;
   while (current() && !document.hidden) {
     try {
-      if (mine.stream) {
+      if (mine.stream && mine.known) {
         await listen(mine, controller.signal, current);
         continue;
       }
       const news = await call("GET", mine.url(), undefined, controller.signal);
       if (!current()) return;
       mine.news(news);
-      $("conn").textContent = "";
+      connected();
+      failures = 0;
     } catch (error) {
       if (error instanceof Stale) continue;
       if (!current() || error.name === "AbortError") return;
+      if (connectionFailure(error)) return;
       if (mine.stream && error.status) { mine.stream = null; continue; }
-      $("conn").textContent = "offline";
-      if (error.status === 409) { toast(error.message); return; }
-      if (!(error instanceof TypeError)) toast(error.message);
-      await sleep(3000);
+      await sleep(Math.min(30000, 1000 * 2 ** Math.min(failures++, 5)));
     }
   }
 }
@@ -708,7 +1026,8 @@ async function poll(mine) {
 // Reads mine.stream()'s events until the connection ends or goes quiet.
 async function listen(mine, signal, current) {
   const quiet = new AbortController();
-  signal.addEventListener("abort", () => quiet.abort());
+  const abort = () => quiet.abort();
+  signal.addEventListener("abort", abort, { once: true });
   let timer;
   const wake = () => { clearTimeout(timer); timer = setTimeout(() => quiet.abort(), 60000); };
   wake();
@@ -722,12 +1041,14 @@ async function listen(mine, signal, current) {
       error.status = response.status;
       throw error;
     }
-    $("conn").textContent = "";
+    if (!current()) return;
+    connected();
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
     for (;;) {
       const { value, done } = await reader.read();
-      if (done || !current()) return;
+      if (!current()) return;
+      if (done) throw new TypeError("Stream ended");
       wake();
       buffer += value;
       let end;
@@ -735,20 +1056,21 @@ async function listen(mine, signal, current) {
         const data = buffer.slice(0, end).split("\n")
           .filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("\n");
         buffer = buffer.slice(end + 2);
-        if (data) mine.news(JSON.parse(data));
+        if (data) { mine.news(JSON.parse(data)); connected(); }
       }
     }
   } catch (error) {
-    if (error.name === "AbortError" && !signal.aborted) return;
+    if (error.name === "AbortError" && !signal.aborted) throw new TypeError("Connection timed out");
     throw error;
   } finally {
     clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
     quiet.abort();
   }
 }
 
 function resume() {
-  if (!poller || document.hidden) return;
+  if (!poller || document.hidden || connectionBlocked) return;
   poller.controller?.abort();
   poll(poller);
 }
@@ -771,6 +1093,7 @@ function index(nodes, known = new Map()) {
 }
 
 function watchDashboard() {
+  $("dash").replaceChildren(el("p", "empty", "Loading dashboard…"));
   const mine = { known: "", nodes: new Map() };
   mine.url = () => "dashboard?known=" + mine.known;
   mine.stream = () => "dashboard/stream?known=" + mine.known;
@@ -809,7 +1132,7 @@ async function followAgent(id) {
       throw new Stale();
     }
     $("d-earlier").hidden = mine.nodes.size > 0;
-    if (bottom && news.items.length) scrollTo(0, document.body.scrollHeight);
+    if (bottom && news.items.length) scrollToBottom();
     mine.after = news.seq;
     mine.known = news.known;
   };
@@ -819,11 +1142,13 @@ async function followAgent(id) {
   try {
     const agent = await call("GET", "agent?id=" + encodeURIComponent(id));
     if (poller !== mine) return;
+    connected();
     renderHeader(agent);
     $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "<p>(none yet)</p>";
     $("d-transcript").textContent = agent.transcript;
   } catch (error) {
-    toast(error.message);
+    if (poller !== mine) return;
+    if (connectionFailure(error)) return;
   }
   if (poller === mine) poll(mine);
 }
@@ -837,22 +1162,35 @@ function view() {
 }
 
 function open(id) {
-  history.pushState(null, "", "?agent=" + encodeURIComponent(id));
+  history.pushState(null, "", "?agent=" + encodeURIComponent(id) + location.hash);
   show();
 }
 
 function show() {
+  viewGeneration++;
+  connectionBlocked = false;
+  $("connection").hidden = true;
+  saveCompose();
   const id = current();
+  if (composeId !== id) composing = false;
+  composeId = id;
   const shown = view();
   $("dash").hidden = shown !== "dashboard";
   $("list").hidden = shown !== "agents";
   $("detail").hidden = !id;
   $("compose").hidden = !id;
+  if (id) syncCompose();
+  else positionCompose();
   $("back").hidden = !id;
   $("switch").hidden = !!id;
   $("switch").textContent = shown === "agents" ? "Dashboard" : "Agents";
   stopPolling();
   shownList = shownHeader = "";
+  agentControls = {};
+  $("steer").hidden = $("session-menu").hidden = true;
+  $("context").hidden = true;
+  $("session-menu").open = false;
+  renderSlashCommands();
   panel = pendingSections = null;
   if (!token) {
     $("dash").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
@@ -868,35 +1206,63 @@ function show() {
 
 let busy = false;
 async function refresh() {
-  if (!token || view() !== "agents" || busy || document.hidden) return;
+  if (!token || view() !== "agents" || busy || document.hidden || connectionBlocked) return;
   busy = true;
+  const generation = viewGeneration;
   try {
     const { agents } = await call("GET", "agents");
+    if (generation !== viewGeneration) return;
     renderList(agents);
     const waiting = agents.filter((a) => a.status === "waiting").length;
     document.title = waiting ? `(${waiting}) overlook` : "overlook";
-    $("conn").textContent = "";
+    connected();
   } catch (error) {
-    $("conn").textContent = "offline";
-    if (!(error instanceof TypeError)) toast(error.message);
+    if (generation === viewGeneration) connectionFailure(error);
   } finally {
     busy = false;
   }
 }
 
+$("reconnect").onclick = () => show();
+$("return-dashboard").onclick = () => {
+  history.pushState(null, "", location.pathname + location.hash);
+  show();
+};
+window.addEventListener("online", () => { if (!connectionBlocked) { refresh(); resume(); } });
+window.addEventListener("offline", () => connectionFailure(new TypeError("offline")));
 $("back").onclick = () => history.back();
 $("switch").onclick = () => {
-  history.replaceState(null, "", view() === "agents" ? location.pathname : "?view=agents");
+  history.replaceState(null, "", (view() === "agents" ? location.pathname : "?view=agents") + location.hash);
   show();
 };
 window.onpopstate = show;
 document.addEventListener("visibilitychange", () => { refresh(); resume(); });
 
+function finishComposition() {
+  composing = false;
+  if (composeId) {
+    const state = draft(composeId);
+    state.text = $("text").value;
+    state.revision++;
+    for (const text of state.pendingAttachments) appendText(state, text);
+    state.pendingAttachments = [];
+    syncCompose();
+  }
+}
+$("text").addEventListener("compositionstart", () => {
+  composing = true;
+  if (composeId) draft(composeId).revision++;
+});
+$("text").addEventListener("compositionend", finishComposition);
+$("text").addEventListener("blur", () => { if (composing) finishComposition(); });
 $("text").addEventListener("input", (event) => {
-  const box = event.target;
-  box.style.height = "44px";
-  box.style.height = box.scrollHeight + 2 + "px";
-  box.style.overflowY = box.scrollHeight + 2 > innerHeight * 0.4 ? "auto" : "hidden";
+  if (composeId) {
+    draft(composeId).text = event.target.value;
+    draft(composeId).revision++;
+  }
+  if (event.isComposing || composing) return;
+  renderSlashCommands();
+  resizeCompose();
 });
 
 const sendable = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -921,26 +1287,32 @@ function base64(blob) {
   });
 }
 
-let uploading = 0;
 async function attach(file) {
-  uploading++;
-  $("send").disabled = true;
+  saveCompose();
+  const id = current();
+  const state = draft(id);
+  if (state.pending) return;
+  state.uploading++;
   const preview = el("img");
   preview.src = URL.createObjectURL(file);
   preview.style.opacity = ".4";
-  $("previews").append(preview);
+  state.previews.push(preview);
+  syncCompose();
   try {
     const blob = await prepare(file);
-    const { text } = await call("POST", "upload", { id: current(), mime: blob.type, data: await base64(blob) });
-    const box = $("text");
-    box.value = (box.value.trim() ? box.value.replace(/\s*$/, " ") : "") + text + " ";
-    box.dispatchEvent(new Event("input"));
+    const { text } = await call("POST", "upload", { id, mime: blob.type, data: await base64(blob) });
+    saveCompose();
+    if (composing && composeId === id) state.pendingAttachments.push(text);
+    else appendText(state, text);
+    state.revision++;
     preview.style.opacity = "1";
   } catch (error) {
-    preview.remove();
+    state.previews = state.previews.filter(node => node !== preview);
+    URL.revokeObjectURL(preview.src);
     toast(error.message);
   } finally {
-    if (--uploading === 0) $("send").disabled = false;
+    state.uploading--;
+    if (composeId === id) syncCompose();
   }
 }
 
@@ -951,22 +1323,29 @@ $("files").onchange = (event) => {
 };
 
 $("send").onclick = async () => {
-  const text = $("text").value.trim();
-  if (!text) return;
-  $("send").disabled = true;
+  saveCompose();
+  const id = current();
+  const state = draft(id);
+  const text = state.text.trim();
+  if (!text || composing || state.pending || state.uploading) return;
+  const revision = state.revision;
+  state.pending = true;
+  syncCompose();
   try {
-    const { queued } = await call("POST", "prompt", { id: current(), text });
-    $("text").value = "";
-    $("text").style.height = "44px";
-    $("text").style.overflowY = "hidden";
-    $("previews").replaceChildren();
+    const { queued } = await call("POST", "prompt", { id, text,
+      requestId: requestId(state, "send", text) });
+    saveCompose();
+    acknowledge(id, state, revision, text);
     toast(queued ? "Queued; it goes once the agent is free" : "Sent");
   } catch (error) {
     toast(error.message);
   } finally {
-    $("send").disabled = uploading > 0;
+    state.pending = false;
+    if (composeId === id) syncCompose();
   }
 };
+
+$("steer").onclick = () => sessionAction("steer", $("steer"));
 
 show();
 setInterval(refresh, 2500);
