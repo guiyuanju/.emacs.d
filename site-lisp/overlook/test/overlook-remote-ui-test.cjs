@@ -23,7 +23,7 @@ const context = vm.createContext({
   crypto: require("crypto").webcrypto, Uint8Array, clearTimeout(){},setTimeout(){},setInterval(){},confirm:()=>true,
 });
 let script=fs.readFileSync(require('path').join(__dirname, '..', 'overlook-remote.html'),'utf8').match(/<script>\s*([\s\S]*?)<\/script>/)[1];
-script=script.replace(/\nshow\(\);\nsetInterval\(refresh, 2500\);\s*$/,'');
+script=script.replace(/\nshow\(\);\s*$/,'');
 context.scrollTo = (x,y) => {context.lastScroll = [x,y];};
 vm.runInContext(script,context);
 vm.runInContext('composeId = "original";',context);
@@ -212,5 +212,14 @@ vm.runInContext('composeId = "original";',context);
   elements.get('text').dispatchEvent(new context.Event('compositionend'));
   assert.equal(elements.get('text').value, '中文');
   assert.equal(vm.runInContext('draft(composeId).text', context), '中文');
-  console.log('Draft isolation, concurrent typing, stable retry IDs; JS syntax, slash filtering/selection, steer routing, cancellation draft retention, confirmation retry and fork navigation passed');
+  let sends = 0;
+  elements.get('send').click = () => sends++;
+  const key = (extra) => { let prevented = false; elements.get('text').events.keydown({key:'Enter', preventDefault: () => { prevented = true; }, ...extra}); return prevented; };
+  assert.equal(key({}), false);
+  assert.equal(key({metaKey:true, isComposing:true}), false);
+  assert.equal(sends, 0);
+  assert.equal(key({metaKey:true}), true);
+  assert.equal(key({ctrlKey:true}), true);
+  assert.equal(sends, 2);
+  console.log('Draft isolation, concurrent typing, stable retry IDs; JS syntax, slash filtering/selection, steer routing, cancellation draft retention, confirmation retry, fork navigation and Cmd/Ctrl+Enter sending passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

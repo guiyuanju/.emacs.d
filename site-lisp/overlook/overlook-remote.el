@@ -117,7 +117,9 @@ The faces a face inherits from count only when it has no style here."
 (defconst overlook-remote--files
   '(("" "overlook-remote.html" "text/html")
     ("/vendor/marked.js" "vendor/marked.js" "text/javascript")
-    ("/vendor/purify.js" "vendor/purify.js" "text/javascript"))
+    ("/vendor/purify.js" "vendor/purify.js" "text/javascript")
+    ("/vendor/pixelify-sans-400.woff2" "vendor/pixelify-sans-400.woff2" "font/woff2")
+    ("/vendor/pixelify-sans-700.woff2" "vendor/pixelify-sans-700.woff2" "font/woff2"))
   "Routes under /overlook served without the token, each (ROUTE FILE MIME).")
 
 ;;; Token
@@ -1042,7 +1044,11 @@ with its question in :confirm instead."
      ((and (equal method "GET") (assoc route overlook-remote--files))
       (pcase-let ((`(,_ ,file ,mime) (assoc route overlook-remote--files)))
         (list 200 mime (with-temp-buffer
-                         (insert-file-contents (expand-file-name file overlook-remote--directory))
+                         (let ((file (expand-file-name file overlook-remote--directory)))
+                           (if (string-prefix-p "font/" mime)
+                               (progn (set-buffer-multibyte nil)
+                                      (insert-file-contents-literally file))
+                             (insert-file-contents file)))
                          (buffer-string)))))
      ((not (overlook-remote--authorized-p request))
       (overlook-remote--json 401 '(:error "Open the page from M-x overlook-remote-url")))
