@@ -28,7 +28,7 @@ Agents are listed; usage and repos are not."
            (lambda (name) (alist-get name overlook-test--projects nil nil #'equal)))
           (overlook-project-root-function #'ignore)
           (overlook-sections (list #'overlook--projects-section))
-          (overlook-project-functions nil)
+          (overlook-project-functions (list #'overlook--checkout-rows))
           (overlook-worktrees-functions nil)
           (overlook-worktree-functions (list #'overlook-agent--rows))
           (dashboard (get-buffer-create overlook-buffer-name)))
@@ -291,7 +291,7 @@ Agents are listed; usage and repos are not."
          (overlook-project-buffers-function
           (lambda (name) (alist-get name overlook-test--projects nil nil #'equal)))
          (overlook-project-root-function #'ignore)
-         (overlook-project-functions nil)
+         (overlook-project-functions (list #'overlook--checkout-rows))
          (overlook-worktrees-functions nil)
          (overlook-worktree-functions (list #'overlook-agent--rows))
          (asked 0)
@@ -1287,7 +1287,7 @@ Agents are listed; usage and repos are not."
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
             (cl-letf (((symbol-function 'overlook-repo--divergence) #'ignore))
             (let ((overlook-project-root-function (lambda (_) root))
-                  (overlook-project-functions (list #'overlook-repo--checkout-rows))
+                  (overlook-project-functions (list #'overlook-repo--checkout-rows #'overlook--checkout-rows))
                   (overlook-worktree-functions (list #'overlook-repo--changed-rows))
                   (overlook-worktrees-functions (list #'overlook-repo--worktree-dirs)))
               (overlook--render)
@@ -1325,7 +1325,7 @@ Agents are listed; usage and repos are not."
           (overlook-test-with-dashboard `(("one" ,alpha ,gamma)) "one"
             (cl-letf (((symbol-function 'overlook-repo--divergence) #'ignore))
             (let ((overlook-project-root-function (lambda (_) root))
-                  (overlook-project-functions nil)
+                  (overlook-project-functions (list #'overlook--checkout-rows))
                   (overlook-worktrees-functions nil)
                   (overlook-worktree-functions nil))
               (overlook-toggle-hooks
@@ -1386,7 +1386,7 @@ Agents are listed; usage and repos are not."
           (overlook-courier-room-post "ops" "a@p" "hello")
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
             (let ((overlook-project-root-function (lambda (_) root))
-                  (overlook-project-functions nil)
+                  (overlook-project-functions (list #'overlook--checkout-rows))
                   (overlook-worktrees-functions nil)
                   (overlook-worktree-functions nil))
               (setq-local overlook-sections (list #'overlook-agent-courier--rooms-section
@@ -1478,6 +1478,43 @@ Agents are listed; usage and repos are not."
           (should-not (get-buffer-window overlook-buffer-name t)))
       (when overlook--tick-timer (cancel-timer overlook--tick-timer))
       (when (get-buffer overlook-buffer-name) (kill-buffer overlook-buffer-name)))))
+
+;; Rows deeper than the checkout's come after them, closed rows after every project.
+(ert-deftest overlook-project-rows-after-checkout-and-closed-rows ()
+  (let ((alpha (overlook-test--agent "alpha")))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+          (let ((overlook-project-functions
+                 (list #'overlook--checkout-rows
+                       (lambda (_name) (list (overlook-row :content "footer")))))
+                (overlook-closed-projects-functions
+                 (list (lambda () (list (overlook-row :content "closed"))))))
+            (overlook--render)
+            (should (< (overlook-test--line-of "alpha")
+                       (overlook-test--line-of "footer")
+                       (overlook-test--line-of "closed")))
+            (should (string-search "footer\n\nclosed\n" (buffer-string)))))
+      (kill-buffer alpha))))
+
+(ert-deftest overlook-show-empty-projects-can-be-a-function ()
+  (overlook-test-with-dashboard '(("one") ("two") ("three")) "one"
+    (let ((overlook-show-empty-projects (lambda (name) (equal name "two"))))
+      (overlook--render)
+      (should (string-search "two" (buffer-string)))
+      (should-not (string-search "three" (buffer-string))))))
+
+(ert-deftest overlook-ensure-project-keeps-the-current-one ()
+  (overlook-test-with-dashboard '(("one")) "one"
+    (let* ((switched nil)
+           (overlook-switch-project-function
+            (lambda (name)
+              (push name switched)
+              (setq overlook-test--current name))))
+      (overlook-ensure-project "one")
+      (should-not switched)
+      (overlook-ensure-project "two")
+      (should (equal switched '("one" "two")))
+      (should (equal (overlook-current-project) "one")))))
 
 ;; A project with nothing under it is left out unless current.
 (ert-deftest overlook-empty-project-is-left-out ()

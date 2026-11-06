@@ -449,6 +449,11 @@ of a resumed session's history, which reads as work but was none."
                (memq (buffer-local-value 'overlook-agent-status buffer) '(done waiting)))
       (with-current-buffer buffer (overlook-agent--set-status 'idle)))))
 
+(defun overlook-agent-seen (buffer)
+  "Reset `done' in agent BUFFER, shown somewhere other than its window."
+  (when (eq (buffer-local-value 'overlook-agent-status buffer) 'done)
+    (with-current-buffer buffer (overlook-agent--set-status 'idle))))
+
 (defvar overlook-agent--turn-labels nil
   "Turn durations as last drawn, to redraw when one ticks over.")
 

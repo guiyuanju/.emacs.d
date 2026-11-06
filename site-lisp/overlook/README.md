@@ -120,7 +120,7 @@ Then:
   commits ahead of (`↑N`) and behind (`↓N`) the main checkout's branch, or
   `merged`, and is dimmed when merged with nothing in it.
 - A project with no rows is left out, unless it is current or
-  `overlook-show-empty-projects` is set.
+  `overlook-show-empty-projects` says so; it can be a function of the name.
 
 ### Keys
 
@@ -426,9 +426,14 @@ docstring.
   lists.
 - `overlook-project-functions`: rows under each project, called
   with its name.  Under `overlook-orphans-project`, also return the
-  rows that belong to no project.
+  rows that belong to no project.  A project without worktrees lists
+  what lies in its checkout at depth 0.
+- `overlook-closed-projects-functions`: rows after the projects'
+  headings, for projects that are not open.
 - `overlook-project-command-functions`: commands on a project's
-  heading, such as starting an agent there.
+  heading, such as starting an agent there.  A command that needs the
+  project first calls `overlook-ensure-project`, as rows made with
+  `overlook-project-heading` can be of projects that are not open.
 - `overlook-worktrees-functions`: worktree folders listed under a
   project.  `overlook-worktree-functions`: rows of what lies in a
   checkout, called with the project and the worktree's folder, or nil

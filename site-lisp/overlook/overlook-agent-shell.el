@@ -631,6 +631,7 @@ SESSION resumes the session of that id.  It starts at the reasoning effort
                 :options (mapcar #'car overlook-agent-shell-configs)
                 :run (lambda (name)
                        (let ((buffer (overlook-agent--launch name root nil t)))
+                         (overlook-ensure-project project)
                          (overlook-add-to-project project buffer)
                          buffer))))))
 

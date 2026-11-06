@@ -284,6 +284,14 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                                                 '((id . "claude@shop") (key . "!"))))
                409))))
 
+(ert-deftest overlook-remote-seen-resets-done-only ()
+  (overlook-remote-test-with-agent t
+    (dolist (status '((done . idle) (waiting . waiting) (failed . failed)))
+      (with-current-buffer agent (setq overlook-agent-status (car status)))
+      (should (= 200 (car (overlook-remote-test--call
+                           "POST" "/api/seen" `((id . ,(buffer-name agent)))))))
+      (should (eq (buffer-local-value 'overlook-agent-status agent) (cdr status))))))
+
 (defmacro overlook-remote-test-with-dashboard (&rest body)
   "Run BODY with the agent of `overlook-remote-test-with-agent' under \"shop\"."
   (declare (indent 0))
@@ -291,7 +299,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
          (overlook-current-project-function (lambda () "shop"))
          (overlook-project-buffers-function (lambda (_) (list agent)))
          (overlook-project-root-function (lambda (_) "/work/shop/"))
-         (overlook-project-functions nil)
+         (overlook-project-functions (list #'overlook--checkout-rows))
          (overlook-worktrees-functions nil)
          (overlook-worktree-functions (list #'overlook-agent--rows))
          (overlook-sections (list #'overlook--projects-section)))

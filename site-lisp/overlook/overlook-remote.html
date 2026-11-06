@@ -245,7 +245,6 @@
   .line.attention { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
   .line:has(.s-done) { box-shadow: inset 3px 0 var(--done); background: var(--done-bg); }
   .line:has(.s-waiting) { box-shadow: inset 3px 0 var(--waiting); background: var(--wait-bg); }
-  .line.agent .text::after { content: " ›"; color: var(--dim); }
   .node > .choices { margin: 4px 0 8px 24px; }
   .line .more { flex: none; border: 0; background: none; color: var(--dim); font-size: 17px; padding: 0 4px; line-height: 1; }
   .node > .commands { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px 24px; }
@@ -473,7 +472,15 @@ function choiceButtons(agent, container) {
 
 let shownHeader = "";
 let agentControls = {};
+let shownAgent = null;
+function markSeen() {
+  if (shownAgent?.status !== "done" || shownAgent.id !== current() || document.hidden) return;
+  call("POST", "seen", { id: shownAgent.id }).catch(() => {});
+}
+
 function renderHeader(agent) {
+  shownAgent = agent;
+  markSeen();
   const key = JSON.stringify(agent);
   if (key === shownHeader) return;
   shownHeader = key;
@@ -1099,6 +1106,7 @@ async function listen(mine, signal, current) {
 
 function resume() {
   if (!poller || document.hidden || connectionBlocked) return;
+  markSeen();
   poller.controller?.abort();
   poll(poller);
 }

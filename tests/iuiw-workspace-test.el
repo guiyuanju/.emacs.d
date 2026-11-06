@@ -8,6 +8,7 @@
   "Run BODY with `iuiw-workspace-directory' bound to a fresh temporary folder."
   (declare (indent 0))
   `(let* ((iuiw-workspace-directory (file-name-as-directory (make-temp-file "iuiw-ws" t)))
+          (overlook-project-annotation #'iuiw-workspace-overlook-annotation)
           (iuiw-workspace-project-roots nil)
           (iuiw-workspace--cache nil))
      (unwind-protect (progn ,@body)
@@ -62,28 +63,45 @@ status: done
       (should-not (plist-get card :status))
       (should (equal (plist-get card :todos) '(("x" 4 0)))))))
 
-(ert-deftest iuiw-workspace-todo-section-renders ()
+(defun iuiw-workspace-test--text (rows)
+  "The text of ROWS as the dashboard draws them, with folded parts removed."
+  (with-temp-buffer
+    (magit-section-mode)
+    (let ((inhibit-read-only t))
+      (magit-insert-section (overlook-section)
+        (overlook-insert-rows rows))
+      (magit-section-show magit-root-section))
+    (concat (seq-keep (lambda (pos) (unless (invisible-p pos) (char-after pos)))
+                      (number-sequence (point-min) (1- (point-max)))))))
+
+(ert-deftest iuiw-workspace-closed-project-folds-its-todos ()
   (iuiw-workspace-test--with-workspace
     (iuiw-workspace-test--write "me/projects/demo/project.md" iuiw-workspace-test--card)
+    (iuiw-workspace-test--write "me/projects/empty/project.md" "---\nstatus: active\n---\n")
     (iuiw-workspace-test--write "me/inbox.md" "- [ ] call\n")
-    (cl-letf (((symbol-function 'overlook-insert-section) (lambda (_title body) (funcall body)))
-              ((symbol-function 'overlook-ordered-projects) (lambda () '("demo")))
-              ((symbol-function 'overlook-current-project) (lambda () "demo")))
-      (with-temp-buffer
-        (magit-section-mode)
-        (let ((inhibit-read-only t))
-          (magit-insert-section (overlook-section)
-            (iuiw-workspace--todo-section)
-            (iuiw-workspace--inbox-section)))
-        (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                       (concat "demo ◷1 3\n◷ ask ops\n☐ first\n  ☐ child\n☐ after fence\n"
-                               "me\n☐ call\n")))
-        (goto-char (point-min))
-        (should (eq (get-text-property (point) 'face) 'overlook-heading-current))
-        ;; 项目下的待办默认折叠，inbox 不折叠。
-        (should (oref (get-text-property (point) 'magit-section) hidden))
-        (search-forward "me")
-        (should-not (oref (get-text-property (point) 'magit-section) hidden))))))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("main")))
+              ((symbol-function 'overlook-current-project) (lambda () "main")))
+      (let ((rows (iuiw-workspace--closed-rows)))
+        (should (equal (iuiw-workspace-test--text rows) "demo me ◷1 3\nempty me\n"))
+        (setf (overlook-row-folded (car rows)) nil)
+        (should (equal (iuiw-workspace-test--text rows)
+                       (concat "demo me ◷1 3\n  ◷ ask ops\n  ☐ first\n    ☐ child\n"
+                               "  ☐ after fence\nempty me\n"))))
+      (should (equal (iuiw-workspace-test--text (list (iuiw-workspace--inbox-section)))
+                     "Inbox\nme\n☐ call\n\n")))))
+
+(ert-deftest iuiw-workspace-open-project-shows-now-and-folds-the-rest ()
+  (iuiw-workspace-test--with-workspace
+    (iuiw-workspace-test--write
+     "me/projects/one/project.md"
+     "---\nstatus: active\n---\n## Todo\n- [ ] x #now\n- [ ] y\n  - [ ] y1 #now [due:: 2026-10-30]\n- [ ] z\n")
+    (let ((rows (iuiw-workspace--project-todo-rows "one")))
+      (should (equal (iuiw-workspace-test--text rows)
+                     "☐ y › y1 2026-10-30\n☐ x\ntodo (2)\n"))
+      (setf (overlook-row-folded (car (last rows))) nil)
+      (should (string-suffix-p "todo (2)\n  ☐ y\n  ☐ z\n" (iuiw-workspace-test--text rows))))
+    (should (equal (iuiw-workspace-overlook-annotation "one") "me ☐2 3"))
+    (should-not (iuiw-workspace--project-todo-rows "other"))))
 
 (ert-deftest iuiw-workspace-todo-sort ()
   (should (equal (mapcar #'car (iuiw-workspace--todo-sort
@@ -98,23 +116,28 @@ status: done
                  '((("a" ("a1 #now" 2 0) ("a11 #now" 3 2)) (nil ("b #now" 5 0) ("b1" 6 2)))
                    . (("a" 1 0) ("a2" 4 2) ("c" 7 0))))))
 
-(ert-deftest iuiw-workspace-todo-section-gathers-now ()
+(ert-deftest iuiw-workspace-closed-project-offers-its-commands ()
   (iuiw-workspace-test--with-workspace
-    (iuiw-workspace-test--write "me/projects/one/project.md"
-                               "---\nstatus: active\n---\n## Todo\n- [ ] x #now\n- [ ] y\n  - [ ] y1 #now [due:: 2026-10-30]\n")
-    (iuiw-workspace-test--write "me/projects/two/project.md"
-                               "---\nstatus: later\n---\n## Todo\n- [ ] z #now [due:: 2026-10-22]\n")
-    (cl-letf (((symbol-function 'overlook-insert-section) (lambda (_title body) (funcall body)))
-              ((symbol-function 'overlook-ordered-projects) (lambda () '("one" "two")))
-              ((symbol-function 'overlook-current-project) (lambda () "one")))
-      (with-temp-buffer
-        (magit-section-mode)
-        (let ((inhibit-read-only t))
-          (magit-insert-section (overlook-section)
-            (iuiw-workspace--todo-section)))
-        (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                       (concat "#now\n☐ y › y1 2026-10-30  one\n☐ x  one\n☐ z 2026-10-22  two\n"
-                               "\none ☐2 2\n☐ y\n\nlater projects (1)\ntwo ☐1 1\n")))))))
+    (iuiw-workspace-test--write "me/projects/demo/project.md" iuiw-workspace-test--card)
+    (let ((overlook-project-command-functions
+           (list (lambda (name) (list (list :name "new-agent" :label name))))))
+      (cl-letf (((symbol-function 'overlook-projects) (lambda () nil)))
+        (should (equal (overlook-row-commands (car (iuiw-workspace--closed-rows)))
+                       '((:name "new-agent" :label "demo"))))))))
+
+(ert-deftest iuiw-workspace-closed-projects-order ()
+  (iuiw-workspace-test--with-workspace
+    (dolist (project '(("a" "active" "- [ ] a1\n")
+                       ("b" "later" "- [ ] b1 #now\n")
+                       ("c" "later" "- [ ] c1\n")
+                       ("d" "done" "")
+                       ("e" "active" "- [ ] e1\n")))
+      (pcase-let ((`(,id ,status ,todos) project))
+        (iuiw-workspace-test--write (format "me/projects/%s/project.md" id)
+                                    (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("e"))))
+      (should (equal (iuiw-workspace-test--text (iuiw-workspace--closed-rows))
+                     "b me ☐1 1\n  ☐ b1\na me 1\nlater (1)\ndone (1)\n")))))
 
 (ert-deftest iuiw-workspace-project-root ()
   (iuiw-workspace-test--with-workspace

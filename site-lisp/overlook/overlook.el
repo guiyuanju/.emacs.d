@@ -96,8 +96,9 @@ shown regardless."
 
 (defcustom overlook-show-empty-projects nil
   "Non-nil to list a project with no rows and no mark after its heading.
-The current one is listed either way."
-  :type 'boolean)
+A function of the project's name decides per project.  The current one
+is listed either way."
+  :type '(choice boolean function))
 
 (defcustom overlook-orphan-project nil
   "Project listing the rows that belong to no project, or nil.
@@ -271,6 +272,13 @@ Opening it from the dashboard shows it in the current project."
     (funcall overlook-switch-project-function name)
     (overlook-project-switched)))
 
+(defun overlook-ensure-project (name)
+  "Create project NAME if missing, staying in the current project."
+  (unless (member name (overlook-projects))
+    (let ((current (overlook-current-project)))
+      (overlook-switch-project name)
+      (when current (overlook-switch-project current)))))
+
 (defun overlook-close-project (name)
   "Close project NAME, killing the buffers no other project holds."
   (interactive
@@ -331,9 +339,15 @@ depth 0.")
   "Functions giving the rows under a project's heading, by hook depth.
 Each is called with the project's NAME and returns a list of rows,
 as made by `overlook-row'.  The rows of what lies in a checkout come
-from `overlook-worktree-functions' instead.  Under
+from `overlook-worktree-functions' instead, at depth 0 when the project
+lists no worktrees.  Under
 `overlook-orphans-project' a function also gives its rows that
 belong to no project.")
+
+(defvar overlook-closed-projects-functions nil
+  "Functions giving rows after the projects' headings, by hook depth.
+Each is called with no arguments and returns a list of rows, for what
+`overlook-projects' does not list, like projects that are not open.")
 
 (defvar overlook-worktrees-functions nil
   "Functions of a project NAME returning the worktrees listed under it.
@@ -979,28 +993,43 @@ Like Magit's, it highlights and folds with SECTION."
   (mapconcat (lambda (function) (or (funcall function name) ""))
              overlook-heading-mark-functions))
 
+(defun overlook-project-heading (name face marks &rest slots)
+  "The heading row of project NAME in FACE, with the string MARKS after it.
+SLOTS are further keyword arguments of `overlook-row'."
+  (apply #'overlook-row
+         :content (list (propertize (concat name marks) 'face face)
+                        (when-let* ((tag (and overlook-project-annotation
+                                              (funcall overlook-project-annotation name))))
+                          (propertize (concat " " tag) 'face 'shadow)))
+         :heading t
+         :action (lambda () (overlook-show-elsewhere name #'ignore))
+         :commands (seq-mapcat (lambda (function) (funcall function name))
+                               overlook-project-command-functions)
+         slots))
+
+(defun overlook--checkout-rows (name)
+  "The rows of what lies in project NAME's only checkout, if it lists no worktrees."
+  (unless (overlook-worktrees name)
+    (overlook-rows 'overlook-worktree-functions name nil)))
+
+(add-hook 'overlook-project-functions #'overlook--checkout-rows)
+
 (defun overlook--project-row (name current)
   "The heading of project NAME over its rows, or nil when left out.
 CURRENT is the current project's name.  See `overlook--projects'."
   (let* ((marks (overlook--heading-marks name))
-         (rows (append (overlook-rows 'overlook-project-functions name)
-                       (unless (overlook-worktrees name)
-                         (overlook-rows 'overlook-worktree-functions name nil))))
-         (row (overlook-row
-               :id (cons 'project name)
-               :content (list (propertize (concat name marks)
-                                          'face (if (equal name current)
-                                                    'overlook-heading-current
-                                                  'overlook-heading))
-                              (when-let* ((tag (and overlook-project-annotation
-                                                    (funcall overlook-project-annotation name))))
-                                (propertize (concat " " tag) 'face 'shadow)))
-               :heading t
-               :action (lambda () (overlook-show-elsewhere name #'ignore))
-               :commands (seq-mapcat (lambda (function) (funcall function name))
-                                     overlook-project-command-functions)
-               :children rows)))
-    (when (and (or rows (equal name current) overlook-show-empty-projects
+         (rows (overlook-rows 'overlook-project-functions name))
+         (row (overlook-project-heading name
+                                        (if (equal name current)
+                                            'overlook-heading-current
+                                          'overlook-heading)
+                                        marks
+                                        :id (cons 'project name)
+                                        :children rows)))
+    (when (and (or rows (equal name current)
+                   (if (functionp overlook-show-empty-projects)
+                       (funcall overlook-show-empty-projects name)
+                     overlook-show-empty-projects)
                    (not (string-empty-p marks)))
                (or (equal name current)
                    (null overlook-project-filter)
@@ -1020,7 +1049,11 @@ needing attention."
 
 (defun overlook--projects-section ()
   "The Projects section."
-  (overlook-section-row "Projects" (overlook--projects)))
+  (let ((rows (overlook--projects))
+        (closed (overlook-rows 'overlook-closed-projects-functions)))
+    (when (and rows closed)
+      (setf (overlook-row-gap (car (last rows))) t))
+    (overlook-section-row "Projects" (append rows closed))))
 
 (add-hook 'overlook-sections #'overlook--projects-section)
 

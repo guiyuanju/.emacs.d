@@ -930,6 +930,10 @@ stream (:stream KNOWN)."
        (overlook-remote--unqueue (overlook-remote--agent-buffer (alist-get 'id body))
                                  (or (alist-get 'text body) ""))
        (overlook-remote--json 200 '(:ok t))))
+    ('("POST" "/api/seen")
+     (overlook-agent-seen (overlook-remote--agent-buffer
+                           (alist-get 'id (overlook-remote--body request))))
+     (overlook-remote--json 200 '(:ok t)))
     ('("POST" "/api/retry")
      (let ((body (overlook-remote--body request)))
        (overlook-remote--clear-queue-error

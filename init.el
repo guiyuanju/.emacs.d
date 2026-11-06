@@ -1261,12 +1261,12 @@
   (overlook-repo-folder-display 'mark)
   (overlook-project-annotation #'iuiw-workspace-overlook-annotation)
   (overlook-project-filter #'iuiw-workspace-overlook-shown-p)
+  (overlook-show-empty-projects #'iuiw-workspace-overlook-ongoing-p)
   (overlook-orphan-project "main")
   (overlook-section-order '(overlook-usage--section
                             overlook-agent-courier--personas-section
                             overlook-agent-courier--rooms-section
                             overlook--projects-section
-                            iuiw-workspace--todo-section
                             iuiw-workspace--inbox-section
                             iuiw-elfeed-sync--digest-section))
   (overlook-agent-shell-ignore-function #'iuiw-assistant-shell-p)

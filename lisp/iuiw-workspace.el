@@ -13,11 +13,12 @@
 ;; clone 的候选来自 workspace 根下 .remotes 列出的远端，每行一个：
 ;;   github <owner>   gh 列出 owner 名下未归档的仓库
 ;;   gitlab <host>    glab 列出该 host 上我是 member 的仓库
-;; 也给 overlook 提供项目根，并在看板底部列出所有进行中项目（没有待办的也列名字）的待办：
-;; Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
-;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
-;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
-;; status 为 later 的项目排在最后，收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
+;; 也给 overlook 提供项目根，并把所有进行中项目（没有待办的也列名字）的待办放进看板的 Projects 段：
+;; 待办是 Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
+;; 项目标题后依次是 workspace 名和不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数。
+;; #now 项连同子项常显在项目下，排在 agent 和 repo 之后，再按到期日排；其余折叠在 todo (n) 行，#waiting 在前。
+;; 没开 tab 的项目排在开着的后面，灰色，一项一行，有 #now 的在前；没有 #now 时 TAB 直接展开待办。
+;; status 为 later 且没有 #now 的项目收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、project 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
 ;; status 改成 done 或 dropped 的项目，切换 project（tabspaces 的 tab）或存 project.md 时关掉（当前的除外），连同保存的 agent；
@@ -34,6 +35,7 @@
 (declare-function magit-status "magit-status")
 (declare-function magit-process-sentinel "magit-process")
 (declare-function overlook-agent-forget-project "overlook-agent")
+(declare-function overlook-project-heading "overlook")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-section-row "overlook")
 (declare-function overlook-row "overlook")
@@ -50,6 +52,8 @@
 (declare-function overlook-agent-project-root "overlook-agent")
 (declare-function overlook-project-guess-root "overlook")
 (defvar overlook-sections)
+(defvar overlook-project-functions)
+(defvar overlook-closed-projects-functions)
 (defvar overlook-project-switch-hook)
 (defvar overlook-mode-line-functions)
 
@@ -688,14 +692,23 @@ project, return the version-control root."
     (list dir)))
 
 (defun iuiw-workspace-overlook-annotation (name)
-  "Name of the workspace holding project NAME, or nil."
-  (when-let* ((file (cdr (assoc name (iuiw-workspace--projects)))))
-    (iuiw-workspace--file-workspace file)))
+  "Workspace of project NAME and its todo counts if ongoing, or nil."
+  (when-let* ((card (iuiw-workspace--card name)))
+    (string-join (delq nil (list (plist-get card :workspace)
+                                 (and (iuiw-workspace--ongoing-p card)
+                                      (plist-get card :count))))
+                 " ")))
+
+(defun iuiw-workspace-overlook-ongoing-p (name)
+  "Non-nil when NAME is an ongoing project."
+  (iuiw-workspace--ongoing-p (iuiw-workspace--card name)))
 
 ;;; Dashboard todos
 
 (defun iuiw-workspace--todo-parse (file)
   "Parse card FILE into a plist of :id :workspace :status :also :file :todos.
+:split is what `iuiw-workspace--todo-take-now' gives of the todos and
+:count their `iuiw-workspace--todo-count'.
 The id is the folder name; the status and the also: list of workspace
 names come from the front matter.
 Each todo is (TEXT LINE DEPTH) for an open checkbox under the Todo heading,
@@ -724,8 +737,11 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
             (push (list (match-string 2 line) number (length (match-string 1 line))) todos))))
         (forward-line 1)
         (cl-incf number))
+      (setq todos (nreverse todos))
       (list :id (iuiw-workspace--file-id file) :workspace (iuiw-workspace--file-workspace file)
-            :status status :also also :file file :todos (nreverse todos)))))
+            :status status :also also :file file :todos todos
+            :split (iuiw-workspace--todo-take-now todos)
+            :count (iuiw-workspace--todo-count todos)))))
 
 (defun iuiw-workspace--cards ()
   "Return every parsed card, re-reading only when a card file changed."
@@ -733,9 +749,13 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
     (iuiw-workspace--cached 'cards (iuiw-workspace--mtimes files)
                            (lambda () (mapcar #'iuiw-workspace--todo-parse files)))))
 
+(defun iuiw-workspace--ongoing-p (card)
+  "Non-nil when CARD's status is that of an ongoing project."
+  (member (plist-get card :status) '("active" "waiting" "later")))
+
 (defun iuiw-workspace--todo-cards ()
   "Return parsed ongoing cards shown by `iuiw-workspace-filter'."
-  (seq-filter (lambda (card) (and (member (plist-get card :status) '("active" "waiting" "later"))
+  (seq-filter (lambda (card) (and (iuiw-workspace--ongoing-p card)
                                   (iuiw-workspace--shown-p card)))
               (iuiw-workspace--cards)))
 
@@ -810,34 +830,6 @@ sits under, or nil, and ITEMS are it and its subitems, depths from 0."
           (push todo rest))))
     (cons (nreverse now) (nreverse rest))))
 
-(defun iuiw-workspace--todo-now-items (cards current)
-  "The #now todos of CARDS with their subitems.
-Those of project CURRENT come first, then by due date, then card order.
-Each leading item names its project, highlighted when it is CURRENT, and
-its parent todo, if any, before its text."
-  (let (subtrees)
-    (dolist (card cards)
-      (let ((id (plist-get card :id))
-            (file (plist-get card :file)))
-        (pcase-dolist (`(,parent . ,items) (car (iuiw-workspace--todo-take-now (plist-get card :todos))))
-          (push (cons (list (car (car items)) (nth 1 (car items)) 0 file id
-                            (and parent
-                                 (propertize (concat (substring-no-properties
-                                                      (iuiw-workspace--todo-display parent))
-                                                     " › ")
-                                             'face 'shadow))
-                            (propertize (concat "  " id)
-                                        'face (if (equal id current) 'overlook-heading-current 'shadow)))
-                      (mapcar (lambda (item) (append item (list file id))) (cdr items)))
-                subtrees))))
-    (apply #'append
-           (seq-sort-by (lambda (subtree)
-                          (let ((text (car (car subtree))))
-                            (concat (if (equal (nth 4 (car subtree)) current) "0" "1")
-                                    (or (iuiw-workspace--todo-due text) "~"))))
-                        #'string<
-                        (nreverse subtrees)))))
-
 (defun iuiw-workspace--todo-visit (project file line)
   "Return a command that opens FILE at LINE in the main window.
 It first switches to PROJECT, creating it if needed, when non-nil."
@@ -870,120 +862,157 @@ It first switches to PROJECT, creating it if needed, when non-nil."
   "A command ticking item TEXT on LINE of FILE as done."
   (list :name "done" :label "Done" :run (lambda () (iuiw-workspace--tick file line text))))
 
-(defun iuiw-workspace--group-rows (groups mark)
-  "Rows of GROUPS separated by blank lines, each item led by MARK of its text.
-Each group is (NAME FILE CURRENT ITEMS PROJECT COUNT FOLDED): a heading
-NAME followed by the string COUNT, if any, that visits FILE, if any,
-highlighted when CURRENT, then ITEMS, folded until toggled when FOLDED, as
-\(TEXT LINE DEPTH), deeper ones under the item before them.  Visiting switches to
-PROJECT first when it is non-nil.  An item can be (TEXT LINE DEPTH
-FILE PROJECT BEFORE AFTER) instead, visiting its own FILE and showing
-the strings BEFORE and AFTER around its text."
+(defun iuiw-workspace--item-rows (items file project mark)
+  "Rows of ITEMS of FILE, each led by MARK of its text.
+ITEMS are (TEXT LINE DEPTH BEFORE), deeper ones under the item before
+them, with the string BEFORE, if any, ahead of the text.  Visiting one
+switches to PROJECT first when it is non-nil."
+  (let (rows)
+    (while items
+      (pcase-let* ((`(,text ,line ,depth ,before) (pop items))
+                   (children (seq-take-while (lambda (child) (> (nth 2 child) depth)) items))
+                   (indent (make-string depth ?\s)))
+        (setq items (nthcdr (length children) items))
+        ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
+        (push (overlook-row
+               :content (list indent (funcall mark text) " "
+                              before (iuiw-workspace--todo-display text))
+               :action (iuiw-workspace--todo-visit project file line)
+               :commands (list (iuiw-workspace--done-command file line text))
+               :wrap (concat indent "   ")
+               :children (and children (iuiw-workspace--item-rows children file project mark)))
+              rows)))
+    (nreverse rows)))
+
+(defun iuiw-workspace--group-rows (groups)
+  "Rows of GROUPS separated by blank lines.
+Each group is (NAME FILE ITEMS): a heading NAME that visits FILE, then
+ITEMS as `iuiw-workspace--item-rows' takes them, each led by a dimmed box."
   (overlook-gaps
    (mapcar
-    (pcase-lambda (`(,name ,file ,current ,items ,project ,count ,folded))
-      (cl-labels ((item-rows (items)
-                    (let (rows)
-                      (while items
-                        (pcase-let* ((`(,text ,line ,depth ,item-file ,item-project ,before ,after)
-                                      (pop items))
-                                     (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
-                                                               items))
-                                     (indent (make-string depth ?\s)))
-                          (setq items (nthcdr (length children) items))
-                          ;; ◷、☐ 在等宽字体里都占两列，折行接在它们后面。
-                          (push (overlook-row
-                                 :content (list indent (funcall mark text) " "
-                                                before (iuiw-workspace--todo-display text) after)
-                                 :action (iuiw-workspace--todo-visit (or item-project project)
-                                                                     (or item-file file)
-                                                                     line)
-                                 :commands (list (iuiw-workspace--done-command
-                                                  (or item-file file) line text))
-                                 :wrap (concat indent "   ")
-                                 :children (and children (item-rows children)))
-                                rows)))
-                      (nreverse rows))))
-        (overlook-row
-         :id (list 'todo-group name)
-         :content (list (propertize name 'face (if current 'overlook-heading-current 'overlook-heading))
-                        (and count (propertize (concat " " count) 'face 'shadow)))
-         :heading t
-         :action (and file (iuiw-workspace--todo-visit project file 1))
-         :children (item-rows items)
-         :folded folded)))
+    (pcase-lambda (`(,name ,file ,items))
+      (overlook-row
+       :id (list 'todo-group name)
+       :content (propertize name 'face 'overlook-heading)
+       :heading t
+       :action (iuiw-workspace--todo-visit nil file 1)
+       :children (iuiw-workspace--item-rows items file nil
+                                            (lambda (_) (propertize "☐" 'face 'shadow)))))
     groups)))
 
-(defun iuiw-workspace--todo-ordered (cards)
-  "CARDS, those with a project first in the dashboard's order."
-  (let ((order (overlook-ordered-projects)))
-    (seq-sort-by (lambda (card) (or (seq-position order (plist-get card :id)) (length order)))
-                 #'<
-                 cards)))
+(defun iuiw-workspace--todo-top-count (todos)
+  "Number of TODOS at the outermost depth among them."
+  (let ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos))))
+    (seq-count (lambda (todo) (= (nth 2 todo) top)) todos)))
 
-(defun iuiw-workspace--todo-groups (cards current)
-  "Groups for `iuiw-workspace--group-rows' of CARDS, highlighting CURRENT.
-Each counts the card's open #now, #waiting and top-level todos and lists
-them folded, leaving out #now todos.  A card without todos shows no count."
-  (mapcar (lambda (card)
-            (let ((todos (plist-get card :todos)))
-              (list (plist-get card :id) (plist-get card :file)
-                    (equal (plist-get card :id) current)
-                    (iuiw-workspace--todo-sort (cdr (iuiw-workspace--todo-take-now todos)))
-                    (plist-get card :id)
-                    (when todos
-                      (let* ((top (apply #'min (mapcar (lambda (todo) (nth 2 todo)) todos)))
-                             (rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
-                                                          todos)))
-                             (now (funcall rank 0))
-                             (waiting (funcall rank 1)))
-                        (mapconcat #'identity
-                                   (delq nil (list (and (> now 0) (format "☐%d" now))
-                                                   (and (> waiting 0) (format "◷%d" waiting))
-                                                   (number-to-string
-                                                    (seq-count (lambda (todo) (= (nth 2 todo) top)) todos))))
-                                   " ")))
-                    t)))
-          cards))
+(defun iuiw-workspace--todo-count (todos)
+  "Counts of TODOS at each of #now, #waiting and the top level, or nil without any."
+  (when todos
+    (let* ((rank (lambda (n) (seq-count (lambda (todo) (= (iuiw-workspace--todo-rank (car todo)) n))
+                                        todos)))
+           (now (funcall rank 0))
+           (waiting (funcall rank 1)))
+      (string-join (delq nil (list (and (> now 0) (format "☐%d" now))
+                                   (and (> waiting 0) (format "◷%d" waiting))
+                                   (number-to-string (iuiw-workspace--todo-top-count todos))))
+                   " "))))
 
-(defun iuiw-workspace--todo-section ()
-  "A Todo section with every ongoing project's open todos.
-The #now todos of all of them come first, in a \"#now\" group.  Projects
-with status later go last, under a folded \"later\" line, and then the
-done projects under a folded \"done\" line."
-  (let* ((current (overlook-current-project))
-         (cards (iuiw-workspace--todo-ordered (iuiw-workspace--todo-cards)))
+(defun iuiw-workspace--now-items (now)
+  "Items for `iuiw-workspace--item-rows' of the #now todos NOW.
+NOW is as `iuiw-workspace--todo-take-now' gives it.  Soonest due first,
+each after the text of its parent todo, if any."
+  (seq-mapcat (pcase-lambda (`(,parent ,todo . ,subitems))
+                (cons (append todo
+                              (list (and parent
+                                         (propertize (concat (substring-no-properties
+                                                              (iuiw-workspace--todo-display parent))
+                                                             " › ")
+                                                     'face 'shadow))))
+                      subitems))
+              (seq-sort-by (lambda (entry) (or (iuiw-workspace--todo-due (car (nth 1 entry))) "~"))
+                           #'string<
+                           now)))
+
+(defun iuiw-workspace--card-item-rows (card items)
+  "Rows of CARD's todo ITEMS, as `iuiw-workspace--item-rows' takes them."
+  (iuiw-workspace--item-rows items (plist-get card :file) (plist-get card :id)
+                             #'iuiw-workspace--todo-mark))
+
+(defun iuiw-workspace--fold-row (id name count children &optional action)
+  "A dimmed row \"NAME (COUNT)\" with its identity ID, folding CHILDREN.
+ACTION is what RET does on it."
+  (overlook-row :id id
+                :content (propertize (format "%s (%d)" name count) 'face 'shadow)
+                :action action
+                :children children
+                :nest t
+                :folded t))
+
+(defun iuiw-workspace--todo-rows (card)
+  "Rows of CARD's todos: the #now ones, then the others folded."
+  (pcase-let ((id (plist-get card :id))
+              (`(,now . ,rest) (plist-get card :split)))
+    (append
+     (iuiw-workspace--card-item-rows card (iuiw-workspace--now-items now))
+     (and rest
+          (list (iuiw-workspace--fold-row
+                 (list 'todo-rest id) "todo" (iuiw-workspace--todo-top-count rest)
+                 (iuiw-workspace--card-item-rows card (iuiw-workspace--todo-sort rest))
+                 (iuiw-workspace--todo-visit id (plist-get card :file) 1)))))))
+
+(defun iuiw-workspace--project-todo-rows (name)
+  "The todo rows under the heading of project NAME, if ongoing."
+  (let ((card (iuiw-workspace--card name)))
+    (when (iuiw-workspace--ongoing-p card)
+      (iuiw-workspace--todo-rows card))))
+
+(defun iuiw-workspace--has-now-p (card)
+  "Non-nil when CARD has an outermost #now todo."
+  (car (plist-get card :split)))
+
+(defun iuiw-workspace--closed-row (card)
+  "The dimmed heading of CARD, whose project is not open, over its todos.
+With #now todos they show; otherwise the heading folds all the todos."
+  (let ((id (plist-get card :id))
+        (now (iuiw-workspace--has-now-p card)))
+    (overlook-project-heading
+     id 'shadow nil
+     :id (list 'closed-project id)
+     :children (if now
+                   (iuiw-workspace--todo-rows card)
+                 (iuiw-workspace--card-item-rows
+                  card (iuiw-workspace--todo-sort (plist-get card :todos))))
+     :nest t
+     :folded (not now))))
+
+(defun iuiw-workspace--closed-rows ()
+  "Rows of the ongoing projects that are not open, folded to a line each.
+Those with #now todos come first.  The other ones with status later
+go under a folded \"later\" line, and the done projects under a folded
+\"done\" line."
+  (let* ((open (overlook-projects))
+         (cards (seq-remove (lambda (card) (member (plist-get card :id) open))
+                            (iuiw-workspace--todo-cards)))
+         (now (seq-filter #'iuiw-workspace--has-now-p cards))
+         (others (seq-remove #'iuiw-workspace--has-now-p cards))
          (later-p (lambda (card) (equal (plist-get card :status) "later")))
-         (now (iuiw-workspace--todo-now-items cards current))
-         (later (iuiw-workspace--todo-groups (seq-filter later-p cards) current))
+         (later (seq-filter later-p others))
          (done (seq-filter (lambda (card) (and (equal (plist-get card :status) "done")
                                                (iuiw-workspace--shown-p card)))
                            (iuiw-workspace--cards))))
-    (overlook-section-row
-     "Todo"
-     (overlook-gaps
-      (append
-       (iuiw-workspace--group-rows
-        (append (and now (list (list "#now" nil nil now nil nil)))
-                (iuiw-workspace--todo-groups (seq-remove later-p cards) current))
-        #'iuiw-workspace--todo-mark)
-       (and later
-            (list (overlook-row
-                   :id '(todo-later)
-                   :content (propertize (format "later (%d)" (length later)) 'face 'shadow)
-                   :children (iuiw-workspace--group-rows later #'iuiw-workspace--todo-mark)
-                   :folded t)))
-       (and done
-            (list (overlook-row
-                   :id '(todo-done)
-                   :content (propertize (format "done (%d)" (length done)) 'face 'shadow)
-                   :children (mapcar (lambda (card)
-                                       (overlook-row
-                                        :content (plist-get card :id)
-                                        :action (iuiw-workspace--todo-visit
-                                                 nil (plist-get card :file) 1)))
-                                     done)
-                   :folded t))))))))
+    (append
+     (mapcar #'iuiw-workspace--closed-row (append now (seq-remove later-p others)))
+     (and later
+          (list (iuiw-workspace--fold-row '(todo-later) "later" (length later)
+                                          (mapcar #'iuiw-workspace--closed-row later))))
+     (and done
+          (list (iuiw-workspace--fold-row
+                 '(todo-done) "done" (length done)
+                 (mapcar (lambda (card)
+                           (overlook-row
+                            :content (plist-get card :id)
+                            :action (iuiw-workspace--todo-visit nil (plist-get card :file) 1)))
+                         done)))))))
 
 ;;; Dashboard inbox
 
@@ -1013,7 +1042,7 @@ Done items are left out together with their subitems."
   "An Inbox section with each workspace's open inbox items.
 Only the inbox of `iuiw-workspace-filter' shows when it is set.  The
 workspace of the current project comes first."
-  (let* ((current (iuiw-workspace-overlook-annotation (or (overlook-current-project) "")))
+  (let* ((current (plist-get (iuiw-workspace--card (overlook-current-project)) :workspace))
          (files (seq-filter (lambda (file) (or (null iuiw-workspace-filter)
                                                (equal iuiw-workspace-filter (iuiw-workspace--inbox-workspace file))))
                             (file-expand-wildcards (expand-file-name "*/inbox.md" (iuiw-workspace--base)))))
@@ -1024,9 +1053,8 @@ workspace of the current project comes first."
      (iuiw-workspace--group-rows
       (seq-keep (lambda (file)
                   (when-let* ((items (iuiw-workspace--inbox-items file)))
-                    (list (iuiw-workspace--inbox-workspace file) file nil items)))
-                files)
-      (lambda (_) (propertize "☐" 'face 'shadow)))
+                    (list (iuiw-workspace--inbox-workspace file) file items)))
+                files))
      nil
      (list (list :name "add" :label "Add"
                  :input "New inbox item"
@@ -1095,18 +1123,20 @@ A project.md may end its project, closing its project."
 
 ;;;###autoload
 (define-minor-mode iuiw-workspace-dashboard-mode
-  "Show ongoing projects' todos and the inboxes in the agents dashboard.
+  "Show ongoing projects, their todos and the inboxes in the agents dashboard.
 Also close the projects of ended projects, as `iuiw-workspace-close-ended'."
   :global t
   :group 'iuiw-workspace
   (if iuiw-workspace-dashboard-mode
       (progn
-        (add-hook 'overlook-sections #'iuiw-workspace--todo-section 50)
+        (add-hook 'overlook-project-functions #'iuiw-workspace--project-todo-rows 60)
+        (add-hook 'overlook-closed-projects-functions #'iuiw-workspace--closed-rows)
         (add-hook 'overlook-sections #'iuiw-workspace--inbox-section 60)
         (add-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line -50)
         (add-hook 'overlook-project-switch-hook #'iuiw-workspace--close-ended-soon)
         (add-hook 'after-save-hook #'iuiw-workspace--refresh-after-save))
-    (remove-hook 'overlook-sections #'iuiw-workspace--todo-section)
+    (remove-hook 'overlook-project-functions #'iuiw-workspace--project-todo-rows)
+    (remove-hook 'overlook-closed-projects-functions #'iuiw-workspace--closed-rows)
     (remove-hook 'overlook-sections #'iuiw-workspace--inbox-section)
     (remove-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line)
     (remove-hook 'overlook-project-switch-hook #'iuiw-workspace--close-ended-soon)
