@@ -632,6 +632,30 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (equal (funcall run row '(name . "kill") '(confirmed . t)) '(200 (ok . t))))
         (should-not (buffer-live-p agent))))))
 
+(ert-deftest overlook-remote-serves-a-row-s-diff ()
+  (overlook-remote-test-with-agent t
+    (overlook-remote-test-with-dashboard
+      (let* ((overlook-remote--dashboard nil)
+             (overlook-remote--versions nil)
+             (overlook-sections
+              (list (lambda ()
+                      (overlook-section-row
+                       "Files"
+                       (list (overlook-row :content "a.el" :diff (lambda () "-x\n+y\n"))
+                             (overlook-row :content "b.el"))))))
+             (sections (alist-get 'sections (cdr (overlook-remote-test--call
+                                                   "GET" "/overlook/api/dashboard"))))
+             (find (lambda (text)
+                     (overlook-remote-test--find
+                      sections (lambda (node) (equal (overlook-remote-test--text node) text)))))
+             (diff (lambda (node)
+                     (overlook-remote-test--call "GET" "/overlook/api/diff" nil nil
+                                                 `(("node" ,(alist-get 'id node)))))))
+        (should (eq (alist-get 'diff (funcall find "a.el")) t))
+        (should-not (alist-get 'diff (funcall find "b.el")))
+        (should (equal (funcall diff (funcall find "a.el")) '(200 (diff . "-x\n+y\n"))))
+        (should (= (car (funcall diff (funcall find "b.el"))) 409))))))
+
 ;; Dashboard deltas
 
 (defun overlook-remote-test--same (nodes)

@@ -211,6 +211,8 @@
     padding: 8px; background: var(--card); color: var(--fg);
   }
   .commands textarea { min-height: 64px; resize: vertical; }
+  .node > .file-diff { display: block; min-width: 0; margin-right: 0; }
+  .file-diff pre.diff { margin: 0; padding: 8px; border-radius: 8px; background: var(--card); }
   .s-dim { color: var(--dim); }
   .s-warning { color: var(--working); }
   .s-error { color: var(--failed); }
@@ -677,6 +679,17 @@ function renderLive(agent) {
   if (bottom) scrollToBottom();
 }
 
+function diffPre(text) {
+  const pre = el("pre", "diff");
+  for (const line of text.split("\n")) {
+    const kind = line.startsWith("@@") ? "hunk"
+          : line.startsWith("+") && !line.startsWith("+++") ? "add"
+          : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
+    pre.append(el("span", kind, line + "\n"));
+  }
+  return pre;
+}
+
 const toolMarks = { pending: "○", in_progress: "◐", completed: "✓", failed: "✗" };
 
 function renderTool(node, item) {
@@ -689,15 +702,8 @@ function renderTool(node, item) {
   const parts = [head];
   if (item.diff) {
     const details = el("details");
-    details.open = !!wasOpen;
-    const pre = el("pre", "diff");
-    for (const line of item.diff.split("\n")) {
-      const kind = line.startsWith("@@") ? "hunk"
-            : line.startsWith("+") && !line.startsWith("+++") ? "add"
-            : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
-      pre.append(el("span", kind, line + "\n"));
-    }
-    details.append(el("summary", "", "diff"), pre);
+    details.open = wasOpen ?? true;
+    details.append(el("summary", "", "diff"), diffPre(item.diff));
     parts.push(details);
   }
   if (item.images.length) parts.push(imageStrip(item.images));
@@ -860,6 +866,12 @@ function renderNode(node, top) {
   if (node.agent) {
     line.classList.add("link", "agent");
     line.onclick = () => open(node.agent);
+  } else if (node.diff) {
+    line.classList.add("link");
+    line.onclick = () => {
+      if (panel?.node.id === node.id) closePanel();
+      else showDiff(box, node);
+    };
   } else if (kids) {
     line.classList.add("link");
     line.onclick = () => {
@@ -951,6 +963,23 @@ function openPanel(box, node, state = {}) {
   container.append(button("Cancel", "", closePanel));
   box.querySelector(":scope > .line").after(container);
   container.querySelector("textarea")?.focus();
+}
+
+// A row's diff, shown under it like its commands.
+async function showDiff(box, node) {
+  if (panel) panel.box.querySelector(":scope > .commands")?.remove();
+  panel = { node, box };
+  box.querySelector(":scope > .commands")?.remove();
+  const container = el("div", "commands file-diff", "Loading…");
+  box.querySelector(":scope > .line").after(container);
+  try {
+    const { diff } = await call("GET", "diff?node=" + encodeURIComponent(node.id));
+    if (panel?.box !== box) return;
+    container.replaceChildren(diff ? diffPre(diff) : el("span", "meta", "No changes"));
+  } catch (error) {
+    if (panel?.box === box) closePanel();
+    toast(error.message);
+  }
 }
 
 async function runCommand(node, command, args, button) {

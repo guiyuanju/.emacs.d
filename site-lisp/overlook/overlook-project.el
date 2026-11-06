@@ -285,6 +285,19 @@ path, and a new one visited instead.  Uses Magit, or VC without it."
           (t (vc-version-diff (mapcar #'expand-file-name (if from (list from path) (list path)))
                               "HEAD" nil)))))
 
+(defun overlook-project-file-diff (dir file)
+  "Unified diff of FILE of repo DIR since the last commit, as text.
+FILE is an entry of DIR's status; an untracked one shows as all added."
+  (pcase-let ((default-directory (or (overlook-project--top dir) dir))
+              (`(,path ,code ,_ ,_ ,from) file))
+    (with-temp-buffer
+      (apply #'process-file (or (bound-and-true-p vc-git-program) "git") nil t nil
+             "-c" "core.quotePath=false"
+             (if (equal code "??")
+                 (list "diff" "--no-index" "--" "/dev/null" path)
+               `("diff" "HEAD" "-M" "--" ,@(and from (list from)) ,path)))
+      (buffer-string))))
+
 (defun overlook-project--counts (added removed)
   "\" +ADDED −REMOVED\" in diff colors, leaving out a zero."
   (cl-flet ((count (n sign face)
@@ -330,7 +343,8 @@ Their common folders are left out, and the name when only folders changed."
                           (overlook-show-elsewhere
                            perspective (lambda () (overlook-project-open-file dir file))))
                 :help (car file)
-                :wrap ""))
+                :wrap ""
+                :diff (lambda () (overlook-project-file-diff dir file))))
 
 (defun overlook-project--worktrees (root)
   "Worktrees courier made in project ROOT, each as (DIR . NAME)."

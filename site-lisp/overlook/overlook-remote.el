@@ -80,7 +80,7 @@ interface, so a phone on the local network can open it."
   :group 'overlook)
 
 (defcustom overlook-remote-diff-size 20000
-  "How many characters of a tool call's diff the page shows."
+  "How many characters of a diff the page shows."
   :type 'natnum
   :group 'overlook)
 
@@ -397,7 +397,8 @@ that start where the first did."
   "ROW of the dashboard's model as the page shows it, under the node of id PARENT.
 An agent's row names it in :agent and gives the answers it offers in
 :choices; :commands are the row's, run through /api/command by the
-node's id.  :hash changes whenever the node or any under it does."
+node's id, and :diff tells that /api/diff gives its diff.  :hash
+changes whenever the node or any under it does."
   (let* ((value (overlook-row-key row))
          (id (substring (secure-hash 'sha1 (concat parent
                                                    (let ((print-length nil) (print-level nil))
@@ -415,7 +416,8 @@ node's id.  :hash changes whenever the node or any under it does."
                         `(:agent ,(buffer-name agent)
                           :choices ,(overlook-remote--choices (overlook-row-choices row))))
                  ,@(and (overlook-row-commands row)
-                        `(:commands ,(overlook-remote--commands (overlook-row-commands row)))))))
+                        `(:commands ,(overlook-remote--commands (overlook-row-commands row))))
+                 ,@(and (overlook-row-diff row) '(:diff t)))))
     (when overlook-remote--rows (puthash id row overlook-remote--rows))
     `(:hash ,(substring (secure-hash
                          'sha1 (json-serialize
@@ -677,15 +679,18 @@ gives the response.")
       (delete-file a)
       (delete-file b))))
 
+(defun overlook-remote--cut (diff)
+  "DIFF cut short to `overlook-remote-diff-size' characters."
+  (truncate-string-to-width diff overlook-remote-diff-size nil nil "\n…"))
+
 (defun overlook-remote--diff (diffs)
   "DIFFS, each (:file F :old OLD :new NEW), as one unified diff, cut short."
-  (truncate-string-to-width
+  (overlook-remote--cut
    (mapconcat (lambda (diff)
                 (overlook-remote--unified (or (plist-get diff :file) "file")
                                           (or (plist-get diff :old) "")
                                           (or (plist-get diff :new) "")))
-              diffs "")
-   overlook-remote-diff-size nil nil "\n…"))
+              diffs "")))
 
 (defun overlook-remote--new-item (event)
   "A new item for EVENT, every entry the page reads present."
@@ -959,6 +964,12 @@ stream (:stream KNOWN)."
                                                 (format-time-string "%Y%m%d-%H%M%S-%3N")
                                                 extension)
                                  data)))))))
+    ('("GET" "/api/diff")
+     (overlook-remote--dashboard)
+     (let ((diff (overlook-row-diff (or (gethash (cadr (assoc "node" query)) overlook-remote--rows)
+                                        (user-error "That row is gone")))))
+       (unless diff (user-error "That row has no diff"))
+       (overlook-remote--json 200 `(:diff ,(overlook-remote--cut (funcall diff))))))
     ('("POST" "/api/command")
      (overlook-remote--command (overlook-remote--body request)))
     ('("POST" "/api/choose")
