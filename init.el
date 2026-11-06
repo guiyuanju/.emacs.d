@@ -1349,7 +1349,20 @@
 
 (use-package elpher
   :ensure (:host github :repo "emacsmirror/elpher")
-  :defer t)
+  :defer t
+  :custom
+  (elpher-start-page-url
+   (concat "file://" (expand-file-name "etc/elpher-start.gmi" user-emacs-directory)))
+  :config
+  ;; elpher 自带的 motion 键占了 g 前缀，让出 gg 等 vim 动作。
+  (evil-define-key* 'motion elpher-mode-map
+    "g" nil
+    "o" #'elpher-go
+    "O" #'elpher-go-current
+    "H" #'elpher-back
+    (kbd "C-o") #'elpher-back
+    "gr" #'elpher-reload
+    "gu" #'elpher-root-dir))
 
 (use-package gptel
   :defer t)

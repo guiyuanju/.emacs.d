@@ -1,0 +1,25 @@
+# Gemini 起始页
+
+=> about:bookmarks 书签
+=> about:welcome elpher 自带的欢迎页
+
+## 搜索
+=> gemini://kennedy.gemi.dev/ Kennedy
+=> gemini://tlgs.one/ TLGS
+=> gemini://geminispace.info/ geminispace.info
+
+## 聚合（各 capsule 的新文章）
+=> gemini://warmedal.se/~antenna/ Antenna
+=> gemini://skyjake.fi/~Cosmos/ Cosmos
+=> gemini://geminiprotocol.net/capcom/ CAPCOM
+
+## 社区
+=> gemini://station.martinrue.com/ Station（短帖）
+=> gemini://bbs.geminispace.org/ Gemini BBS（论坛）
+
+## 协议
+=> gemini://geminiprotocol.net/ Gemini 项目主页
+
+## Gopher
+=> gopher://gopher.floodgap.com/ Floodgap
+=> gopher://sdf.org/ SDF

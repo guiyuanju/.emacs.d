@@ -29,7 +29,10 @@
     (set-face-attribute 'variable-pitch nil :family iuiw-variable-pitch-font-family)
     ;; 固定中日韩字体族，否则粗体会回退到 Arial Unicode MS。
     (dolist (script '(han cjk-misc bopomofo kana hangul))
-      (set-fontset-font t script (font-spec :family iuiw-font-family)))))
+      (set-fontset-font t script (font-spec :family iuiw-font-family))))
+  ;; 🖼 这类 emoji 被归到 symbol 脚本，不会自动回退到彩色 emoji 字体。
+  (when (iuiw-font-available-p "Apple Color Emoji")
+    (set-fontset-font t '(#x1F000 . #x1FAFF) (font-spec :family "Apple Color Emoji"))))
 
 (defun iuiw-ensure-fonts ()
   "Install missing fonts with Homebrew in the background, then reapply them."

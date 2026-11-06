@@ -10,6 +10,8 @@
 !bin/**
 !tests
 !tests/**
+!etc
+!etc/elpher-start.gmi
 !AGENTS.md
 !CLAUDE.md
 !.claude
