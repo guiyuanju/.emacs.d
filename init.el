@@ -606,7 +606,8 @@
     "o"  '(:ignore t :which-key "open")
     "od" '(overlook :which-key "agent dashboard")
     "oe" '(iuiw-eshell-toggle :which-key "Eshell")
-    "og" '(go-playground :which-key "Go playground")
+    "og" '(iuiw-playground :which-key "playground")
+    "oG" '(iuiw-playground-open :which-key "open playground")
     "ow" '(elpher :which-key "Gemini/Gopher (elpher)")
     "of" '(iuiw-reveal-in-finder :which-key "reveal in Finder")
     "ok" '(iuiw-auth-copy-password :which-key "copy password")
@@ -678,7 +679,7 @@
   :custom
   (popper-reference-buffers
    '("\\*Messages\\*" "\\*Warnings\\*" "\\*Backtrace\\*"
-     "\\*Async Shell Command\\*" "\\*eldoc\\*" "Output\\*$"
+     "\\*Async Shell Command\\*" "\\*eldoc\\*" "Output\\*$" "\\*quickrun\\*"
      help-mode eshell-mode compilation-mode xref--xref-buffer-mode
      flymake-diagnostics-buffer-mode ghostel-mode))
   (popper-window-height 0.35)
@@ -914,13 +915,22 @@
   :commands (devdocs-lookup devdocs-install devdocs-peruse)
   :hook (prog-mode . iuiw-devdocs-set-docs))
 
-(use-package go-playground
-  :commands (go-playground go-playground-rm)
+(use-package quickrun
+  :commands quickrun
+  :custom
+  ;; go mod tidy 和首次 cargo build 要下载、编译，默认 10 秒不够。
+  (quickrun-timeout-seconds 120)
+  (quickrun-focus-p nil)
   :config
-  ;; go-playground 用了 Emacs 31 废弃的 time-stamp 格式 "%:y"，会弹 *Time-stamp-compatibility*。
-  (setq time-stamp-conversion-warn nil)
-  (general-def :states 'normal :keymaps 'go-playground-mode-map
-    "RET" #'go-playground-exec))
+  (quickrun-add-command "python" '((:command . "python3")) :override t))
+
+(use-package iuiw-playground
+  :ensure nil
+  :commands (iuiw-playground iuiw-playground-open)
+  :hook (find-file . iuiw-playground-maybe-enable)
+  :config
+  (general-def :states 'normal :keymaps 'iuiw-playground-mode-map
+    "RET" #'iuiw-playground-run))
 
 (use-package yasnippet
   :hook (eglot-managed-mode . yas-minor-mode))
