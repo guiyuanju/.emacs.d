@@ -1179,6 +1179,7 @@ over simple-httpd's server, which serves one Emacs at a time."
                         'help-echo "overlook-remote serves the local network")))
     (add-hook 'overlook-mode-line-functions #'overlook-remote--mode-line)
     (force-mode-line-update t)
+    (overlook-start)
     (when (and overlook-remote-network-minutes (not (overlook-remote--local-p)))
       (setq overlook-remote--off-timer
             (run-at-time (* 60 overlook-remote-network-minutes) nil

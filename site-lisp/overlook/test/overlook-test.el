@@ -1466,6 +1466,19 @@ Agents are listed; usage and repos are not."
       (overlook-delete)
       (should-not overlook-agent-saved))))
 
+;; The dashboard ticks without ever being shown.
+(ert-deftest overlook-start-ticks-without-a-window ()
+  (let ((overlook--tick-timer nil)
+        (overlook-sections nil))
+    (unwind-protect
+        (progn
+          (overlook-start)
+          (should (overlook-live-p))
+          (should (timerp overlook--tick-timer))
+          (should-not (get-buffer-window overlook-buffer-name t)))
+      (when overlook--tick-timer (cancel-timer overlook--tick-timer))
+      (when (get-buffer overlook-buffer-name) (kill-buffer overlook-buffer-name)))))
+
 ;; A project with nothing under it is left out unless current.
 (ert-deftest overlook-empty-project-is-left-out ()
   (let ((alpha (overlook-test--agent "alpha")))

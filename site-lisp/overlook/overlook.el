@@ -1248,6 +1248,15 @@ The dashboard stays shown; for actions on dashboard rows."
   (setq overlook--shown t)
   (overlook--follow))
 
+(defun overlook-start ()
+  "Make the dashboard live and draw it, without showing it."
+  (with-current-buffer (get-buffer-create overlook-buffer-name)
+    (unless (derived-mode-p 'overlook-mode) (overlook-mode)))
+  (unless overlook--tick-timer
+    (setq overlook--tick-timer
+          (run-with-timer 0 overlook-tick-interval #'overlook--tick)))
+  (overlook--render))
+
 ;;;###autoload
 (defun overlook ()
   "Toggle the dashboard side window."
@@ -1256,12 +1265,7 @@ The dashboard stays shown; for actions on dashboard rows."
       (progn (setq overlook--shown nil)
              (delete-window window))
     (setq overlook--shown t)
-    (with-current-buffer (get-buffer-create overlook-buffer-name)
-      (unless (derived-mode-p 'overlook-mode) (overlook-mode)))
-    (unless overlook--tick-timer
-      (setq overlook--tick-timer
-            (run-with-timer 0 overlook-tick-interval #'overlook--tick)))
-    (overlook--render)
+    (overlook-start)
     (select-window (overlook--display))))
 
 (provide 'overlook)

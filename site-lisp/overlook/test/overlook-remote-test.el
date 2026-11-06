@@ -868,6 +868,8 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                   ((symbol-function 'httpd-stop) #'ignore))
           (overlook-remote-mode 1)
           (should (timerp overlook-remote--off-timer))
+          (should (overlook-live-p))
+          (should overlook--tick-timer)
           ;; The dashboard tells it serves the network.
           (should (string-prefix-p "remote " (overlook-remote--mode-line)))
           (should (eq (get-text-property 0 'face (overlook-remote--mode-line)) 'warning))
@@ -880,6 +882,10 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
             (should-not overlook-remote--off-timer)
             (should (equal (overlook-remote--mode-line) "remote"))
             (overlook-remote-mode -1)))
+      (when overlook--tick-timer
+        (cancel-timer overlook--tick-timer)
+        (setq overlook--tick-timer nil))
+      (when (get-buffer overlook-buffer-name) (kill-buffer overlook-buffer-name))
       (delete-file overlook-remote-token-file))))
 
 ;;; overlook-remote-test.el ends here
