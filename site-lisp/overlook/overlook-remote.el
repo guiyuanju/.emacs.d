@@ -1038,8 +1038,11 @@ with its question in :confirm instead."
                            (append (and (plist-get command :input) (list text))
                                    (and (plist-get command :options) (list option))))))
         (overlook-refresh)
-        (overlook-remote--json
-         200 `(:ok t ,@(and (overlook-agent-p result) `(:agent ,(buffer-name result)))))))))
+        (pcase-let ((`(,agent . ,draft) (if (bufferp (car-safe result)) result (list result))))
+          (overlook-remote--json
+           200 `(:ok t
+                 ,@(and (overlook-agent-p agent) `(:agent ,(buffer-name agent)))
+                 ,@(and draft `(:draft ,(overlook-remote--text draft))))))))))
 
 (defun overlook-remote--respond (method path query request)
   "Answer METHOD on PATH with QUERY and REQUEST, as (STATUS MIME BODY)."

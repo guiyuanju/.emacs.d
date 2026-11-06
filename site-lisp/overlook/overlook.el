@@ -624,7 +624,8 @@ overlook-remote's page, offer on the row.  Each is a plist:
             or nil when none is needed;
   :run      a function of the text, when :input, and then the option,
             when :options.  It must not ask in the minibuffer; returning
-            an agent's buffer shows that agent.
+            an agent's buffer shows that agent, and (BUFFER . TEXT)
+            also leaves TEXT in its prompt, unsent.
 DIFF is a function returning the unified diff the row stands for, as
 text, which such views show when the row is picked."
   id content heading attention folded children nest gap dim face

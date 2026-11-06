@@ -682,6 +682,12 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                 nil t)))
     (overlook-agent-visit (get-buffer name))))
 
+(defun overlook-agent-reference (path beg end)
+  "The current buffer from BEG to END quoted as lines of PATH, for an agent."
+  (format "%s:%d-%d\n```\n%s\n```\n" path
+          (line-number-at-pos beg) (line-number-at-pos (max beg (1- end)))
+          (buffer-substring-no-properties beg end)))
+
 ;;;###autoload
 (defun overlook-agent-send (&optional beg end)
   "Paste the region, or an @ reference to the file, into this project's agent.
@@ -690,9 +696,7 @@ Interactively BEG and END are the region, when active."
   (let* ((file (buffer-file-name (buffer-base-buffer)))
          (path (if file (file-relative-name file (overlook-agent--root)) (buffer-name)))
          (text (if beg
-                   (format "%s:%d-%d\n```\n%s\n```\n" path
-                           (line-number-at-pos beg) (line-number-at-pos (max beg (1- end)))
-                           (buffer-substring-no-properties beg end))
+                   (overlook-agent-reference path beg end)
                  (if file (format "@%s " path) (user-error "Buffer has no file"))))
          (buffer (or (overlook-agent--current)
                      (user-error "No agent running in this project"))))
@@ -702,6 +706,30 @@ Interactively BEG and END are the region, when active."
                    (user-error "%s cannot receive text" (buffer-name)))
                text))
     (overlook-agent-show buffer)))
+
+(defun overlook-agent-draft-command (project)
+  "Return a function making commands that draft a prompt for an agent of PROJECT.
+The function takes a function of the agent's root giving the prompt, and
+makes a command offering PROJECT's agents and starting a new one, or
+nil when there is neither.  The prompt is left unsent, as \\[overlook-agent-send] does."
+  (let* ((agents (mapcar #'buffer-name
+                         (overlook-agent-buffers
+                          (lambda (buffer) (equal (overlook-agent-project buffer) project)))))
+         (start (seq-find (lambda (command) (equal (plist-get command :name) "new-agent"))
+                          (seq-mapcat (lambda (function) (funcall function project))
+                                      overlook-project-command-functions)))
+         (new (mapcar (lambda (engine) (concat "New " engine)) (plist-get start :options)))
+         (options (append agents new)))
+    (lambda (prompt)
+      (when options
+        (list :name "draft" :label "Agent" :options options
+              :run (lambda (option)
+                     (let ((buffer (if (member option agents)
+                                       (or (get-buffer option)
+                                           (user-error "%s is gone" option))
+                                     (funcall (plist-get start :run)
+                                              (string-remove-prefix "New " option)))))
+                       (cons buffer (funcall prompt (overlook-agent-get buffer 'root))))))))))
 
 ;;; Choices
 

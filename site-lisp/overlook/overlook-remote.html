@@ -887,13 +887,20 @@ function renderNode(node, top) {
   }
   box.append(line);
   if (node.commands?.length) {
-    const more = el("button", "more", "⋯");
-    more.onclick = (event) => {
-      event.stopPropagation();
+    const toggle = () => {
       if (panel?.node.id === node.id) closePanel();
       else openPanel(box, node);
     };
+    const more = el("button", "more", "⋯");
+    more.onclick = (event) => {
+      event.stopPropagation();
+      toggle();
+    };
     line.append(more);
+    if (!line.onclick) {
+      line.classList.add("link");
+      line.onclick = toggle;
+    }
   }
   if (node.agent && node.choices.length) {
     const choices = el("div", "choices");
@@ -994,6 +1001,7 @@ async function runCommand(node, command, args, button) {
       result = await call("POST", "command", { ...body, confirmed: true });
     }
     closePanel();
+    if (result.draft) appendText(draft(result.agent), result.draft);
     if (result.agent) open(result.agent);
     else toast(command.label + ": done");
   } catch (error) {

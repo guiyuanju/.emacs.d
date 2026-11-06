@@ -258,8 +258,8 @@ The page, plain HTML with no build step, shows:
 
 - **The dashboard**, drawn by the same modules as in Emacs and streamed as
   it changes, sending only what changed.  Buttons answer what an agent
-  waits for, such as a permission request.  A row's `⋯` offers the
-  commands it declares: kill an agent, resume or forget a saved one, start
+  waits for, such as a permission request.  A row's `⋯`, or the row itself
+  when tapping it does nothing else, offers the commands it declares: kill an agent, resume or forget a saved one, start
   a persona, start an agent in a project, post to a room or close it,
   delete a worktree.  Those that lose something ask first.
 - **An agent's page**, following its prompts, replies and tool calls as
@@ -415,7 +415,8 @@ blank line after it), `:dim`, `:face`, `:help`, `:wrap`, `:keymap`,
 children as a function called once they show, `:choices` it offers with
 `:choose` giving an answer, and `:commands`.  A command may ask for
 `:input` text or one of `:options`, and must not ask in the minibuffer;
-`:run` returning an agent's buffer shows that agent.  See `overlook-row`'s
+`:run` returning an agent's buffer shows that agent, and `(BUFFER . TEXT)`
+also leaves TEXT in its prompt, unsent.  See `overlook-row`'s
 docstring.
 
 **Hooks**:

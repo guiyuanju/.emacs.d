@@ -125,6 +125,16 @@ status: done
         (should (equal (overlook-row-commands (car (iuiw-workspace--closed-rows)))
                        '((:name "new-agent" :label "demo"))))))))
 
+(ert-deftest iuiw-workspace-todo-prompt ()
+  (iuiw-workspace-test--with-workspace
+    (let ((file (iuiw-workspace-test--write
+                 "me/projects/demo/project.md"
+                 "## Todo\n- [ ] one #now\n  - detail\n- [ ] two\n")))
+      (should (equal (iuiw-workspace--todo-prompt file 2 3 "one #now" (file-name-directory file))
+                     (concat "实现这条 todo：\nproject.md:2-3\n```\n"
+                             "- [ ] one #now\n  - detail\n\n```\n")))
+      (should-error (iuiw-workspace--todo-prompt file 2 2 "two" "/")))))
+
 (ert-deftest iuiw-workspace-closed-projects-order ()
   (iuiw-workspace-test--with-workspace
     (dolist (project '(("a" "active" "- [ ] a1\n")

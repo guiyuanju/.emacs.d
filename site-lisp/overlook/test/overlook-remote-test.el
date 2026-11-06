@@ -614,7 +614,9 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                                                            (push (list text option) ran)
                                                            nil))
                                               (list :name "show" :label "Show"
-                                                    :run (lambda () agent)))))))))
+                                                    :run (lambda () agent))
+                                              (list :name "draft" :label "Draft"
+                                                    :run (lambda () (cons agent "todo"))))))))))
              (sections (alist-get 'sections (cdr (overlook-remote-test--call
                                                    "GET" "/overlook/api/dashboard"))))
              (note (overlook-remote-test--find
@@ -626,7 +628,8 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                                                 `((node . ,(alist-get 'id node)) ,@body)))))
         (should (equal (alist-get 'commands note)
                        '(((name . "post") (label . "Post") (input . "Say") (options "me" "okj"))
-                         ((name . "show") (label . "Show")))))
+                         ((name . "show") (label . "Show"))
+                         ((name . "draft") (label . "Draft")))))
         ;; It runs with the text and option given, which must be there.
         (should (equal (funcall run note '(name . "post") '(text . " hi ") '(option . "okj"))
                        '(200 (ok . t))))
@@ -636,6 +639,8 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (= (car (funcall run note '(name . "gone"))) 409))
         ;; One returning an agent sends the page to it.
         (should (equal (alist-get 'agent (cdr (funcall run note '(name . "show")))) "claude@shop"))
+        ;; One returning text as well leaves it for the agent's prompt.
+        (should (equal (alist-get 'draft (cdr (funcall run note '(name . "draft")))) "todo"))
         ;; Killing an agent asks first, and only then kills it.
         (should (equal (mapcar (lambda (c) (alist-get 'name c)) (alist-get 'commands row))
                        '("kill")))

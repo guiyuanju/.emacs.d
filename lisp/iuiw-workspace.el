@@ -35,6 +35,8 @@
 (declare-function magit-status "magit-status")
 (declare-function magit-process-sentinel "magit-process")
 (declare-function overlook-agent-forget-project "overlook-agent")
+(declare-function overlook-agent-draft-command "overlook-agent")
+(declare-function overlook-agent-reference "overlook-agent")
 (declare-function overlook-project-heading "overlook")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-section-row "overlook")
@@ -862,11 +864,25 @@ It first switches to PROJECT, creating it if needed, when non-nil."
   "A command ticking item TEXT on LINE of FILE as done."
   (list :name "done" :label "Done" :run (lambda () (iuiw-workspace--tick file line text))))
 
-(defun iuiw-workspace--item-rows (items file project mark)
+(defun iuiw-workspace--todo-prompt (file line last text root)
+  "A prompt to carry out item TEXT, lines LINE to LAST of FILE, for an agent in ROOT."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (unless (looking-at (concat " *- \\(\\[ \\] \\)?" (regexp-quote text) "$"))
+      (user-error "%s changed since the dashboard read it" (file-name-nondirectory file)))
+    (let ((beg (point)))
+      (forward-line (1+ (- last line)))
+      (concat "实现这条 todo：\n"
+              (overlook-agent-reference (file-relative-name file root) beg (point))))))
+
+(defun iuiw-workspace--item-rows (items file project mark &optional draft)
   "Rows of ITEMS of FILE, each led by MARK of its text.
 ITEMS are (TEXT LINE DEPTH BEFORE), deeper ones under the item before
 them, with the string BEFORE, if any, ahead of the text.  Visiting one
-switches to PROJECT first when it is non-nil."
+switches to PROJECT first when it is non-nil.  DRAFT, if any, is what
+`overlook-agent-draft-command' gives."
   (let (rows)
     (while items
       (pcase-let* ((`(,text ,line ,depth ,before) (pop items))
@@ -878,9 +894,17 @@ switches to PROJECT first when it is non-nil."
                :content (list indent (funcall mark text) " "
                               before (iuiw-workspace--todo-display text))
                :action (iuiw-workspace--todo-visit project file line)
-               :commands (list (iuiw-workspace--done-command file line text))
+               :commands (delq nil
+                               (list (and draft
+                                          (funcall draft
+                                                   (apply-partially
+                                                    #'iuiw-workspace--todo-prompt file line
+                                                    (apply #'max line (mapcar #'cadr children))
+                                                    text)))
+                                     (iuiw-workspace--done-command file line text)))
                :wrap (concat indent "   ")
-               :children (and children (iuiw-workspace--item-rows children file project mark)))
+               :children (and children
+                              (iuiw-workspace--item-rows children file project mark draft)))
               rows)))
     (nreverse rows)))
 
@@ -936,7 +960,8 @@ each after the text of its parent todo, if any."
 (defun iuiw-workspace--card-item-rows (card items)
   "Rows of CARD's todo ITEMS, as `iuiw-workspace--item-rows' takes them."
   (iuiw-workspace--item-rows items (plist-get card :file) (plist-get card :id)
-                             #'iuiw-workspace--todo-mark))
+                             #'iuiw-workspace--todo-mark
+                             (overlook-agent-draft-command (plist-get card :id))))
 
 (defun iuiw-workspace--fold-row (id name count children &optional action)
   "A dimmed row \"NAME (COUNT)\" with its identity ID, folding CHILDREN.
