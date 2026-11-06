@@ -4,8 +4,6 @@
 (require 'cl-lib)
 (require 'iuiw-workspace)
 
-(defvar persp-mode)
-
 (defmacro iuiw-workspace-test--with-workspace (&rest body)
   "Run BODY with `iuiw-workspace-directory' bound to a fresh temporary folder."
   (declare (indent 0))
@@ -69,8 +67,8 @@ status: done
     (iuiw-workspace-test--write "me/projects/demo/project.md" iuiw-workspace-test--card)
     (iuiw-workspace-test--write "me/inbox.md" "- [ ] call\n")
     (cl-letf (((symbol-function 'overlook-insert-section) (lambda (_title body) (funcall body)))
-              ((symbol-function 'overlook-ordered-perspectives) (lambda () '("demo")))
-              ((symbol-function 'overlook-current-perspective) (lambda () "demo")))
+              ((symbol-function 'overlook-ordered-projects) (lambda () '("demo")))
+              ((symbol-function 'overlook-current-project) (lambda () "demo")))
       (with-temp-buffer
         (magit-section-mode)
         (let ((inhibit-read-only t))
@@ -107,8 +105,8 @@ status: done
     (iuiw-workspace-test--write "me/projects/two/project.md"
                                "---\nstatus: later\n---\n## Todo\n- [ ] z #now [due:: 2026-10-22]\n")
     (cl-letf (((symbol-function 'overlook-insert-section) (lambda (_title body) (funcall body)))
-              ((symbol-function 'overlook-ordered-perspectives) (lambda () '("one" "two")))
-              ((symbol-function 'overlook-current-perspective) (lambda () "one")))
+              ((symbol-function 'overlook-ordered-projects) (lambda () '("one" "two")))
+              ((symbol-function 'overlook-current-project) (lambda () "one")))
       (with-temp-buffer
         (magit-section-mode)
         (let ((inhibit-read-only t))
@@ -135,7 +133,7 @@ status: done
       (iuiw-workspace-test--write "me/projects/later/project.md" "")
       (should (iuiw-workspace-project-dir "later")))))
 
-(ert-deftest iuiw-workspace-agent-and-perspective-roots-agree ()
+(ert-deftest iuiw-workspace-agent-and-overlook-roots-agree ()
   (iuiw-workspace-test--with-workspace
     (iuiw-workspace-test--write "me/projects/demo/project.md" "")
     (iuiw-workspace-test--write "me/projects/mapped/project.md" "")
@@ -145,11 +143,11 @@ status: done
           (dolist (id '("demo" "mapped"))
             (let ((default-directory (expand-file-name (concat "me/projects/" id "/")
                                                        iuiw-workspace-directory)))
-              (should (equal (iuiw-workspace-agent-root) (iuiw-workspace-perspective-root id)))))
+              (should (equal (iuiw-workspace-agent-root) (iuiw-workspace-overlook-root id)))))
         (delete-directory outside t))
-      (should (equal (iuiw-workspace-perspective-root "mapped")
+      (should (equal (iuiw-workspace-overlook-root "mapped")
                      (file-name-as-directory (file-truename outside))))
-      (should (equal (iuiw-workspace-perspective-workspace "demo") "me")))))
+      (should (equal (iuiw-workspace-overlook-annotation "demo") "me")))))
 
 (ert-deftest iuiw-workspace-agent-root-inside-mapped-root ()
   ;; agent 的 buffer 在映射的根里而不在卡片文件夹里，也要算出同一个根；嵌套时取最内层。
@@ -188,15 +186,14 @@ status: done
 (ert-deftest iuiw-workspace-new-project-id ()
   (iuiw-workspace-test--with-workspace
     (iuiw-workspace-test--write "project-template.md" "")
-    (cl-letf (((symbol-function 'persp-names) (lambda () '("main")))
-              ((symbol-function 'persp-switch) #'ignore))
-      (let ((persp-mode t))
-        (dolist (id '("" "Bad" "a_b" "-x" "a b" "main"))
-          (should-error (iuiw-workspace-open-project id) :type 'user-error))
-        (iuiw-workspace--check-new-id "ool-123"))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("main")))
+              ((symbol-function 'overlook-switch-project) #'ignore))
+      (dolist (id '("" "Bad" "a_b" "-x" "a b" "main"))
+        (should-error (iuiw-workspace-open-project id) :type 'user-error))
+      (iuiw-workspace--check-new-id "ool-123")
       (should-not (file-exists-p (expand-file-name "me" iuiw-workspace-directory))))))
 
-;; 新项目建在所选 workspace，候选取该 workspace 的 .remotes，克隆在切到 perspective 之后。
+;; 新项目建在所选 workspace，候选取该 workspace 的 .remotes，克隆在切到 project 之后。
 (ert-deftest iuiw-workspace-new-project ()
   (iuiw-workspace-test--with-workspace
     (iuiw-workspace-test--write "project-template.md" "---\nid: {{id}}\n---\n")
@@ -204,8 +201,8 @@ status: done
     (iuiw-workspace-test--write "okj/projects/.keep" "")
     (let ((candidates '(("g/svc" "svc" "git@host:g/svc.git" "Service")))
           events)
-      (cl-letf (((symbol-function 'persp-names) (lambda () '("main")))
-                ((symbol-function 'persp-switch) (lambda (name) (push (list 'switch name) events)))
+      (cl-letf (((symbol-function 'overlook-projects) (lambda () '("main")))
+                ((symbol-function 'overlook-switch-project) (lambda (name) (push (list 'switch name) events)))
                 ((symbol-function 'find-file) (lambda (file) (push (list 'find file) events)))
                 ((symbol-function 'completing-read)
                  (lambda (_prompt names &rest _)
@@ -245,8 +242,8 @@ status: done
     (iuiw-workspace-test--write "project-template.md" "---\nid: {{id}}\n---\n")
     (iuiw-workspace-test--write "me/projects/.keep" "")
     (let (switched)
-      (cl-letf (((symbol-function 'persp-names) (lambda () '("main")))
-                ((symbol-function 'persp-switch) (lambda (name) (setq switched name)))
+      (cl-letf (((symbol-function 'overlook-projects) (lambda () '("main")))
+                ((symbol-function 'overlook-switch-project) (lambda (name) (setq switched name)))
                 ((symbol-function 'find-file) #'ignore)
                 ((symbol-function 'read-string) (lambda (&rest _) "T"))
                 ((symbol-function 'completing-read-multiple)
@@ -290,7 +287,7 @@ status: done
                     :type 'user-error)
       (when-let* ((buffer (get-file-buffer file))) (kill-buffer buffer)))))
 
-;; 先按 perspective 找项目，即使当前 buffer 是别的项目的文件；不是项目的 perspective 再按 buffer 所在文件夹和 project-roots。
+;; 先按 project 找项目，即使当前 buffer 是别的项目的文件；不是项目的 project 再按 buffer 所在文件夹和 project-roots。
 (ert-deftest iuiw-workspace-visit-project-md ()
   (iuiw-workspace-test--with-workspace
     (let* ((card (iuiw-workspace-test--write "okj/projects/demo/project.md" ""))
@@ -298,9 +295,8 @@ status: done
            (emacs (iuiw-workspace-test--write "me/projects/emacs/project.md" ""))
            (iuiw-workspace-project-roots `(("emacs" . ,temporary-file-directory)))
            (default-directory temporary-file-directory)
-           (persp-mode t)
            (name "demo"))
-      (cl-letf (((symbol-function 'persp-current-name) (lambda () name))
+      (cl-letf (((symbol-function 'overlook-current-project) (lambda () name))
                 ((symbol-function 'find-file) #'identity))
         (should (equal (iuiw-workspace-visit-project-md) (file-truename card)))
         (let ((default-directory (file-name-directory other)))

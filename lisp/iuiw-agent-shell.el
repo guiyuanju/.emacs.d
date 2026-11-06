@@ -8,27 +8,27 @@
 
 (require 'agent-shell)
 
-(declare-function overlook-agent-perspective "overlook-agent")
+(declare-function overlook-agent-project "overlook-agent")
 (declare-function overlook-agent-show "overlook-agent")
-(declare-function overlook-current-perspective "overlook")
+(declare-function overlook-current-project "overlook")
 (declare-function iuiw-assistant-shell-p "iuiw-assistant")
 (declare-function modus-themes-get-color-value "modus-themes")
 
 (defun iuiw-agent-shell-toggle (&optional arg)
-  "Show the most recently used agent in the current perspective.
-Assistant shells are skipped.  Inside an agent, with prefix ARG, or without a perspective agent,
+  "Show the most recently used agent in the current project.
+Assistant shells are skipped.  Inside an agent, with prefix ARG, or without a project agent,
 delegate to `agent-shell' to keep its toggle and startup behavior."
   (interactive "P")
   (require 'overlook-agent)
-  (let* ((perspective (overlook-current-perspective))
+  (let* ((project (overlook-current-project))
          (buffer
           (and (not arg)
                (not (derived-mode-p 'agent-shell-mode
                                     'agent-shell-viewport-view-mode
                                     'agent-shell-viewport-edit-mode))
-               perspective
+               project
                (seq-find (lambda (buffer)
-                           (and (equal perspective (overlook-agent-perspective buffer))
+                           (and (equal project (overlook-agent-project buffer))
                                 (not (with-current-buffer buffer
                                        (iuiw-assistant-shell-p)))))
                          (agent-shell-buffers)))))

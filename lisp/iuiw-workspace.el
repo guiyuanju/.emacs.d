@@ -1,8 +1,8 @@
-;;; iuiw-workspace.el --- Workspaces, projects, perspectives and repos -*- lexical-binding: t; -*-
+;;; iuiw-workspace.el --- Workspaces, projects, projects and repos -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; workspace（~/workspace/me、okj…）→ 项目 projects/<id>/（project.md）→ 若干 repo（各一个 git 仓库）；
-;; 每个项目对应一个同名 perspective，项目 id 即文件夹名。
+;; 每个项目对应一个同名 project（tabspaces 的一个 tab），项目 id 即文件夹名。
 ;; 位置固定的 repo（如 ~/.emacs.d）不搬进项目文件夹，用 `iuiw-workspace-project-roots' 指过去：
 ;; project.md 仍在 workspace，看板、agent 以那个目录为项目根。
 ;; project.md 的 front matter 可用 YAML 兼容的 JSON 数组记录仓库，例如：
@@ -18,9 +18,9 @@
 ;; 各项目的 #now 项连同子项收到最上面的 #now 组，当前项目的在前，再按到期日排，不再列在项目下。
 ;; 项目名后依次是不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数，非 #now 的待办折叠在项目名下，#waiting 在前。
 ;; status 为 later 的项目排在最后，收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
-;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、perspective 和 inbox；front matter 的
+;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、project 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
-;; status 改成 done 或 dropped 的项目，切换 perspective 或存 project.md 时关掉（当前的除外），连同保存的 agent；
+;; status 改成 done 或 dropped 的项目，切换 project（tabspaces 的 tab）或存 project.md 时关掉（当前的除外），连同保存的 agent；
 ;; 里面还有改过没存的文件或在跑的进程（包括 agent）时先不关。
 
 ;;; Code:
@@ -33,25 +33,24 @@
 (declare-function magit-run-git-async "magit-process")
 (declare-function magit-status "magit-status")
 (declare-function magit-process-sentinel "magit-process")
-(declare-function persp-current-name "perspective")
-(declare-function persp-names "perspective")
-(declare-function persp-switch "perspective")
-(declare-function persp-kill "perspective")
-(declare-function persp-get-buffers "perspective")
-(declare-function overlook-agent-forget-perspective "overlook-agent")
+(declare-function overlook-agent-forget-project "overlook-agent")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-section-row "overlook")
 (declare-function overlook-row "overlook")
 (declare-function overlook-gaps "overlook")
-(declare-function overlook-ordered-perspectives "overlook")
-(declare-function overlook-current-perspective "overlook")
-(declare-function overlook-perspective-root "overlook")
+(declare-function overlook-ordered-projects "overlook")
+(declare-function overlook-projects "overlook")
+(declare-function overlook-project-buffers "overlook")
+(declare-function overlook-switch-project "overlook")
+(declare-function overlook-close-project "overlook")
+(declare-function overlook-current-project "overlook")
+(declare-function overlook-project-root "overlook")
 (declare-function overlook-main-window "overlook")
 (declare-function overlook-show-elsewhere "overlook")
 (declare-function overlook-agent-project-root "overlook-agent")
-(declare-function overlook-perspective-guess-root "overlook-perspective")
+(declare-function overlook-project-guess-root "overlook")
 (defvar overlook-sections)
-(defvar persp-sort)
+(defvar overlook-project-switch-hook)
 (defvar overlook-mode-line-functions)
 
 (defgroup iuiw-workspace nil
@@ -175,25 +174,25 @@ Globbed again only when the workspace root or a projects/ folder changes."
   "The card of project ID, or nil."
   (seq-find (lambda (card) (equal (plist-get card :id) id)) (iuiw-workspace--cards)))
 
-(defun iuiw-workspace-perspective-shown-p (name)
-  "Non-nil unless perspective NAME is a project hidden by `iuiw-workspace-filter'."
+(defun iuiw-workspace-overlook-shown-p (name)
+  "Non-nil unless project NAME is a project hidden by `iuiw-workspace-filter'."
   (let ((card (iuiw-workspace--card name)))
     (or (null card) (iuiw-workspace--shown-p card))))
 
-(defun iuiw-workspace-switch-perspective (name)
-  "Switch to perspective NAME, offering those shown by `iuiw-workspace-filter'.
+(defun iuiw-workspace-switch-project (name)
+  "Switch to project NAME, offering those shown by `iuiw-workspace-filter'.
 Candidates are most recently used first.  Any name works; a new one
-creates the perspective."
+creates the project."
   (interactive
-   (let ((names (seq-filter #'iuiw-workspace-perspective-shown-p
-                            (remove (persp-current-name)
-                                    (let ((persp-sort 'access)) (persp-names))))))
-     (list (completing-read "Perspective: "
+   (let ((names (seq-filter #'iuiw-workspace-overlook-shown-p
+                            (remove (overlook-current-project)
+                                    (overlook-ordered-projects)))))
+     (list (completing-read "Project: "
                             (lambda (string pred action)
                               (if (eq action 'metadata)
                                   '(metadata (display-sort-function . identity))
                                 (complete-with-action action names string pred)))))))
-  (persp-switch name))
+  (overlook-switch-project name))
 
 (defun iuiw-workspace-cycle-filter ()
   "Cycle `iuiw-workspace-filter' through every workspace, then all."
@@ -228,8 +227,8 @@ creates the perspective."
   "Signal a `user-error' unless ID can name a new project."
   (unless (string-match-p "\\`[a-z0-9][a-z0-9-]*\\'" id)
     (user-error "Project id must be lowercase letters, digits and hyphens: %S" id))
-  (when (and (fboundp 'persp-names) (bound-and-true-p persp-mode) (member id (persp-names)))
-    (user-error "Perspective %s exists and is not a project" id)))
+  (when (and (fboundp 'overlook-projects) (member id (overlook-projects)))
+    (user-error "Project %s exists and is not a project" id)))
 
 (defun iuiw-workspace--template ()
   "Contents of the project template, or a `user-error' when it is missing."
@@ -264,14 +263,14 @@ creates the perspective."
     file))
 
 (defun iuiw-workspace--switch (id file)
-  "Switch to the perspective of project ID; a new one opens its project.md FILE."
-  (let ((new (not (member id (persp-names)))))
-    (persp-switch id)
+  "Switch to the project of project ID; a new one opens its project.md FILE."
+  (let ((new (not (member id (overlook-projects)))))
+    (overlook-switch-project id)
     (when new (find-file file))))
 
 (defun iuiw-workspace-open-project (id)
-  "Switch to the perspective of project ID, creating the project when it is new.
-A new perspective opens project.md; an existing one keeps its windows.
+  "Switch to the project of project ID, creating the project when it is new.
+A new project opens project.md; an existing one keeps its windows.
 Only projects shown by `iuiw-workspace-filter' are offered; any id works."
   (interactive (list (string-trim
                       (completing-read "Project: " (mapcar #'iuiw-workspace--file-id
@@ -280,7 +279,7 @@ Only projects shown by `iuiw-workspace-filter' are offered; any id works."
                                 (iuiw-workspace--new-project id))))
 
 (defun iuiw-workspace-new-project (id)
-  "Create project ID, clone repositories into it and open it in its perspective.
+  "Create project ID, clone repositories into it and open it in its project.
 The repositories are read with `completing-read-multiple'; none is fine."
   (interactive (list (string-trim (read-string "New project id: "))))
   (let* ((file (iuiw-workspace--new-project id))
@@ -303,7 +302,7 @@ The repositories are read with `completing-read-multiple'; none is fine."
       (iuiw-workspace--clone-candidates-into root (mapcar (lambda (repo) (assoc repo candidates)) repos)))))
 
 (defun iuiw-workspace-visit-project-md ()
-  "Open the project.md of the current perspective, project folder or root.
+  "Open the project.md of the current project, project folder or root.
 From a side window such as the dashboard it opens in the main window."
   (interactive)
   (let ((dir (iuiw-workspace--current-card-root)))
@@ -407,8 +406,9 @@ Repos whose path exists in ROOT or is registered in its project.md are left out.
 
 (defun iuiw-workspace--current-card-root ()
   "Return the current project's card directory, including mapped projects."
-  (or (and (bound-and-true-p persp-mode)
-           (iuiw-workspace-project-dir (persp-current-name)))
+  (or (when-let* ((name (and (fboundp 'overlook-current-project)
+                             (overlook-current-project))))
+        (iuiw-workspace-project-dir name))
       (iuiw-workspace-project-root)
       (when-let* ((id (iuiw-workspace--root-id)))
         (iuiw-workspace-project-dir id))
@@ -664,30 +664,30 @@ opened from the repository's Magit status buffer, where its suffixes run."
 ;;; Overlook
 
 (defun iuiw-workspace-agent-root ()
-  "Return the current perspective's root, whatever buffer is current.
+  "Return the current project's root, whatever buffer is current.
 Without one, the project's root when inside its folder or root: a project
 in `iuiw-workspace-project-roots' has its root there.  Outside any
 project, return the version-control root."
-  (or (when-let* ((name (overlook-current-perspective)))
-        (overlook-perspective-root name))
+  (or (when-let* ((name (overlook-current-project)))
+        (overlook-project-root name))
       (if-let* ((folder (iuiw-workspace-project-root)))
           (or (iuiw-workspace--root (iuiw-workspace--file-id folder)) folder)
         (if-let* ((id (iuiw-workspace--root-id)))
             (iuiw-workspace--root id)
           (overlook-agent-project-root)))))
 
-(defun iuiw-workspace-perspective-root (name)
-  "Root of perspective NAME: the root or project folder of that id, else a guess."
+(defun iuiw-workspace-overlook-root (name)
+  "Root of project NAME: the root or project folder of that id, else a guess."
   (or (iuiw-workspace--root name)
       (iuiw-workspace-project-dir name)
-      (overlook-perspective-guess-root name)))
+      (overlook-project-guess-root name)))
 
-(defun iuiw-workspace-perspective-folders (name)
+(defun iuiw-workspace-overlook-folders (name)
   "Folder of project NAME, whose project.md lives in the workspace repo."
   (when-let* ((dir (iuiw-workspace-project-dir name)))
     (list dir)))
 
-(defun iuiw-workspace-perspective-workspace (name)
+(defun iuiw-workspace-overlook-annotation (name)
   "Name of the workspace holding project NAME, or nil."
   (when-let* ((file (cdr (assoc name (iuiw-workspace--projects)))))
     (iuiw-workspace--file-workspace file)))
@@ -838,11 +838,11 @@ its parent todo, if any, before its text."
                         #'string<
                         (nreverse subtrees)))))
 
-(defun iuiw-workspace--todo-visit (perspective file line)
+(defun iuiw-workspace--todo-visit (project file line)
   "Return a command that opens FILE at LINE in the main window.
-It first switches to PERSPECTIVE, creating it if needed, when non-nil."
+It first switches to PROJECT, creating it if needed, when non-nil."
   (lambda ()
-    (overlook-show-elsewhere perspective
+    (overlook-show-elsewhere project
                              (lambda ()
                                (find-file file)
                                (goto-char (point-min))
@@ -872,20 +872,20 @@ It first switches to PERSPECTIVE, creating it if needed, when non-nil."
 
 (defun iuiw-workspace--group-rows (groups mark)
   "Rows of GROUPS separated by blank lines, each item led by MARK of its text.
-Each group is (NAME FILE CURRENT ITEMS PERSPECTIVE COUNT FOLDED): a heading
+Each group is (NAME FILE CURRENT ITEMS PROJECT COUNT FOLDED): a heading
 NAME followed by the string COUNT, if any, that visits FILE, if any,
 highlighted when CURRENT, then ITEMS, folded until toggled when FOLDED, as
 \(TEXT LINE DEPTH), deeper ones under the item before them.  Visiting switches to
-PERSPECTIVE first when it is non-nil.  An item can be (TEXT LINE DEPTH
-FILE PERSPECTIVE BEFORE AFTER) instead, visiting its own FILE and showing
+PROJECT first when it is non-nil.  An item can be (TEXT LINE DEPTH
+FILE PROJECT BEFORE AFTER) instead, visiting its own FILE and showing
 the strings BEFORE and AFTER around its text."
   (overlook-gaps
    (mapcar
-    (pcase-lambda (`(,name ,file ,current ,items ,perspective ,count ,folded))
+    (pcase-lambda (`(,name ,file ,current ,items ,project ,count ,folded))
       (cl-labels ((item-rows (items)
                     (let (rows)
                       (while items
-                        (pcase-let* ((`(,text ,line ,depth ,item-file ,item-perspective ,before ,after)
+                        (pcase-let* ((`(,text ,line ,depth ,item-file ,item-project ,before ,after)
                                       (pop items))
                                      (children (seq-take-while (lambda (child) (> (nth 2 child) depth))
                                                                items))
@@ -895,7 +895,7 @@ the strings BEFORE and AFTER around its text."
                           (push (overlook-row
                                  :content (list indent (funcall mark text) " "
                                                 before (iuiw-workspace--todo-display text) after)
-                                 :action (iuiw-workspace--todo-visit (or item-perspective perspective)
+                                 :action (iuiw-workspace--todo-visit (or item-project project)
                                                                      (or item-file file)
                                                                      line)
                                  :commands (list (iuiw-workspace--done-command
@@ -909,14 +909,14 @@ the strings BEFORE and AFTER around its text."
          :content (list (propertize name 'face (if current 'overlook-heading-current 'overlook-heading))
                         (and count (propertize (concat " " count) 'face 'shadow)))
          :heading t
-         :action (and file (iuiw-workspace--todo-visit perspective file 1))
+         :action (and file (iuiw-workspace--todo-visit project file 1))
          :children (item-rows items)
          :folded folded)))
     groups)))
 
 (defun iuiw-workspace--todo-ordered (cards)
-  "CARDS, those with a perspective first in the dashboard's order."
-  (let ((order (overlook-ordered-perspectives)))
+  "CARDS, those with a project first in the dashboard's order."
+  (let ((order (overlook-ordered-projects)))
     (seq-sort-by (lambda (card) (or (seq-position order (plist-get card :id)) (length order)))
                  #'<
                  cards)))
@@ -951,7 +951,7 @@ them folded, leaving out #now todos.  A card without todos shows no count."
 The #now todos of all of them come first, in a \"#now\" group.  Projects
 with status later go last, under a folded \"later\" line, and then the
 done projects under a folded \"done\" line."
-  (let* ((current (overlook-current-perspective))
+  (let* ((current (overlook-current-project))
          (cards (iuiw-workspace--todo-ordered (iuiw-workspace--todo-cards)))
          (later-p (lambda (card) (equal (plist-get card :status) "later")))
          (now (iuiw-workspace--todo-now-items cards current))
@@ -1012,8 +1012,8 @@ Done items are left out together with their subitems."
 (defun iuiw-workspace--inbox-section ()
   "An Inbox section with each workspace's open inbox items.
 Only the inbox of `iuiw-workspace-filter' shows when it is set.  The
-workspace of the current perspective comes first."
-  (let* ((current (iuiw-workspace-perspective-workspace (or (overlook-current-perspective) "")))
+workspace of the current project comes first."
+  (let* ((current (iuiw-workspace-overlook-annotation (or (overlook-current-project) "")))
          (files (seq-filter (lambda (file) (or (null iuiw-workspace-filter)
                                                (equal iuiw-workspace-filter (iuiw-workspace--inbox-workspace file))))
                             (file-expand-wildcards (expand-file-name "*/inbox.md" (iuiw-workspace--base)))))
@@ -1056,35 +1056,34 @@ workspace of the current perspective comes first."
   (and iuiw-workspace-filter (propertize iuiw-workspace-filter 'face 'warning)))
 
 (defun iuiw-workspace--busy-p (name)
-  "Non-nil when perspective NAME holds an unsaved file or a running process."
+  "Non-nil when project NAME holds an unsaved file or a running process."
   (seq-some (lambda (buffer)
               (or (and (buffer-file-name buffer) (buffer-modified-p buffer))
                   (get-buffer-process buffer)))
-            (persp-get-buffers name)))
+            (overlook-project-buffers name)))
 
 (defun iuiw-workspace-close-ended (&rest _)
-  "Close the perspectives of ended projects, but the current one and busy ones.
+  "Close the projects of ended projects, but the current one and busy ones.
 Their saved agents are forgotten."
-  (when (bound-and-true-p persp-mode)
-    (let ((current (persp-current-name))
-          (ended (mapcar (lambda (card) (plist-get card :id))
+  (when-let* ((current (overlook-current-project)))
+    (let ((ended (mapcar (lambda (card) (plist-get card :id))
                          (seq-filter (lambda (card)
                                        (member (plist-get card :status) '("done" "dropped")))
                                      (iuiw-workspace--cards)))))
-      (dolist (name (seq-intersection (persp-names) ended))
+      (dolist (name (seq-intersection (overlook-projects) ended))
         (unless (or (equal name current) (iuiw-workspace--busy-p name))
-          (when (fboundp 'overlook-agent-forget-perspective)
-            (overlook-agent-forget-perspective name))
-          (persp-kill name)
-          (message "Closed perspective %s: the project has ended" name))))))
+          (when (fboundp 'overlook-agent-forget-project)
+            (overlook-agent-forget-project name))
+          (overlook-close-project name)
+          (message "Closed project %s: the project has ended" name))))))
 
 (defun iuiw-workspace--close-ended-soon (&rest _)
-  "Close the perspectives of ended projects once the current command is done."
+  "Close the projects of ended projects once the current command is done."
   (run-at-time 0 nil #'iuiw-workspace-close-ended))
 
 (defun iuiw-workspace--refresh-after-save ()
   "Re-render the dashboard after saving a project.md or inbox.md.
-A project.md may end its project, closing its perspective."
+A project.md may end its project, closing its project."
   (when (and buffer-file-name
              (fboundp 'overlook-refresh)
              (pcase (file-name-nondirectory buffer-file-name)
@@ -1097,7 +1096,7 @@ A project.md may end its project, closing its perspective."
 ;;;###autoload
 (define-minor-mode iuiw-workspace-dashboard-mode
   "Show ongoing projects' todos and the inboxes in the agents dashboard.
-Also close the perspectives of ended projects, as `iuiw-workspace-close-ended'."
+Also close the projects of ended projects, as `iuiw-workspace-close-ended'."
   :global t
   :group 'iuiw-workspace
   (if iuiw-workspace-dashboard-mode
@@ -1105,12 +1104,12 @@ Also close the perspectives of ended projects, as `iuiw-workspace-close-ended'."
         (add-hook 'overlook-sections #'iuiw-workspace--todo-section 50)
         (add-hook 'overlook-sections #'iuiw-workspace--inbox-section 60)
         (add-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line -50)
-        (add-hook 'persp-switch-hook #'iuiw-workspace--close-ended-soon)
+        (add-hook 'overlook-project-switch-hook #'iuiw-workspace--close-ended-soon)
         (add-hook 'after-save-hook #'iuiw-workspace--refresh-after-save))
     (remove-hook 'overlook-sections #'iuiw-workspace--todo-section)
     (remove-hook 'overlook-sections #'iuiw-workspace--inbox-section)
     (remove-hook 'overlook-mode-line-functions #'iuiw-workspace--mode-line)
-    (remove-hook 'persp-switch-hook #'iuiw-workspace--close-ended-soon)
+    (remove-hook 'overlook-project-switch-hook #'iuiw-workspace--close-ended-soon)
     (remove-hook 'after-save-hook #'iuiw-workspace--refresh-after-save)))
 
 (provide 'iuiw-workspace)
