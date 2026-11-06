@@ -37,6 +37,24 @@ jump into each other's files."
           "-data" (expand-file-name (concat "jdtls-" (sha1 (directory-file-name root)))
                                     "~/Library/Caches/jdtls/"))))
 
+(defvar iuiw-devdocs-mode-docs
+  '(((go-mode go-ts-mode) "go")
+    ((java-mode java-ts-mode) "openjdk~17")
+    ((emacs-lisp-mode) "elisp")
+    ((python-mode python-ts-mode) "python~3.14")
+    ((rust-mode rust-ts-mode) "rust")
+    ((haskell-mode) "haskell~9")
+    ((lua-mode lua-ts-mode) "lua~5.4")
+    ((sh-mode bash-ts-mode) "bash")
+    ((dockerfile-mode dockerfile-ts-mode) "docker"))
+  "DevDocs slugs per major mode, as entries (MODES . SLUGS).")
+
+(defun iuiw-devdocs-set-docs ()
+  "Set `devdocs-current-docs' from `iuiw-devdocs-mode-docs'."
+  (when-let* ((entry (seq-find (lambda (entry) (apply #'derived-mode-p (car entry)))
+                               iuiw-devdocs-mode-docs)))
+    (setq-local devdocs-current-docs (cdr entry))))
+
 (defun iuiw-java-indent-setup ()
   "Use four-space indentation in Java buffers."
   (setq-local tab-width 4)

@@ -12,8 +12,10 @@
 (declare-function ghostel-project "ghostel")
 (declare-function ghostel-project-buffer-list "ghostel")
 (declare-function ediff-recenter "ediff-util")
+(declare-function winner-undo "winner")
 (defvar ediff-mode-map)
 (defvar ghostel-buffer-name)
+(defvar winner-mode)
 
 (defun iuiw-delete-this-file (&optional force)
   "Delete the current file and kill its buffer.
@@ -79,6 +81,17 @@ With FORCE, do not ask for confirmation."
           (setq display-line-numbers next))
       (display-line-numbers-mode -1))
     (message "Line numbers: %s" (or next "off"))))
+
+(defun iuiw-toggle-delete-other-windows ()
+  "Delete other windows, or restore the previous layout when alone."
+  (interactive)
+  (if (and winner-mode (one-window-p))
+      (winner-undo)
+    (delete-other-windows)))
+
+(defun iuiw-recenter-after-save-place (&rest _)
+  "Recenter after `save-place-mode' restores point."
+  (when buffer-file-name (ignore-errors (recenter))))
 
 (defun iuiw-reveal-in-finder ()
   "Reveal the current path in Finder."

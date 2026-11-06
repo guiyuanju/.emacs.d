@@ -15,10 +15,25 @@
       read-extended-command-predicate #'command-completion-default-include-p
       delete-by-moving-to-trash t
       global-auto-revert-non-file-buffers t
-      confirm-kill-emacs #'y-or-n-p)
+      confirm-kill-emacs #'y-or-n-p
+      bidi-inhibit-bpa t
+      redisplay-skip-fontification-on-input t
+      highlight-nonselected-windows nil
+      save-interprogram-paste-before-kill t
+      kill-do-not-save-duplicates t
+      help-window-select t
+      window-combination-resize t
+      reb-re-syntax 'string
+      ;; ffap 遇到像主机名的文本会去 ping，可能卡住。
+      ffap-machine-p-known 'reject)
 
 (setq-default indent-tabs-mode nil
-              tab-width 2)
+              tab-width 2
+              bidi-display-reordering 'left-to-right
+              bidi-paragraph-direction 'left-to-right
+              cursor-in-non-selected-windows nil)
+
+(add-hook 'after-save-hook #'executable-make-buffer-file-executable-if-script-p)
 
 (dolist (mode '(menu-bar-mode tool-bar-mode scroll-bar-mode tooltip-mode
                 blink-cursor-mode))
@@ -428,7 +443,9 @@
 ;;; Commands
 
 (use-package iuiw-commands
-  :ensure nil)
+  :ensure nil
+  :config
+  (advice-add 'save-place-find-file-hook :after #'iuiw-recenter-after-save-place))
 
 ;;; Keybindings
 
@@ -510,6 +527,7 @@
     "cf" '(apheleia-format-buffer :which-key "format")
     "ci" '(eglot-find-implementation :which-key "implementation")
     "ck" '(eldoc-doc-buffer :which-key "documentation")
+    "cK" '(devdocs-lookup :which-key "devdocs")
     "cl" '(:ignore t :which-key "LSP")
     "cle" '(eglot-events-buffer :which-key "events")
     "cll" '(eglot :which-key "start")
@@ -588,6 +606,8 @@
     "o"  '(:ignore t :which-key "open")
     "od" '(overlook :which-key "agent dashboard")
     "oe" '(iuiw-eshell-toggle :which-key "Eshell")
+    "og" '(go-playground :which-key "Go playground")
+    "ow" '(elpher :which-key "Gemini/Gopher (elpher)")
     "of" '(iuiw-reveal-in-finder :which-key "reveal in Finder")
     "ok" '(iuiw-auth-copy-password :which-key "copy password")
     "oo" '(totp-auth :which-key "OTP")
@@ -626,6 +646,7 @@
     "tf" '(toggle-frame-fullscreen :which-key "fullscreen")
     "tj" '(iuiw-furigana-toggle :which-key "furigana")
     "tl" '(iuiw-toggle-line-numbers :which-key "line numbers")
+    "tp" '(prism-mode :which-key "prism")
     "tr" '(read-only-mode :which-key "read only")
     "tT" '(consult-theme :which-key "theme")
     "tw" '(visual-line-mode :which-key "wrap")
@@ -638,7 +659,7 @@
     "d" #'evil-window-delete
     "u" #'winner-undo
     "U" #'winner-redo
-    "m" #'delete-other-windows)
+    "m" #'iuiw-toggle-delete-other-windows)
   (general-def
     :states '(normal motion visual)
     :keymaps 'override
@@ -881,6 +902,26 @@
   :ensure nil
   :hook ((java-mode java-ts-mode nxml-mode) . iuiw-mybatis-mode))
 
+(use-package eros
+  :demand t
+  :config
+  (eros-mode 1))
+
+(use-package prism
+  :commands prism-mode)
+
+(use-package devdocs
+  :commands (devdocs-lookup devdocs-install devdocs-peruse)
+  :hook (prog-mode . iuiw-devdocs-set-docs))
+
+(use-package go-playground
+  :commands (go-playground go-playground-rm)
+  :config
+  ;; go-playground 用了 Emacs 31 废弃的 time-stamp 格式 "%:y"，会弹 *Time-stamp-compatibility*。
+  (setq time-stamp-conversion-warn nil)
+  (general-def :states 'normal :keymaps 'go-playground-mode-map
+    "RET" #'go-playground-exec))
+
 (use-package yasnippet
   :hook (eglot-managed-mode . yas-minor-mode))
 
@@ -902,7 +943,7 @@
           swift-mode java-mode java-ts-mode python-mode python-ts-mode)
          . eglot-ensure)
   :init
-  (setq read-process-output-max (* 1024 1024))
+  (setq read-process-output-max (* 4 1024 1024))
   :config
   (setq-default eglot-workspace-configuration #'iuiw-eglot-python-configuration)
   (add-to-list 'eglot-server-programs
@@ -1295,6 +1336,10 @@
   (require 'iuiw-elfeed)
   (add-hook 'evil-collection-setup-hook #'iuiw-elfeed-evil-keys)
   (advice-add 'elfeed-show-refresh :before #'iuiw-elfeed-show-set-referer))
+
+(use-package elpher
+  :ensure (:host github :repo "emacsmirror/elpher")
+  :defer t)
 
 (use-package gptel
   :defer t)
