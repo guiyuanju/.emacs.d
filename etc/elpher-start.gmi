@@ -6,12 +6,11 @@
 ## 搜索
 => gemini://kennedy.gemi.dev/ Kennedy
 => gemini://tlgs.one/ TLGS
-=> gemini://geminispace.info/ geminispace.info
 
 ## 聚合（各 capsule 的新文章）
-=> gemini://warmedal.se/~antenna/ Antenna
-=> gemini://skyjake.fi/~Cosmos/ Cosmos
-=> gemini://geminiprotocol.net/capcom/ CAPCOM
+=> gemini://antenna.michaelnordmeyer.com/ Antenna
+=> gemini://cosmos.skyjake.fi/ Cosmos
+=> gemini://gemini.circumlunar.space/capcom/ CAPCOM
 
 ## 社区
 => gemini://station.martinrue.com/ Station（短帖）
