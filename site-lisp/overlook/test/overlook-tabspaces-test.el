@@ -1,0 +1,92 @@
+;;; overlook-tabspaces-test.el --- Tests for overlook-tabspaces -*- lexical-binding: t; -*-
+
+(require 'ert)
+(require 'overlook-tabspaces)
+
+(defmacro overlook-tabspaces-test--with-tabs (buffers &rest body)
+  "Run BODY with tabspaces and overlook-tabspaces on, in tabs main and other.
+BUFFERS is a list of (VARIABLE NAME), each bound to a new buffer."
+  (declare (indent 1))
+  `(let ((tab-bar-tab-post-select-functions nil)
+         (tab-bar-tab-post-open-functions nil)
+         (tab-bar-tab-pre-close-functions nil)
+         (tabspaces-session nil)
+         (overlook-tabspaces-mode nil)
+         ,@(mapcar (lambda (b) `(,(car b) (get-buffer-create ,(cadr b)))) buffers))
+     (unwind-protect
+         (progn
+           (tabspaces-mode 1)
+           (overlook-tabspaces-mode 1)
+           (tab-bar-rename-tab "main")
+           (tabspaces-switch-or-create-workspace "other")
+           ,@body)
+       (overlook-tabspaces-mode -1)
+       (tabspaces-mode -1)
+       (while (cdr (funcall tab-bar-tabs-function)) (tab-bar-close-tab))
+       (tab-bar-rename-tab "")
+       (dolist (buffer (list ,@(mapcar #'car buffers)))
+         (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest overlook-tabspaces-buffers-stay-put ()
+  (overlook-tabspaces-test--with-tabs ((buffer "overlook-tabspaces-test"))
+    (switch-to-buffer buffer)
+    (tab-bar-switch-to-tab "main")
+    (let ((switched 0))
+      (let ((count (lambda (&rest _) (setq switched (1+ switched)))))
+        (advice-add 'tab-bar-select-tab :before count)
+        (unwind-protect
+            (progn
+              (should (memq buffer (overlook-tabspaces--buffers "other")))
+              (should-not (memq buffer (overlook-tabspaces--buffers "main"))))
+          (advice-remove 'tab-bar-select-tab count)))
+      (should (= switched 0)))
+    (should-not (overlook-tabspaces--buffers "missing"))
+    (should (equal (overlook-tabspaces--current) "main"))
+    (should (equal (overlook-tabspaces--names) '("main" "other")))))
+
+(ert-deftest overlook-tabspaces-add-buffer-to-hidden-tab ()
+  (overlook-tabspaces-test--with-tabs ((buffer "overlook-tabspaces-added"))
+    (overlook-tabspaces--add-buffer "main" buffer)
+    (should (memq buffer (overlook-tabspaces--buffers "main")))
+    (should-not (memq buffer (overlook-tabspaces--buffers "other")))
+    (tab-bar-switch-to-tab "main")
+    (should (memq buffer (frame-parameter nil 'buffer-list)))))
+
+(ert-deftest overlook-tabspaces-detached-buffer-stays-out-when-shown ()
+  (overlook-tabspaces-test--with-tabs ((buffer "overlook-tabspaces-detached"))
+    (switch-to-buffer buffer)
+    (switch-to-buffer "*scratch*")
+    (tab-bar-switch-to-tab "main")
+    (switch-to-buffer buffer)
+    (overlook-detach buffer)
+    (should-not (memq buffer (overlook-tabspaces--buffers "other")))
+    (should-not (memq buffer (frame-parameter nil 'buffer-list)))
+    ;; Shown in a window, but detached.
+    (should-not (memq buffer (overlook-tabspaces--buffers "main")))
+    (should (memq #'overlook--detach-shown
+                  (buffer-local-value 'window-buffer-change-functions buffer)))))
+
+(ert-deftest overlook-tabspaces-close-kills-own-buffers ()
+  (overlook-tabspaces-test--with-tabs ((own "overlook-tabspaces-own")
+                                       (shared "overlook-tabspaces-shared"))
+    (switch-to-buffer own)
+    (switch-to-buffer shared)
+    (tab-bar-switch-to-tab "main")
+    (switch-to-buffer shared)
+    (overlook-close-project "other")
+    (should (equal (overlook-tabspaces--names) '("main")))
+    (should-not (buffer-live-p own))
+    (should (buffer-live-p shared))
+    ;; The sole tab stays, with its buffers.
+    (should-error (overlook-tabspaces--close "main"))
+    (should (buffer-live-p shared))))
+
+(ert-deftest overlook-tabspaces-switch-creates-tab ()
+  (overlook-tabspaces-test--with-tabs ()
+    (let ((switched nil))
+      (add-hook 'tab-bar-tab-post-select-functions (lambda (&rest _) (setq switched t)))
+      (overlook-switch-project "main")
+      (should switched))
+    (overlook-switch-project "third")
+    (should (equal (overlook-current-project) "third"))
+    (should (equal (sort (overlook-tabspaces--names) #'string<) '("main" "other" "third")))))

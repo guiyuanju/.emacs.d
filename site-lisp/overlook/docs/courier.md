@@ -97,7 +97,7 @@ courier worktree add . fix-login           # without starting an agent
 courier worktree remove . fix-login        # keeps the branch; --force first drops uncommitted changes
 ```
 
-overlook lists each worktree under its project's perspective, clean or
+overlook lists each worktree under its project, clean or
 not, as `BRANCH/REPO`, or `BRANCH` for a single repo.
 
 ## Rooms
@@ -235,7 +235,7 @@ courier persona start --engine codex --effort high reviewer ~/repo 'Review the d
 On the dashboard a Personas section lists them: RET starts one or shows
 the agent running it, `e` opens its `persona.md`, and RET on the heading,
 or on its only row while there are none, makes a new one.  An agent
-running a persona is listed there only, not under a perspective, and its
+running a persona is listed there only, not under a project, and its
 avatar heads its posts in rooms.  overlook keeps every agent's courier id when it
 resumes the agent in a later Emacs, and refuses to resume a persona's
 session while another agent runs that persona.  A persona named in a

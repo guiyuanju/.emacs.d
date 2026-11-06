@@ -1,8 +1,8 @@
 # overlook
 
 A dashboard over everything you are working on in Emacs: each
-[perspective](https://github.com/nex3/perspective-el), the changed Git
-repos of its project, and the AI agents working in it through
+project (a [tabspaces](https://codeberg.org/mclear-tools/tabspaces) tab),
+the changed Git repos under its root, and the AI agents working in it through
 [agent-shell](https://github.com/xenodium/agent-shell).  It tells you
 which agents need you, what each is doing, and what it changed, and lets
 you answer them from a phone too.
@@ -12,7 +12,7 @@ Usage
    claude    5h ━━━━━━━━━━  54% 22m     7d ━━━━━━━━━━  13% 3d11h
    codex     5h ━━━━━━━━━━   5% 2h46m   7d ━━━━━━━━━━  16% 6d1h
 
-Perspectives
+Projects
 blog
    ⎇ blog      main
    ○ codex
@@ -30,25 +30,25 @@ main
 
 ## The idea
 
-One feature, one perspective, one project.  A feature may span several
-repos, so a project can be a folder holding them, marked by an empty
+One feature, one project.  A feature may span several
+repos, so a project's root can be a folder holding them, marked by an empty
 `.overlook` file; a project of one repo needs nothing.  Agents run at the
 project's root and see all of its repos.  The dashboard lists every
-perspective with its repos and agents, so with several features under way
+project with its repos and agents, so with several features under way
 you see at a glance where you are needed.
 
 | | |
 |---|---|
 | repo | a Git repository |
-| project | a [project.el](https://www.gnu.org/software/emacs/manual/html_node/emacs/Projects.html) project: one repo, or a folder of several marked by `.overlook` |
-| perspective | a perspective.el perspective: a project with its own buffers and window layout |
+| project | a tabspaces tab: its own buffers and window layout, named after the project at its root |
+| root | a [project.el](https://www.gnu.org/software/emacs/manual/html_node/emacs/Projects.html) project: one repo, or a folder of several marked by `.overlook` |
 | agent | an agent-shell session running at a project's root |
-| dashboard | a side window listing every perspective |
+| dashboard | a side window listing every project |
 
 ## Install
 
 Requires Emacs 29.1 or later.  overlook is not on MELPA yet; install it
-from GitHub.  It pulls in magit-section, perspective, agent-shell, circe
+from GitHub.  It pulls in magit-section, tabspaces, agent-shell, circe
 (for chat rooms) and simple-httpd (for the phone page).  agent-shell
 needs the ACP adapters of the agents you use; see its README.
 
@@ -74,20 +74,20 @@ besides Elisp that overlook needs:
 
 ```elisp
 (with-eval-after-load 'overlook
-  (require 'overlook-perspective)
-  (require 'overlook-project)
+  (require 'overlook-tabspaces)
+  (require 'overlook-repo)
   (require 'overlook-agent-shell)
-  (persp-mode 1)
-  (overlook-perspective-mode 1)   ; perspectives from perspective.el
-  (overlook-project-mode 1)       ; changed repos under each perspective
-  (overlook-agent-mode 1)         ; agents under each perspective
+  (tabspaces-mode 1)
+  (overlook-tabspaces-mode 1)     ; projects from the tabs of tabspaces
+  (overlook-repo-mode 1)          ; changed repos under each project
+  (overlook-agent-mode 1)         ; agents under each project
   (overlook-agent-shell-mode 1))  ; agents run in agent-shell
 ```
 
 Then:
 
-- `M-x overlook-perspective-open-project` opens a project in a
-  perspective named after it.
+- `M-x tabspaces-open-or-create-project-and-workspace` opens a project
+  in a tab named after it.
 - Start agents with agent-shell's own commands, such as `M-x agent-shell`.
   Every agent-shell buffer shows up on the dashboard, however it was
   started.
@@ -108,7 +108,7 @@ Then:
   in `overlook-agent-saved-file`; `RET` resumes its session where it left
   off, minus a turn cut short.
 - **A fork**, made with `agent-shell-fork`: under the agent it came from,
-  after `└`, when both are under the same perspective; otherwise marked
+  after `└`, when both are under the same project; otherwise marked
   `fork`.  `overlook-agent-forks-file` keeps the tree across restarts.
 - **A repo**: its branch and the lines changed since its last commit, then
   each changed file with its line counts.  These come from Git, so they
@@ -119,14 +119,14 @@ Then:
   it, its branch's room and its changed files.  A worktree shows its
   commits ahead of (`↑N`) and behind (`↓N`) the main checkout's branch, or
   `merged`, and is dimmed when merged with nothing in it.
-- A perspective with no rows is left out, unless it is current or
-  `overlook-show-empty-perspectives` is set.
+- A project with no rows is left out, unless it is current or
+  `overlook-show-empty-projects` is set.
 
 ### Keys
 
 | Key | |
 |---|---|
-| `RET` / `o` | visit the row: switch to a perspective, show a repo's or file's diff in Magit, show an agent, resume a saved one |
+| `RET` / `o` | visit the row: switch to a project, show a repo's or file's diff in Magit, show an agent, resume a saved one |
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
@@ -164,9 +164,9 @@ turn on.
 
 | Module | Adds |
 |---|---|
-| `overlook-perspective` | perspectives from perspective.el |
-| `overlook-project` | changed repos and worktrees under each perspective |
-| `overlook-agent`, `overlook-agent-shell` | agents under each perspective, run in agent-shell |
+| `overlook-tabspaces` | projects from the tabs of tabspaces |
+| `overlook-repo` | changed repos and worktrees under each project |
+| `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
 | `overlook-agent-courier` | agents messaging, spawning and watching each other; chat rooms; personas |
@@ -212,13 +212,13 @@ repo; use the repo rows on the dashboard instead.
 Agents get a `courier` command to message, spawn and monitor each other;
 see [courier](docs/courier.md).  On the dashboard:
 
-- A spawned agent opens in the perspective of the project it works in,
+- A spawned agent opens in the project whose root holds the folder it works in,
   else in its parent's.  Its row shows `← parent`, and `✉N` while messages
   wait for it.
 - `courier spawn --effort LEVEL` starts it at that reasoning effort,
   through the session option `overlook-agent-shell-effort-options` names
   (Claude's `effort`, Codex's `reasoning_effort`).  `--worktree BRANCH`
-  starts it in a Git worktree of its own, listed under the perspective.
+  starts it in a Git worktree of its own, listed under the project.
 - **Rooms**: agents and you talk in shared chat rooms.  `M-x
   overlook-room-open` shows one; a Rooms section lists them with your
   unread posts (`✉N`), highlighted when one names you.  The room of a
@@ -260,7 +260,7 @@ The page, plain HTML with no build step, shows:
   it changes, sending only what changed.  Buttons answer what an agent
   waits for, such as a permission request.  A row's `⋯` offers the
   commands it declares: kill an agent, resume or forget a saved one, start
-  a persona, start an agent in a perspective, post to a room or close it,
+  a persona, start an agent in a project, post to a room or close it,
   delete a worktree.  Those that lose something ask first.
 - **An agent's page**, following its prompts, replies and tool calls as
   they come, with the diff of each edit and the images it shows, from when
@@ -314,8 +314,8 @@ it and add it again from the address copied by `overlook-remote-url`.
 | Command | |
 |---|---|
 | `overlook` | toggle the dashboard |
-| `overlook-perspective-open-project` | open a project in its own perspective |
-| `overlook-agent-switch` | pick any running agent and show it in its perspective |
+| `overlook-close-project` | close a project, killing the buffers only it holds |
+| `overlook-agent-switch` | pick any running agent and show it in its project |
 | `overlook-agent-send` | paste the region, or an `@` reference to the file, into this project's agent |
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
@@ -329,26 +329,26 @@ it and add it again from the address copied by `overlook-remote-url`.
 
 - `overlook-side`, `overlook-width`: where the dashboard sits, and how
   wide it is in columns or as a fraction of the frame.
-- `overlook-perspective-order`: the current perspective first, then the
+- `overlook-project-order`: the current project first, then the
   rest by how recently you switched to them (the default), or the
   backend's order.  To remember switches across sessions:
-  `(add-to-list 'savehist-additional-variables 'overlook-perspective-switch-times)`.
-- `overlook-perspective-root`: how a perspective's project root is found;
+  `(add-to-list 'savehist-additional-variables 'overlook-project-switch-times)`.
+- `overlook-project-root`: how a project's root is found;
   by default, guessed from the projects of its buffers.
-- `overlook-perspective-annotation`: a function of a perspective name
+- `overlook-project-annotation`: a function of a project name
   returning a tag shown dimmed after its heading, such as the workspace
   it belongs to.
-- `overlook-perspective-filter`: a function of a perspective name
-  returning nil to hide it.  The current perspective, and one with an
+- `overlook-project-filter`: a function of a project name
+  returning nil to hide it.  The current project, and one with an
   agent needing you, still show.
-- `overlook-orphan-perspective`: a perspective, such as perspective.el's
-  `"main"`, to list the agents of no perspective under; by default they
+- `overlook-orphan-project`: a project, such as a tab named `"main"`,
+  to list the agents of no project under; by default they
   sit under the current one.
 - `overlook-markers`: the files marking a folder of several repos as one
   project.
-- `overlook-project-folder-display`: `mark` to show a folder inside a
-  larger repo, from `overlook-project-folders`, as a `*` after its
-  perspective's heading while it has changes, instead of listing them.
+- `overlook-repo-folder-display`: `mark` to show a folder inside a
+  larger repo, from `overlook-repo-folders`, as a `*` after its
+  project's heading while it has changes, instead of listing them.
 - `overlook-agent-root-function`: the project an agent belongs to, worked
   out in its shell's directory.
 - `overlook-agent-shell-configs`: the names agents are shown by, and the
@@ -421,17 +421,17 @@ docstring.
 **Hooks**:
 
 - `overlook-sections`: top level sections, by hook depth, each a function
-  returning one made by `overlook-section-row`, or nil.  Perspectives sit
+  returning one made by `overlook-section-row`, or nil.  Projects sit
   at 0, usage at -50; `overlook-section-order` fixes the order of those it
   lists.
-- `overlook-perspective-functions`: rows under each perspective, called
-  with its name.  Under `overlook-orphans-perspective`, also return the
-  rows that belong to no perspective.
-- `overlook-perspective-command-functions`: commands on a perspective's
+- `overlook-project-functions`: rows under each project, called
+  with its name.  Under `overlook-orphans-project`, also return the
+  rows that belong to no project.
+- `overlook-project-command-functions`: commands on a project's
   heading, such as starting an agent there.
 - `overlook-worktrees-functions`: worktree folders listed under a
-  perspective.  `overlook-worktree-functions`: rows of what lies in a
-  checkout, called with the perspective and the worktree's folder, or nil
+  project.  `overlook-worktree-functions`: rows of what lies in a
+  checkout, called with the project and the worktree's folder, or nil
   for none; agents at depth 0, changed repos at 50.
   `overlook-worktree-of` tells which worktree holds a folder.
 - `overlook-delete-functions`: what `d d` does, given the row's id.
@@ -444,7 +444,7 @@ docstring.
 - `overlook-tick-hook`: run every few seconds while the dashboard is live.
 
 Call `overlook-refresh` when something you show changed.
-`overlook-detach` keeps a buffer out of every perspective, even once
+`overlook-detach` keeps a buffer out of every project, even once
 shown, as courier does with the agents running a persona.
 
 **Other views** draw the same model: `overlook-model` gathers it,
@@ -453,9 +453,9 @@ nothing has changed since, and `overlook-after-model-hook` and
 `overlook-refresh-hook` tell a view when to look again, as overlook-remote
 does.
 
-**Other backends**: a perspective implementation drives overlook by
-setting the `overlook-perspective-*-function` variables, as
-overlook-perspective.el does.  An agent frontend describes each of its
+**Other backends**: another workspace implementation drives overlook by
+setting the `overlook-project-*-function` variables, as
+overlook-tabspaces.el does.  An agent frontend describes each of its
 buffers in `overlook-agent-identity`, hands it to
 `overlook-agent-register`, and sets `overlook-agent-start-function` for
 the agents overlook starts, as overlook-agent-shell.el does.  Sending its

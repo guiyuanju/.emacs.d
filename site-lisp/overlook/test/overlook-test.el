@@ -3,32 +3,32 @@
 (require 'ert)
 (require 'overlook)
 (require 'overlook-agent)
-(require 'overlook-project)
+(require 'overlook-repo)
 (require 'overlook-markers)
 (require 'overlook-usage)
 (require 'overlook-agent-courier)
 
-(defvar overlook-test--perspectives nil
-  "Alist of perspective name to its buffers, for the fake backend.")
+(defvar overlook-test--projects nil
+  "Alist of project name to its buffers, for the fake backend.")
 
 (defvar overlook-test--current nil)
 
-(defmacro overlook-test-with-dashboard (perspectives current &rest body)
-  "Run BODY in a rendered dashboard over the fake PERSPECTIVES, CURRENT selected.
+(defmacro overlook-test-with-dashboard (projects current &rest body)
+  "Run BODY in a rendered dashboard over the fake PROJECTS, CURRENT selected.
 Agents are listed; usage and repos are not."
   (declare (indent 2))
-  `(let* ((overlook-test--perspectives ,perspectives)
+  `(let* ((overlook-test--projects ,projects)
           (overlook-test--current ,current)
           (overlook--shown nil)
-          (overlook-show-empty-perspectives t)
-          (overlook-perspectives-function (lambda () (mapcar #'car overlook-test--perspectives)))
-          (overlook-current-perspective-function (lambda () overlook-test--current))
-          (overlook-switch-perspective-function (lambda (name) (setq overlook-test--current name)))
-          (overlook-perspective-buffers-function
-           (lambda (name) (alist-get name overlook-test--perspectives nil nil #'equal)))
-          (overlook-perspective-root-function #'ignore)
-          (overlook-sections (list #'overlook--perspectives-section))
-          (overlook-perspective-functions nil)
+          (overlook-show-empty-projects t)
+          (overlook-projects-function (lambda () (mapcar #'car overlook-test--projects)))
+          (overlook-current-project-function (lambda () overlook-test--current))
+          (overlook-switch-project-function (lambda (name) (setq overlook-test--current name)))
+          (overlook-project-buffers-function
+           (lambda (name) (alist-get name overlook-test--projects nil nil #'equal)))
+          (overlook-project-root-function #'ignore)
+          (overlook-sections (list #'overlook--projects-section))
+          (overlook-project-functions nil)
           (overlook-worktrees-functions nil)
           (overlook-worktree-functions (list #'overlook-agent--rows))
           (dashboard (get-buffer-create overlook-buffer-name)))
@@ -52,15 +52,15 @@ Agents are listed; usage and repos are not."
     (search-forward text)
     (line-number-at-pos)))
 
-(ert-deftest overlook-perspectives-current-first-then-recent ()
-  (let ((overlook-perspective-switch-times
+(ert-deftest overlook-projects-current-first-then-recent ()
+  (let ((overlook-project-switch-times
          `(("one" . ,(- (float-time) 7200))
            ("two" . ,(float-time))
            ("three" . ,(- (float-time) 60)))))
     (overlook-test-with-dashboard '(("one") ("two") ("three") ("four")) "three"
       (should (< (overlook-test--line-of "three") (overlook-test--line-of "two")
                  (overlook-test--line-of "one") (overlook-test--line-of "four"))))
-    (let ((overlook-perspective-order 'backend))
+    (let ((overlook-project-order 'backend))
       (overlook-test-with-dashboard '(("one") ("two") ("three") ("four")) "three"
         (should (< (overlook-test--line-of "one") (overlook-test--line-of "two")
                    (overlook-test--line-of "three") (overlook-test--line-of "four")))))))
@@ -69,7 +69,7 @@ Agents are listed; usage and repos are not."
   (let ((overlook-sections nil)
         (overlook-usage--rows '(("claude" ("5h" 10 nil))))
         (dashboard (get-buffer-create overlook-buffer-name)))
-    (add-hook 'overlook-sections #'overlook--perspectives-section)
+    (add-hook 'overlook-sections #'overlook--projects-section)
     (add-hook 'overlook-sections #'overlook-usage--section -50)
     (add-hook 'overlook-sections
               (lambda () (overlook-section-row "Todo" (list (overlook-row :content "x"))))
@@ -93,11 +93,11 @@ Agents are listed; usage and repos are not."
     (add-hook 'overlook-sections 'd -30)
     (should (equal (overlook--sections) '(c a d b)))))
 
-(ert-deftest overlook-agents-sit-under-their-perspective ()
+(ert-deftest overlook-agents-sit-under-their-project ()
   (let ((alpha (overlook-test--agent "alpha"))
         (beta (overlook-test--agent "beta"))
         (stray (overlook-test--agent "stray"))
-        (overlook-perspective-order 'backend))
+        (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,beta)) "two"
           (should (< (overlook-test--line-of "one")
@@ -111,36 +111,36 @@ Agents are listed; usage and repos are not."
                       'overlook-heading-current)))
       (mapc #'kill-buffer (list alpha beta stray)))))
 
-(ert-deftest overlook-agent-shown-in-several-perspectives-sits-under-its-project ()
+(ert-deftest overlook-agent-shown-in-several-projects-sits-under-its-project ()
   (let ((alpha (overlook-test--agent "alpha"))
-        (overlook-perspective-order 'backend))
+        (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,alpha)) "one"
-          (let ((overlook-perspective-root-function
+          (let ((overlook-project-root-function
                  (lambda (name) (and (equal name "two") "/project/"))))
             (overlook--render)
-            (should (equal (overlook-agent-perspective alpha) "two"))
+            (should (equal (overlook-agent-project alpha) "two"))
             (should (< (overlook-test--line-of "two") (overlook-test--line-of "alpha")))
             (goto-char (point-min))
             (search-forward "alpha")
             (should-not (search-forward "alpha" nil t))))
       (kill-buffer alpha))))
 
-(ert-deftest overlook-perspective-annotation-after-heading ()
-  (let ((overlook-perspective-annotation (lambda (name) (and (equal name "one") "me")))
-        (overlook-perspective-order 'backend))
+(ert-deftest overlook-project-annotation-after-heading ()
+  (let ((overlook-project-annotation (lambda (name) (and (equal name "one") "me")))
+        (overlook-project-order 'backend))
     (overlook-test-with-dashboard '(("one") ("two")) "two"
       (goto-char (point-min))
       (search-forward "one me")
       (should (eq (get-text-property (1- (point)) 'face) 'shadow))
-      (should (equal (get-text-property (point) 'overlook-item) '(perspective . "one")))
+      (should (equal (get-text-property (point) 'overlook-item) '(project . "one")))
       (search-forward "two")
       (should (eolp)))))
 
-(ert-deftest overlook-perspective-filter-hides-unless-current-or-needing-you ()
+(ert-deftest overlook-project-filter-hides-unless-current-or-needing-you ()
   (let ((alpha (overlook-test--agent "alpha"))
-        (overlook-perspective-filter (lambda (name) (equal name "one")))
-        (overlook-perspective-order 'backend))
+        (overlook-project-filter (lambda (name) (equal name "one")))
+        (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one") ("two") ("three") ("four" ,alpha)) "three"
           (should (string-search "one" (buffer-string)))
@@ -152,13 +152,13 @@ Agents are listed; usage and repos are not."
           (should (string-search "four" (buffer-string))))
       (kill-buffer alpha))))
 
-(ert-deftest overlook-empty-orphan-perspective-is-left-out ()
+(ert-deftest overlook-empty-orphan-project-is-left-out ()
   (let ((alpha (overlook-test--agent "alpha"))
-        (overlook-orphan-perspective "main")
-        (overlook-perspective-order 'backend))
+        (overlook-orphan-project "main")
+        (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("main")) "one"
-          (setq-local overlook-show-empty-perspectives nil)
+          (setq-local overlook-show-empty-projects nil)
           (overlook--render)
           (should-not (string-search "main" (buffer-string)))
           (should (string-suffix-p "project\n\n" (buffer-string)))
@@ -167,10 +167,10 @@ Agents are listed; usage and repos are not."
           (should (string-search "main" (buffer-string))))
       (kill-buffer alpha))))
 
-(ert-deftest overlook-orphans-sit-under-the-orphan-perspective ()
+(ert-deftest overlook-orphans-sit-under-the-orphan-project ()
   (let ((alpha (overlook-test--agent "alpha"))
         (beta (overlook-test--agent "beta"))
-        (overlook-orphan-perspective "main"))
+        (overlook-orphan-project "main"))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("main")) "one"
           (should (> (overlook-test--line-of "beta") (overlook-test--line-of "main")))
@@ -193,28 +193,32 @@ Agents are listed; usage and repos are not."
           (let ((gamma (overlook-test--agent "gamma")))
             (unwind-protect
                 (progn
-                  (setf (alist-get "one" overlook-test--perspectives nil nil #'equal)
+                  (setf (alist-get "one" overlook-test--projects nil nil #'equal)
                         (list alpha gamma))
                   (overlook--render)
                   (should (equal (overlook-item-at-point) (cons 'agent beta))))
               (kill-buffer gamma))))
       (mapc #'kill-buffer (list alpha beta)))))
 
-(ert-deftest overlook-switch-moves-point-to-the-current-perspective ()
+(ert-deftest overlook-switch-moves-point-to-the-current-project ()
   (let ((alpha (overlook-test--agent "alpha")))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two")) "one"
           (goto-char (point-min))
           (search-forward "alpha")
           (setq overlook-test--current "two")
-          (overlook-perspective-switched)
-          (overlook--render)
-          (should (equal (overlook-item-at-point) '(perspective . "two")))
+          (overlook-project-switched)
+          ;; Redrawn right after the command, without waiting for idle time.
+          (should (equal (timer--function overlook--timer) #'overlook--render-now))
+          (should (<= (float-time (time-subtract (timer--time overlook--timer) nil)) 0))
+          (funcall (timer--function overlook--timer))
+          (should-not overlook--timer)
+          (should (equal (overlook-item-at-point) '(project . "two")))
           (should (bolp))
           ;; Later redraws keep point where it is.
           (search-forward "one")
           (overlook--render)
-          (should (equal (overlook-item-at-point) '(perspective . "one"))))
+          (should (equal (overlook-item-at-point) '(project . "one"))))
       (kill-buffer alpha))))
 
 (ert-deftest overlook-redraw-keeps-the-window-still ()
@@ -229,13 +233,13 @@ Agents are listed; usage and repos are not."
         (search-forward "p25")
         (set-window-point window (point))
         (overlook--render)
-        (should (equal (overlook-item-at-point) '(perspective . "p25")))
+        (should (equal (overlook-item-at-point) '(project . "p25")))
         (should (= (window-start window) (save-excursion (goto-char (point-min)) (search-forward "p20")
                                                          (line-beginning-position))))
         ;; A row added above the window leaves it showing the same rows.
-        (setq overlook-test--perspectives (cons '("p00") overlook-test--perspectives))
+        (setq overlook-test--projects (cons '("p00") overlook-test--projects))
         (overlook--render)
-        (should (equal (overlook-item-at-point) '(perspective . "p25")))
+        (should (equal (overlook-item-at-point) '(project . "p25")))
         (should (= (window-start window) (save-excursion (goto-char (point-min)) (search-forward "p20")
                                                          (line-beginning-position))))))))
 
@@ -253,7 +257,7 @@ Agents are listed; usage and repos are not."
         (overlook--render)
         (dolist (pair `((,one . "p10") (,two . "p40")))
           (with-selected-window (car pair)
-            (should (equal (overlook-item-at-point) (cons 'perspective (cdr pair))))))))))
+            (should (equal (overlook-item-at-point) (cons 'project (cdr pair))))))))))
 
 (ert-deftest overlook-restored-window-configuration-keeps-the-row ()
   (overlook-test-with-dashboard (mapcar (lambda (i) (list (format "p%02d" i))) (number-sequence 1 60)) "p01"
@@ -272,22 +276,22 @@ Agents are listed; usage and repos are not."
           (overlook--render)
           (set-window-configuration config)
           (should (equal (with-selected-window window (overlook-item-at-point))
-                         '(perspective . "p25"))))))))
+                         '(project . "p25"))))))))
 
 (ert-deftest overlook-model-is-data-for-every-view ()
   (let* ((alpha (overlook-test--agent "alpha"))
          (beta (overlook-test--agent "beta"))
          (brief (concat "Running " (make-string 200 ?x)))
-         (overlook-test--perspectives `(("one" ,alpha) ("hidden" ,beta)))
+         (overlook-test--projects `(("one" ,alpha) ("hidden" ,beta)))
          (overlook-test--current "one")
-         (overlook-perspective-order 'backend)
-         (overlook-perspective-filter (lambda (name) (equal name "one")))
-         (overlook-perspectives-function (lambda () (mapcar #'car overlook-test--perspectives)))
-         (overlook-current-perspective-function (lambda () overlook-test--current))
-         (overlook-perspective-buffers-function
-          (lambda (name) (alist-get name overlook-test--perspectives nil nil #'equal)))
-         (overlook-perspective-root-function #'ignore)
-         (overlook-perspective-functions nil)
+         (overlook-project-order 'backend)
+         (overlook-project-filter (lambda (name) (equal name "one")))
+         (overlook-projects-function (lambda () (mapcar #'car overlook-test--projects)))
+         (overlook-current-project-function (lambda () overlook-test--current))
+         (overlook-project-buffers-function
+          (lambda (name) (alist-get name overlook-test--projects nil nil #'equal)))
+         (overlook-project-root-function #'ignore)
+         (overlook-project-functions nil)
          (overlook-worktrees-functions nil)
          (overlook-worktree-functions (list #'overlook-agent--rows))
          (asked 0)
@@ -300,13 +304,13 @@ Agents are listed; usage and repos are not."
                                                    (setq asked (1+ asked))
                                                    (list (overlook-row :content "deep")))))))
                 (lambda () (overlook-section-row "Empty" nil))
-                #'overlook--perspectives-section)))
+                #'overlook--projects-section)))
     (unwind-protect
         (progn
           (with-current-buffer alpha
             (setq overlook-agent-status 'working)
             (push (cons 'brief (lambda () brief)) overlook-agent-identity))
-          (pcase-let (((and sections `(,extra ,perspectives)) (overlook-model)))
+          (pcase-let (((and sections `(,extra ,projects)) (overlook-model)))
             ;; A section with no rows is left out.
             (should (= (length sections) 2))
             (should-not (get-buffer overlook-buffer-name))
@@ -320,27 +324,27 @@ Agents are listed; usage and repos are not."
               (should (equal (mapcar #'overlook-row-text (overlook-row-rows folded)) '("deep")))
               (should (equal (mapcar #'overlook-row-text (overlook-row-rows folded)) '("deep")))
               (should (= asked 1)))
-            ;; The filtered perspective is gone; the agent's brief is whole.
-            (pcase-let* ((`(,one) (overlook-row-children perspectives))
+            ;; The filtered project is gone; the agent's brief is whole.
+            (pcase-let* ((`(,one) (overlook-row-children projects))
                          (`(,row) (overlook-row-children one)))
-              (should (equal (overlook-row-id one) '(perspective . "one")))
+              (should (equal (overlook-row-id one) '(project . "one")))
               (should-not (overlook-row-gap one))
               (should (equal (overlook-row-id row) (cons 'agent alpha)))
               (should (string-search brief (overlook-row-text row))))))
       (kill-buffer alpha)
       (kill-buffer beta))))
 
-(ert-deftest overlook-model-keeps-a-hidden-perspective-needing-you ()
+(ert-deftest overlook-model-keeps-a-hidden-project-needing-you ()
   (let* ((alpha (overlook-test--agent "alpha"))
          (beta (overlook-test--agent "beta")))
     (with-current-buffer beta (setq overlook-agent-status 'waiting))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two") ("three" ,beta)) "one"
-          (let* ((overlook-perspective-order 'backend)
-                 (overlook-perspective-filter (lambda (name) (equal name "one")))
-                 (rows (overlook--perspectives)))
+          (let* ((overlook-project-order 'backend)
+                 (overlook-project-filter (lambda (name) (equal name "one")))
+                 (rows (overlook--projects)))
             (should (equal (mapcar #'overlook-row-id rows)
-                           '((perspective . "one") (perspective . "three"))))
+                           '((project . "one") (project . "three"))))
             ;; Each but the last ends with a blank line.
             (should (equal (mapcar #'overlook-row-gap rows) '(t nil)))
             (should (overlook-row-attention-p (car (last rows))))
@@ -383,7 +387,7 @@ Agents are listed; usage and repos are not."
       (should (= asked 1))
       (should (search-forward "deep" nil t)))))
 
-(ert-deftest overlook-heading-switches-perspective ()
+(ert-deftest overlook-heading-switches-project ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
     (search-forward "two")
@@ -400,7 +404,7 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-tab-folds-a-heading-and-keeps-it-folded ()
   (let ((alpha (overlook-test--agent "alpha"))
         (beta (overlook-test--agent "beta"))
-        (overlook-perspective-order 'backend))
+        (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,beta)) "one"
           (goto-char (point-min))
@@ -485,11 +489,11 @@ Agents are listed; usage and repos are not."
     (goto-char (point-min))
     (search-forward "two")
     (forward-line -1)
-    (should (equal (oref (magit-current-section) value) '(perspective . "one")))
+    (should (equal (oref (magit-current-section) value) '(project . "one")))
     (magit-section-update-highlight t)
     (should (eq (get-char-property (point) 'face) 'magit-section-highlight))))
 
-(ert-deftest overlook-empty-perspective-folds-its-blank-line ()
+(ert-deftest overlook-empty-project-folds-its-blank-line ()
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
     (search-forward "one")
@@ -523,13 +527,13 @@ Agents are listed; usage and repos are not."
   (overlook-test-with-dashboard '(("one") ("two")) "one"
     (goto-char (point-min))
     (overlook-next-heading)
-    (should (equal (overlook-item-at-point) '(perspective . "one")))
+    (should (equal (overlook-item-at-point) '(project . "one")))
     (overlook-next-heading)
-    (should (equal (overlook-item-at-point) '(perspective . "two")))
+    (should (equal (overlook-item-at-point) '(project . "two")))
     (overlook-next-heading)
-    (should (looking-at-p "Perspectives$"))
+    (should (looking-at-p "Projects$"))
     (overlook-previous-heading)
-    (should (equal (overlook-item-at-point) '(perspective . "two")))))
+    (should (equal (overlook-item-at-point) '(project . "two")))))
 
 (ert-deftest overlook-heading-navigation-stops-at-section-titles ()
   (overlook-test-with-dashboard '(("one")) "one"
@@ -611,10 +615,10 @@ Agents are listed; usage and repos are not."
          (sent nil)
          (overlook-agent-notify t)
          (overlook-agent-notify-function (lambda (title body _buffer) (push (cons title body) sent)))
-         (overlook-perspective-buffers-function
+         (overlook-project-buffers-function
           (lambda (name) (and (equal name "checkout") (list agent))))
-         (overlook-perspectives-function (lambda () (list "checkout")))
-         (overlook-current-perspective-function #'ignore))
+         (overlook-projects-function (lambda () (list "checkout")))
+         (overlook-current-project-function #'ignore))
     (unwind-protect
         (with-current-buffer agent
           (overlook-agent-report 'working)
@@ -632,8 +636,8 @@ Agents are listed; usage and repos are not."
          (overlook-agent-notify 'unfocused)
          (overlook-agent--focused-function #'ignore)
          (overlook-agent-notify-function (lambda (&rest _) (setq sent (1+ sent))))
-         (overlook-perspectives-function #'ignore)
-         (overlook-current-perspective-function #'ignore))
+         (overlook-projects-function #'ignore)
+         (overlook-current-project-function #'ignore))
     (unwind-protect
         (save-window-excursion
           (switch-to-buffer agent)
@@ -656,13 +660,13 @@ Agents are listed; usage and repos are not."
 (ert-deftest overlook-agent-saved-survive-a-restart ()
   (let* ((overlook-agent-saved-file (make-temp-file "overlook-agents"))
          (agent (overlook-test--agent "claude"))
-         (pending '((agent . "codex") (root . "/other/") (session . "s2") (perspective . "two")))
+         (pending '((agent . "codex") (root . "/other/") (session . "s2") (project . "two")))
          (overlook-agent-saved (list pending))
          (overlook-agent--saved-written nil)
          (overlook-agent--saved-loaded nil)
-         (overlook-perspectives-function (lambda () (list "one")))
-         (overlook-current-perspective-function (lambda () "one"))
-         (overlook-perspective-buffers-function (lambda (_) (list agent))))
+         (overlook-projects-function (lambda () (list "one")))
+         (overlook-current-project-function (lambda () "one"))
+         (overlook-project-buffers-function (lambda (_) (list agent))))
     (unwind-protect
         (progn
           (with-current-buffer agent
@@ -677,13 +681,13 @@ Agents are listed; usage and repos are not."
           (overlook-agent--load-saved)
           (should (equal (mapcar (lambda (saved) (alist-get 'session saved)) overlook-agent-saved)
                          '("s1" "s2")))
-          (should (equal (alist-get 'perspective (car overlook-agent-saved)) "one")))
+          (should (equal (alist-get 'project (car overlook-agent-saved)) "one")))
       (when (buffer-live-p agent) (kill-buffer agent))
       (delete-file overlook-agent-saved-file))))
 
 (ert-deftest overlook-agent-saved-rows-resume-their-session ()
-  (let* ((kept '((agent . "claude") (root . "/tmp/") (session . "s1") (perspective . "one")))
-         (lost '((agent . "codex") (root . "/tmp/") (session . "s2") (perspective . "gone")))
+  (let* ((kept '((agent . "claude") (root . "/tmp/") (session . "s1") (project . "one")))
+         (lost '((agent . "codex") (root . "/tmp/") (session . "s2") (project . "gone")))
          (overlook-agent-saved (list kept lost))
          (started nil)
          (resumed nil)
@@ -710,9 +714,9 @@ Agents are listed; usage and repos are not."
          (parent (overlook-test--agent "claude"))
          (child (overlook-test--agent "child"))
          (stray (overlook-test--agent "stray"))
-         (saved '((agent . "codex") (root . "/project/") (session . "s4") (perspective . "one")))
+         (saved '((agent . "codex") (root . "/project/") (session . "s4") (project . "one")))
          (overlook-agent-saved (list saved))
-         (overlook-perspective-order 'backend))
+         (overlook-project-order 'backend))
     (with-current-buffer parent
       (push '(session . (lambda () "s1")) overlook-agent-identity))
     (with-current-buffer child
@@ -771,8 +775,8 @@ Agents are listed; usage and repos are not."
          (overlook-agent-row-marks nil)
          (overlook-courier-changed-hook nil)
          (overlook-courier-spawn-function nil)
-         (overlook-perspectives-function #'ignore)
-         (overlook-current-perspective-function #'ignore)
+         (overlook-projects-function #'ignore)
+         (overlook-current-project-function #'ignore)
          (prompts nil)
          (environments nil)
          (efforts nil)
@@ -818,29 +822,29 @@ Agents are listed; usage and repos are not."
       (dolist (buffer (overlook-agent-buffers)) (kill-buffer buffer))
       (delete-directory (file-name-directory (directory-file-name root)) t))))
 
-(ert-deftest overlook-agent-courier-spawns-into-the-project-perspective ()
+(ert-deftest overlook-agent-courier-spawns-into-the-project-project ()
   (require 'overlook-agent-courier)
   (let* ((root (file-name-as-directory (file-truename (make-temp-file "courier" t))))
          (shop (expand-file-name "shop/" root))
-         (overlook-perspectives-function (lambda () '("main" "all" "shop")))
-         (overlook-perspective-root-function
+         (overlook-projects-function (lambda () '("main" "all" "shop")))
+         (overlook-project-root-function
           (lambda (name) (pcase name ("all" root) ("shop" shop)))))
     (unwind-protect
         (progn
           (make-directory (expand-file-name ".worktrees/fix" shop) t)
-          (should (equal (overlook-agent-courier--perspective-of (expand-file-name ".worktrees/fix" shop))
+          (should (equal (overlook-agent-courier--project-of (expand-file-name ".worktrees/fix" shop))
                          "shop"))
-          (should (equal (overlook-agent-courier--perspective-of root) "all"))
-          (should-not (overlook-agent-courier--perspective-of temporary-file-directory)))
+          (should (equal (overlook-agent-courier--project-of root) "all"))
+          (should-not (overlook-agent-courier--project-of temporary-file-directory)))
       (delete-directory root t))))
 
 ;; overlook-test-with-dashboard binds the backend for visiting too.
-(ert-deftest overlook-agent-visit-keeps-the-perspective-for-a-detached-agent ()
+(ert-deftest overlook-agent-visit-keeps-the-project-for-a-detached-agent ()
   (let* ((agent (overlook-test--agent "agent"))
          (persona (overlook-test--agent "persona"))
          (detached nil)
          (overlook-detach-function (lambda (buffer) (push buffer detached)))
-         (overlook-orphan-perspective "main"))
+         (overlook-orphan-project "main"))
     (unwind-protect
         (overlook-test-with-dashboard `(("main" ,persona) ("one" ,agent)) "two"
           (cl-letf (((symbol-function 'overlook-main-window) #'ignore)
@@ -853,7 +857,7 @@ Agents are listed; usage and repos are not."
             (should (equal overlook-test--current "one"))))
       (mapc #'kill-buffer (list agent persona)))))
 
-(ert-deftest overlook-agent-courier-spawns-past-a-persona-s-perspective ()
+(ert-deftest overlook-agent-courier-spawns-past-a-persona-s-project ()
   (require 'overlook-agent-courier)
   (let* ((overlook-courier--agents (make-hash-table :test #'equal))
          (personas (make-temp-file "personas" t))
@@ -861,13 +865,13 @@ Agents are listed; usage and repos are not."
          (root (file-name-as-directory (file-truename (make-temp-file "courier" t))))
          (shop (expand-file-name "shop/" root))
          (elsewhere (expand-file-name "elsewhere/" root))
-         (overlook-orphan-perspective "main")
-         (overlook-perspectives-function (lambda () '("main" "shop" "parent")))
-         (overlook-current-perspective-function (lambda () "parent"))
-         (overlook-perspective-root-function (lambda (name) (and (equal name "shop") shop)))
-         (overlook-perspective-buffers-function (lambda (_) nil))
+         (overlook-orphan-project "main")
+         (overlook-projects-function (lambda () '("main" "shop" "parent")))
+         (overlook-current-project-function (lambda () "parent"))
+         (overlook-project-root-function (lambda (name) (and (equal name "shop") shop)))
+         (overlook-project-buffers-function (lambda (_) nil))
          (added nil)
-         (overlook-add-to-perspective-function (lambda (name buffer) (push (cons name buffer) added)))
+         (overlook-add-to-project-function (lambda (name buffer) (push (cons name buffer) added)))
          (overlook-detach-function #'ignore)
          (overlook-agent-changed-hook nil)
          (overlook-agent-start-function
@@ -893,9 +897,9 @@ Agents are listed; usage and repos are not."
           (should (equal (car (car added)) "shop"))
           (overlook-agent-courier--spawn "claude" elsewhere "router")
           (should (equal (car (car added)) "main"))
-          ;; An ordinary parent still passes on its perspective.
+          ;; An ordinary parent still passes on its project.
           (let ((parent (overlook-agent-courier--spawn "claude" elsewhere nil)))
-            (cl-letf (((symbol-function 'overlook-agent-perspective) (lambda (_) "parent")))
+            (cl-letf (((symbol-function 'overlook-agent-project) (lambda (_) "parent")))
               (overlook-agent-courier--spawn "claude" elsewhere parent)))
           (should (equal (car (car added)) "parent"))
           (should-not (buffer-local-value 'overlook-detached (cdr (car added)))))
@@ -977,7 +981,7 @@ Agents are listed; usage and repos are not."
           (overlook-agent-courier--check-resume '((courier . "claude@p"))))
       (delete-directory root t))))
 
-(ert-deftest overlook-agent-courier-keeps-persona-agents-off-the-perspectives ()
+(ert-deftest overlook-agent-courier-keeps-persona-agents-off-the-projects ()
   (require 'overlook-agent-courier)
   (let* ((root (make-temp-file "personas" t))
          (overlook-courier-persona-directories (list root))
@@ -1035,7 +1039,7 @@ Agents are listed; usage and repos are not."
             (kill-buffer buffer)))
       (delete-directory overlook-courier-room-directory t))))
 
-(ert-deftest overlook-agent-courier-lists-rooms-above-perspectives ()
+(ert-deftest overlook-agent-courier-lists-rooms-above-projects ()
   (let ((overlook-courier-room-directory (make-temp-file "overlook-courier-rooms" t))
         (overlook-courier-room--rooms nil)
         (overlook-courier-room--loaded nil)
@@ -1049,10 +1053,10 @@ Agents are listed; usage and repos are not."
           (overlook-courier-room-post "quiet" "a@p" "hello")
           (overlook-test-with-dashboard '(("main")) "main"
             (setq-local overlook-sections (list #'overlook-agent-courier--rooms-section
-                                                #'overlook--perspectives-section))
+                                                #'overlook--projects-section))
             (overlook--render)
             (let ((text (buffer-string)))
-              (should (string-match-p "\\`Rooms\n#ops ✉2.*\n#quiet.*\n\nPerspectives" text)))
+              (should (string-match-p "\\`Rooms\n#ops ✉2.*\n#quiet.*\n\nProjects" text)))
             (goto-char (point-min))
             (search-forward "#ops")
             (should (get-text-property (point) 'overlook-attention))
@@ -1070,38 +1074,38 @@ Agents are listed; usage and repos are not."
             (should (directory-files (expand-file-name "archive" overlook-courier-room-directory) nil "\\`quiet-"))))
       (delete-directory overlook-courier-room-directory t))))
 
-(ert-deftest overlook-project-parses-git-status ()
-  (should (equal (overlook-project--parse
+(ert-deftest overlook-repo-parses-git-status ()
+  (should (equal (overlook-repo--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"
                   "3\t1\tsrc/a.el\0")
                  '("main" ("src/a.el" " M" 3 1) ("b" "??"))))
-  (should (equal (overlook-project--parse "## feature/x\0") '("feature/x")))
-  (should (equal (overlook-project--parse "## No commits yet on main\0?? a\0")
+  (should (equal (overlook-repo--parse "## feature/x\0") '("feature/x")))
+  (should (equal (overlook-repo--parse "## No commits yet on main\0?? a\0")
                  '("main" ("a" "??"))))
-  (should (equal (overlook-project--parse "## HEAD (no branch)\0") '("detached"))))
+  (should (equal (overlook-repo--parse "## HEAD (no branch)\0") '("detached"))))
 
-(ert-deftest overlook-project-folds-a-rename-into-its-new-path ()
-  (should (equal (overlook-project--parse
+(ert-deftest overlook-repo-folds-a-rename-into-its-new-path ()
+  (should (equal (overlook-repo--parse
                   "## HEAD (no branch)\0D  old/a.el\0 A new/a.el\0 M b.el\0"
                   "2\t1\t\0old/a.el\0new/a.el\0003\t0\tb.el\0")
                  '("detached" ("new/a.el" " R" 2 1 "old/a.el") ("b.el" " M" 3 0))))
   (should (string-search " ← old/"
-                         (overlook-project--file-label '("new/a.el" " R" 2 1 "old/a.el"))))
-  (should (equal (overlook-project--old-path "src/x/form/a.el" "src/x/dto/a.el") "form/"))
-  (should (equal (overlook-project--old-path "src/a.el" "src/b.el") "a.el"))
-  (should (equal (overlook-project--old-path "src/f/a.el" "src/g/b.el") "f/a.el"))
-  (should (equal (overlook-project--old-path "a.el" "src/a.el") "a.el"))
+                         (overlook-repo--file-label '("new/a.el" " R" 2 1 "old/a.el"))))
+  (should (equal (overlook-repo--old-path "src/x/form/a.el" "src/x/dto/a.el") "form/"))
+  (should (equal (overlook-repo--old-path "src/a.el" "src/b.el") "a.el"))
+  (should (equal (overlook-repo--old-path "src/f/a.el" "src/g/b.el") "f/a.el"))
+  (should (equal (overlook-repo--old-path "a.el" "src/a.el") "a.el"))
   (require 'magit-diff)
   (let (compared)
     (cl-letf (((symbol-function 'magit-diff-working-tree)
                (lambda (&rest args) (setq compared args))))
-      (overlook-project-open-file temporary-file-directory '("new/a.el" " R" 2 1 "old/a.el")))
+      (overlook-repo-open-file temporary-file-directory '("new/a.el" " R" 2 1 "old/a.el")))
     (should (equal compared '("HEAD" nil ("old/a.el" "new/a.el"))))))
 
-(ert-deftest overlook-project-treats-added-files-as-new ()
-  (should (string-search " new" (overlook-project--file-label '("a" " A" 2 0))))
-  (should (string-search " new" (overlook-project--file-label '("a" "A " 2 0))))
-  (should (string-search " deleted" (overlook-project--file-label '("a" "AD"))))
+(ert-deftest overlook-repo-treats-added-files-as-new ()
+  (should (string-search " new" (overlook-repo--file-label '("a" " A" 2 0))))
+  (should (string-search " new" (overlook-repo--file-label '("a" "A " 2 0))))
+  (should (string-search " deleted" (overlook-repo--file-label '("a" "AD"))))
   ;; Loaded first, or opening a file loads it over the stubs.
   (require 'magit-diff)
   (let (opened)
@@ -1109,7 +1113,7 @@ Agents are listed; usage and repos are not."
               ((symbol-function 'magit-diff-working-tree)
                (lambda (_rev _args files) (push (cons 'diff files) opened))))
       (dolist (file '(("n" " A") ("u" "??") ("g" "AD") ("m" " M")))
-        (overlook-project-open-file temporary-file-directory file)))
+        (overlook-repo-open-file temporary-file-directory file)))
     (should (equal (reverse opened)
                    '((visit "n") (visit "u") (diff "g") (diff "m"))))))
 
@@ -1131,32 +1135,32 @@ Agents are listed; usage and repos are not."
       (overlook--render-when-idle (- (float-time) overlook-refresh-max-wait))
       (should (= rendered 2)))))
 
-(ert-deftest overlook-project-reads-a-few-repos-at-once ()
-  (let* ((root (make-temp-file "overlook-project" t))
+(ert-deftest overlook-repo-reads-a-few-repos-at-once ()
+  (let* ((root (make-temp-file "overlook-repo" t))
          (dirs (mapcar (lambda (n) (file-name-as-directory (expand-file-name n root)))
                        '("a" "b" "c" "d")))
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-project--reading (make-hash-table :test #'equal))
-         (overlook-project--shown dirs)
-         (overlook-project-parallel-reads 2)
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-repo--reading (make-hash-table :test #'equal))
+         (overlook-repo--shown dirs)
+         (overlook-repo-parallel-reads 2)
          (pending nil))
     (unwind-protect
-        (cl-letf (((symbol-function 'overlook-project--git)
+        (cl-letf (((symbol-function 'overlook-repo--git)
                    (lambda (_dir _args then) (setq pending (append pending (list then)))))
                   ((symbol-function 'overlook-refresh) #'ignore))
           (mapc #'make-directory dirs)
-          (overlook-project--tick)
+          (overlook-repo--tick)
           (should (= (length pending) 2))
           ;; A finished read starts the next stale repo.
           (funcall (pop pending) nil)
           (should (= (length pending) 2))
-          (should (= (hash-table-count overlook-project--status) 1))
-          (overlook-project--tick)
+          (should (= (hash-table-count overlook-repo--status) 1))
+          (overlook-repo--tick)
           (should (= (length pending) 2)))
       (delete-directory root t))))
 
-(ert-deftest overlook-project-finds-root-and-nested-repos ()
-  (let ((root (make-temp-file "overlook-project" t)))
+(ert-deftest overlook-repo-finds-root-and-nested-repos ()
+  (let ((root (make-temp-file "overlook-repo" t)))
     (unwind-protect
         (progn
           (dolist (dir '(".git" "api/.git" "web/.git" "notes"))
@@ -1169,7 +1173,7 @@ Agents are listed; usage and repos are not."
 (defmacro overlook-test-with-marked-project (root &rest body)
   "Run BODY with ROOT bound to a marked folder of repos api/ and web/."
   (declare (indent 1))
-  `(let ((,root (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+  `(let ((,root (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))
          (project-find-functions (list #'overlook-markers-try #'project-try-vc)))
      (unwind-protect
          (progn
@@ -1183,7 +1187,7 @@ Agents are listed; usage and repos are not."
            ,@body)
        (delete-directory ,root t))))
 
-(ert-deftest overlook-project-marked-folder-holds-its-repos ()
+(ert-deftest overlook-repo-marked-folder-holds-its-repos ()
   (overlook-test-with-marked-project root
     (should (equal (project-root (project-current nil (expand-file-name "api/" root))) root))
     (let ((default-directory (expand-file-name "web/" root)))
@@ -1193,7 +1197,7 @@ Agents are listed; usage and repos are not."
                          #'string<)
                    '(".overlook" "api/.gitignore" "api/a.el" "notes/n.md" "web/b.el")))))
 
-(ert-deftest overlook-project-link-into-marked-folder-belongs-to-it ()
+(ert-deftest overlook-repo-link-into-marked-folder-belongs-to-it ()
   (overlook-test-with-marked-project root
     (let ((link (make-temp-name (expand-file-name "overlook-link" temporary-file-directory))))
       (make-symbolic-link (expand-file-name "api" root) link)
@@ -1201,14 +1205,14 @@ Agents are listed; usage and repos are not."
           (should (equal (project-root (project-current nil link)) root))
         (delete-file link)))))
 
-(ert-deftest overlook-project-eglot-keeps-the-repo ()
+(ert-deftest overlook-repo-eglot-keeps-the-repo ()
   (defvar eglot-lsp-context)
   (overlook-test-with-marked-project root
     (let ((eglot-lsp-context t))
       (should (file-equal-p (project-root (project-current nil (expand-file-name "api/" root)))
                      (expand-file-name "api/" root))))))
 
-(ert-deftest overlook-project-unmarked-repo-stays-its-own ()
+(ert-deftest overlook-repo-unmarked-repo-stays-its-own ()
   (overlook-test-with-marked-project root
     (delete-file (expand-file-name ".overlook" root))
     (should (file-equal-p (project-root (project-current nil (expand-file-name "api/" root)))
@@ -1221,12 +1225,12 @@ Agents are listed; usage and repos are not."
     (overlook-markers-mode -1)
     (should (equal project-find-functions (list #'project-try-vc)))))
 
-;; Changed repos sit dimmed under their perspective, names aligned, their changed files
+;; Changed repos sit dimmed under their project, names aligned, their changed files
 ;; under them; clean ones stay hidden.
-(ert-deftest overlook-project-rows-line-up-before-agents ()
-  (let ((root (make-temp-file "overlook-project" t))
+(ert-deftest overlook-repo-rows-line-up-before-agents ()
+  (let ((root (make-temp-file "overlook-repo" t))
         (alpha (overlook-test--agent "alpha"))
-        (overlook-project--status (make-hash-table :test #'equal)))
+        (overlook-repo--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
           (dolist (dir '("api/.git" "frontend/.git" "docs/.git"))
@@ -1235,11 +1239,11 @@ Agents are listed; usage and repos are not."
                           ("frontend/" "dev" ("c.el" " M" 1 0))
                           ("docs/" "main")))
             (puthash (file-name-as-directory (expand-file-name (car repo) root))
-                     (cons (float-time) (cdr repo)) overlook-project--status))
+                     (cons (float-time) (cdr repo)) overlook-repo--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
-            (let ((overlook-perspective-root-function (lambda (_) root))
+            (let ((overlook-project-root-function (lambda (_) root))
                   (overlook-worktree-functions
-                   (list #'overlook-project--changed-rows #'overlook-agent--rows)))
+                   (list #'overlook-repo--changed-rows #'overlook-agent--rows)))
               (overlook--render)
               (let ((api (progn (goto-char (point-min)) (search-forward "api")
                                 (buffer-substring-no-properties (line-beginning-position)
@@ -1250,7 +1254,7 @@ Agents are listed; usage and repos are not."
                 (should (string-match-p "⎇ +api +main \\+3 −1\\'" api))
                 (should (string-match-p "⎇ +frontend  dev" frontend))
                 (should-not (string-search "docs" (buffer-string)))
-                (should (member (expand-file-name "docs/" root) overlook-project--shown))
+                (should (member (expand-file-name "docs/" root) overlook-repo--shown))
                 (should (= (string-search "main" api) (string-search "dev" frontend))))
               (goto-char (point-min))
               (search-forward "a.el")
@@ -1262,30 +1266,30 @@ Agents are listed; usage and repos are not."
               (should (< (overlook-test--line-of "b.el new") (overlook-test--line-of "frontend")))
               (goto-char (point-min))
               (search-forward "api")
-              (should (eq (get-text-property (point) 'face) 'overlook-project-repo))
+              (should (eq (get-text-property (point) 'face) 'overlook-repo-name))
               (should (< (overlook-test--line-of "frontend") (overlook-test--line-of "alpha"))))))
       (kill-buffer alpha)
       (delete-directory root t))))
 
 ;; Worktrees of the project show under it while clean; one of several repos has a row of each under its own.
-(ert-deftest overlook-project-lists-worktrees-while-clean ()
+(ert-deftest overlook-repo-lists-worktrees-while-clean ()
   (require 'overlook-courier-worktree)
-  (let ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+  (let ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
         (alpha (overlook-test--agent "alpha"))
-        (overlook-project--status (make-hash-table :test #'equal)))
+        (overlook-repo--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
           (dolist (dir '("api/.git" ".worktrees/fix/api/.git" ".worktrees/fix/web/.git"))
             (make-directory (expand-file-name dir root) t))
           (dolist (repo '(("api/" "main") (".worktrees/fix/api/" "fix") (".worktrees/fix/web/" "fix")))
             (puthash (expand-file-name (car repo) root)
-                     (cons (float-time) (cdr repo)) overlook-project--status))
+                     (cons (float-time) (cdr repo)) overlook-repo--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
-            (cl-letf (((symbol-function 'overlook-project--divergence) #'ignore))
-            (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions (list #'overlook-project--checkout-rows))
-                  (overlook-worktree-functions (list #'overlook-project--changed-rows))
-                  (overlook-worktrees-functions (list #'overlook-project--worktree-dirs)))
+            (cl-letf (((symbol-function 'overlook-repo--divergence) #'ignore))
+            (let ((overlook-project-root-function (lambda (_) root))
+                  (overlook-project-functions (list #'overlook-repo--checkout-rows))
+                  (overlook-worktree-functions (list #'overlook-repo--changed-rows))
+                  (overlook-worktrees-functions (list #'overlook-repo--worktree-dirs)))
               (overlook--render)
               (should (string-match-p "^⎇ fix$" (buffer-substring-no-properties (point-min) (point-max))))
               (should (string-match-p "⎇ +api +fix" (buffer-string)))
@@ -1298,37 +1302,37 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha)
       (delete-directory root t))))
 
-;; Under a perspective come its main checkout, holding the agents in no worktree with those of no
-;; perspective and then the changed repos, then its worktrees, each holding the agents working in
+;; Under a project come its main checkout, holding the agents in no worktree with those of no
+;; project and then the changed repos, then its worktrees, each holding the agents working in
 ;; it and then its changed files.  A branch named as its worktree is not shown twice.
-(ert-deftest overlook-perspective-groups-by-worktree ()
+(ert-deftest overlook-project-groups-by-worktree ()
   (require 'overlook-courier-worktree)
-  (let* ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+  (let* ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
          (tree (expand-file-name ".worktrees/fix/" root))
          (alpha (overlook-test--agent "alpha"))
          (beta (overlook-test--agent "beta"))
          (gamma (overlook-test--agent "gamma"))
-         (overlook-orphan-perspective "one")
-         (overlook-project--status (make-hash-table :test #'equal)))
+         (overlook-orphan-project "one")
+         (overlook-repo--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
           (with-current-buffer alpha
             (setq overlook-agent-identity `((agent . "alpha") (root . ,(concat tree "sub/")))))
           (dolist (dir '(".git" ".worktrees/fix/.git"))
             (make-directory (expand-file-name dir root) t))
-          (puthash root (list (float-time) "main" '("a.el" " M" 3 1)) overlook-project--status)
-          (puthash tree (list (float-time) "fix" '("w.el" " M" 1 0)) overlook-project--status)
+          (puthash root (list (float-time) "main" '("a.el" " M" 3 1)) overlook-repo--status)
+          (puthash tree (list (float-time) "fix" '("w.el" " M" 1 0)) overlook-repo--status)
           (overlook-test-with-dashboard `(("one" ,alpha ,gamma)) "one"
-            (cl-letf (((symbol-function 'overlook-project--divergence) #'ignore))
-            (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions nil)
+            (cl-letf (((symbol-function 'overlook-repo--divergence) #'ignore))
+            (let ((overlook-project-root-function (lambda (_) root))
+                  (overlook-project-functions nil)
                   (overlook-worktrees-functions nil)
                   (overlook-worktree-functions nil))
               (overlook-toggle-hooks
-               t '((overlook-worktree-functions overlook-project--changed-rows 50)
+               t '((overlook-worktree-functions overlook-repo--changed-rows 50)
                    (overlook-worktree-functions overlook-agent--rows)
-                   (overlook-worktrees-functions overlook-project--worktree-dirs)
-                   (overlook-perspective-functions overlook-project--checkout-rows -50)))
+                   (overlook-worktrees-functions overlook-repo--worktree-dirs)
+                   (overlook-project-functions overlook-repo--checkout-rows -50)))
               (overlook--render)
               (should (< (overlook-test--line-of "  main")
                          (min (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
@@ -1356,12 +1360,12 @@ Agents are listed; usage and repos are not."
 ;; worktree shows its commits against the main branch and dims when merged with nothing in it.
 (ert-deftest overlook-worktree-rows-hold-their-room-and-divergence ()
   (require 'overlook-courier-worktree)
-  (let* ((root (file-name-as-directory (make-temp-file "overlook-project" t)))
+  (let* ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
          (fix (expand-file-name ".worktrees/fix/" root))
          (old (expand-file-name ".worktrees/old/" root))
          (alpha (overlook-test--agent "alpha"))
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-project--diverged (make-hash-table :test #'equal))
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-repo--diverged (make-hash-table :test #'equal))
          (overlook-courier-room-directory (make-temp-file "overlook-courier-rooms" t))
          (overlook-courier-room--rooms nil)
          (overlook-courier-room--loaded nil)
@@ -1373,26 +1377,26 @@ Agents are listed; usage and repos are not."
             (setq overlook-agent-identity `((agent . "alpha") (root . ,fix))))
           (dolist (dir '(".git" ".worktrees/fix/.git" ".worktrees/old/.git"))
             (make-directory (expand-file-name dir root) t))
-          (puthash root (list (float-time) "main") overlook-project--status)
-          (puthash fix (list (float-time) "fix" '("w.el" " M" 1 0)) overlook-project--status)
-          (puthash old (list (float-time) "old") overlook-project--status)
-          (puthash fix (cons (float-time) '("main" 2 . 1)) overlook-project--diverged)
-          (puthash old (cons (float-time) '("main" 0 . 3)) overlook-project--diverged)
+          (puthash root (list (float-time) "main") overlook-repo--status)
+          (puthash fix (list (float-time) "fix" '("w.el" " M" 1 0)) overlook-repo--status)
+          (puthash old (list (float-time) "old") overlook-repo--status)
+          (puthash fix (cons (float-time) '("main" 2 . 1)) overlook-repo--diverged)
+          (puthash old (cons (float-time) '("main" 0 . 3)) overlook-repo--diverged)
           (overlook-courier-room-post "fix" "a@p" "ci passed")
           (overlook-courier-room-post "ops" "a@p" "hello")
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
-            (let ((overlook-perspective-root-function (lambda (_) root))
-                  (overlook-perspective-functions nil)
+            (let ((overlook-project-root-function (lambda (_) root))
+                  (overlook-project-functions nil)
                   (overlook-worktrees-functions nil)
                   (overlook-worktree-functions nil))
               (setq-local overlook-sections (list #'overlook-agent-courier--rooms-section
-                                                  #'overlook--perspectives-section))
+                                                  #'overlook--projects-section))
               (overlook-toggle-hooks
-               t '((overlook-worktree-functions overlook-project--changed-rows 50)
+               t '((overlook-worktree-functions overlook-repo--changed-rows 50)
                    (overlook-worktree-functions overlook-agent--rows)
                    (overlook-worktree-functions overlook-agent-courier--worktree-room-rows 50)
-                   (overlook-worktrees-functions overlook-project--worktree-dirs)
-                   (overlook-perspective-functions overlook-project--checkout-rows -50)))
+                   (overlook-worktrees-functions overlook-repo--worktree-dirs)
+                   (overlook-project-functions overlook-repo--checkout-rows -50)))
               (overlook--render)
               (let ((text (buffer-substring-no-properties (point-min) (point-max))))
                 (should (string-match-p "\\`Rooms\n#ops" text))
@@ -1413,11 +1417,11 @@ Agents are listed; usage and repos are not."
 ;; dd on a worktree removes it, after killing the agents in it; its branch stays.
 (ert-deftest overlook-delete-removes-a-worktree-and-its-agents ()
   (require 'overlook-courier-worktree)
-  (let* ((root (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-project--diverged (make-hash-table :test #'equal))
+  (let* ((root (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-repo--diverged (make-hash-table :test #'equal))
          (overlook-folder-contents-functions (list #'overlook-agent--in-folder))
-         (overlook-delete-functions (list #'overlook-project--delete #'overlook-agent--delete))
+         (overlook-delete-functions (list #'overlook-repo--delete #'overlook-agent--delete))
          (saved nil)
          (asked nil))
     (unwind-protect
@@ -1449,7 +1453,7 @@ Agents are listed; usage and repos are not."
 
 ;; dd forgets a saved agent; its row shows its title and how long ago it last worked.
 (ert-deftest overlook-saved-agent-row-shows-title-and-age ()
-  (let* ((saved `((agent . "claude") (root . "/project/") (session . "s1") (perspective . "one")
+  (let* ((saved `((agent . "claude") (root . "/project/") (session . "s1") (project . "one")
                   (title . "Fix the login") (active . ,(- (float-time) 7200))))
          (overlook-agent-saved (list saved))
          (overlook-delete-functions (list #'overlook-agent--delete)))
@@ -1462,12 +1466,12 @@ Agents are listed; usage and repos are not."
       (overlook-delete)
       (should-not overlook-agent-saved))))
 
-;; A perspective with nothing under it is left out unless current.
-(ert-deftest overlook-empty-perspective-is-left-out ()
+;; A project with nothing under it is left out unless current.
+(ert-deftest overlook-empty-project-is-left-out ()
   (let ((alpha (overlook-test--agent "alpha")))
     (unwind-protect
         (overlook-test-with-dashboard `(("one") ("two" ,alpha) ("three")) "one"
-          (let ((overlook-show-empty-perspectives nil))
+          (let ((overlook-show-empty-projects nil))
             (overlook--render)
             (should (string-search "one\n" (buffer-string)))
             (should (string-search "two\n" (buffer-string)))
@@ -1479,43 +1483,43 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha))))
 
 ;; A save or Magit refresh reads the repos it touched again, but not a separate repo nested in one.
-(ert-deftest overlook-project-touch-marks-touched-repos-stale ()
-  (let* ((root (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+(ert-deftest overlook-repo-touch-marks-touched-repos-stale ()
+  (let* ((root (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))
          (inner (expand-file-name "inner/" root))
          (folder (expand-file-name "notes/" root))
          (other (expand-file-name "other/" (file-truename temporary-file-directory)))
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-project--reading (make-hash-table :test #'equal))
-         (overlook-project--again (make-hash-table :test #'equal))
-         (overlook-project--shown (list root inner folder other))
-         (overlook-project--touched nil)
-         (overlook-project--touch-timer nil))
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-repo--reading (make-hash-table :test #'equal))
+         (overlook-repo--again (make-hash-table :test #'equal))
+         (overlook-repo--shown (list root inner folder other))
+         (overlook-repo--touched nil)
+         (overlook-repo--touch-timer nil))
     (unwind-protect
         (cl-letf (((symbol-function 'overlook-live-p) #'always)
-                  ((symbol-function 'overlook-project--tick) #'ignore))
+                  ((symbol-function 'overlook-repo--tick) #'ignore))
           (make-directory (expand-file-name ".git" inner) t)
-          (dolist (dir overlook-project--shown)
-            (puthash dir (list 100 "main") overlook-project--status))
-          (puthash folder t overlook-project--reading)
-          (overlook-project--touch root)
-          (cancel-timer overlook-project--touch-timer)
-          (overlook-project--read-touched)
-          (should (= (car (gethash root overlook-project--status)) 0))
-          (should (= (car (gethash inner overlook-project--status)) 100))
-          (should (= (car (gethash other overlook-project--status)) 100))
-          (should (= (car (gethash folder overlook-project--status)) 100))
-          (should (gethash folder overlook-project--again))
-          (overlook-project--done folder)
-          (should (= (car (gethash folder overlook-project--status)) 0))
-          (should-not (gethash folder overlook-project--again)))
+          (dolist (dir overlook-repo--shown)
+            (puthash dir (list 100 "main") overlook-repo--status))
+          (puthash folder t overlook-repo--reading)
+          (overlook-repo--touch root)
+          (cancel-timer overlook-repo--touch-timer)
+          (overlook-repo--read-touched)
+          (should (= (car (gethash root overlook-repo--status)) 0))
+          (should (= (car (gethash inner overlook-repo--status)) 100))
+          (should (= (car (gethash other overlook-repo--status)) 100))
+          (should (= (car (gethash folder overlook-repo--status)) 100))
+          (should (gethash folder overlook-repo--again))
+          (overlook-repo--done folder)
+          (should (= (car (gethash folder overlook-repo--status)) 0))
+          (should-not (gethash folder overlook-repo--again)))
       (delete-directory root t))))
 
 ;; A folder inside a larger repo lists only the changes under it, and only while it has some.
-(ert-deftest overlook-project-folder-in-repo-lists-its-changes ()
-  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+(ert-deftest overlook-repo-folder-in-repo-lists-its-changes ()
+  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))
          (card (expand-file-name "projects/one/" top))
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-project--reading (make-hash-table :test #'equal)))
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-repo--reading (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
           (make-directory (expand-file-name "notes" card) t)
@@ -1523,16 +1527,16 @@ Agents are listed; usage and repos are not."
             (call-process "git" nil nil nil "init" "-q")
             (write-region "" nil "other.md")
             (write-region "" nil "projects/one/notes/n.md"))
-          (overlook-project--read card)
+          (overlook-repo--read card)
           (with-timeout (5 (ert-fail "git status timed out"))
-            (while (gethash card overlook-project--reading) (accept-process-output nil 0.05)))
-          (should (equal (mapcar #'car (cddr (gethash card overlook-project--status)))
+            (while (gethash card overlook-repo--reading) (accept-process-output nil 0.05)))
+          (should (equal (mapcar #'car (cddr (gethash card overlook-repo--status)))
                          '("projects/one/")))
           (puthash card (list (float-time) "main" '("projects/one/notes/n.md" " M" 2 0))
-                   overlook-project--status)
+                   overlook-repo--status)
           (overlook-test-with-dashboard '(("one")) "one"
-            (let ((overlook-perspective-root-function (lambda (_) card))
-                  (overlook-worktree-functions (list #'overlook-project--changed-rows)))
+            (let ((overlook-project-root-function (lambda (_) card))
+                  (overlook-worktree-functions (list #'overlook-repo--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
               (should (string-match-p "⎇ +one +main \\+2"
@@ -1543,34 +1547,34 @@ Agents are listed; usage and repos are not."
               (should (string-match-p "n\\.md \\+2 notes/\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
-              (puthash card (list (float-time) "main") overlook-project--status)
+              (puthash card (list (float-time) "main") overlook-repo--status)
               (overlook--render)
               (should-not (string-search "⎇" (buffer-string)))
-              (should (member card overlook-project--shown)))))
+              (should (member card overlook-repo--shown)))))
       (delete-directory top t))))
 
 ;; With `mark', a changed folder inside a larger repo marks its heading instead of a row.
-(ert-deftest overlook-project-folder-in-repo-marks-the-heading ()
-  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-project" t))))
+(ert-deftest overlook-repo-folder-in-repo-marks-the-heading ()
+  (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))
          (card (expand-file-name "projects/one/" top))
-         (overlook-project-folder-display 'mark)
-         (overlook-project--status (make-hash-table :test #'equal))
-         (overlook-heading-mark-functions (list #'overlook-project--heading-mark)))
+         (overlook-repo-folder-display 'mark)
+         (overlook-repo--status (make-hash-table :test #'equal))
+         (overlook-heading-mark-functions (list #'overlook-repo--heading-mark)))
     (unwind-protect
         (progn
           (make-directory (expand-file-name ".git" top) t)
           (make-directory card t)
           (puthash card (list (float-time) "main" '("projects/one/n.md" " M" 2 0))
-                   overlook-project--status)
+                   overlook-repo--status)
           (overlook-test-with-dashboard '(("one")) "one"
-            (let ((overlook-perspective-root-function (lambda (_) card))
-                  (overlook-worktree-functions (list #'overlook-project--changed-rows)))
+            (let ((overlook-project-root-function (lambda (_) card))
+                  (overlook-worktree-functions (list #'overlook-repo--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
               (should (search-forward "one*" nil t))
               (should-not (string-search "⎇" (buffer-string)))
-              (should (member card overlook-project--shown))
-              (puthash card (list (float-time) "main") overlook-project--status)
+              (should (member card overlook-repo--shown))
+              (puthash card (list (float-time) "main") overlook-repo--status)
               (overlook--render)
               (should-not (string-search "one*" (buffer-string))))))
       (delete-directory top t))))

@@ -148,7 +148,7 @@ each environment gathered says how many were gathered so far."
            (sent nil)
           (ended 0)
           (overlook-agent-turn-end-hook (list (lambda () (cl-incf ended))))
-          (overlook-perspectives-function #'ignore))
+          (overlook-projects-function #'ignore))
       (let ((overlook-agent-notify-function
              (lambda (title body _buffer) (push (cons title body) sent))))
         (overlook-agent-shell--on-event '((:event . input-submitted)))
@@ -180,7 +180,7 @@ each environment gathered says how many were gathered so far."
   (overlook-agent-shell-test-with-shell 'claude-code
     (let* ((events nil)
            (overlook-agent-notify nil)
-           (overlook-perspectives-function #'ignore)
+           (overlook-projects-function #'ignore)
            (overlook-agent-event-functions
             (list (lambda (buffer event)
                     (should (eq buffer (current-buffer)))
@@ -217,7 +217,7 @@ each environment gathered says how many were gathered so far."
     (let ((ended 0)
           (overlook-agent-notify nil))
       (let ((overlook-agent-turn-end-hook (list (lambda () (cl-incf ended))))
-            (overlook-perspectives-function #'ignore))
+            (overlook-projects-function #'ignore))
         (overlook-agent-shell--on-event '((:event . agent-message-chunk)))
         (overlook-agent-shell--on-event '((:event . tool-call-update)))
         (should (eq overlook-agent-status 'working))
@@ -230,7 +230,7 @@ each environment gathered says how many were gathered so far."
   (overlook-agent-shell-test-with-shell 'claude-code
     (overlook-agent-shell--track)
     (let ((overlook-agent-notify nil)
-          (overlook-perspectives-function #'ignore)
+          (overlook-projects-function #'ignore)
           (busy t)
           (usage '((params (update (sessionUpdate . "usage_update") (cost (amount . 0.1)))))))
       (cl-flet ((reply (text)
@@ -283,7 +283,7 @@ each environment gathered says how many were gathered so far."
   (overlook-agent-shell-test-with-shell 'claude-code
     (overlook-agent-shell--track)
     (let ((overlook-agent-notify nil)
-          (overlook-perspectives-function #'ignore)
+          (overlook-projects-function #'ignore)
           (reply (lambda (text)
                    (overlook-agent-shell--on-notification
                     `((params (update (sessionUpdate . "agent_message_chunk")
@@ -326,7 +326,7 @@ each environment gathered says how many were gathered so far."
   (overlook-agent-shell-test-with-shell 'claude-code
     (overlook-agent-shell--track)
     (let* ((overlook-agent-notify nil)
-           (overlook-perspectives-function #'ignore)
+           (overlook-projects-function #'ignore)
            (sent nil)
            (interrupted nil)
            (actions '(((:kind . "allow_once") (:option . "Allow") (:option-id . "a1"))
@@ -372,7 +372,7 @@ each environment gathered says how many were gathered so far."
   (overlook-agent-shell-test-with-shell 'claude-code
     (overlook-agent-shell--track)
     (let* ((overlook-agent-notify nil)
-           (overlook-perspectives-function #'ignore)
+           (overlook-projects-function #'ignore)
            (fields '(((:key . "q") (:type . single-select) (:custom-key . "q_custom")
                       (:options ((:value . "a") (:title . "Plan A"))
                                 ((:value . "b") (:title . "Plan B"))))

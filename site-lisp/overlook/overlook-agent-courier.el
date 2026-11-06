@@ -27,17 +27,18 @@
 ;; spawn and monitor each other.  An agent started while the mode is on
 ;; learns its courier id from $COURIER_ID and finds the courier script on
 ;; its PATH.  Its errors and requests for the user reach the agent that
-;; spawned it.  A spawned agent opens in the perspective of the project it
-;; works in, else in its parent's; the
+;; spawned it.  A spawned agent opens in the project whose root holds the
+;; folder it works in, else in its parent's; the
 ;; dashboard marks who spawned it, and the messages waiting for it.
-;; Above the perspectives, a Rooms section lists courier's chat rooms with
+;; Above the projects, a Rooms section lists courier's chat rooms with
 ;; the posts the user has not read; RET opens one.  The room named after a
 ;; worktree's branch is listed under the worktree's row instead.  `d d' on
 ;; a room closes it, moving its posts to the archive.  A Personas section
 ;; lists courier's personas; RET starts one, or shows the agent running it.
 ;; Agents running a persona are listed there only, and kept out of the
-;; perspectives: RET shows one in the current perspective.  What a persona
-;; spawns goes to the perspective of its project, else to the orphans'.
+;; projects: RET shows one in the current project.  What a persona
+;; spawns goes to the project whose root holds its folder, else to the
+;; orphans'.
 ;; An agent resumed in a later Emacs keeps its courier id.
 
 ;;; Code:
@@ -121,7 +122,7 @@ A resumed agent gets its earlier id back unless another agent has it."
                           (lambda () (with-current-buffer buffer (funcall transcript)))))))))
 
 (defun overlook-agent-courier--detach-persona (buffer)
-  "Keep agent BUFFER out of the perspectives when it runs a persona."
+  "Keep agent BUFFER out of the projects when it runs a persona."
   (when (and (not (buffer-local-value 'overlook-detached buffer))
              (overlook-agent-courier--persona-item-p (cons 'agent buffer)))
     (overlook-detach buffer)))
@@ -145,13 +146,13 @@ A resumed agent gets its earlier id back unless another agent has it."
   (overlook-courier-blocked overlook-agent-courier-id
                    (or (overlook-agent--brief (current-buffer)) "a request")))
 
-(defun overlook-agent-courier--perspective-of (directory)
-  "The perspective whose project root holds DIRECTORY most closely, or nil."
+(defun overlook-agent-courier--project-of (directory)
+  "The project whose root holds DIRECTORY most closely, or nil."
   (let ((directory (file-name-as-directory (file-truename directory)))
         (best nil)
         (length 0))
-    (dolist (name (overlook-perspectives))
-      (when-let* ((root (overlook-perspective-root name))
+    (dolist (name (overlook-projects))
+      (when-let* ((root (overlook-project-root name))
                   (root (file-name-as-directory (file-truename root)))
                   ((string-prefix-p root directory))
                   ((> (length root) length)))
@@ -160,21 +161,21 @@ A resumed agent gets its earlier id back unless another agent has it."
 
 (defun overlook-agent-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
-It opens in the perspective of the project holding DIRECTORY, else in
+It opens in the project whose root holds DIRECTORY, else in
 PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
-A persona opens in no perspective, and what a persona spawns outside the
-projects goes to `overlook-orphan-perspective'."
+A persona opens in no project, and what a persona spawns outside the
+projects goes to `overlook-orphan-project'."
   (let* ((parent-buffer (when-let* ((agent (overlook-courier-agent parent))) (overlook-courier-agent-buffer agent)))
-         (perspective (unless (and as (overlook-courier-persona as))
-                        (or (overlook-agent-courier--perspective-of directory)
+         (project (unless (and as (overlook-courier-persona as))
+                        (or (overlook-agent-courier--project-of directory)
                             (and (buffer-live-p parent-buffer)
                                  (if (buffer-local-value 'overlook-detached parent-buffer)
-                                     (overlook-orphan-perspective)
-                                   (overlook-agent-perspective parent-buffer))))))
+                                     (overlook-orphan-project)
+                                   (overlook-agent-project parent-buffer))))))
          (buffer (let ((overlook-agent-courier--parent parent)
                        (overlook-agent-courier--as as))
                    (overlook-agent--launch name directory nil t effort))))
-    (when perspective (overlook-add-to-perspective perspective buffer))
+    (when project (overlook-add-to-project project buffer))
     (let ((overlook-agent-courier--parent parent)) (overlook-agent-courier--register buffer))
     (overlook-agent-courier--detach-persona buffer)
     (buffer-local-value 'overlook-agent-courier-id buffer)))
@@ -333,7 +334,7 @@ Opens its persona.md to fill in."
   "Name of the room of worktree DIR's branch."
   (overlook-courier-worktree-room (file-name-nondirectory (directory-file-name dir))))
 
-(defun overlook-agent-courier--worktree-room-rows (_perspective dir)
+(defun overlook-agent-courier--worktree-room-rows (_project dir)
   "The dimmed row of the room of worktree DIR's branch, when it has one."
   (when-let* ((name (and dir (overlook-agent-courier--worktree-room dir)))
               ((overlook-courier-room name)))
@@ -355,7 +356,7 @@ Opens its persona.md to fill in."
 (defun overlook-agent-courier--rooms-section ()
   "The Rooms section: a row per courier room not under a worktree."
   (let ((under (mapcar #'overlook-agent-courier--worktree-room
-                       (seq-mapcat #'overlook-worktrees (overlook-perspectives)))))
+                       (seq-mapcat #'overlook-worktrees (overlook-projects)))))
     (overlook-section-row
      "Rooms"
      (seq-keep (lambda (name)

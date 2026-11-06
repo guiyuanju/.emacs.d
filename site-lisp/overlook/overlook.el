@@ -1,11 +1,11 @@
-;;; overlook.el --- A dashboard over your perspectives, repos and agents -*- lexical-binding: t; -*-
+;;; overlook.el --- A dashboard over your projects, repos and agents -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
 ;; Author: guiyuanju <guiyuanjune@outlook.com>
 ;; Maintainer: guiyuanju <guiyuanjune@outlook.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "4.0") (perspective "2.22") (agent-shell "0.87.3") (circe "2.14") (simple-httpd "1.7"))
+;; Package-Requires: ((emacs "29.1") (magit-section "4.0") (tabspaces "1.10") (agent-shell "0.87.3") (circe "2.14") (simple-httpd "1.7"))
 ;; Keywords: tools, convenience
 ;; URL: https://github.com/guiyuanju/overlook
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -27,19 +27,19 @@
 
 ;;; Commentary:
 
-;; Overlook is a side window listing every perspective (a project with its
+;; Overlook is a side window listing every project (a project with its
 ;; buffers and window layout) and what lives in it: its repos, its AI
 ;; agents, and whatever else a module adds.
 ;;
 ;; The core only draws the dashboard.  Everything it shows comes from
 ;; modules:
 ;;
-;; - A perspective backend sets the `overlook-perspective-*-function'
-;;   variables; overlook-perspective.el provides one for perspective.el.
-;; - Rows under each perspective come from
-;;   `overlook-perspective-functions'; overlook-project.el lists repos and
+;; - A project backend sets the `overlook-project-*-function'
+;;   variables; overlook-tabspaces.el provides one for tabspaces.
+;; - Rows under each project come from
+;;   `overlook-project-functions'; overlook-repo.el lists repos and
 ;;   overlook-agent.el lists agents.
-;; - Top level sections come from `overlook-sections'; the perspectives
+;; - Top level sections come from `overlook-sections'; the projects
 ;;   section sits at depth 0, overlook-usage.el adds one above it.
 ;;
 ;; Modules give data, not text: each returns rows made by `overlook-row',
@@ -56,11 +56,12 @@
 
 (require 'cl-lib)
 (require 'magit-section)
+(require 'project)
 (require 'seq)
 (require 'subr-x)
 
 (defgroup overlook nil
-  "A dashboard over perspectives, repos and agents."
+  "A dashboard over projects, repos and agents."
   :group 'tools
   :prefix "overlook-")
 
@@ -77,32 +78,32 @@ An integer is a number of columns; a float is a fraction of the frame width."
   "Frame side the dashboard window is shown on."
   :type '(choice (const left) (const right)))
 
-(defcustom overlook-perspective-order 'recent
-  "Order of the perspectives on the dashboard.
+(defcustom overlook-project-order 'recent
+  "Order of the projects on the dashboard.
 `recent' puts the current one first, then the rest by how recently they
 were switched to; `backend' keeps the backend's order."
   :type '(choice (const recent) (const backend)))
 
-(defcustom overlook-perspective-annotation nil
-  "Function of a perspective NAME returning a tag shown after its heading, or nil."
+(defcustom overlook-project-annotation nil
+  "Function of a project NAME returning a tag shown after its heading, or nil."
   :type '(choice (const :tag "None" nil) function))
 
-(defcustom overlook-perspective-filter nil
-  "Function of a perspective NAME returning nil to hide it, or nil to show all.
-The current perspective, and one with a row needing your attention, are
+(defcustom overlook-project-filter nil
+  "Function of a project NAME returning nil to hide it, or nil to show all.
+The current project, and one with a row needing your attention, are
 shown regardless."
   :type '(choice (const :tag "Show all" nil) function))
 
-(defcustom overlook-show-empty-perspectives nil
-  "Non-nil to list a perspective with no rows and no mark after its heading.
+(defcustom overlook-show-empty-projects nil
+  "Non-nil to list a project with no rows and no mark after its heading.
 The current one is listed either way."
   :type 'boolean)
 
-(defcustom overlook-orphan-perspective nil
-  "Perspective listing the rows that belong to no perspective, or nil.
+(defcustom overlook-orphan-project nil
+  "Project listing the rows that belong to no project, or nil.
 Rows opened from there open in it.  Without it, they are listed under
-the current perspective."
-  :type '(choice (const :tag "The current perspective" nil) string))
+the current project."
+  :type '(choice (const :tag "The current project" nil) string))
 
 (defcustom overlook-section-order nil
   "Functions of `overlook-sections' in the order the dashboard shows them.
@@ -151,175 +152,207 @@ The name is cut to `overlook-account-width' characters."
 (defconst overlook-buffer-name " *overlook*"
   "The dashboard buffer.  A leading space keeps it out of buffer lists.")
 
-;;; Perspective backend
+;;; Project backend
 
-(defvar overlook-perspectives-function #'ignore
-  "Function returning the names of all perspectives, in display order.")
+(defvar overlook-projects-function #'ignore
+  "Function returning the names of all projects, in display order.")
 
-(defvar overlook-current-perspective-function #'ignore
-  "Function returning the name of the current perspective, or nil.")
+(defvar overlook-current-project-function #'ignore
+  "Function returning the name of the current project, or nil.")
 
-(defvar overlook-switch-perspective-function #'ignore
-  "Function of a NAME switching to that perspective.")
+(defvar overlook-switch-project-function #'ignore
+  "Function of a NAME switching to that project.")
 
-(defvar overlook-perspective-buffers-function #'ignore
-  "Function of a NAME returning that perspective's buffers.")
+(defvar overlook-project-buffers-function #'ignore
+  "Function of a NAME returning that project's buffers.")
 
-(defvar overlook-perspective-root-function #'ignore
-  "Function of a NAME returning that perspective's project root, or nil.")
+(defvar overlook-project-root-function #'overlook-project--root
+  "Function of a NAME returning that project's root, or nil.")
 
-(defvar overlook-add-to-perspective-function #'ignore
-  "Function of a NAME and a BUFFER adding BUFFER to that perspective.")
+(defvar overlook-add-to-project-function #'ignore
+  "Function of a NAME and a BUFFER adding BUFFER to that project.")
 
 (defvar overlook-detach-function #'ignore
-  "Function of a BUFFER removing it from every perspective.")
+  "Function of a BUFFER removing it from every project.")
 
-(defun overlook-perspectives ()
-  "Names of all perspectives."
-  (funcall overlook-perspectives-function))
+(defvar overlook-close-project-function #'ignore
+  "Function of a NAME closing that project and killing its own buffers.")
 
-(defun overlook-current-perspective ()
-  "Name of the current perspective, or nil."
-  (funcall overlook-current-perspective-function))
+(defcustom overlook-project-root #'overlook-project-guess-root
+  "Function of a project NAME returning its project root, or nil."
+  :type 'function
+  :group 'overlook)
+
+(defun overlook-projects ()
+  "Names of all projects."
+  (funcall overlook-projects-function))
+
+(defun overlook-current-project ()
+  "Name of the current project, or nil."
+  (funcall overlook-current-project-function))
 
 (defvar overlook--buffers-cache nil
-  "Perspective buffers looked up during one render, keyed by name.")
+  "Project buffers looked up during one render, keyed by name.")
 
-(defun overlook-perspective-buffers (name)
-  "Live buffers of perspective NAME."
+(defun overlook-project-buffers (name)
+  "Live buffers of project NAME."
   (let ((lookup (lambda ()
                   (seq-filter #'buffer-live-p
-                              (funcall overlook-perspective-buffers-function name)))))
+                              (funcall overlook-project-buffers-function name)))))
     (if overlook--buffers-cache
         (with-memoization (gethash name overlook--buffers-cache) (funcall lookup))
       (funcall lookup))))
 
 (defvar overlook--roots-cache nil
-  "Perspective roots looked up during one render, keyed by name, each in a list.")
+  "Project roots looked up during one render, keyed by name, each in a list.")
 
-(defun overlook-perspective-root (name)
-  "Project root of perspective NAME, or nil."
+(defun overlook-project-root (name)
+  "Project root of project NAME, or nil."
   (if overlook--roots-cache
       (car (with-memoization (gethash name overlook--roots-cache)
-             (list (funcall overlook-perspective-root-function name))))
-    (funcall overlook-perspective-root-function name)))
+             (list (funcall overlook-project-root-function name))))
+    (funcall overlook-project-root-function name)))
 
-(defun overlook-orphan-perspective ()
-  "Name of `overlook-orphan-perspective' when it exists, else nil."
-  (car (member overlook-orphan-perspective (overlook-perspectives))))
+(defun overlook-project-guess-root (name)
+  "Root of the project of the first file or Dired buffer in project NAME."
+  (seq-some (lambda (buffer)
+              (when (or (buffer-file-name buffer)
+                        (eq (buffer-local-value 'major-mode buffer) 'dired-mode))
+                (when-let* ((project (project-current
+                                      nil (buffer-local-value 'default-directory buffer))))
+                  (project-root project))))
+            (overlook-project-buffers name)))
 
-(defun overlook-orphans-perspective ()
-  "Name of the perspective rows of no perspective go under.
-That is `overlook-orphan-perspective', or else the current one."
-  (or (overlook-orphan-perspective) (overlook-current-perspective)))
+(defun overlook-project--root (name)
+  "Project root of project NAME, per `overlook-project-root'."
+  (funcall overlook-project-root name))
 
-(defun overlook-add-to-perspective (name buffer)
-  "Add BUFFER to perspective NAME."
-  (funcall overlook-add-to-perspective-function name buffer))
+(defun overlook-orphan-project ()
+  "Name of `overlook-orphan-project' when it exists, else nil."
+  (car (member overlook-orphan-project (overlook-projects))))
+
+(defun overlook-orphans-project ()
+  "Name of the project rows of no project go under.
+That is `overlook-orphan-project', or else the current one."
+  (or (overlook-orphan-project) (overlook-current-project)))
+
+(defun overlook-add-to-project (name buffer)
+  "Add BUFFER to project NAME."
+  (funcall overlook-add-to-project-function name buffer))
 
 (defvar-local overlook-detached nil
-  "Non-nil in a buffer `overlook-detach' keeps out of every perspective.")
+  "Non-nil in a buffer `overlook-detach' keeps out of every project.")
 (put 'overlook-detached 'permanent-local t)
 
 (defun overlook-detach (buffer)
-  "Keep BUFFER out of every perspective, even once shown in one.
-Opening it from the dashboard shows it in the current perspective."
+  "Keep BUFFER out of every project, even once shown in one.
+Opening it from the dashboard shows it in the current project."
   (with-current-buffer buffer
     (setq overlook-detached t)
     (add-hook 'window-buffer-change-functions #'overlook--detach-shown nil t))
   (funcall overlook-detach-function buffer))
 
 (defun overlook--detach-shown (window)
-  "Take the buffer WINDOW now shows back out of the perspectives."
+  "Take the buffer WINDOW now shows back out of the projects."
   (funcall overlook-detach-function (window-buffer window)))
 (put 'overlook--detach-shown 'permanent-local-hook t)
 
-(defun overlook-buffer-perspective (buffer)
-  "The perspective BUFFER belongs to, preferring the current one; or nil."
-  (let ((current (overlook-current-perspective)))
-    (if (and current (memq buffer (overlook-perspective-buffers current)))
+(defun overlook-buffer-project (buffer)
+  "The project BUFFER belongs to, preferring the current one; or nil."
+  (let ((current (overlook-current-project)))
+    (if (and current (memq buffer (overlook-project-buffers current)))
         current
-      (seq-find (lambda (name) (memq buffer (overlook-perspective-buffers name)))
-                (overlook-perspectives)))))
+      (seq-find (lambda (name) (memq buffer (overlook-project-buffers name)))
+                (overlook-projects)))))
 
-(defun overlook-switch-perspective (name)
-  "Switch to perspective NAME, keeping the dashboard shown if it was."
-  (unless (equal name (overlook-current-perspective))
-    (funcall overlook-switch-perspective-function name)
-    (overlook-perspective-switched)))
+(defun overlook-switch-project (name)
+  "Switch to project NAME, keeping the dashboard shown if it was."
+  (unless (equal name (overlook-current-project))
+    (funcall overlook-switch-project-function name)
+    (overlook-project-switched)))
 
-(defvar overlook-perspective-switch-hook nil
-  "Hook run after switching perspectives, in the new one.")
+(defun overlook-close-project (name)
+  "Close project NAME, killing the buffers no other project holds."
+  (interactive
+   (let ((current (overlook-current-project)))
+     (list (completing-read (format-prompt "Close project" current)
+                            (overlook-projects) nil t nil nil current))))
+  (funcall overlook-close-project-function name)
+  (overlook-refresh))
 
-(defvar overlook-perspective-switch-times nil
-  "Alist of perspective name to the time it was last switched to.
+(defvar overlook-project-switch-hook nil
+  "Hook run after switching projects, in the new one.")
+
+(defvar overlook-project-switch-times nil
+  "Alist of project name to the time it was last switched to.
 Add it to `savehist-additional-variables' to keep it across sessions.")
 
 (defun overlook--record-switch ()
-  "Record the time of a switch to the current perspective."
-  (when-let* ((name (overlook-current-perspective)))
-    (setf (alist-get name overlook-perspective-switch-times nil nil #'equal)
+  "Record the time of a switch to the current project."
+  (when-let* ((name (overlook-current-project)))
+    (setf (alist-get name overlook-project-switch-times nil nil #'equal)
           (float-time))))
 
-(defun overlook-ordered-perspectives ()
-  "Names of all perspectives, in the order of `overlook-perspective-order'."
-  (let ((names (overlook-perspectives))
-        (current (overlook-current-perspective)))
-    (if (not (eq overlook-perspective-order 'recent))
+(defun overlook-ordered-projects ()
+  "Names of all projects, in the order of `overlook-project-order'."
+  (let ((names (overlook-projects))
+        (current (overlook-current-project)))
+    (if (not (eq overlook-project-order 'recent))
         names
       (let ((time (lambda (name)
-                    (alist-get name overlook-perspective-switch-times 0 nil #'equal))))
+                    (alist-get name overlook-project-switch-times 0 nil #'equal))))
         (append (and (member current names) (list current))
                 (sort (remove current names)
                       (lambda (a b) (> (funcall time a) (funcall time b)))))))))
 
 (defvar overlook--to-current nil
-  "Non-nil when the next redraw moves point to the current perspective.")
+  "Non-nil when the next redraw moves point to the current project.")
 
-(defun overlook-perspective-switched (&rest _)
-  "Show the dashboard in the new perspective and redraw it on its heading.
-Backends call this after any perspective switch, including ones not made
-through overlook, since switching perspectives replaces the windows."
+(defun overlook-project-switched (&rest _)
+  "Show the dashboard in the new project and redraw it on its heading.
+Backends call this after any project switch, including ones not made
+through overlook, since switching projects replaces the windows."
   (overlook--record-switch)
   (setq overlook--to-current t)
   (overlook--follow)
-  (run-hooks 'overlook-perspective-switch-hook)
-  (overlook-refresh))
+  (run-hooks 'overlook-project-switch-hook)
+  (overlook-refresh)
+  (overlook--render-soon))
 
 ;;; Hooks
 
 (defvar overlook-sections nil
   "Functions giving the dashboard's top level sections, by hook depth.
 Each is called with no arguments and returns a section, as made by
-`overlook-section-row', or nil.  The perspectives section sits at
+`overlook-section-row', or nil.  The projects section sits at
 depth 0.")
 
-(defvar overlook-perspective-functions nil
-  "Functions giving the rows under a perspective's heading, by hook depth.
-Each is called with the perspective's NAME and returns a list of rows,
+(defvar overlook-project-functions nil
+  "Functions giving the rows under a project's heading, by hook depth.
+Each is called with the project's NAME and returns a list of rows,
 as made by `overlook-row'.  The rows of what lies in a checkout come
 from `overlook-worktree-functions' instead.  Under
-`overlook-orphans-perspective' a function also gives its rows that
-belong to no perspective.")
+`overlook-orphans-project' a function also gives its rows that
+belong to no project.")
 
 (defvar overlook-worktrees-functions nil
-  "Functions of a perspective NAME returning the worktrees listed under it.
+  "Functions of a project NAME returning the worktrees listed under it.
 Each returns a list of folders, each ending in a slash.")
 
 (defvar overlook-worktree-functions nil
   "Functions giving the rows of what lies in a checkout, by hook depth.
-Each is called with the perspective's NAME and the worktree's folder
+Each is called with the project's NAME and the worktree's folder
 DIR, or nil for what lies in none of its worktrees, and returns a list
 of rows.  Agents sit at depth 0 and changed repos at 50.  With DIR nil
-they go right under the perspective's heading while it lists no
+they go right under the project's heading while it lists no
 worktrees, else under the row of its main checkout, which a function of
-`overlook-perspective-functions' gives with those of its worktrees.")
+`overlook-project-functions' gives with those of its worktrees.")
 
 (defvar overlook--worktrees-cache nil
-  "Worktrees looked up during one render, keyed by perspective name.")
+  "Worktrees looked up during one render, keyed by project name.")
 
 (defun overlook-worktrees (name)
-  "Folders of the worktrees listed under perspective NAME."
+  "Folders of the worktrees listed under project NAME."
   (let ((lookup (lambda () (seq-mapcat (lambda (fn) (funcall fn name))
                                        overlook-worktrees-functions))))
     (if overlook--worktrees-cache
@@ -347,12 +380,12 @@ thing, like \"agent claude\", and DELETE a function letting it go.")
 Each deletes what the row stands for.
 Each returns non-nil when it handled the item.")
 
-(defvar overlook-perspective-command-functions nil
-  "Functions of a perspective NAME returning commands for its heading.
+(defvar overlook-project-command-functions nil
+  "Functions of a project NAME returning commands for its heading.
 Each returns a list of commands, as `overlook-row' describes.")
 
 (defvar overlook-heading-mark-functions nil
-  "Functions of a perspective NAME returning a mark put right after its heading.
+  "Functions of a project NAME returning a mark put right after its heading.
 Each returns a string, such as \"*\", or nil.")
 
 (defvar overlook-mode-line-functions nil
@@ -379,7 +412,7 @@ Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
 (defvar overlook--timer nil)
 (defvar overlook--tick-timer nil)
 (defvar overlook--shown nil
-  "Non-nil while the dashboard is toggled on; every perspective then shows it.")
+  "Non-nil while the dashboard is toggled on; every project then shows it.")
 
 (defun overlook-live-p ()
   "Non-nil when the dashboard buffer exists."
@@ -415,6 +448,18 @@ Waits no longer than `overlook-refresh-max-wait' seconds after time ASKED."
       (setq overlook--timer nil
             overlook--rendered (float-time))
       (overlook--render))))
+
+(defun overlook--render-soon ()
+  "Redraw the dashboard once the current command is done, skipping the wait."
+  (when (overlook-live-p)
+    (when (timerp overlook--timer) (cancel-timer overlook--timer))
+    (setq overlook--timer (run-at-time 0 nil #'overlook--render-now))))
+
+(defun overlook--render-now ()
+  "Redraw the dashboard now."
+  (setq overlook--timer nil
+        overlook--rendered (float-time))
+  (overlook--render))
 
 (defun overlook--tick ()
   "Run `overlook-tick-hook', or stop ticking once the dashboard is gone."
@@ -452,7 +497,7 @@ The binding is recorded in `overlook-keys'."
   (overlook-define-key key command))
 
 (define-derived-mode overlook-mode magit-section-mode "Overlook"
-  "Dashboard over perspectives and what lives in them."
+  "Dashboard over projects and what lives in them."
   (setq-local revert-buffer-function (lambda (&rest _) (overlook--render))
               truncate-lines nil
               truncate-partial-width-windows nil
@@ -495,11 +540,11 @@ Views in proportional fonts draw such rows in a fixed-pitch one.")
 
 (defface overlook-heading
   '((t :inherit bold))
-  "Face of perspective headings.")
+  "Face of project headings.")
 
 (defface overlook-heading-current
   '((t :inherit (success bold)))
-  "Face of the current perspective's heading.")
+  "Face of the current project's heading.")
 
 (defclass overlook-section (magit-section) ()
   "A section or row of the dashboard.")
@@ -919,7 +964,7 @@ Like Magit's, it highlights and folds with SECTION."
   (when (window-parameter (selected-window) 'window-side)
     (select-window (get-mru-window nil nil t))))
 
-;;; Perspectives section
+;;; Projects section
 
 (defun overlook--sections ()
   "Functions of `overlook-sections', sorted by `overlook-section-order'."
@@ -930,54 +975,54 @@ Like Magit's, it highlights and folds with SECTION."
                  #'< (nreverse functions))))
 
 (defun overlook--heading-marks (name)
-  "The marks `overlook-heading-mark-functions' put after perspective NAME."
+  "The marks `overlook-heading-mark-functions' put after project NAME."
   (mapconcat (lambda (function) (or (funcall function name) ""))
              overlook-heading-mark-functions))
 
-(defun overlook--perspective-row (name current)
-  "The heading of perspective NAME over its rows, or nil when left out.
-CURRENT is the current perspective's name.  See `overlook--perspectives'."
+(defun overlook--project-row (name current)
+  "The heading of project NAME over its rows, or nil when left out.
+CURRENT is the current project's name.  See `overlook--projects'."
   (let* ((marks (overlook--heading-marks name))
-         (rows (append (overlook-rows 'overlook-perspective-functions name)
+         (rows (append (overlook-rows 'overlook-project-functions name)
                        (unless (overlook-worktrees name)
                          (overlook-rows 'overlook-worktree-functions name nil))))
          (row (overlook-row
-               :id (cons 'perspective name)
+               :id (cons 'project name)
                :content (list (propertize (concat name marks)
                                           'face (if (equal name current)
                                                     'overlook-heading-current
                                                   'overlook-heading))
-                              (when-let* ((tag (and overlook-perspective-annotation
-                                                    (funcall overlook-perspective-annotation name))))
+                              (when-let* ((tag (and overlook-project-annotation
+                                                    (funcall overlook-project-annotation name))))
                                 (propertize (concat " " tag) 'face 'shadow)))
                :heading t
                :action (lambda () (overlook-show-elsewhere name #'ignore))
                :commands (seq-mapcat (lambda (function) (funcall function name))
-                                     overlook-perspective-command-functions)
+                                     overlook-project-command-functions)
                :children rows)))
-    (when (and (or rows (equal name current) overlook-show-empty-perspectives
+    (when (and (or rows (equal name current) overlook-show-empty-projects
                    (not (string-empty-p marks)))
                (or (equal name current)
-                   (null overlook-perspective-filter)
-                   (funcall overlook-perspective-filter name)
+                   (null overlook-project-filter)
+                   (funcall overlook-project-filter name)
                    (overlook-row-attention-p row)))
       row)))
 
-(defun overlook--perspectives ()
-  "Each perspective's heading over its rows.
+(defun overlook--projects ()
+  "Each project's heading over its rows.
 One with no rows and no mark after its heading is left out unless
-current or `overlook-show-empty-perspectives' is set.  Those
-`overlook-perspective-filter' hides are left out unless current or
+current or `overlook-show-empty-projects' is set.  Those
+`overlook-project-filter' hides are left out unless current or
 needing attention."
-  (let ((current (overlook-current-perspective)))
-    (overlook-gaps (seq-keep (lambda (name) (overlook--perspective-row name current))
-                             (overlook-ordered-perspectives)))))
+  (let ((current (overlook-current-project)))
+    (overlook-gaps (seq-keep (lambda (name) (overlook--project-row name current))
+                             (overlook-ordered-projects)))))
 
-(defun overlook--perspectives-section ()
-  "The Perspectives section."
-  (overlook-section-row "Perspectives" (overlook--perspectives)))
+(defun overlook--projects-section ()
+  "The Projects section."
+  (overlook-section-row "Projects" (overlook--projects)))
 
-(add-hook 'overlook-sections #'overlook--perspectives-section)
+(add-hook 'overlook-sections #'overlook--projects-section)
 
 ;;; Model
 
@@ -1015,12 +1060,12 @@ one; see `overlook-after-model-hook'."
 ;;; Render
 
 (defun overlook--goto-current ()
-  "Move to the current perspective's heading; nil when it is not shown."
-  (when-let* ((name (overlook-current-perspective))
+  "Move to the current project's heading; nil when it is not shown."
+  (when-let* ((name (overlook-current-project))
               (match (save-excursion
                        (goto-char (point-min))
                        (text-property-search-forward
-                        'overlook-item (cons 'perspective name) #'equal))))
+                        'overlook-item (cons 'project name) #'equal))))
     (goto-char (prop-match-beginning match))))
 
 (defun overlook--place (pos)
@@ -1053,7 +1098,7 @@ otherwise, or with no section left at all, PLACE's line number is used."
 
 (defun overlook--redrawn-point (place)
   "Where point at PLACE goes after a redraw.
-After a perspective switch, it goes to the current perspective's heading."
+After a project switch, it goes to the current project's heading."
   (save-excursion
     (unless (and overlook--to-current (overlook--goto-current))
       (goto-char (overlook--find-place place t)))
@@ -1063,7 +1108,7 @@ After a perspective switch, it goes to the current perspective's heading."
 
 (defun overlook--render ()
   "Redraw the dashboard, keeping each window on the same rows.
-After a perspective switch, point goes to the current perspective instead."
+After a project switch, point goes to the current project instead."
   (when-let* ((dashboard (get-buffer overlook-buffer-name)))
     (with-current-buffer dashboard
       (let* ((windows (get-buffer-window-list dashboard nil t))
@@ -1194,10 +1239,10 @@ FORWARD picks the direction; WHAT names those lines when there is none."
              (not (get-buffer-window overlook-buffer-name)))
     (overlook--display)))
 
-(defun overlook-show-elsewhere (perspective show)
-  "Switch to PERSPECTIVE when non-nil, then call SHOW in a main window.
+(defun overlook-show-elsewhere (project show)
+  "Switch to PROJECT when non-nil, then call SHOW in a main window.
 The dashboard stays shown; for actions on dashboard rows."
-  (when perspective (overlook-switch-perspective perspective))
+  (when project (overlook-switch-project project))
   (overlook-main-window)
   (funcall show)
   (setq overlook--shown t)

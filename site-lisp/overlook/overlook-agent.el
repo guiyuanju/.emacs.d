@@ -24,8 +24,8 @@
 ;;; Commentary:
 
 ;; Tracks AI agents run by a frontend (overlook-agent-shell.el drives
-;; agent-shell) and lists each under the perspective holding its buffer,
-;; its project's perspective when several hold it: its status, how long
+;; agent-shell) and lists each under the project holding its buffer,
+;; the one whose root it runs at when several hold it: its status, how long
 ;; its turn has run, its context usage and what it is doing.
 ;;
 ;; Agents are started with the frontend's own commands.  The frontend
@@ -174,14 +174,14 @@ END is nil while the turn runs.")
 (defvar overlook-agent-hide-functions nil
   "Functions of a dashboard item returning non-nil to hide it.
 The item is (agent . BUFFER) or (saved . SAVED); a hidden one is not
-listed under any perspective.")
+listed under any project.")
 
 (defvar overlook-agent--last nil
   "Name of the agent most recently started or shown.")
 
 (defvar overlook-agent-saved nil
   "Agents of an earlier Emacs not resumed yet.
-Each is an alist with keys `agent', `root', `session' and `perspective',
+Each is an alist with keys `agent', `root', `session' and `project',
 and `title' and `active', the time of its last turn, when known.")
 
 (defvar overlook-agent--saved-loaded nil
@@ -296,23 +296,23 @@ PROPERTIES are the event's other entries; see `overlook-agent-event-functions'."
   (setq overlook-agent--last (overlook-agent-get buffer 'agent))
   (pop-to-buffer buffer '((display-buffer-reuse-window display-buffer-same-window))))
 
-(defun overlook-agent-perspective (buffer)
-  "The perspective agent BUFFER is listed under, or nil.
-A buffer shown in several perspectives belongs to the one of its project."
+(defun overlook-agent-project (buffer)
+  "The project agent BUFFER is listed under, or nil.
+A buffer shown in several projects belongs to the one whose root it runs at."
   (let ((root (overlook-agent-get buffer 'root)))
     (or (and root (seq-find (lambda (name)
-                              (and (equal (overlook-perspective-root name) root)
-                                   (memq buffer (overlook-perspective-buffers name))))
-                            (overlook-perspectives)))
-        (overlook-buffer-perspective buffer))))
+                              (and (equal (overlook-project-root name) root)
+                                   (memq buffer (overlook-project-buffers name))))
+                            (overlook-projects)))
+        (overlook-buffer-project buffer))))
 
 (defun overlook-agent-visit (buffer)
-  "Switch to agent BUFFER's perspective and show it there.
-A detached agent shows in the current perspective."
+  "Switch to agent BUFFER's project and show it there.
+A detached agent shows in the current project."
   (unless (buffer-live-p buffer) (user-error "Agent buffer is gone"))
   (overlook-show-elsewhere (unless (buffer-local-value 'overlook-detached buffer)
-                             (or (overlook-agent-perspective buffer)
-                                 (overlook-orphan-perspective)))
+                             (or (overlook-agent-project buffer)
+                                 (overlook-orphan-project)))
                            (lambda () (overlook-agent-show buffer))))
 
 ;;; Status
@@ -384,7 +384,7 @@ without terminal-notifier it falls back to osascript."
   (when (pcase overlook-agent-notify
           ('unfocused (not (funcall overlook-agent--focused-function)))
           (option option))
-    (let ((perspective (overlook-agent-perspective buffer))
+    (let ((project (overlook-agent-project buffer))
           (title (overlook-agent--title buffer))
           (brief (overlook-agent--brief buffer)))
       (funcall overlook-agent-notify-function
@@ -393,7 +393,7 @@ without terminal-notifier it falls back to osascript."
                          ('waiting "needs you")
                          ('failed "failed")
                          (_ "finished")))
-               (string-join (delq nil (list perspective title brief)) ": ")
+               (string-join (delq nil (list project title brief)) ": ")
                buffer))))
 
 (defun overlook-agent--seen-p ()
@@ -505,7 +505,7 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                 `((agent . ,(overlook-agent-get buffer 'agent))
                                   (root . ,(overlook-agent-get buffer 'root))
                                   (session . ,session)
-                                  (perspective . ,(overlook-agent-perspective buffer))
+                                  (project . ,(overlook-agent-project buffer))
                                   (title . ,(overlook-agent--title buffer))
                                   (active . ,(when-let* ((turn (buffer-local-value
                                                                 'overlook-agent-turn buffer)))
@@ -586,23 +586,23 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
     (let ((overlook-agent-resuming saved))
       (overlook-agent--launch (alist-get 'agent saved) root (alist-get 'session saved)))))
 
-(defun overlook-agent--saved-perspective (saved)
-  "The perspective SAVED agent was in, when it still exists."
-  (car (member (alist-get 'perspective saved) (overlook-perspectives))))
+(defun overlook-agent--saved-project (saved)
+  "The project SAVED agent was in, when it still exists."
+  (car (member (alist-get 'project saved) (overlook-projects))))
 
 (defun overlook-agent-resume-visit (saved)
-  "Resume SAVED agent in its perspective and show it there."
-  (overlook-show-elsewhere (or (overlook-agent--saved-perspective saved)
-                               (overlook-orphan-perspective))
+  "Resume SAVED agent in its project and show it there."
+  (overlook-show-elsewhere (or (overlook-agent--saved-project saved)
+                               (overlook-orphan-project))
                            (lambda () (overlook-agent-show (overlook-agent--resume saved)))))
 
 (defun overlook-agent-resume (saved)
-  "Resume SAVED agent in its perspective, without showing it; return its buffer."
-  (let ((perspective (or (overlook-agent--saved-perspective saved)
-                         (overlook-orphan-perspective)
-                         (overlook-current-perspective)))
+  "Resume SAVED agent in its project, without showing it; return its buffer."
+  (let ((project (or (overlook-agent--saved-project saved)
+                         (overlook-orphan-project)
+                         (overlook-current-project)))
         (buffer (overlook-agent--resume saved)))
-    (when perspective (overlook-add-to-perspective perspective buffer))
+    (when project (overlook-add-to-project project buffer))
     buffer))
 
 (defun overlook-agent-forget (saved)
@@ -610,10 +610,10 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
   (setq overlook-agent-saved (delq saved overlook-agent-saved))
   (overlook-agent-changed))
 
-(defun overlook-agent-forget-perspective (name)
-  "Forget the saved agents of perspective NAME."
+(defun overlook-agent-forget-project (name)
+  "Forget the saved agents of project NAME."
   (setq overlook-agent-saved
-        (seq-remove (lambda (saved) (equal (alist-get 'perspective saved) name))
+        (seq-remove (lambda (saved) (equal (alist-get 'project saved) name))
                     overlook-agent-saved))
   (overlook-agent-changed))
 
@@ -653,17 +653,17 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
                                 overlook-agent-saved)))))
 
 (defun overlook-agent--annotate (name)
-  "Status and perspective of the agent buffer NAME, for completion."
+  "Status and project of the agent buffer NAME, for completion."
   (let ((buffer (get-buffer name)))
     (concat "  " (overlook-agent-glyph buffer) " "
             (symbol-name (buffer-local-value 'overlook-agent-status buffer))
-            (if-let* ((perspective (overlook-agent-perspective buffer)))
-                (propertize (concat "  " perspective) 'face 'shadow)
+            (if-let* ((project (overlook-agent-project buffer)))
+                (propertize (concat "  " project) 'face 'shadow)
               ""))))
 
 ;;;###autoload
 (defun overlook-agent-switch ()
-  "Pick any running agent and show it in its perspective."
+  "Pick any running agent and show it in its project."
   (interactive)
   (let* ((names (or (mapcar #'buffer-name (overlook-agent-buffers))
                     (user-error "No agent running")))
@@ -771,9 +771,9 @@ the duration ends a column before it, so both line up across agents."
       (concat " " (truncate-string-to-width title overlook-agent-title-width nil nil "…"))
     ""))
 
-(defun overlook-agent--project-label (root perspective)
-  "Name of the project at ROOT, dimmed, unless it is PERSPECTIVE's."
-  (if (and root (not (equal (and perspective (overlook-perspective-root perspective))
+(defun overlook-agent--project-label (root project)
+  "Name of the project at ROOT, dimmed, unless it is PROJECT's."
+  (if (and root (not (equal (and project (overlook-project-root project))
                             root)))
       (propertize (concat " " (file-name-nondirectory (directory-file-name root)))
                   'face 'shadow)
@@ -842,7 +842,7 @@ works, dimmed otherwise."
         :reserve (1+ meta)))
 
 (defun overlook-agent--tree-prefix (depth)
-  "What starts a row DEPTH forks below a row listed under a perspective."
+  "What starts a row DEPTH forks below a row listed under a project."
   (if (> depth 0)
       (concat (make-string (* 2 (1- depth)) ?\s) (propertize "└ " 'face 'shadow))
     ""))
@@ -859,8 +859,8 @@ works, dimmed otherwise."
       (concat "\nForked from " parent)
     ""))
 
-(defun overlook-agent--row (buffer perspective &optional depth children)
-  "The row of agent BUFFER under PERSPECTIVE, DEPTH forks deep.
+(defun overlook-agent--row (buffer project &optional depth children)
+  "The row of agent BUFFER under PROJECT, DEPTH forks deep.
 CHILDREN are the rows of its forks.  What it is doing shows unless it
 is idle with no question for you; the answers it offers you sit on a
 line of their own under it."
@@ -879,7 +879,7 @@ line of their own under it."
                                                    overlook-agent-row-marks)))
                     (overlook-agent--title-label title)
                     (overlook-agent--fork-label session depth)
-                    (overlook-agent--project-label (overlook-agent-get buffer 'root) perspective)
+                    (overlook-agent--project-label (overlook-agent-get buffer 'root) project)
                     (and brief (or (not (eq status 'idle))
                                    (overlook-agent--reply-question buffer))
                          (overlook-agent--brief-segment buffer brief (cdr meta)))
@@ -901,8 +901,8 @@ line of their own under it."
                            :run (lambda () (overlook-agent-kill buffer))))
      :children children)))
 
-(defun overlook-agent--saved-row (saved perspective &optional depth children)
-  "The row of SAVED agent, dimmed, under PERSPECTIVE, DEPTH forks deep.
+(defun overlook-agent--saved-row (saved project &optional depth children)
+  "The row of SAVED agent, dimmed, under PROJECT, DEPTH forks deep.
 It shows the agent's title and how long ago its last turn was.
 CHILDREN are the rows of its forks."
   (let ((depth (or depth 0))
@@ -917,7 +917,7 @@ CHILDREN are the rows of its forks."
                                         (overlook-agent--title-label title))
                                 'face 'shadow)
                     (overlook-agent--fork-label session depth)
-                    (overlook-agent--project-label (alist-get 'root saved) perspective)
+                    (overlook-agent--project-label (alist-get 'root saved) project)
                     (and active
                          (overlook-align-right
                           (propertize (overlook-format-duration (- (float-time) active))
@@ -942,8 +942,8 @@ CHILDREN are the rows of its forks."
     (`(agent . ,buffer) (overlook-agent--session buffer))
     (`(saved . ,saved) (alist-get 'session saved))))
 
-(defun overlook-agent--tree (item items perspective depth drawn)
-  "The row of ITEM under PERSPECTIVE, DEPTH forks deep, over its forks among ITEMS.
+(defun overlook-agent--tree (item items project depth drawn)
+  "The row of ITEM under PROJECT, DEPTH forks deep, over its forks among ITEMS.
 DRAWN, a list in a cons, collects the items given rows, so none is twice."
   (setcar drawn (cons item (car drawn)))
   (let* ((session (overlook-agent--item-session item))
@@ -956,11 +956,11 @@ DRAWN, a list in a cons, collects the items given rows, so none is twice."
                                  items)))
          (children (seq-keep (lambda (fork)
                                (unless (memq fork (car drawn))
-                                 (overlook-agent--tree fork items perspective (1+ depth) drawn)))
+                                 (overlook-agent--tree fork items project (1+ depth) drawn)))
                              forks)))
     (pcase item
-      (`(agent . ,buffer) (overlook-agent--row buffer perspective depth children))
-      (`(saved . ,saved) (overlook-agent--saved-row saved perspective depth children)))))
+      (`(agent . ,buffer) (overlook-agent--row buffer project depth children))
+      (`(saved . ,saved) (overlook-agent--saved-row saved project depth children)))))
 
 (defun overlook-agent--item-root (item)
   "Folder ITEM, an (agent . BUFFER) or (saved . SAVED), works in."
@@ -968,17 +968,17 @@ DRAWN, a list in a cons, collects the items given rows, so none is twice."
     (`(agent . ,buffer) (overlook-agent-get buffer 'root))
     (`(saved . ,saved) (alist-get 'root saved))))
 
-(defun overlook-agent--rows (perspective &optional dir)
-  "Rows of the agents listed under PERSPECTIVE, then of those saved there.
+(defun overlook-agent--rows (project &optional dir)
+  "Rows of the agents listed under PROJECT, then of those saved there.
 Forks sit under the agent they were forked from when it is listed there
-too.  Under `overlook-orphans-perspective', those in none follow.  With
+too.  Under `overlook-orphans-project', those in none follow.  With
 DIR, a worktree, only those working in it; else those in none of
-PERSPECTIVE's worktrees."
+PROJECT's worktrees."
   (overlook-agent--note-forks)
-  (let* ((perspectives (if (equal perspective (overlook-orphans-perspective))
-                           (list perspective nil)
-                         (list perspective)))
-         (worktrees (if dir (list dir) (overlook-worktrees perspective)))
+  (let* ((projects (if (equal project (overlook-orphans-project))
+                           (list project nil)
+                         (list project)))
+         (worktrees (if dir (list dir) (overlook-worktrees project)))
          (items (seq-filter
                  (lambda (item)
                    (and (equal (overlook-worktree-of (overlook-agent--item-root item) worktrees)
@@ -987,11 +987,11 @@ PERSPECTIVE's worktrees."
                  (append (mapcar (lambda (buffer) (cons 'agent buffer))
                                  (overlook-agent-buffers
                                   (lambda (buffer)
-                                    (member (overlook-agent-perspective buffer) perspectives))))
+                                    (member (overlook-agent-project buffer) projects))))
                          (mapcar (lambda (saved) (cons 'saved saved))
                                  (seq-filter (lambda (saved)
-                                               (member (overlook-agent--saved-perspective saved)
-                                                       perspectives))
+                                               (member (overlook-agent--saved-project saved)
+                                                       projects))
                                              overlook-agent-saved)))))
          (sessions (delq nil (mapcar #'overlook-agent--item-session items)))
          (drawn (list nil))
@@ -1000,13 +1000,13 @@ PERSPECTIVE's worktrees."
                                        (member (overlook-agent--parent
                                                 (overlook-agent--item-session item))
                                                sessions))
-                             (overlook-agent--tree item items perspective 0 drawn)))
+                             (overlook-agent--tree item items project 0 drawn)))
                          items)))
     (append rows
             ;; Left over only when the forks recorded form a loop.
             (seq-keep (lambda (item)
                         (unless (memq item (car drawn))
-                          (overlook-agent--tree item items perspective 0 drawn)))
+                          (overlook-agent--tree item items project 0 drawn)))
                       items))))
 
 (defun overlook-agent--mode-line ()

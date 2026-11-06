@@ -162,7 +162,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                  (agent (seq-find (lambda (a) (equal (alist-get 'id a) "claude@shop"))
                                   (alist-get 'agents data))))
       (should (= status 200))
-      (should (equal (alist-get 'project agent) "shop"))
+      (should (equal (alist-get 'folder agent) "shop"))
       (should (equal (alist-get 'status agent) "idle"))
       (should (equal (mapcar (lambda (c) (alist-get 'key c)) (alist-get 'choices agent))
                      '("y" "n"))))))
@@ -281,14 +281,14 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
 (defmacro overlook-remote-test-with-dashboard (&rest body)
   "Run BODY with the agent of `overlook-remote-test-with-agent' under \"shop\"."
   (declare (indent 0))
-  `(let ((overlook-perspectives-function (lambda () '("shop")))
-         (overlook-current-perspective-function (lambda () "shop"))
-         (overlook-perspective-buffers-function (lambda (_) (list agent)))
-         (overlook-perspective-root-function (lambda (_) "/work/shop/"))
-         (overlook-perspective-functions nil)
+  `(let ((overlook-projects-function (lambda () '("shop")))
+         (overlook-current-project-function (lambda () "shop"))
+         (overlook-project-buffers-function (lambda (_) (list agent)))
+         (overlook-project-root-function (lambda (_) "/work/shop/"))
+         (overlook-project-functions nil)
          (overlook-worktrees-functions nil)
          (overlook-worktree-functions (list #'overlook-agent--rows))
-         (overlook-sections (list #'overlook--perspectives-section)))
+         (overlook-sections (list #'overlook--projects-section)))
      ,@body))
 
 (defun overlook-remote-test--text (node)
@@ -304,7 +304,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                    (`(,shop) (alist-get 'children section))
                    (`(,row) (alist-get 'children shop)))
         (should (= status 200))
-        (should (equal (overlook-remote-test--text section) "Perspectives"))
+        (should (equal (overlook-remote-test--text section) "Projects"))
         (should (eq (alist-get 'heading section) t))
         (should (equal (alist-get 'styles (car (alist-get 'spans section))) '("section")))
         (should (equal (overlook-remote-test--text shop) "shop"))
@@ -588,7 +588,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
              (overlook-remote--dashboard nil)
              (overlook-remote--versions nil)
              (overlook-sections
-              (list #'overlook--perspectives-section
+              (list #'overlook--projects-section
                     (lambda ()
                       (overlook-section-row
                        "Notes"
@@ -671,7 +671,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
     (overlook-remote-test-with-dashboard
       (let* ((overlook-remote--dashboard nil)
              (overlook-remote--versions nil)
-             (overlook-sections (list #'overlook--perspectives-section
+             (overlook-sections (list #'overlook--projects-section
                                       (lambda () (overlook-section-row
                                                   "Notes" (list (overlook-row :content "steady"))))))
              (full (cdr (overlook-remote-test--call "GET" "/overlook/api/dashboard")))
@@ -680,12 +680,12 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (with-current-buffer agent (setq overlook-agent-status 'waiting))
         (let* ((news (cdr (overlook-remote-test--call "GET" "/overlook/api/dashboard" nil nil
                                                       `(("known" ,(alist-get 'known full))))))
-               (perspectives (car (alist-get 'sections news))))
+               (projects (car (alist-get 'sections news))))
           ;; The section that did not change goes by its hash, the other in full.
           (should (equal (overlook-remote-test--same (alist-get 'sections news))
                          (list (alist-get 'hash notes))))
-          (should (equal (overlook-remote-test--text perspectives) "Perspectives"))
-          (should-not (equal (alist-get 'hash perspectives)
+          (should (equal (overlook-remote-test--text projects) "Projects"))
+          (should-not (equal (alist-get 'hash projects)
                              (alist-get 'hash (car (alist-get 'sections full)))))
           ;; A page knowing a dashboard long gone gets all of it.
           (should-not (overlook-remote-test--same

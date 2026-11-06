@@ -624,14 +624,14 @@ SESSION resumes the session of that id.  It starts at the reasoning effort
                         :session-strategy (and fresh 'new)
                         :session-id session)))
 
-(defun overlook-agent-shell--new-command (perspective)
-  "A command starting an agent in PERSPECTIVE's root, on an engine picked."
-  (when-let* ((root (overlook-perspective-root perspective)))
+(defun overlook-agent-shell--new-command (project)
+  "A command starting an agent in PROJECT's root, on an engine picked."
+  (when-let* ((root (overlook-project-root project)))
     (list (list :name "new-agent" :label "New agent"
                 :options (mapcar #'car overlook-agent-shell-configs)
                 :run (lambda (name)
                        (let ((buffer (overlook-agent--launch name root nil t)))
-                         (overlook-add-to-perspective perspective buffer)
+                         (overlook-add-to-project project buffer)
                          buffer))))))
 
 ;;;###autoload
@@ -658,7 +658,7 @@ Works from an agent shell or its dashboard row."
                      (cl-remove from (mapcar #'car overlook-agent-shell-configs) :test #'equal)
                      nil t)))
           (overlook-show-elsewhere
-           (overlook-agent-perspective source)
+           (overlook-agent-project source)
            (lambda ()
              (let ((target (overlook-agent-shell-start name root t)))
                (agent-shell-insert :text (format overlook-agent-shell-handoff-prompt
@@ -703,7 +703,7 @@ other MCP calls asked for permission showing only their tool name."
         (add-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
         (add-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
         (add-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
-        (add-hook 'overlook-perspective-command-functions #'overlook-agent-shell--new-command)
+        (add-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
         (setq overlook-agent-start-function #'overlook-agent-shell-start)
         (dolist (buffer (buffer-list))
           (with-current-buffer buffer
@@ -714,7 +714,7 @@ other MCP calls asked for permission showing only their tool name."
     (remove-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
     (remove-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
     (remove-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
-    (remove-hook 'overlook-perspective-command-functions #'overlook-agent-shell--new-command)
+    (remove-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
     (setq overlook-agent-start-function nil)))
 
 (overlook-define-key "H" #'overlook-agent-shell-handoff)
