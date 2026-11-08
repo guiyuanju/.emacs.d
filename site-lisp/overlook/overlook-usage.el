@@ -62,9 +62,61 @@
 (defcustom overlook-usage-accounts nil
   "Accounts behind usage rows named without one, keyed by row name.
 Like ((\"claude\" . \"work\") (\"codex\" . \"home\")); a row's account
-is drawn by its label in `overlook-account-labels'."
+is drawn by its label in `overlook-account-labels'.  A row not listed
+shows the account `overlook-usage-login-functions' finds."
   :type '(alist :key-type string :value-type string)
   :group 'overlook)
+
+(defcustom overlook-usage-login-functions
+  '(("claude" . overlook-usage-claude-login) ("codex" . overlook-usage-codex-login))
+  "Functions naming the account a usage row's agent is logged in as.
+Keyed by row name.
+They are asked for rows without an account in `overlook-usage-accounts'."
+  :type '(alist :key-type string :value-type function)
+  :group 'overlook)
+
+(defvar overlook-usage--json-cache nil
+  "Alist of each file read by `overlook-usage--read-json' to (MTIME . JSON).")
+
+(defun overlook-usage--read-json (file)
+  "FILE parsed as JSON alists, re-read only when it changes; nil if unreadable."
+  (when-let* ((mtime (file-attribute-modification-time (file-attributes file))))
+    (let ((cached (alist-get file overlook-usage--json-cache nil nil #'equal)))
+      (if (equal (car cached) mtime)
+          (cdr cached)
+        (let ((json (ignore-errors
+                      (with-temp-buffer
+                        (insert-file-contents file)
+                        (json-parse-buffer :object-type 'alist :null-object nil)))))
+          (setf (alist-get file overlook-usage--json-cache nil nil #'equal) (cons mtime json))
+          json)))))
+
+(defun overlook-usage--email-name (email)
+  "The part of EMAIL before @, or nil."
+  (and (stringp email) (car (split-string email "@"))))
+
+(defun overlook-usage-claude-login ()
+  "The account Claude Code is logged in as, from its config file."
+  (overlook-usage--email-name
+   (let-alist (overlook-usage--read-json
+               (expand-file-name ".claude.json" (or (getenv "CLAUDE_CONFIG_DIR") "~")))
+     .oauthAccount.emailAddress)))
+
+(defun overlook-usage-codex-login ()
+  "The account Codex is logged in as, from the ID token in its auth file."
+  (when-let* ((token (let-alist (overlook-usage--read-json
+                                 (expand-file-name "auth.json" (or (getenv "CODEX_HOME") "~/.codex")))
+                       .tokens.id_token))
+              (payload (cadr (split-string token "\\."))))
+    (overlook-usage--email-name
+     (ignore-errors
+       (alist-get 'email
+                  (json-parse-string
+                   (decode-coding-string
+                    (base64-decode-string (concat payload (make-string (% (- 4 (% (length payload) 4)) 4) ?=))
+                                          t)
+                    'utf-8)
+                   :object-type 'alist))))))
 
 (defcustom overlook-usage-functions '(overlook-usage-claude overlook-usage-codex)
   "Functions returning an agent's plan usage, shown on the dashboard.
@@ -256,13 +308,16 @@ It turns `warning' from `overlook-usage-warning'."
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties.
 In a NAME like \"claude @home\", the agent's name before \" @\" is drawn
 by its icon and the account as `overlook-account-name' draws it.  So is
-the account `overlook-usage-accounts' gives."
+the account `overlook-usage-accounts' gives, else the one it is logged in as."
   (let* ((at (string-search " @" name))
          (agent (if at (substring name 0 at) name))
          (account (if at
                       (substring-no-properties name (+ at 2))
-                    (alist-get (substring-no-properties name) overlook-usage-accounts
-                               nil nil #'equal))))
+                    (let ((row (substring-no-properties name)))
+                      (or (alist-get row overlook-usage-accounts nil nil #'equal)
+                          (when-let* ((login (alist-get row overlook-usage-login-functions
+                                                        nil nil #'equal)))
+                            (funcall login)))))))
     (concat (overlook-icon agent)
             (and account (concat " " (overlook-account-name account))))))
 
@@ -272,8 +327,8 @@ A window past its reset counts as empty, and a row with no windows is
 left out; anything the agent ever reported stays listed.  A row whose
 name carries `overlook-action' runs it when the line is visited.
 Columns are as wide as their widest entry, and the bars take what the
-window has left; where that is too little, each window takes a line of
-its own, under the first."
+window has left, up to 20 columns; where that is too little, each window
+takes a line of its own, under the first, and its bar fills the line."
   (let* ((now (float-time))
          (rows (mapcar (lambda (row)
                          (cons (car row)
@@ -308,7 +363,7 @@ its own, under the first."
          ;; Measured as drawn, so once the first row is drawn.
          (name-width nil)
          ;; Windows are 3 columns apart, and the row leaves 1 at its end;
-         ;; bars shorter than 8 to share a line get a line each.
+         ;; bars shorter than 8 to share a line get a line each, filling it.
          (bar (lambda (columns)
                 (max 4 (- text-width fixed)
                      (if (not columns)
@@ -318,7 +373,9 @@ its own, under the first."
                                          (apply #'max 0 (mapcar #'overlook-string-columns
                                                                 shown)))))
                               (shared (- (/ (- room (* (1- count) 3)) count) fixed)))
-                         (min 20 (if (>= shared 8) shared (- room fixed)))))))))
+                         (if (and (> count 1) (>= shared 8))
+                             (min 20 shared)
+                           (- room fixed))))))))
     (cl-loop
      for (name . windows) in rows
      for icon in shown

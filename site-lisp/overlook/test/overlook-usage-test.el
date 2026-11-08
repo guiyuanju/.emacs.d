@@ -3,6 +3,9 @@
 (require 'ert)
 (require 'overlook-usage)
 
+;; Rows stay unlabelled unless a test names an account; the machine's own logins are not read.
+(setq overlook-usage-login-functions nil)
+
 (defun overlook-usage-test--set-file (file text)
   "Write TEXT to FILE."
   (write-region text nil file nil 'silent))
@@ -71,8 +74,28 @@
               (should (equal (overlook-usage--label "claude @home") "C H"))
               (should (equal (overlook-usage--label "claude") "C W"))
               (should (equal (overlook-usage--label "codex") "codex")))
-            (let ((overlook-usage-accounts '(("claude" . "work"))))
-              (should (equal (overlook-usage--label "claude") "C @wor")))))
+            (let ((overlook-usage-accounts '(("claude" . "work")))
+                  (overlook-usage-login-functions '(("claude" . (lambda () "login")))))
+              (should (equal (overlook-usage--label "claude") "C @wor")))
+            (let ((overlook-usage-login-functions '(("claude" . (lambda () "login")))))
+              (should (equal (overlook-usage--label "claude") "C @log")))))
+      (delete-directory dir t))))
+
+(ert-deftest overlook-usage-logins-come-from-the-agents-files ()
+  (let* ((dir (make-temp-file "overlook-usage" t))
+         (overlook-usage--json-cache nil)
+         (payload (base64url-encode-string "{\"email\":\"home@example.com\"}" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".claude.json" dir)
+            (insert "{\"oauthAccount\":{\"emailAddress\":\"work@example.com\"}}"))
+          (with-temp-file (expand-file-name "auth.json" dir)
+            (insert (format "{\"tokens\":{\"id_token\":\"h.%s.s\"}}" payload)))
+          (with-environment-variables (("CLAUDE_CONFIG_DIR" dir) ("CODEX_HOME" dir))
+            (should (equal (overlook-usage-claude-login) "work"))
+            (should (equal (overlook-usage-codex-login) "home")))
+          (with-environment-variables (("CLAUDE_CONFIG_DIR" (expand-file-name "none" dir)))
+            (should-not (overlook-usage-claude-login))))
       (delete-directory dir t))))
 
 (ert-deftest overlook-usage-row-action-reaches-line-start ()
@@ -158,6 +181,17 @@
         (should (equal (get-text-property 0 'display second)
                        `(space :width (,(string-search "5h" first)))))
         (should (string-prefix-p " 7d" second))))))
+
+(ert-deftest overlook-usage-window-on-a-line-of-its-own-fills-it ()
+  (with-temp-buffer
+    (let ((overlook-usage--rows
+           (list (list "claude" (list "5h" 43 (+ (float-time) 66000))
+                       (list "7d" 50 (+ (float-time) 902000))))))
+      (cl-letf (((symbol-function 'overlook-columns) (lambda () 50)))
+        (overlook-insert-rows (overlook-usage--dashboard-rows)))
+      (let ((first (car (split-string (buffer-string) "\n" t))))
+        (should-not (string-search "7d" first))
+        (should (= (string-width first) 49))))))
 
 (provide 'overlook-usage-test)
 
