@@ -64,8 +64,16 @@
   :group 'overlook-courier)
 
 (defconst overlook-courier-persona-fields
-  '(engine effort directory description avatar personality tone memory)
-  "Fields persona.md's front matter may set.")
+  '(engine effort directory description avatar personality tone memory backend model tools)
+  "Fields persona.md's front matter may set.
+backend, model and tools are for the engines in
+`overlook-courier-persona-engines'.")
+
+(defvar overlook-courier-persona-engines nil
+  "Alist of engines that are no agent program to functions starting personas.
+The function takes the persona, a plist from `overlook-courier-persona',
+the task or nil, and the id of the agent starting it or nil; it
+registers the persona with courier under its name.")
 
 (defconst overlook-courier-persona-reserved '("all" "user")
   "Names rooms give other meanings, which no persona may have.")
@@ -182,16 +190,19 @@ is ready."
   (let* ((persona (or (overlook-courier-persona name) (user-error "No persona %s" name)))
          (engine (or engine (plist-get persona :engine)
                      (user-error "Persona %s names no engine" name))))
-    (when (overlook-courier-persona-remembers-p persona)
-      (make-directory (overlook-courier-persona-memory persona) t))
-    (let* ((briefing (overlook-courier-persona-briefing persona engine))
-           (id (overlook-courier-spawn engine (or directory (overlook-courier-persona-directory persona))
-                              (unless wait
-                                (concat briefing "\n\n"
-                                        (or task "Say in one line that you are ready.")))
-                              from (or effort (plist-get persona :effort)) name)))
-      (when wait (overlook-courier-note id briefing))
-      id)))
+    (when (overlook-courier-agent name) (user-error "%s is running already" name))
+    (if-let* ((start (cdr (assoc engine overlook-courier-persona-engines))))
+        (progn (funcall start persona task from) name)
+      (when (overlook-courier-persona-remembers-p persona)
+        (make-directory (overlook-courier-persona-memory persona) t))
+      (let* ((briefing (overlook-courier-persona-briefing persona engine))
+             (id (overlook-courier-spawn engine (or directory (overlook-courier-persona-directory persona))
+                                         (unless wait
+                                           (concat briefing "\n\n"
+                                                   (or task "Say in one line that you are ready.")))
+                                         from (or effort (plist-get persona :effort)) name)))
+        (when wait (overlook-courier-note id briefing))
+        id))))
 
 (defun overlook-courier-persona--start-offline (id from)
   "Start persona ID, which FROM is messaging, to take the message; or nil."

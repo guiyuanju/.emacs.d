@@ -241,6 +241,32 @@ resumes the agent in a later Emacs, and refuses to resume a persona's
 session while another agent runs that persona.  A persona named in a
 post that fails to start is left out; the others still get the post.
 
+### Personas on gptel
+
+A persona with `engine: gptel` (`overlook-courier-gptel.el`) runs no agent
+program: each prompt is one gptel request with the persona's body as the
+system prompt, no earlier exchange, and only the gptel tools it names.  A
+persona asked often so costs no agent's system prompt and no growing
+context.
+
+```markdown
+---
+engine: gptel
+backend: DeepSeek          # registered with gptel
+model: deepseek-v4-flash
+tools: jp_search, jp_add   # names in gptel's tool registry
+memory: off
+---
+```
+
+Its buffer, `*NAME*`, visits `NAME.md` in
+`overlook-courier-gptel-history-directory`, every exchange appended and
+never sent back.  `M-x overlook-courier-gptel-ask` asks it about the region
+or typed text, starting it if needed; `C-c C-c` in its buffer asks, `C-c
+C-k` stops the request.  Courier delivers messages to it like to any agent,
+though it cannot `courier send` back.  Other engines that are no agent
+program register a start function in `overlook-courier-persona-engines`.
+
 ## For frontends
 
 Courier knows no agent program.  A frontend registers each agent and
