@@ -70,8 +70,9 @@ is drawn by its label in `overlook-account-labels'."
   "Functions returning an agent's plan usage, shown on the dashboard.
 Each returns (NAME . WINDOWS), a list of them, or nil when it knows
 none.  WINDOWS lists (LABEL PERCENT RESETS-AT), like (\"5h\" 42
-1790963218); RESETS-AT is seconds since the epoch, or nil.  PERCENT may
-instead be a formatted string for a metric without a bar."
+1790963218); RESETS-AT is seconds since the epoch, or nil, or a string
+drawn in place of the countdown.  PERCENT may instead be a formatted
+string for a metric without a bar."
   :type '(repeat function)
   :group 'overlook)
 
@@ -287,7 +288,10 @@ its own, under the first."
          (texts (seq-filter (lambda (window) (stringp (nth 1 window))) windows))
          (meters (seq-remove (lambda (window) (stringp (nth 1 window))) windows))
          (countdown (lambda (window)
-                      (if (nth 2 window) (overlook-format-duration (- (nth 2 window) now)) "")))
+                      (let ((resets (nth 2 window)))
+                        (cond ((stringp resets) resets)
+                              (resets (overlook-format-duration (- resets now)))
+                              (t "")))))
          (label-width (apply #'max 0 (mapcar (lambda (window) (string-width (car window))) meters)))
          (countdown-width (apply #'max 0 (mapcar (lambda (window)
                                                    (string-width (funcall countdown window)))
@@ -346,10 +350,10 @@ its own, under the first."
                                        'face (if (>= percentage overlook-usage-warning)
                                                  'warning
                                                'default))
-                           (propertize (concat " " (string-pad (funcall countdown
-                                                                        (list label percentage resets))
-                                                               countdown-width))
-                                       'face 'shadow))))
+                           (let ((text (concat " " (string-pad (funcall countdown
+                                                                         (list label percentage resets))
+                                                                countdown-width))))
+                             (if (stringp resets) text (propertize text 'face 'shadow))))))
                windows)
               :gap 3)))))))))
 

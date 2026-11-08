@@ -1,4 +1,4 @@
-;;; overlook-usage-deepseek.el --- DeepSeek balance and observed account spending -*- lexical-binding: t; -*-
+;;; overlook-usage-deepseek.el --- DeepSeek balance -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
@@ -24,8 +24,8 @@
 ;;; Commentary:
 
 ;; A DeepSeek row in the dashboard's Usage section: the account balance
-;; from /user/balance, and today's spending estimated from the balance
-;; decreases observed.  Loading this file adds the row; it shows once
+;; from /user/balance, with a bar of how much of the balance after the
+;; last top-up is spent.  Loading this file adds the row; it shows once
 ;; `overlook-usage-deepseek-api-key' is set.  The key is sent to curl on
 ;; stdin, never in argv.
 
@@ -41,7 +41,7 @@
 
 (defcustom overlook-usage-deepseek-state-file
   (locate-user-emacs-file "overlook-deepseek-spending.json")
-  "File keeping today's observed DeepSeek balances across restarts."
+  "File keeping the DeepSeek balance after the last top-up across restarts."
   :type 'file
   :group 'overlook)
 
@@ -78,67 +78,54 @@
                   (insert-file-contents overlook-usage-deepseek-state-file)
                   (let ((data (json-parse-buffer :object-type 'alist :array-type 'list)))
                     (when (and (equal (alist-get 'key data) key)
-                               (stringp (alist-get 'day data))
-                               (numberp (alist-get 'since data))
                                (seq-every-p
-                                (lambda (row)
-                                  (and (member (alist-get 'currency row) '("CNY" "USD"))
-                                       (numberp (alist-get 'last row))
-                                       (numberp (alist-get 'spent row))
-                                       (>= (alist-get 'spent row) 0)))
-                                (alist-get 'rows data)))
+                                (lambda (top)
+                                  (and (member (alist-get 'currency top) '("CNY" "USD"))
+                                       (numberp (alist-get 'peak top))
+                                       (numberp (alist-get 'last top))))
+                                (alist-get 'tops data)))
                       data)))
               (error nil))))))
 
-(defun overlook-usage-deepseek--record (balance &optional time)
-  "Record BALANCE at TIME; accumulate decreases within the local day.
-Increases establish a new baseline without erasing observed spending.
-The first sample of each day starts at zero: overnight gaps are not billed
-entirely to the new day.  Recharge and expiry make this only an estimate."
-  (overlook-usage-deepseek--load-state)
-  (let* ((now (or time (float-time)))
-         (day (format-time-string "%F" now))
-         (same-day (equal day (alist-get 'day overlook-usage-deepseek--state)))
-         (old (and same-day (alist-get 'rows overlook-usage-deepseek--state)))
-         (rows
-          (mapcar
-           (lambda (pair)
-             (let* ((currency (car pair))
-                    (value (string-to-number (cdr pair)))
-                    (previous (seq-find
-                               (lambda (row) (equal currency (alist-get 'currency row))) old)))
-               `((currency . ,currency) (last . ,value)
-                 (spent . ,(+ (or (alist-get 'spent previous) 0)
-                              (if previous
-                                  (max 0 (- (alist-get 'last previous) value)) 0))))))
-           balance)))
-    (setq overlook-usage-deepseek--state
-          `((key . ,overlook-usage-deepseek--loaded-key) (day . ,day)
-            (since . ,(if same-day (alist-get 'since overlook-usage-deepseek--state) now))
-            (rows . ,rows)))
-    (let* ((dir (file-name-directory overlook-usage-deepseek-state-file))
-           (temporary nil))
-      (make-directory dir t)
-      (unwind-protect
-          (progn
-            (setq temporary (make-temp-file (expand-file-name ".deepseek-" dir)))
-            (with-temp-file temporary
-              (insert (json-encode overlook-usage-deepseek--state)))
-            (rename-file temporary overlook-usage-deepseek-state-file t))
-        (when (and temporary (file-exists-p temporary)) (delete-file temporary))))))
+(defun overlook-usage-deepseek--top (currency)
+  "The recorded peak and last balance of CURRENCY, or nil."
+  (seq-find (lambda (top) (equal currency (alist-get 'currency top)))
+            (alist-get 'tops overlook-usage-deepseek--state)))
 
-(defun overlook-usage-deepseek--today ()
-  "Format today's observed account spending in the balance currency."
+(defun overlook-usage-deepseek--spent-percent (currency balance)
+  "Percentage of CURRENCY's peak spent down to BALANCE, a decimal string."
+  (let ((value (string-to-number balance))
+        (peak (alist-get 'peak (overlook-usage-deepseek--top currency))))
+    (cond ((not (and peak (> peak 0))) (if (> value 0) 0 100))
+          (t (min 100 (max 0 (* 100 (- 1 (/ value (float peak))))))))))
+
+(defun overlook-usage-deepseek--record (balance)
+  "Record BALANCE, keeping each currency's balance after the last increase.
+An increase is taken for a top-up; credit expiry makes this an estimate."
   (overlook-usage-deepseek--load-state)
-  (if (and (equal (format-time-string "%F") (alist-get 'day overlook-usage-deepseek--state))
-           (alist-get 'rows overlook-usage-deepseek--state))
-      (concat
-       (mapconcat (lambda (row)
-                    (format "~%s%.4f" (if (equal (alist-get 'currency row) "CNY") "¥" "$")
-                            (alist-get 'spent row)))
-                  (alist-get 'rows overlook-usage-deepseek--state) " / ")
-       (if overlook-usage-deepseek--error " stale" ""))
-    "?"))
+  (setq overlook-usage-deepseek--state
+        `((key . ,overlook-usage-deepseek--loaded-key)
+          (tops . ,(mapcar
+                    (lambda (pair)
+                      (let* ((currency (car pair))
+                             (value (string-to-number (cdr pair)))
+                             (top (overlook-usage-deepseek--top currency)))
+                        `((currency . ,currency)
+                          (peak . ,(if (or (null top) (> value (alist-get 'last top)))
+                                       value
+                                     (alist-get 'peak top)))
+                          (last . ,value))))
+                    balance))))
+  (let* ((dir (file-name-directory overlook-usage-deepseek-state-file))
+         (temporary nil))
+    (make-directory dir t)
+    (unwind-protect
+        (progn
+          (setq temporary (make-temp-file (expand-file-name ".deepseek-" dir)))
+          (with-temp-file temporary
+            (insert (json-encode overlook-usage-deepseek--state)))
+          (rename-file temporary overlook-usage-deepseek-state-file t))
+      (when (and temporary (file-exists-p temporary)) (delete-file temporary)))))
 
 (defun overlook-usage-deepseek--parse-balance (data)
   "Validate DATA and return currency/balance pairs, preserving decimal strings."
@@ -199,36 +186,28 @@ entirely to the new day.  Recharge and expiry make this only an estimate."
     t))
 
 (defun overlook-usage-deepseek-usage ()
-  "Return account balance and observed account spending."
+  "Return the account balance, a bar per currency."
   (when (overlook-usage-deepseek--key)
-    (list (propertize "deepseek"
+    (cons (propertize "deepseek"
                       'overlook-action #'overlook-usage-deepseek-open-usage
                       'help-echo "RET opens DeepSeek's usage page")
-          (list "balance"
-                (propertize
-                 (if overlook-usage-deepseek--balance
-                     (concat
-                      (mapconcat (lambda (row)
-                                   (concat (if (equal (car row) "CNY") "¥" "$")
-                                           (cdr row)))
-                                 overlook-usage-deepseek--balance " / ")
-                      (if overlook-usage-deepseek--error " stale" ""))
-                   (if overlook-usage-deepseek--error "unavailable" "loading"))
-                 'face (if overlook-usage-deepseek--error 'warning 'default)
-                 'help-echo "DeepSeek account balance; refreshed every 5 minutes. stale means the last refresh failed.")
-                nil)
-          (list "today"
-                (propertize
-                 (overlook-usage-deepseek--today)
-                 'face (if overlook-usage-deepseek--error 'warning 'default)
-                 'help-echo
-                 (concat "Observed account balance decreases today, from every client using the account. Refreshed at most every 5 minutes; local timezone. Estimate only: top-ups can hide spending, credit expiry can look like spending. "
-                         (if (and (alist-get 'since overlook-usage-deepseek--state)
-                                  (equal (format-time-string "%F") (alist-get 'day overlook-usage-deepseek--state)))
-                             (format "Tracked since %s; earlier spending is excluded."
-                                     (format-time-string "%H:%M" (alist-get 'since overlook-usage-deepseek--state)))
-                           "Waiting for today's first balance sample.")))
-                nil))))
+          (if overlook-usage-deepseek--balance
+              (progn
+                (overlook-usage-deepseek--load-state)
+                (mapcar
+                 (pcase-lambda (`(,currency . ,amount))
+                   (list (if (equal currency "CNY") "¥" "$")
+                         (overlook-usage-deepseek--spent-percent currency amount)
+                         (propertize
+                          (concat amount (if overlook-usage-deepseek--error " stale" ""))
+                          'face (if overlook-usage-deepseek--error 'warning 'shadow)
+                          'help-echo "DeepSeek account balance; the bar is how much of the balance after the last top-up is spent. Refreshed every 5 minutes; stale means the last refresh failed.")))
+                 overlook-usage-deepseek--balance))
+            (list (list "balance"
+                        (propertize (if overlook-usage-deepseek--error "unavailable" "loading")
+                                    'face (if overlook-usage-deepseek--error 'warning 'shadow)
+                                    'help-echo "DeepSeek account balance; refreshed every 5 minutes.")
+                        nil))))))
 
 (add-to-list 'overlook-usage-functions #'overlook-usage-deepseek-usage t)
 (overlook-usage-add-poller #'overlook-usage-deepseek--fetch)
