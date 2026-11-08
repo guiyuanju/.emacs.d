@@ -142,11 +142,15 @@ Symlinks are resolved first, so a link into a project folder finds it."
 
 (defun iuiw-workspace--projects ()
   "Alist of project id to project.md across the workspaces.
-Globbed again only when the workspace root or a projects/ folder changes."
+Globbed again only when the workspace root, a projects/ folder or a
+project folder changes."
   (let* ((base (iuiw-workspace--base))
          (stamp (cons base (iuiw-workspace--mtimes
-                            (cons base (mapcar (lambda (dir) (expand-file-name "projects/" dir))
-                                               (directory-files base t "\\`[^.]")))))))
+                            (append (list base)
+                                    (mapcar (lambda (dir) (expand-file-name "projects/" dir))
+                                            (directory-files base t "\\`[^.]"))
+                                    (file-expand-wildcards
+                                     (expand-file-name "*/projects/*/" base)))))))
     (iuiw-workspace--cached
      'projects stamp
      (lambda ()
