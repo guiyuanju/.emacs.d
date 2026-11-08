@@ -507,6 +507,7 @@
     "at" '(iuiw-assistant-translate :which-key "translate")
     "as" '(iuiw-assistant-summarize :which-key "summarize")
     "ar" '(iuiw-assistant-run :which-key "assistant task")
+    "aj" '(overlook-courier-gptel-ask :which-key "ask jp")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -1200,6 +1201,16 @@
   ;; 没有 agent 跟进的事件（CI 等）交给 router 人设分派。
   (overlook-courier-room-publish-fallback "router"))
 
+;; engine 为 gptel 的人设（如 jp）不跑 agent：每问一次发一个独立请求，不带历史。
+(use-package overlook-courier-gptel
+  :ensure nil
+  :load-path "site-lisp/overlook"
+  :after overlook-courier-persona
+  :demand t
+  :commands overlook-courier-gptel-ask
+  :custom
+  (overlook-courier-gptel-history-directory (expand-file-name "courier-gptel/" iuiw-state-directory)))
+
 ;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
 (use-package circe :defer t)
 
@@ -1366,6 +1377,12 @@
 
 (use-package gptel
   :defer t)
+
+;; 人设 jp 的工具（查、记 jp-notes）和 DeepSeek 后端。
+(use-package iuiw-jp
+  :ensure nil
+  :after gptel
+  :demand t)
 
 (use-package iuiw-erpg
   :ensure nil
