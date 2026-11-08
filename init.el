@@ -912,6 +912,9 @@
 (use-package prism
   :commands prism-mode)
 
+(use-package package-lint
+  :commands (package-lint-current-buffer package-lint-buffer))
+
 (use-package devdocs
   :commands (devdocs-lookup devdocs-install devdocs-peruse)
   :hook (prog-mode . iuiw-devdocs-set-docs))
