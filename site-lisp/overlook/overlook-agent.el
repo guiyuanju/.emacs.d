@@ -78,7 +78,8 @@ frontend can.")
     (failed "✖" error)
     (done "●" success)
     (idle "○" shadow))
-  "Glyph and face for each `overlook-agent-status'."
+  "Glyph and face for each `overlook-agent-status'.
+The dashboard draws an agent's icon in the face; completion shows the glyph."
   :type '(alist :key-type symbol :value-type (list string face))
   :group 'overlook)
 
@@ -786,9 +787,21 @@ the duration ends a column before it, so both line up across agents."
 
 (define-obsolete-function-alias 'overlook-agent-label #'overlook-icon "0.2.0")
 
+(defun overlook-agent-status-face (status)
+  "Face of agent STATUS from `overlook-agent-status-glyphs', bold when waiting."
+  (let ((face (cadr (alist-get status overlook-agent-status-glyphs))))
+    (if (eq status 'waiting) (list 'bold face) face)))
+
 (defun overlook-agent--name-label (buffer)
-  "Agent BUFFER's icon from `overlook-agent-icons', else its name."
-  (overlook-icon (or (overlook-agent-get buffer 'agent) "agent")))
+  "Agent BUFFER's icon from `overlook-agent-icons', else its name.
+It is drawn in the face of the agent's status, which it stands for."
+  (overlook-icon (propertize (or (overlook-agent-get buffer 'agent) "agent")
+                             'face (overlook-agent-status-face
+                                    (buffer-local-value 'overlook-agent-status buffer)))))
+
+(defun overlook-agent--failed-label (status)
+  "A mark naming a failed STATUS, which shares its color with waiting."
+  (if (eq status 'failed) (propertize " failed" 'face 'error) ""))
 
 (defun overlook-agent--title (buffer)
   "Agent BUFFER's session title, as its frontend says, on one line, or nil."
@@ -801,7 +814,7 @@ the duration ends a column before it, so both line up across agents."
 (defun overlook-agent--title-label (title)
   "TITLE cut to `overlook-agent-title-width', or an empty string."
   (if title
-      (concat " " (truncate-string-to-width title overlook-agent-title-width nil nil "…"))
+      (concat " " (overlook-truncate title overlook-agent-title-width))
     ""))
 
 (defun overlook-agent--project-label (root project)
@@ -906,8 +919,8 @@ line of their own under it."
     (overlook-row
      :id (cons 'agent buffer)
      :content (list (overlook-agent--tree-prefix depth)
-                    (overlook-glyph-cell (overlook-agent-glyph buffer))
                     (overlook-agent--name-label buffer)
+                    (overlook-agent--failed-label status)
                     (string-join (delq nil (mapcar (lambda (fn) (funcall fn buffer))
                                                    overlook-agent-row-marks)))
                     (overlook-agent--title-label title)
@@ -945,9 +958,8 @@ CHILDREN are the rows of its forks."
     (overlook-row
      :id (cons 'saved saved)
      :content (list (overlook-agent--tree-prefix depth)
-                    (overlook-glyph-cell (overlook-agent-idle-glyph))
-                    (propertize (concat (alist-get 'agent saved) " saved"
-                                        (overlook-agent--title-label title))
+                    (overlook-icon (propertize (alist-get 'agent saved) 'face 'shadow))
+                    (propertize (concat " saved" (overlook-agent--title-label title))
                                 'face 'shadow)
                     (overlook-agent--fork-label session depth)
                     (overlook-agent--project-label (alist-get 'root saved) project)

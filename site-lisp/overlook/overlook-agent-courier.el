@@ -225,19 +225,28 @@ With DIM, its name is dimmed; unread posts still stand out."
                                         :confirm (overlook-agent-courier--close-question name)
                                         :run (lambda () (overlook-courier-room-close name)))))))
 
+(defun overlook-agent-courier--persona-icon-name (persona)
+  "Name of PERSONA's icon in `overlook-agent-icons'.
+Its backend's, when that has an icon, else its engine's."
+  (let ((backend (plist-get persona :backend)))
+    (if (and backend (alist-get (downcase backend) overlook-agent-icons nil nil #'equal))
+        (downcase backend)
+      (or (plist-get persona :engine) "?"))))
+
 (defun overlook-agent-courier--persona-row (name)
-  "The row of persona NAME: whether it runs, its engine's icon, its name."
+  "The row of persona NAME: its model's icon, colored by its status, and its name."
   (let* ((persona (overlook-courier-persona name))
          (agent (overlook-courier-agent name))
          (buffer (and agent (overlook-courier-agent-buffer agent)))
          (running (buffer-live-p buffer))
          (meta (propertize (if running "" "offline") 'face 'shadow)))
     (overlook-row :id (cons 'persona name)
-                  :content (list (overlook-glyph-cell
-                                  (if running
-                                      (overlook-agent-glyph buffer)
-                                    (overlook-agent-idle-glyph)))
-                                 (overlook-icon (or (plist-get persona :engine) "?"))
+                  :content (list (overlook-icon
+                                  (propertize (overlook-agent-courier--persona-icon-name persona)
+                                              'face (if running
+                                                        (overlook-agent-status-face
+                                                         (buffer-local-value 'overlook-agent-status buffer))
+                                                      'shadow)))
                                  " " (plist-get persona :name)
                                  (overlook-align-right meta 1))
                   :action (if running

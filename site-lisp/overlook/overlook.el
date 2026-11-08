@@ -519,7 +519,9 @@ The binding is recorded in `overlook-keys'."
               word-wrap-by-category t
               left-margin-width 1
               right-margin-width 1
-              mode-line-format '(:eval (overlook--mode-line)))
+              mode-line-format '(:eval (overlook--mode-line))
+              ;; No fringe arrows; a folded section still ends in an ellipsis.
+              magit-section-visibility-indicators '(("…" . t)))
   ;; Magit highlights sections with `font-lock-face', which only shows with
   ;; font-lock on; font-lock would strip the rows' faces, so alias it instead.
   ;; Global font-lock is kept out too: in a buffer whose name starts with a
@@ -531,6 +533,8 @@ The binding is recorded in `overlook-keys'."
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
   (add-hook 'post-command-hook #'overlook--remember-point nil t)
   (advice-add 'set-window-configuration :after #'overlook--restore-points)
+  (advice-add 'magit-section-maybe-update-visibility-indicator :after #'overlook--color-ellipses)
+  (advice-add 'magit-section-maybe-paint-visibility-ellipses :after #'overlook--color-ellipses)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
 
 (defun overlook--mode-line ()
@@ -574,6 +578,19 @@ Emacs draws a wrap prefix in the default face, which would leave a gap."
         (overlay-put (magit-section-highlight-range (point) (line-end-position))
                      'wrap-prefix (propertize prefix 'face 'magit-section-highlight)))
       (forward-line 1))))
+
+(defun overlook--color-ellipses (&rest _)
+  "Draw the ellipses of folded sections in the face of the text before them.
+Magit takes their face from `font-lock-face', which the rows do not set."
+  (when (derived-mode-p 'overlook-mode)
+    (dolist (overlay (overlays-in (point-min) (point-max)))
+      (when (eq (overlay-get overlay 'magit-vis-indicator) 'eoh)
+        (let ((pos (overlay-start overlay)))
+          (overlay-put overlay 'after-string
+                       (propertize (substring-no-properties (overlay-get overlay 'after-string))
+                                   'face (delq nil (append (mapcar (lambda (o) (overlay-get o 'font-lock-face))
+                                                                   (overlays-at pos))
+                                                           (list (get-char-property pos 'face)))))))))))
 
 ;;; Rows
 
@@ -738,6 +755,14 @@ measure it in a temporary buffer."
       (with-no-warnings (string-pixel-width string (current-buffer)))
     (string-pixel-width string)))
 
+(defun overlook-truncate (text width)
+  "TEXT cut to WIDTH columns with an ellipsis in the face of the text it ends."
+  (truncate-string-to-width
+   text width nil nil
+   (propertize "…" 'face (and (> (length text) 0)
+                              (get-text-property (min (1- (length text)) (max 0 (- width 2)))
+                                                 'face text)))))
+
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
 Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
@@ -899,7 +924,7 @@ TEXT defaults to `overlook-row-text'."
       (concat prefix
               (mapconcat (pcase-lambda (`(,key ,label . ,_))
                            (propertize (concat (propertize key 'face 'help-key-binding) " "
-                                               (truncate-string-to-width label 40 nil nil "…"))
+                                               (overlook-truncate label 40))
                                        'overlook-choice key
                                        'mouse-face 'highlight))
                          choices "  ")

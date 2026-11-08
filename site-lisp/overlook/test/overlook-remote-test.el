@@ -327,7 +327,10 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (eq (alist-get 'attention row) t))
         (should (equal (mapcar (lambda (c) (alist-get 'key c)) (alist-get 'choices row))
                        '("y" "n")))
-        (should (string-prefix-p "▲" (overlook-remote-test--text row)))
+        ;; Its name stands for its status: waiting is bold red.
+        (should (string-prefix-p "claude" (overlook-remote-test--text row)))
+        (should (seq-set-equal-p (append (alist-get 'styles (car (alist-get 'spans row))) nil)
+                                 '("bold" "error" "waiting")))
         (should-not (string-search "Allow" (overlook-remote-test--text row)))
         (should-not (alist-get 'agent shop))
         (should (= (length (alist-get 'id row)) 16))

@@ -605,7 +605,7 @@ Agents are listed; usage and repos are not."
             (overlook-next-attention)
             (should (equal (overlook-item-at-point) (cons 'agent agent)))
             (should (get-text-property (point) 'overlook-attention))
-            (should (string-match-p "✖" (buffer-string)))
+            (should (string-match-p "codex failed" (buffer-string)))
             (should (string-match-p "Request failed" (buffer-string)))
             (should (string-match-p "1 need you" (overlook-agent--mode-line)))))
       (kill-buffer agent))))
@@ -1628,5 +1628,30 @@ Agents are listed; usage and repos are not."
               (overlook--render)
               (should-not (string-search "one*" (buffer-string))))))
       (delete-directory top t))))
+
+(ert-deftest overlook-agent-courier-persona-icon-follows-its-backend ()
+  (let ((overlook-agent-icons '(("claude" . "C") ("deepseek" . "D"))))
+    (should (equal (overlook-agent-courier--persona-icon-name '(:engine "claude")) "claude"))
+    (should (equal (overlook-agent-courier--persona-icon-name '(:engine "gptel" :backend "DeepSeek"))
+                   "deepseek"))
+    (should (equal (overlook-agent-courier--persona-icon-name '(:engine "gptel" :backend "Gemini"))
+                   "gptel"))))
+
+(ert-deftest overlook-truncate-colors-the-ellipsis-like-the-text ()
+  (let ((cut (overlook-truncate (propertize "a long title" 'face 'shadow) 6)))
+    (should (equal (substring-no-properties cut) "a lon…"))
+    (should (eq (get-text-property (1- (length cut)) 'face cut) 'shadow))))
+
+(ert-deftest overlook-folded-section-ellipsis-takes-the-heading-face ()
+  (with-temp-buffer
+    (overlook-mode)
+    (let ((inhibit-read-only t))
+      (insert (propertize "todo (12)" 'face 'shadow) "\n"))
+    (let ((overlay (make-overlay 9 10)))
+      (overlay-put overlay 'magit-vis-indicator 'eoh)
+      (overlay-put overlay 'after-string "…")
+      (overlook--color-ellipses)
+      (should (equal (get-text-property 0 'face (overlay-get overlay 'after-string))
+                     '(shadow))))))
 
 ;;; overlook-test.el ends here

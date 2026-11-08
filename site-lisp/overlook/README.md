@@ -15,15 +15,15 @@ Usage
 Projects
 blog
    ⎇ blog      main
-   ○ codex
+   codex
 
 checkout
    ⎇ api       feature/refunds  ●4
    ⎇ frontend  feature/refunds  ●2
-   ◐ claude  Running the payment tests                 12m  41%
+   claude  Running the payment tests                   12m  41%
       refund.go +48 −6 api/internal/
       RefundButton.tsx +31 frontend/src/
-   ▲ codex   ? Run git push                                  18%
+   codex   ? Run git push                                    18%
 
 main
 ```
@@ -98,12 +98,14 @@ Then:
 
 ### What the rows show
 
-- **An agent**: `◐` working, `▲` waiting for you, `●` finished while you
-  were not looking, `○` idle, `✖` failed; then what it is doing, how long
-  its turn has run and how much of its context window is used.  A failed
-  agent shows its error and stays marked, even once viewed, until it works
-  again.
-- **A saved agent**: `○ claude saved`, dimmed, with its title and how long
+- **An agent**: its icon from `overlook-agent-icons` (else its name),
+  colored by its status: yellow working, bold red waiting for you, green
+  finished while you were not looking, dimmed idle, red and marked
+  `failed` when it failed; then what it is doing, how long its turn has
+  run and how much of its context window is used.  The colors come from
+  `overlook-agent-status-glyphs`.  A failed agent shows its error and
+  stays marked, even once viewed, until it works again.
+- **A saved agent**: `claude saved`, dimmed, with its title and how long
   ago its last turn was.  Each agent running when Emacs quits is saved,
   in `overlook-agent-saved-file`; `RET` resumes its session where it left
   off, minus a turn cut short.
@@ -148,7 +150,7 @@ Evil users can bind the same keys in normal state:
 
 ### Notifications
 
-When an agent turns `▲`, `✖` or `●` while no Emacs frame has focus, a
+When an agent starts waiting for you, fails or finishes while no Emacs frame has focus, a
 desktop notification says so, and again for each further question while
 it waits.  An agent shown in the selected window counts as seen only while
 Emacs has focus.  On macOS it uses `terminal-notifier` when installed,
