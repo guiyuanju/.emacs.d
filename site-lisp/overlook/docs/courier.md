@@ -210,6 +210,7 @@ avatar: 🦉              # heads its posts in rooms; the rest are optional too
 personality: calm, exacting
 tone: terse
 memory: off             # no memory, for an agent that may not write files
+briefing: off           # tell it nothing; it starts idle
 ---
 Its role, its rules, and any background story.
 ```
@@ -225,6 +226,10 @@ file per fact as in Claude's own memory; courier only tells it where.
 With `memory: off` it is told of no memory and none is made.
 Started with no task, it says in one line that it is ready; started by a
 message, it learns who it is with that message, in the same turn.
+With `briefing: off` it is told none of this, nor about courier, and
+starts idle; its agent's own instruction files, such as a `CLAUDE.md` or
+`AGENTS.md` in its directory, carry its role.  A general chat assistant
+that should not know it is a persona is one.
 
 ```sh
 courier persona list

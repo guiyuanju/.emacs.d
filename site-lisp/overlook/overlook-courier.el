@@ -259,22 +259,25 @@ An offline TO is started first."
     (run-hooks 'overlook-courier-changed-hook)
     t))
 
-(defun overlook-courier-spawn (name directory prompt &optional from effort as)
+(defun overlook-courier-spawn (name directory prompt &optional from effort as unbriefed)
   "Start agent NAME in DIRECTORY on PROMPT for agent FROM, its parent.
 EFFORT is the reasoning effort level to start it with, or nil for its
 default; AS the id to give it, or nil for a new one.  With PROMPT nil the
 agent idles, and its briefing comes with the first message it gets.
+With UNBRIEFED non-nil it is told nothing about courier.
 Returns the new agent's id."
   (unless overlook-courier-spawn-function (user-error "No frontend can spawn agents"))
   (when (and as (overlook-courier-agent as)) (user-error "%s is running already" as))
   (let ((id (funcall overlook-courier-spawn-function name (expand-file-name directory) from effort as)))
     (when-let* ((agent (overlook-courier-agent id)))
       (setf (overlook-courier-agent-parent agent) from))
-    (if prompt
-        (overlook-courier--enqueue (overlook-courier-agent id) from
-                          (concat (overlook-courier--briefing id from t) "\n\n" prompt)
-                          (overlook-courier--hops from))
-      (overlook-courier-note id (overlook-courier--briefing id from nil)))
+    (cond (prompt
+           (overlook-courier--enqueue (overlook-courier-agent id) from
+                             (if unbriefed
+                                 prompt
+                               (concat (overlook-courier--briefing id from t) "\n\n" prompt))
+                             (overlook-courier--hops from)))
+          ((not unbriefed) (overlook-courier-note id (overlook-courier--briefing id from nil))))
     id))
 
 (defun overlook-courier-or-empty (text default)

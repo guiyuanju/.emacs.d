@@ -43,11 +43,15 @@
 ;;   personality: calm, exacting
 ;;   tone: terse
 ;;   memory: off             keeps no memory, as for an agent that cannot write files
+;;   briefing: off           tells the agent nothing; it starts idle
 ;;   ---
 ;;
 ;; The rest, its role, rules and any background, is the persona's
 ;; briefing when an agent starts as it, with the personality, the tone
 ;; and the index of its memory.  The agent keeps that memory itself.
+;; A persona with its briefing off is not told it is one, nor about
+;; courier; its agent's own instruction files, like a CLAUDE.md in its
+;; directory, carry its role instead.
 
 ;;; Code:
 
@@ -64,7 +68,7 @@
   :group 'overlook-courier)
 
 (defconst overlook-courier-persona-fields
-  '(engine effort directory description avatar personality tone memory backend model tools)
+  '(engine effort directory description avatar personality tone memory briefing backend model tools)
   "Fields persona.md's front matter may set.
 backend, model and tools are for the engines in
 `overlook-courier-persona-engines'.")
@@ -151,6 +155,10 @@ It is cut to `overlook-courier-persona-index-lines' lines."
   "Non-nil unless PERSONA's front matter turns its memory off."
   (not (member (plist-get persona :memory) '("off" "no" "false"))))
 
+(defun overlook-courier-persona-briefed-p (persona)
+  "Non-nil unless PERSONA's front matter turns its briefing off."
+  (not (member (plist-get persona :briefing) '("off" "no" "false"))))
+
 (defun overlook-courier-persona-briefing (persona engine)
   "What an agent of ENGINE starting as PERSONA is told."
   (let ((name (plist-get persona :name))
@@ -195,13 +203,17 @@ is ready."
         (progn (funcall start persona task from) name)
       (when (overlook-courier-persona-remembers-p persona)
         (make-directory (overlook-courier-persona-memory persona) t))
-      (let* ((briefing (overlook-courier-persona-briefing persona engine))
+      (let* ((briefing (when (overlook-courier-persona-briefed-p persona)
+                         (overlook-courier-persona-briefing persona engine)))
              (id (overlook-courier-spawn engine (or directory (overlook-courier-persona-directory persona))
-                                         (unless wait
-                                           (concat briefing "\n\n"
-                                                   (or task "Say in one line that you are ready.")))
-                                         from (or effort (plist-get persona :effort)) name)))
-        (when wait (overlook-courier-note id briefing))
+                                         (cond (wait nil)
+                                               (briefing
+                                                (concat briefing "\n\n"
+                                                        (or task "Say in one line that you are ready.")))
+                                               (t task))
+                                         from (or effort (plist-get persona :effort)) name
+                                         (not briefing))))
+        (when (and wait briefing) (overlook-courier-note id briefing))
         id))))
 
 (defun overlook-courier-persona--start-offline (id from)

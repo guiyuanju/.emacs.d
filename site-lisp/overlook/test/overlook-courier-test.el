@@ -564,6 +564,21 @@
     (should (string-search "reviewer  running, codex  Reviews diffs"
                            (overlook-courier-persona-cli "a@p" '("list"))))))
 
+(ert-deftest overlook-courier-persona-without-briefing ()
+  (overlook-courier-test-with-personas '("a@p")
+    (with-temp-file (expand-file-name "personas/reviewer/persona.md" root)
+      (insert "---\nengine: codex\nbriefing: off\n---\nYou review code.\n"))
+    (overlook-courier-persona-start "reviewer")
+    (overlook-courier-deliver)
+    (should-not (overlook-courier-test--received "reviewer"))
+    (overlook-courier-send "reviewer" "Look at y.go" "a@p")
+    (overlook-courier-deliver)
+    (let ((prompt (car (overlook-courier-test--received "reviewer"))))
+      (should (string-search "Look at y.go" prompt))
+      (should-not (string-search "a persona" prompt))
+      (should-not (string-search "reachable through courier" prompt))
+      (should-not (string-search "You review code" prompt)))))
+
 (ert-deftest overlook-courier-persona-starts-when-messaged ()
   (overlook-courier-test-with-personas '("a@p")
     (should (equal (overlook-courier-offline) '("reviewer")))
