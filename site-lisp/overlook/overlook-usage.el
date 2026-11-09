@@ -75,6 +75,19 @@ They are asked for rows without an account in `overlook-usage-accounts'."
   :type '(alist :key-type string :value-type function)
   :group 'overlook)
 
+(defvar overlook-usage-current-functions nil
+  "Functions telling whether a usage row's account is the one in use.
+Each is called with the row's name, like \"claude\" or \"claude @home\",
+and returns non-nil when new agents run as that row's account.  They are
+asked only for agents with more than one row; the account of an agent's
+only row is the one in use.  Its name is drawn in
+`overlook-usage-current-account'.")
+
+(defface overlook-usage-current-account
+  '((t :inherit default))
+  "Face of the account name of the usage row whose account is in use."
+  :group 'overlook)
+
 (defvar overlook-usage--json-cache nil
   "Alist of each file read by `overlook-usage--read-json' to (MTIME . JSON).")
 
@@ -304,11 +317,12 @@ It turns `warning' from `overlook-usage-warning'."
                         'face (if (>= percentage overlook-usage-warning) 'warning 'overlook-usage-bar))
             (propertize (make-string (- width filled) ?━) 'face 'overlook-usage-bar-track))))
 
-(defun overlook-usage--label (name)
+(defun overlook-usage--label (name &optional current)
   "NAME as `overlook-agent-icons' draws it, keeping NAME's properties.
 In a NAME like \"claude @home\", the agent's name before \" @\" is drawn
-by its icon and the account as `overlook-account-name' draws it.  So is
-the account `overlook-usage-accounts' gives, else the one it is logged in as."
+by its icon and the account as `overlook-account-name' draws it, or in
+`overlook-usage-current-account' when CURRENT is non-nil.  So is the
+account `overlook-usage-accounts' gives, else the one it is logged in as."
   (let* ((at (string-search " @" name))
          (agent (if at (substring name 0 at) name))
          (account (if at
@@ -319,7 +333,25 @@ the account `overlook-usage-accounts' gives, else the one it is logged in as."
                                                         nil nil #'equal)))
                             (funcall login)))))))
     (concat (overlook-icon agent)
-            (and account (concat " " (overlook-account-name account))))))
+            (and account
+                 (concat " " (if current
+                                 (propertize (substring-no-properties (overlook-account-name account))
+                                             'face 'overlook-usage-current-account)
+                               (overlook-account-name account)))))))
+
+(defun overlook-usage--agent (name)
+  "The agent of usage row NAME, the part before \" @\"."
+  (substring-no-properties name 0 (string-search " @" name)))
+
+(defun overlook-usage--labels (names)
+  "The labels of the usage rows NAMES, each agent's account in use highlighted."
+  (let ((agents (mapcar #'overlook-usage--agent names)))
+    (cl-mapcar (lambda (name agent)
+                 (overlook-usage--label
+                  name (or (= (cl-count agent agents :test #'equal) 1)
+                           (run-hook-with-args-until-success 'overlook-usage-current-functions
+                                                             (substring-no-properties name)))))
+               names agents)))
 
 (defun overlook-usage--dashboard-rows ()
   "A row per agent in `overlook-usage--rows', with a bar per usage window.
@@ -338,7 +370,7 @@ takes a line of its own, under the first, and its bar fills the line."
                                            window))
                                        (cdr row))))
                        (seq-filter #'cdr overlook-usage--rows)))
-         (shown (mapcar (lambda (row) (overlook-usage--label (car row))) rows))
+         (shown (overlook-usage--labels (mapcar #'car rows)))
          (windows (mapcan (lambda (row) (copy-sequence (cdr row))) rows))
          (texts (seq-filter (lambda (window) (stringp (nth 1 window))) windows))
          (meters (seq-remove (lambda (window) (stringp (nth 1 window))) windows))

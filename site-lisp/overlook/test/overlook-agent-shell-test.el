@@ -105,6 +105,11 @@ each environment gathered says how many were gathered so far."
       (let ((overlook-account-labels '(("home" . "H") ("work" . "W"))))
         (should (equal (overlook-agent-shell--account-mark buffer) " H"))
         (should (equal (overlook-agent-shell--account-mode-line) "claude H")))
+      (should (overlook-agent-shell--current-usage-p "claude @home"))
+      (should-not (overlook-agent-shell--current-usage-p "claude"))
+      (should-not (overlook-agent-shell--current-usage-p "codex"))
+      (overlook-agent-shell-claude-switch-account "work")
+      (should (overlook-agent-shell--current-usage-p "claude"))
       (should (equal (overlook-agent-shell--account-environment "codex" "/tmp/") nil)))))
 
 (ert-deftest overlook-agent-shell-tracks-a-shell-started-any-way ()

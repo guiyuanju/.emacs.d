@@ -144,6 +144,22 @@
       (should (string-prefix-p "C  5h" (buffer-string)))
       (should (eq (get-text-property (point-min) 'overlook-action) #'ignore)))))
 
+(ert-deftest overlook-usage-marks-the-account-in-use ()
+  (with-temp-buffer
+    (let ((overlook-usage-accounts '(("claude" . "work") ("codex" . "me")))
+          (overlook-usage-current-functions (list (lambda (name) (equal name "claude @home"))))
+          (overlook-usage--rows
+           (list (cons "claude" (list (list "5h" 43 nil)))
+                 (cons "claude @home" (list (list "5h" 10 nil)))
+                 (cons "codex" (list (list "5h" 5 nil))))))
+      (overlook-insert-rows (overlook-usage--dashboard-rows))
+      (pcase-let ((`(,work ,home ,codex) (split-string (buffer-string) "\n" t)))
+        (cl-flet ((face (line account)
+                    (get-text-property (string-search account line) 'face line)))
+          (should (memq 'shadow (ensure-list (face work "@wor"))))
+          (should (memq 'overlook-usage-current-account (ensure-list (face home "@hom"))))
+          (should (memq 'overlook-usage-current-account (ensure-list (face codex "@me")))))))))
+
 (ert-deftest overlook-usage-wide-icon-keeps-columns ()
   (with-temp-buffer
     (let ((overlook-agent-icons '(("claude" . "C")))

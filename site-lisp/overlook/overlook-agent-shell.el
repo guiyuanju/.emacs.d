@@ -472,6 +472,12 @@ Each image is as `overlook-agent-shell--image' gives it."
                         (overlook-agent-shell-claude-current-account))))
     (concat "claude " (overlook-account-name account))))
 
+(defun overlook-agent-shell--current-usage-p (name)
+  "Non-nil when usage row NAME is Claude's for the account new agents run as."
+  (when (equal (substring name 0 (string-search " @" name)) "claude")
+    (equal (and (string-search " @" name) (substring name (+ 2 (string-search " @" name))))
+           (overlook-agent-shell--other-account (overlook-agent-shell-claude-current-account)))))
+
 (defun overlook-agent-shell--account-mark (buffer)
   "Agent BUFFER's Claude account, when it has a label or is not the first."
   (let ((account (buffer-local-value 'overlook-agent-shell--claude-account buffer)))
@@ -703,6 +709,7 @@ other MCP calls asked for permission showing only their tool name."
         (add-hook 'overlook-agent-environment-functions #'overlook-agent-shell--account-environment)
         (add-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
         (add-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
+        (add-hook 'overlook-usage-current-functions #'overlook-agent-shell--current-usage-p)
         (add-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
         (add-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
         (setq overlook-agent-start-function #'overlook-agent-shell-start)
@@ -714,6 +721,7 @@ other MCP calls asked for permission showing only their tool name."
     (remove-hook 'overlook-agent-environment-functions #'overlook-agent-shell--account-environment)
     (remove-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
     (remove-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
+    (remove-hook 'overlook-usage-current-functions #'overlook-agent-shell--current-usage-p)
     (remove-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
     (remove-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
     (setq overlook-agent-start-function nil)))
