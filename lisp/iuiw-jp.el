@@ -14,7 +14,8 @@
 (defvar iuiw-deepseek-api-key)
 
 (defcustom iuiw-jp-program
-  (or (executable-find "jp") (expand-file-name "~/.go/bin/jp"))
+  (or (executable-find "jp")
+      (expand-file-name "bin/jp" (string-trim (shell-command-to-string "go env GOPATH"))))
   "Path of the jp-notes command."
   :type 'file
   :group 'gptel)
