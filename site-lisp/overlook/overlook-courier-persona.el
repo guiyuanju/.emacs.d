@@ -28,8 +28,9 @@
 ;; persona.md, its role and settings, and memory/, what it has learned.
 ;; An agent started as persona NAME gets the courier id NAME, so it is
 ;; reached at the same address whatever engine runs it and however often
-;; it restarts; one agent at most runs a persona.  Messaging a persona
-;; nobody runs starts it.
+;; it restarts; one agent at most runs a persona, unless its multiple
+;; is on: then each start beyond the first gets a further instance,
+;; NAME-2, NAME-3 and on.  Messaging a persona nobody runs starts it.
 ;;
 ;; persona.md opens with front matter of `key: value' lines; a # after
 ;; a space starts a comment:
@@ -44,6 +45,7 @@
 ;;   tone: terse
 ;;   memory: off             keeps no memory, as for an agent that cannot write files
 ;;   briefing: off           tells the agent nothing; it starts idle
+;;   multiple: on            may run in several agents at once
 ;;   ---
 ;;
 ;; The rest, its role, rules and any background, is the persona's
@@ -68,7 +70,8 @@
   :group 'overlook-courier)
 
 (defconst overlook-courier-persona-fields
-  '(engine effort directory description avatar personality tone memory briefing backend model tools)
+  '(engine effort directory description avatar personality tone memory briefing multiple
+    backend model tools)
   "Fields persona.md's front matter may set.
 backend, model and tools are for the engines in
 `overlook-courier-persona-engines'.")
@@ -159,6 +162,40 @@ It is cut to `overlook-courier-persona-index-lines' lines."
   "Non-nil unless PERSONA's front matter turns its briefing off."
   (not (member (plist-get persona :briefing) '("off" "no" "false"))))
 
+(defun overlook-courier-persona-multiple-p (persona)
+  "Non-nil when PERSONA's front matter lets it run in several agents at once."
+  (member (plist-get persona :multiple) '("on" "yes" "true")))
+
+(defun overlook-courier-persona-of (id)
+  "Name of the persona the agent of courier ID runs, or nil.
+NAME-N is an instance of persona NAME when its multiple is on."
+  (cond ((overlook-courier-persona id) id)
+        ((and id (string-match "\\`\\(.+\\)-\\([0-9]+\\)\\'" id))
+         (let ((name (match-string 1 id)))
+           (when-let* ((persona (overlook-courier-persona name))
+                       ((overlook-courier-persona-multiple-p persona)))
+             name)))))
+
+(defun overlook-courier-persona-instances (name)
+  "Ids of the running agents of persona NAME, first started first."
+  (let ((ids (seq-filter (lambda (id) (equal (overlook-courier-persona-of id) name))
+                         (mapcar #'overlook-courier-agent-id (overlook-courier-agents)))))
+    (sort ids (lambda (a b) (< (overlook-courier-persona--number a)
+                               (overlook-courier-persona--number b))))))
+
+(defun overlook-courier-persona--number (id)
+  "Number of instance ID, 1 for the persona's own id."
+  (if (string-match "-\\([0-9]+\\)\\'" id)
+      (string-to-number (match-string 1 id))
+    1))
+
+(defun overlook-courier-persona--free-id (name)
+  "The id for a new agent of persona NAME: NAME, else NAME-N for the lowest free N."
+  (let ((id name) (n 1))
+    (while (overlook-courier-agent id)
+      (setq id (format "%s-%d" name (cl-incf n))))
+    id))
+
 (defun overlook-courier-persona-briefing (persona engine)
   "What an agent of ENGINE starting as PERSONA is told."
   (let ((name (plist-get persona :name))
@@ -189,7 +226,7 @@ about the code or the domain goes to the project's own notes instead.  %s"
      "\n\n")))
 
 (cl-defun overlook-courier-persona-start (name &key directory task from engine effort wait)
-  "Start persona NAME and return its id, NAME.
+  "Start persona NAME and return its id, NAME or NAME-N for a further instance.
 It starts in DIRECTORY, else the persona's own, run by ENGINE at
 reasoning EFFORT, else the persona's.  FROM is the agent starting it, its
 parent.  It works on TASK if non-nil.  With WAIT non-nil it idles, and
@@ -197,9 +234,13 @@ learns who it is with the first message it gets; otherwise it says it
 is ready."
   (let* ((persona (or (overlook-courier-persona name) (user-error "No persona %s" name)))
          (engine (or engine (plist-get persona :engine)
-                     (user-error "Persona %s names no engine" name))))
-    (when (overlook-courier-agent name) (user-error "%s is running already" name))
-    (if-let* ((start (cdr (assoc engine overlook-courier-persona-engines))))
+                     (user-error "Persona %s names no engine" name)))
+         (start (cdr (assoc engine overlook-courier-persona-engines)))
+         (id (if (and (not start) (overlook-courier-persona-multiple-p persona))
+                 (overlook-courier-persona--free-id name)
+               name)))
+    (when (overlook-courier-agent id) (user-error "%s is running already" name))
+    (if start
         (progn (funcall start persona task from) name)
       (when (overlook-courier-persona-remembers-p persona)
         (make-directory (overlook-courier-persona-memory persona) t))
@@ -211,7 +252,7 @@ is ready."
                                                 (concat briefing "\n\n"
                                                         (or task "Say in one line that you are ready.")))
                                                (t task))
-                                         from (or effort (plist-get persona :effort)) name
+                                         from (or effort (plist-get persona :effort)) id
                                          (not briefing))))
         (when (and wait briefing) (overlook-courier-note id briefing))
         id))))
@@ -226,7 +267,10 @@ is ready."
   "A line describing persona NAME for `courier persona list'."
   (let ((persona (overlook-courier-persona name)))
     (format "%s  %s, %s%s" name
-            (if (overlook-courier-agent name) "running" "offline")
+            (pcase (length (overlook-courier-persona-instances name))
+              (0 "offline")
+              (1 "running")
+              (n (format "%d running" n)))
             (or (plist-get persona :engine) "no engine")
             (if-let* ((description (plist-get persona :description)))
                 (concat "  " description)

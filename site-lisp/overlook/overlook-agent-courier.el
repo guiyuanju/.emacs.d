@@ -35,6 +35,8 @@
 ;; worktree's branch is listed under the worktree's row instead.  `d d' on
 ;; a room closes it, moving its posts to the archive.  A Personas section
 ;; lists courier's personas; RET starts one, or shows the agent running it.
+;; A persona that may run several times lists its agents under it, each
+;; by its session title; RET on the persona starts another.
 ;; Agents running a persona are listed there only, and kept out of the
 ;; projects: RET shows one in the current project.  What a persona
 ;; spawns goes to the project whose root holds its folder, else to the
@@ -75,7 +77,7 @@ A resumed agent gets its earlier id back unless another agent has it."
 (defun overlook-agent-courier--check-resume (saved)
   "Refuse to resume SAVED agent when it ran a persona some agent runs now."
   (when-let* ((id (alist-get 'courier saved))
-              ((overlook-courier-persona id))
+              ((overlook-courier-persona-of id))
               (agent (overlook-courier-agent id)))
     (user-error "Persona %s runs already in %s; stop it first" id
                 (buffer-name (overlook-courier-agent-buffer agent)))))
@@ -85,7 +87,7 @@ A resumed agent gets its earlier id back unless another agent has it."
   (when-let* ((id (pcase item
                     (`(agent . ,buffer) (buffer-local-value 'overlook-agent-courier-id buffer))
                     (`(saved . ,saved) (alist-get 'courier saved)))))
-    (member id (overlook-courier-persona-names))))
+    (overlook-courier-persona-of id)))
 
 (defun overlook-agent-courier--saved (buffer)
   "Entries keeping agent BUFFER's courier id for when it is resumed."
@@ -166,7 +168,7 @@ PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
 A persona opens in no project, and what a persona spawns outside the
 projects goes to `overlook-orphan-project'."
   (let* ((parent-buffer (when-let* ((agent (overlook-courier-agent parent))) (overlook-courier-agent-buffer agent)))
-         (project (unless (and as (overlook-courier-persona as))
+         (project (unless (and as (overlook-courier-persona-of as))
                         (or (overlook-agent-courier--project-of directory)
                             (and (buffer-live-p parent-buffer)
                                  (if (buffer-local-value 'overlook-detached parent-buffer)
@@ -233,6 +235,68 @@ Its backend's, when that has an icon, else its engine's."
         (downcase backend)
       (or (plist-get persona :engine) "?"))))
 
+(defun overlook-agent-courier--instance-row (id persona)
+  "The row of the agent of courier ID running PERSONA, by its session title."
+  (let* ((buffer (overlook-courier-agent-buffer (overlook-courier-agent id)))
+         (status (buffer-local-value 'overlook-agent-status buffer))
+         (brief (overlook-agent--brief buffer)))
+    (overlook-row :id (cons 'agent buffer)
+                  :content (list "  "
+                                 (overlook-icon
+                                  (propertize (overlook-agent-courier--persona-icon-name persona)
+                                              'face (overlook-agent-status-face status)))
+                                 " " (or (overlook-agent--title buffer)
+                                         (propertize "New conversation" 'face 'shadow))
+                                 (and brief (not (eq status 'idle))
+                                      (overlook-agent--brief-segment buffer brief 0)))
+                  :attention (and (memq status '(waiting failed done)) t)
+                  :face (pcase status
+                          ((or 'waiting 'failed) 'overlook-agent-waiting)
+                          ('done 'overlook-agent-done))
+                  :action (lambda () (overlook-agent-visit buffer))
+                  :help (concat id (if brief (concat "\n" brief) ""))
+                  :commands (list (list :name "kill" :label "Kill"
+                                        :confirm (lambda () (overlook-agent--kill-question buffer))
+                                        :run (lambda () (overlook-agent-kill buffer)))))))
+
+(defun overlook-agent-courier--multiple-row (name persona)
+  "The row of persona NAME, PERSONA, that may run several times.
+Its agents are listed under it."
+  (let ((ids (overlook-courier-persona-instances name)))
+    (overlook-row :id (cons 'persona name)
+                  :content (list (overlook-icon
+                                  (propertize (overlook-agent-courier--persona-icon-name persona)
+                                              'face (unless ids 'shadow)))
+                                 " " name
+                                 (overlook-align-right
+                                  (propertize (if ids (format "%d running" (length ids)) "offline")
+                                              'face 'shadow)
+                                  1))
+                  :action (lambda () (overlook-persona-converse name))
+                  :commands (list (list :name "new" :label "New conversation"
+                                        :run (lambda ()
+                                               (overlook-courier-agent-buffer
+                                                (overlook-courier-agent
+                                                 (overlook-courier-persona-start name))))))
+                  :help (concat (if-let* ((description (plist-get persona :description)))
+                                    (concat description "\n")
+                                  "")
+                                "RET: start a conversation; e: edit it")
+                  :children (mapcar (lambda (id) (overlook-agent-courier--instance-row id persona)) ids))))
+
+(defun overlook-persona-converse (name)
+  "Start a conversation with persona NAME and show it in another window.
+NAME is one of the personas that may run several times."
+  (interactive
+   (let ((names (seq-filter (lambda (name)
+                              (overlook-courier-persona-multiple-p (overlook-courier-persona name)))
+                            (overlook-courier-persona-names))))
+     (list (cond ((null names) (user-error "No persona has multiple on"))
+                 ((null (cdr names)) (car names))
+                 (t (completing-read "Converse with: " names nil t))))))
+  (pop-to-buffer (overlook-courier-agent-buffer
+                  (overlook-courier-agent (overlook-courier-persona-start name)))))
+
 (defun overlook-agent-courier--persona-row (name)
   "The row of persona NAME: its model's icon, colored by its status, and its name."
   (let* ((persona (overlook-courier-persona name))
@@ -240,29 +304,31 @@ Its backend's, when that has an icon, else its engine's."
          (buffer (and agent (overlook-courier-agent-buffer agent)))
          (running (buffer-live-p buffer))
          (meta (propertize (if running "" "offline") 'face 'shadow)))
-    (overlook-row :id (cons 'persona name)
-                  :content (list (overlook-icon
-                                  (propertize (overlook-agent-courier--persona-icon-name persona)
-                                              'face (if running
-                                                        (overlook-agent-status-face
-                                                         (buffer-local-value 'overlook-agent-status buffer))
-                                                      'shadow)))
-                                 " " (plist-get persona :name)
-                                 (overlook-align-right meta 1))
-                  :action (if running
-                              (lambda () (overlook-agent-visit buffer))
-                            (lambda () (overlook-persona-start name)))
-                  :commands (list (if running
-                                      (list :name "open" :label "Open" :run (lambda () buffer))
-                                    (list :name "start" :label "Start"
-                                          :run (lambda ()
-                                                 (overlook-courier-agent-buffer
-                                                  (overlook-courier-agent
-                                                   (overlook-courier-persona-start name)))))))
-                  :help (concat (if-let* ((description (plist-get persona :description)))
-                                    (concat description "\n")
-                                  "")
-                                (if running "RET: show it" "RET: start it; e: edit it")))))
+    (if (overlook-courier-persona-multiple-p persona)
+        (overlook-agent-courier--multiple-row name persona)
+      (overlook-row :id (cons 'persona name)
+                    :content (list (overlook-icon
+                                    (propertize (overlook-agent-courier--persona-icon-name persona)
+						'face (if running
+                                                          (overlook-agent-status-face
+                                                           (buffer-local-value 'overlook-agent-status buffer))
+							'shadow)))
+                                   " " (plist-get persona :name)
+                                   (overlook-align-right meta 1))
+                    :action (if running
+				(lambda () (overlook-agent-visit buffer))
+                              (lambda () (overlook-persona-start name)))
+                    :commands (list (if running
+					(list :name "open" :label "Open" :run (lambda () buffer))
+                                      (list :name "start" :label "Start"
+                                            :run (lambda ()
+                                                   (overlook-courier-agent-buffer
+                                                    (overlook-courier-agent
+                                                     (overlook-courier-persona-start name)))))))
+                    :help (concat (if-let* ((description (plist-get persona :description)))
+                                      (concat description "\n")
+                                    "")
+                                  (if running "RET: show it" "RET: start it; e: edit it"))))))
 
 (defun overlook-agent-courier--personas-section ()
   "The Personas section: a row per persona, or one to make the first."

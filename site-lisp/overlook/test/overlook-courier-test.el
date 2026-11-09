@@ -564,6 +564,25 @@
     (should (string-search "reviewer  running, codex  Reviews diffs"
                            (overlook-courier-persona-cli "a@p" '("list"))))))
 
+(ert-deftest overlook-courier-persona-runs-several-times-with-multiple-on ()
+  (overlook-courier-test-with-personas '("a@p")
+    (with-temp-file (expand-file-name "personas/reviewer/persona.md" root)
+      (insert "---\nengine: codex\nmultiple: on\nbriefing: off\n---\n"))
+    (should (equal (overlook-courier-persona-start "reviewer") "reviewer"))
+    (should (equal (overlook-courier-persona-start "reviewer") "reviewer-2"))
+    (should (equal (overlook-courier-persona-start "reviewer") "reviewer-3"))
+    (should (equal (overlook-courier-persona-of "reviewer-2") "reviewer"))
+    (should-not (overlook-courier-persona-of "a@p"))
+    (should (equal (overlook-courier-persona-instances "reviewer")
+                   '("reviewer" "reviewer-2" "reviewer-3")))
+    (should (string-search "reviewer  3 running"
+                           (overlook-courier-persona-cli "a@p" '("list"))))))
+
+(ert-deftest overlook-courier-persona-instance-needs-multiple ()
+  (overlook-courier-test-with-personas '("reviewer-2")
+    (should-not (overlook-courier-persona-of "reviewer-2"))
+    (should-not (overlook-courier-persona-instances "reviewer"))))
+
 (ert-deftest overlook-courier-persona-without-briefing ()
   (overlook-courier-test-with-personas '("a@p")
     (with-temp-file (expand-file-name "personas/reviewer/persona.md" root)

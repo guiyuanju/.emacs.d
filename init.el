@@ -508,6 +508,7 @@
     "as" '(iuiw-assistant-summarize :which-key "summarize")
     "ar" '(iuiw-assistant-run :which-key "assistant task")
     "aj" '(overlook-courier-gptel-ask :which-key "ask jp")
+    "ah" '(overlook-persona-converse :which-key "chat")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")

@@ -118,7 +118,7 @@ author's within `overlook-room-group-seconds'."
       (when (> lui-output-marker (point-min))
         (let ((lui-time-stamp-position nil))
           (lui-insert "" t)))
-      (lui-insert (concat (when-let* ((avatar (plist-get (overlook-courier-persona from) :avatar)))
+      (lui-insert (concat (when-let* ((avatar (plist-get (overlook-courier-persona (overlook-courier-persona-of from)) :avatar)))
                             (concat avatar " "))
                           (propertize from 'face (overlook-room--face from)))
                   t))
