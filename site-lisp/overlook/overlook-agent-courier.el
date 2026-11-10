@@ -50,6 +50,7 @@
 (require 'overlook-courier-room)
 (require 'overlook-courier-persona)
 (require 'overlook-courier-worktree)
+(require 'overlook-markers)
 
 (declare-function overlook-room-open "overlook-room")
 
@@ -161,15 +162,25 @@ A resumed agent gets its earlier id back unless another agent has it."
         (setq best name length (length root))))
     best))
 
+(defun overlook-agent-courier--marked-project (directory)
+  "Project named after the marked folder holding DIRECTORY, opened if missing.
+Nil when no folder marked by `overlook-markers' holds DIRECTORY."
+  (when-let* ((project (overlook-markers-try directory))
+              (name (file-name-nondirectory (directory-file-name (cdr project)))))
+    (overlook-ensure-project name)
+    (car (member name (overlook-projects)))))
+
 (defun overlook-agent-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
-It opens in the project whose root holds DIRECTORY, else in
+It opens in the project whose root holds DIRECTORY, else in the project
+of the marked folder holding it, opened in the background, else in
 PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
 A persona opens in no project, and what a persona spawns outside the
 projects goes to `overlook-orphan-project'."
   (let* ((parent-buffer (when-let* ((agent (overlook-courier-agent parent))) (overlook-courier-agent-buffer agent)))
          (project (unless (and as (overlook-courier-persona-of as))
                         (or (overlook-agent-courier--project-of directory)
+                            (overlook-agent-courier--marked-project directory)
                             (and (buffer-live-p parent-buffer)
                                  (if (buffer-local-value 'overlook-detached parent-buffer)
                                      (overlook-orphan-project)
