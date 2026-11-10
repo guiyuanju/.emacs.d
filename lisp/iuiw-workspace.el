@@ -17,8 +17,9 @@
 ;; 待办是 Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 项目标题后依次是 workspace 名和不为 0 的 ☐#now 数、◷#waiting 数和未完成的顶层待办数。
 ;; #now 项连同子项常显在项目下，排在 agent 和 repo 之后，再按到期日排；其余折叠在 todo (n) 行，#waiting 在前。
-;; 没开 tab 的项目排在开着的后面，灰色，一项一行，有 #now 的在前；没有 #now 时 TAB 直接展开待办。
-;; status 为 later 且没有 #now 的项目收在一行折叠的 later 下面；done 的项目只列名字，收在其后折叠的 done 下面。
+;; 没开 tab 的项目灰色，一项一行；没有 #now 时 TAB 直接展开待办。
+;; 项目先列已打开的 active，再列未打开且有 #now 的 active，最后列其他；组内按最近切换时间、名字排序。
+;; done 和 dropped 默认隐藏。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、project 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
 ;; status 改成 done 或 dropped 的项目，切换 project（tabspaces 的 tab）或存 project.md 时关掉（当前的除外），连同保存的 agent；
@@ -92,6 +93,24 @@ the also: list of its front matter."
 (defvar iuiw-workspace--cache nil
   "Alist of key to (STAMP . VALUE), see `iuiw-workspace--cached'.")
 
+(defvar iuiw-workspace--snapshot nil
+  "Workspace data shared within a dashboard build or project sort.")
+
+(defun iuiw-workspace--with-snapshot (function &rest args)
+  "Call FUNCTION with ARGS, sharing workspace reads within this call."
+  (let ((iuiw-workspace--snapshot
+         (or iuiw-workspace--snapshot (make-hash-table :test #'eq))))
+    (apply function args)))
+
+(defun iuiw-workspace--snapshot-value (key compute)
+  "Read KEY through COMPUTE once within a workspace snapshot."
+  (if (null iuiw-workspace--snapshot)
+      (funcall compute)
+    (let ((value (gethash key iuiw-workspace--snapshot 'missing)))
+      (if (eq value 'missing)
+          (puthash key (funcall compute) iuiw-workspace--snapshot)
+        value))))
+
 (defun iuiw-workspace--cached (key stamp compute)
   "Value cached under KEY while it was computed at STAMP, else call COMPUTE."
   (let ((entry (alist-get key iuiw-workspace--cache)))
@@ -144,20 +163,23 @@ Symlinks are resolved first, so a link into a project folder finds it."
   "Alist of project id to project.md across the workspaces.
 Globbed again only when the workspace root, a projects/ folder or a
 project folder changes."
-  (let* ((base (iuiw-workspace--base))
-         (stamp (cons base (iuiw-workspace--mtimes
-                            (append (list base)
-                                    (mapcar (lambda (dir) (expand-file-name "projects/" dir))
-                                            (directory-files base t "\\`[^.]"))
-                                    (file-expand-wildcards
-                                     (expand-file-name "*/projects/*/" base)))))))
-    (iuiw-workspace--cached
-     'projects stamp
-     (lambda ()
-       (seq-keep (lambda (file)
-                   (let ((id (iuiw-workspace--file-id file)))
-                     (unless (string-prefix-p "." id) (cons id file))))
-                 (file-expand-wildcards (expand-file-name "*/projects/*/project.md" base)))))))
+  (iuiw-workspace--snapshot-value
+   'projects
+   (lambda ()
+     (let* ((base (iuiw-workspace--base))
+            (stamp (cons base (iuiw-workspace--mtimes
+                               (append (list base)
+                                       (mapcar (lambda (dir) (expand-file-name "projects/" dir))
+                                               (directory-files base t "\\`[^.]"))
+                                       (file-expand-wildcards
+                                        (expand-file-name "*/projects/*/" base)))))))
+       (iuiw-workspace--cached
+        'projects stamp
+        (lambda ()
+          (seq-keep (lambda (file)
+                      (let ((id (iuiw-workspace--file-id file)))
+                        (unless (string-prefix-p "." id) (cons id file))))
+                    (file-expand-wildcards (expand-file-name "*/projects/*/project.md" base)))))))))
 
 (defun iuiw-workspace-project-files ()
   "Return every project card of the workspaces."
@@ -187,7 +209,9 @@ project folder changes."
 (defun iuiw-workspace-overlook-shown-p (name)
   "Non-nil unless project NAME is a project hidden by `iuiw-workspace-filter'."
   (let ((card (iuiw-workspace--card name)))
-    (or (null card) (iuiw-workspace--shown-p card))))
+    (or (null card)
+        (and (not (member (plist-get card :status) '("done" "dropped")))
+             (iuiw-workspace--shown-p card)))))
 
 (defun iuiw-workspace-switch-project (name)
   "Switch to project NAME, offering those shown by `iuiw-workspace-filter'.
@@ -705,6 +729,14 @@ project, return the version-control root."
                                       (plist-get card :count))))
                  " ")))
 
+(defun iuiw-workspace-overlook-priority (name)
+  "Priority of NAME: open active projects, unopened active #now, then others."
+  (let ((card (iuiw-workspace--card name)))
+    (cond ((not (equal (plist-get card :status) "active")) 2)
+          ((member name (overlook-projects)) 0)
+          ((iuiw-workspace--has-now-p card) 1)
+          (t 2))))
+
 (defun iuiw-workspace-overlook-ongoing-p (name)
   "Non-nil when NAME is an ongoing project."
   (iuiw-workspace--ongoing-p (iuiw-workspace--card name)))
@@ -751,9 +783,12 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
 
 (defun iuiw-workspace--cards ()
   "Return every parsed card, re-reading only when a card file changed."
-  (let ((files (iuiw-workspace-project-files)))
-    (iuiw-workspace--cached 'cards (iuiw-workspace--mtimes files)
-                           (lambda () (mapcar #'iuiw-workspace--todo-parse files)))))
+  (iuiw-workspace--snapshot-value
+   'cards
+   (lambda ()
+     (let ((files (iuiw-workspace-project-files)))
+       (iuiw-workspace--cached 'cards (iuiw-workspace--mtimes files)
+                              (lambda () (mapcar #'iuiw-workspace--todo-parse files)))))))
 
 (defun iuiw-workspace--ongoing-p (card)
   "Non-nil when CARD's status is that of an ongoing project."
@@ -1015,33 +1050,11 @@ With #now todos they show; otherwise the heading folds all the todos."
      :folded (not now))))
 
 (defun iuiw-workspace--closed-rows ()
-  "Rows of the ongoing projects that are not open, folded to a line each.
-Those with #now todos come first.  The other ones with status later
-go under a folded \"later\" line, and the done projects under a folded
-\"done\" line."
-  (let* ((open (overlook-projects))
-         (cards (seq-remove (lambda (card) (member (plist-get card :id) open))
-                            (iuiw-workspace--todo-cards)))
-         (now (seq-filter #'iuiw-workspace--has-now-p cards))
-         (others (seq-remove #'iuiw-workspace--has-now-p cards))
-         (later-p (lambda (card) (equal (plist-get card :status) "later")))
-         (later (seq-filter later-p others))
-         (done (seq-filter (lambda (card) (and (equal (plist-get card :status) "done")
-                                               (iuiw-workspace--shown-p card)))
-                           (iuiw-workspace--cards))))
-    (append
-     (mapcar #'iuiw-workspace--closed-row (append now (seq-remove later-p others)))
-     (and later
-          (list (iuiw-workspace--fold-row '(todo-later) "later" (length later)
-                                          (mapcar #'iuiw-workspace--closed-row later))))
-     (and done
-          (list (iuiw-workspace--fold-row
-                 '(todo-done) "done" (length done)
-                 (mapcar (lambda (card)
-                           (overlook-row
-                            :content (plist-get card :id)
-                            :action (iuiw-workspace--todo-visit nil (plist-get card :file) 1)))
-                         done)))))))
+  "Rows of unopened ongoing projects; the Projects section sorts them."
+  (let ((open (overlook-projects)))
+    (mapcar #'iuiw-workspace--closed-row
+            (seq-remove (lambda (card) (member (plist-get card :id) open))
+                        (iuiw-workspace--todo-cards)))))
 
 ;;; Dashboard inbox
 

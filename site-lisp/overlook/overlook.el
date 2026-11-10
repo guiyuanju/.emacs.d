@@ -84,6 +84,36 @@ An integer is a number of columns; a float is a fraction of the frame width."
 were switched to; `backend' keeps the backend's order."
   :type '(choice (const recent) (const backend)))
 
+(defconst overlook-buffer-name " *overlook*"
+  "The dashboard buffer.  A leading space keeps it out of buffer lists.")
+
+(defcustom overlook-project-priority-function nil
+  "Function of a project name returning its numeric priority, lower first.
+With `recent' ordering, priority precedes last switch time, after current."
+  :type '(choice (const nil) function))
+
+(defvar overlook--project-order-snapshots nil
+  "Project orders held while the dashboard window is selected.")
+
+(defun overlook--order-selection-changed (&optional _frame)
+  "Start a fresh project order when entering or leaving the dashboard."
+  (setq overlook--project-order-snapshots nil)
+  (when (eq (window-buffer (selected-window)) (get-buffer overlook-buffer-name))
+    (overlook-refresh)))
+
+(add-hook 'window-selection-change-functions #'overlook--order-selection-changed)
+
+(defun overlook-stable-project-order (names key)
+  "Hold NAMES in their first order under KEY while browsing the dashboard.
+Removed names disappear and new names are appended."
+  (if (not (eq (window-buffer (selected-window)) (get-buffer overlook-buffer-name)))
+      names
+    (let* ((old (alist-get key overlook--project-order-snapshots))
+           (order (append (seq-filter (lambda (name) (member name names)) old)
+                          (seq-remove (lambda (name) (member name old)) names))))
+      (setf (alist-get key overlook--project-order-snapshots) order)
+      order)))
+
 (defcustom overlook-project-annotation nil
   "Function of a project NAME returning a tag shown after its heading, or nil."
   :type '(choice (const :tag "None" nil) function))
@@ -150,8 +180,7 @@ The name is cut to `overlook-account-width' characters."
   "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
   :type 'number)
 
-(defconst overlook-buffer-name " *overlook*"
-  "The dashboard buffer.  A leading space keeps it out of buffer lists.")
+
 
 ;;; Project backend
 
@@ -301,17 +330,28 @@ Add it to `savehist-additional-variables' to keep it across sessions.")
     (setf (alist-get name overlook-project-switch-times nil nil #'equal)
           (float-time))))
 
+(defun overlook-sort-projects (names &optional current)
+  "Sort NAMES by priority, last switch time, then name, with CURRENT first."
+  (let ((keys (mapcar (lambda (name)
+                        (list name
+                              (if overlook-project-priority-function
+                                  (funcall overlook-project-priority-function name) 0)
+                              (alist-get name overlook-project-switch-times 0 nil #'equal)))
+                      (remove current names))))
+    (append (and (member current names) (list current))
+            (mapcar #'car
+                    (sort keys
+                          (lambda (a b)
+                            (cond ((/= (nth 1 a) (nth 1 b)) (< (nth 1 a) (nth 1 b)))
+                                  ((/= (nth 2 a) (nth 2 b)) (> (nth 2 a) (nth 2 b)))
+                                  (t (string< (car a) (car b))))))))))
+
 (defun overlook-ordered-projects ()
   "Names of all projects, in the order of `overlook-project-order'."
-  (let ((names (overlook-projects))
-        (current (overlook-current-project)))
-    (if (not (eq overlook-project-order 'recent))
-        names
-      (let ((time (lambda (name)
-                    (alist-get name overlook-project-switch-times 0 nil #'equal))))
-        (append (and (member current names) (list current))
-                (sort (remove current names)
-                      (lambda (a b) (> (funcall time a) (funcall time b)))))))))
+  (let ((names (overlook-projects)))
+    (if (eq overlook-project-order 'recent)
+        (overlook-sort-projects names (overlook-current-project))
+      names)))
 
 (defvar overlook--to-current nil
   "Non-nil when the next redraw moves point to the current project.")
@@ -320,6 +360,7 @@ Add it to `savehist-additional-variables' to keep it across sessions.")
   "Show the dashboard in the new project and redraw it on its heading.
 Backends call this after any project switch, including ones not made
 through overlook, since switching projects replaces the windows."
+  (setq overlook--project-order-snapshots nil)
   (overlook--record-switch)
   (setq overlook--to-current t)
   (overlook--follow)
@@ -1063,23 +1104,40 @@ CURRENT is the current project's name.  See `overlook--projects'."
                    (overlook-row-attention-p row)))
       row)))
 
-(defun overlook--projects ()
+(defun overlook--projects (&optional unordered)
   "Each project's heading over its rows.
 One with no rows and no mark after its heading is left out unless
 current or `overlook-show-empty-projects' is set.  Those
 `overlook-project-filter' hides are left out unless current or
-needing attention."
+needing attention.  UNORDERED leaves sorting to the containing section."
   (let ((current (overlook-current-project)))
     (overlook-gaps (seq-keep (lambda (name) (overlook--project-row name current))
-                             (overlook-ordered-projects)))))
+                             (if unordered (overlook-projects)
+                               (overlook-stable-project-order (overlook-ordered-projects) 'open))))))
 
 (defun overlook--projects-section ()
-  "The Projects section."
-  (let ((rows (overlook--projects))
-        (closed (overlook-rows 'overlook-closed-projects-functions)))
-    (when (and rows closed)
-      (setf (overlook-row-gap (car (last rows))) t))
-    (overlook-section-row "Projects" (append rows closed))))
+  "The Projects section, merging open and closed projects by priority."
+  (let* ((rows (overlook--projects overlook-project-priority-function))
+         (closed (overlook-rows 'overlook-closed-projects-functions))
+         (all (append rows closed)))
+    (if overlook-project-priority-function
+        (let (projects others)
+          (dolist (row all)
+            (let ((name (pcase (overlook-row-id row)
+                          (`(project . ,name) name)
+                          (`(closed-project ,name) name))))
+              (if name (push (cons name row) projects) (push row others))))
+          (setq all
+                (append
+                 (mapcar (lambda (name) (cdr (assoc name projects)))
+                         (overlook-stable-project-order
+                          (overlook-sort-projects (mapcar #'car projects)
+                                                  (overlook-current-project))
+                          'projects))
+                 (nreverse others))))
+      (when (and rows closed)
+        (setf (overlook-row-gap (car (last rows))) t)))
+    (overlook-section-row "Projects" all)))
 
 (add-hook 'overlook-sections #'overlook--projects-section)
 

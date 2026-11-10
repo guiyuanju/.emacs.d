@@ -9,6 +9,8 @@
   (declare (indent 0))
   `(let* ((iuiw-workspace-directory (file-name-as-directory (make-temp-file "iuiw-ws" t)))
           (overlook-project-annotation #'iuiw-workspace-overlook-annotation)
+          (overlook-project-priority-function #'iuiw-workspace-overlook-priority)
+          (overlook-project-switch-times nil)
           (iuiw-workspace-project-roots nil)
           (iuiw-workspace--cache nil))
      (unwind-protect (progn ,@body)
@@ -147,7 +149,7 @@ status: done
                                     (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
     (cl-letf (((symbol-function 'overlook-projects) (lambda () '("e"))))
       (should (equal (iuiw-workspace-test--text (iuiw-workspace--closed-rows))
-                     "b me ☐1 1\n  ☐ b1\na me 1\nlater (1)\ndone (1)\n")))))
+                     "a me 1\nb me ☐1 1\n  ☐ b1\nc me 1\n")))))
 
 (ert-deftest iuiw-workspace-project-root ()
   (iuiw-workspace-test--with-workspace
@@ -431,3 +433,67 @@ status: done
       (when-let* ((buffer (get-file-buffer file))) (kill-buffer buffer)))))
 
 ;;; iuiw-workspace-test.el ends here
+
+(ert-deftest iuiw-workspace-project-priority-and-visibility ()
+  (iuiw-workspace-test--with-workspace
+    (dolist (project '(("active-now" "active" "- [ ] do #now\n")
+                       ("active" "active" "- [x] done #now\n- [ ] `#now`\n")
+                       ("waiting-now" "waiting" "- [ ] do #now\n")
+                       ("later" "later" "")
+                       ("done" "done" "")
+                       ("dropped" "dropped" "")))
+      (pcase-let ((`(,id ,status ,todos) project))
+        (iuiw-workspace-test--write (format "me/projects/%s/project.md" id)
+                                    (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("active"))))
+      (should (equal (mapcar #'iuiw-workspace-overlook-priority
+                             '("active" "active-now" "waiting-now" "later"))
+                     '(0 1 2 2))))
+    (should (iuiw-workspace-overlook-shown-p "active"))
+    (should-not (iuiw-workspace-overlook-shown-p "done"))
+    (should-not (iuiw-workspace-overlook-shown-p "dropped"))))
+
+(ert-deftest iuiw-workspace-projects-merge-open-and-closed-priorities ()
+  (iuiw-workspace-test--with-workspace
+    (dolist (project '(("open-old" "active" "")
+                       ("open-new" "active" "")
+                       ("open-now" "active" "- [ ] task #now\n")
+                       ("closed-now" "active" "- [ ] task #now\n")
+                       ("closed-active" "active" "")
+                       ("open-waiting" "waiting" "")))
+      (pcase-let ((`(,id ,status ,todos) project))
+        (iuiw-workspace-test--write (format "me/projects/%s/project.md" id)
+                                    (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
+    (let ((overlook-project-switch-times '(("open-new" . 100) ("open-old" . 50)
+                                          ("open-now" . 1) ("open-waiting" . 200)))
+          (overlook-projects-function (lambda () '("open-old" "open-new" "open-now" "open-waiting")))
+          (overlook-current-project-function (lambda () "open-waiting"))
+          (overlook-project-functions '(iuiw-workspace--project-todo-rows))
+          (overlook-closed-projects-functions '(iuiw-workspace--closed-rows))
+          (overlook-show-empty-projects t))
+      (should
+       (equal (mapcar (lambda (row) (overlook-row-id row))
+                      (overlook-row-rows (overlook--projects-section)))
+              '((project . "open-waiting") (project . "open-new")
+                (project . "open-old") (project . "open-now")
+                (closed-project "closed-now") (closed-project "closed-active")))))))
+
+(ert-deftest iuiw-workspace-snapshot-shares-reads-and-expires ()
+  (iuiw-workspace-test--with-workspace
+    (let* ((file (iuiw-workspace-test--write
+                  "me/projects/demo/project.md" "---\nstatus: active\n---\n"))
+           (reads 0)
+           (mtimes (symbol-function 'iuiw-workspace--mtimes)))
+      (cl-letf (((symbol-function 'iuiw-workspace--mtimes)
+                 (lambda (files) (cl-incf reads) (funcall mtimes files))))
+        (iuiw-workspace--with-snapshot
+         (lambda ()
+           (dotimes (_ 10)
+             (should (equal (plist-get (iuiw-workspace--card "demo") :status) "active"))
+             (should (assoc "demo" (iuiw-workspace--projects))))))
+        (should (= reads 2))
+        (write-region "---\nstatus: waiting\n---\n" nil file nil 'silent)
+        (iuiw-workspace--with-snapshot
+         (lambda ()
+           (should (equal (plist-get (iuiw-workspace--card "demo") :status) "waiting"))))
+        (should (= reads 4))))))

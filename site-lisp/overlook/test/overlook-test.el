@@ -1674,3 +1674,34 @@ Agents are listed; usage and repos are not."
                      '(shadow))))))
 
 ;;; overlook-test.el ends here
+
+(ert-deftest overlook-project-priority-before-recency ()
+  (let ((overlook-project-priority-function
+         (lambda (name) (if (member name '("active" "alpha" "beta")) 0 1)))
+        (overlook-project-switch-times '(("waiting" . 100) ("active" . 1))))
+    (should (equal (overlook-sort-projects '("waiting" "beta" "active" "current" "alpha") "current")
+                   '("current" "active" "alpha" "beta" "waiting")))))
+
+(ert-deftest overlook-project-order-held-until-leaving-dashboard ()
+  (let ((overlook--project-order-snapshots nil)
+        (dashboard (get-buffer-create overlook-buffer-name)))
+    (save-window-excursion
+      (switch-to-buffer dashboard)
+      (should (equal (overlook-stable-project-order '("a" "b") 'open) '("a" "b")))
+      (should (equal (overlook-stable-project-order '("b" "a" "c") 'open) '("a" "b" "c")))
+      (should (equal (overlook-stable-project-order '("c" "b") 'open) '("b" "c")))
+      (switch-to-buffer (get-buffer-create " *overlook-order-test*"))
+      (overlook--order-selection-changed)
+      (switch-to-buffer dashboard)
+      (should (equal (overlook-stable-project-order '("c" "b") 'open) '("c" "b")))
+      (kill-buffer " *overlook-order-test*"))))
+
+(ert-deftest overlook-project-sort-computes-priority-once-per-project ()
+  (let* ((calls (make-hash-table :test #'equal))
+         (overlook-project-priority-function
+          (lambda (name)
+            (puthash name (1+ (gethash name calls 0)) calls)
+            0)))
+    (should (equal (overlook-sort-projects '("d" "c" "b" "a")) '("a" "b" "c" "d")))
+    (dolist (name '("a" "b" "c" "d"))
+      (should (= (gethash name calls) 1)))))

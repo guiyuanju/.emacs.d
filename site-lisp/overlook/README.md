@@ -100,6 +100,12 @@ Then:
 
 ## The dashboard
 
+Projects put the current project first, then sort by priority (when
+`overlook-project-priority-function` is set), most recent switch, and name.
+With a priority function, open and closed projects share this ordering.
+Their order stays fixed while the dashboard window is selected; leaving and
+returning updates it. New projects append and closed projects disappear.
+
 ### What the rows show
 
 - **An agent**: its icon from `overlook-agent-icons` (else its name),
