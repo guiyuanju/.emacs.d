@@ -692,11 +692,11 @@ Agents are listed; usage and repos are not."
           (overlook-agent-save)
           (should (equal (overlook-agent--to-save) overlook-agent--saved-written))
           (setq overlook-agent-saved nil)
-          (overlook-agent--load-saved)
+          (overlook-agent-load-saved)
           (should (equal overlook-agent-saved (list pending)))
           (kill-buffer agent)
           (setq overlook-agent--saved-loaded nil)
-          (overlook-agent--load-saved)
+          (overlook-agent-load-saved)
           (should (equal (mapcar (lambda (saved) (alist-get 'session saved)) overlook-agent-saved)
                          '("s1" "s2")))
           (should (equal (alist-get 'project (car overlook-agent-saved)) "one")))
@@ -746,7 +746,7 @@ Agents are listed; usage and repos are not."
     (push '("s4" . "s2") overlook-agent-forks)
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,stray ,child ,parent)) "one"
-          (should (equal (overlook-agent--parent "s2") "s1"))
+          (should (equal (overlook-agent-fork-parent "s2") "s1"))
           (should (< (overlook-test--line-of "claude")
                      (overlook-test--line-of "child")
                      (overlook-test--line-of "codex saved")))
@@ -778,7 +778,7 @@ Agents are listed; usage and repos are not."
           (overlook-agent-save)
           (kill-buffer agent)
           (setq overlook-agent-forks nil)
-          (overlook-agent--load-saved)
+          (overlook-agent-load-saved)
           (should (equal overlook-agent-forks '(("s2" . "s1")))))
       (when (buffer-live-p agent) (kill-buffer agent))
       (delete-file overlook-agent-saved-file)
@@ -817,7 +817,7 @@ Agents are listed; usage and repos are not."
     (unwind-protect
         (progn
           (overlook-agent-courier-mode 1)
-          (setq parent (overlook-agent--launch "claude" root))
+          (setq parent (overlook-agent-start "claude" root))
           (should (equal (buffer-local-value 'overlook-agent-courier-id parent) "claude@shop"))
           (should (member "COURIER_ID=claude@shop" (car (car environments))))
           (let* ((id (overlook-courier-spawn "codex" root "review it" "claude@shop" "high"))
@@ -941,7 +941,7 @@ Agents are listed; usage and repos are not."
          (now (float-time)))
     (unwind-protect
         (cl-letf (((symbol-function 'overlook-agent-buffers) (lambda (&rest _) (list worker mine)))
-                  ((symbol-function 'overlook-agent--brief) (lambda (_) "Running tests"))
+                  ((symbol-function 'overlook-agent-brief) (lambda (_) "Running tests"))
                   ((symbol-function 'overlook-courier-room-publish)
                    (lambda (room source text fallback) (push (list room source text fallback) published))))
           (overlook-courier-register "router")
@@ -1488,6 +1488,7 @@ Agents are listed; usage and repos are not."
 ;; The dashboard ticks without ever being shown.
 (ert-deftest overlook-start-ticks-without-a-window ()
   (let ((overlook--tick-timer nil)
+        (overlook--update-consumers nil)
         (overlook-sections nil))
     (unwind-protect
         (progn
@@ -1564,7 +1565,7 @@ Agents are listed; usage and repos are not."
          (overlook-repo--touched nil)
          (overlook-repo--touch-timer nil))
     (unwind-protect
-        (cl-letf (((symbol-function 'overlook-live-p) #'always)
+        (cl-letf (((symbol-function 'overlook-updating-p) #'always)
                   ((symbol-function 'overlook-repo--tick) #'ignore))
           (make-directory (expand-file-name ".git" inner) t)
           (dolist (dir overlook-repo--shown)

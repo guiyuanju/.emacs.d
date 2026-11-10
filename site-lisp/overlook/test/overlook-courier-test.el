@@ -793,7 +793,10 @@
           (should (string-search "from the room #fix" brief))
           (should (string-suffix-p "go" brief)))
         (should (eq (plist-get (overlook-courier-room-member (overlook-courier-room "fix") "claude@fix") :wake) 'all))
-        (overlook-courier-worktree-remove root "fix")
+        (write-region "dirty" nil (expand-file-name ".worktrees/fix/dirty" root))
+        (should-error (overlook-worktree-remove root "fix"))
+        (should (overlook-courier-room "fix"))
+        (overlook-worktree-remove root "fix" t)
         (should-not (overlook-courier-room "fix"))
         (delete-directory (file-name-directory (directory-file-name overlook-courier-room-directory)) t)))))
 

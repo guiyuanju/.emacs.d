@@ -549,7 +549,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
       (setq overlook-agent-shell--origin
             (or overlook-agent-shell--starting
                 (cons (overlook-agent-shell--name (map-elt agent-shell--state :agent-config))
-                      (overlook-agent--root))))))
+                      (overlook-agent-resolve-root))))))
 
 (defun overlook-agent-shell--add-environment (args)
   "ARGS of `acp-make-client', plus the agent's environment for a shell's client."
@@ -651,7 +651,7 @@ SESSION resumes the session of that id.  It starts at the reasoning effort
                 :run (lambda (name)
                        (overlook-ensure-project project)
                        (let ((overlook-agent-starting-project project))
-                         (overlook-agent--launch name root nil t)))))))
+                         (overlook-agent-start name root nil t)))))))
 
 ;;;###autoload
 (defun overlook-agent-shell-handoff ()

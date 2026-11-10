@@ -27,73 +27,25 @@
 
 ;;; Commentary:
 
-;; Overlook is a side window listing every project (a project with its
-;; buffers and window layout) and what lives in it: its repos, its AI
-;; agents, and whatever else a module adds.
-;;
-;; The core only draws the dashboard.  Everything it shows comes from
-;; modules:
-;;
-;; - A project backend sets the `overlook-project-*-function'
-;;   variables; overlook-tabspaces.el provides one for tabspaces.
-;; - Rows under each project come from
-;;   `overlook-project-functions'; overlook-repo.el lists repos and
-;;   overlook-agent.el lists agents.
-;; - Top level sections come from `overlook-sections'; the projects
-;;   section sits at depth 0, overlook-usage.el adds one above it.
-;;
-;; Modules give data, not text: each returns rows made by `overlook-row',
-;; holding what a row says as segments, what RET does, the rows under it
-;; and the like.  `overlook-model' gathers them into the dashboard's
-;; model, a list of sections, and views draw that model: the dashboard
-;; buffer, and other views such as overlook-remote's web page.
-;;
-;; The dashboard is a `magit-section-mode' buffer: each section and row is
-;; a section, so \\[magit-section-toggle] folds the rows under one and
-;; Magit's section commands work.
+;; The Emacs view of the shared dashboard model.
+;; Project backends and model collection live in `overlook-model';
+;; row data and content segments live in `overlook-row'.
 
 ;;; Code:
 
-(require 'cl-lib)
+(require 'overlook-model)
 (require 'magit-section)
-(require 'project)
-(require 'seq)
-(require 'subr-x)
-
-(defgroup overlook nil
-  "A dashboard over projects, repos and agents."
-  :group 'tools
-  :prefix "overlook-")
 
 (defcustom overlook-width 65
   "Width of the dashboard side window.
 An integer is a number of columns; a float is a fraction of the frame width."
-  :type '(choice (natnum :tag "Columns") (float :tag "Fraction of frame")))
-
-(defcustom overlook-agent-icons nil
-  "Icons shown in place of agents' names, keyed by name."
-  :type '(alist :key-type string :value-type string))
+  :type '(choice (natnum :tag "Columns") (float :tag "Fraction of frame"))
+  :group 'overlook)
 
 (defcustom overlook-side 'right
   "Frame side the dashboard window is shown on."
-  :type '(choice (const left) (const right)))
-
-(defcustom overlook-project-order 'recent
-  "Order of the projects on the dashboard.
-`recent' puts the current one first, then the rest by how recently they
-were switched to; `backend' keeps the backend's order."
-  :type '(choice (const recent) (const backend)))
-
-(defconst overlook-buffer-name " *overlook*"
-  "The dashboard buffer.  A leading space keeps it out of buffer lists.")
-
-(defcustom overlook-project-priority-function nil
-  "Function of a project name returning its numeric priority, lower first.
-With `recent' ordering, priority precedes last switch time, after current."
-  :type '(choice (const nil) function))
-
-(defvar overlook--project-order-snapshots nil
-  "Project orders held while the dashboard window is selected.")
+  :type '(choice (const left) (const right))
+  :group 'overlook)
 
 (defun overlook--order-selection-changed (&optional _frame)
   "Start a fresh project order when entering or leaving the dashboard."
@@ -103,395 +55,37 @@ With `recent' ordering, priority precedes last switch time, after current."
 
 (add-hook 'window-selection-change-functions #'overlook--order-selection-changed)
 
-(defun overlook-stable-project-order (names key)
-  "Hold NAMES in their first order under KEY while browsing the dashboard.
-Removed names disappear and new names are appended."
-  (if (not (eq (window-buffer (selected-window)) (get-buffer overlook-buffer-name)))
-      names
-    (let* ((old (alist-get key overlook--project-order-snapshots))
-           (order (append (seq-filter (lambda (name) (member name names)) old)
-                          (seq-remove (lambda (name) (member name old)) names))))
-      (setf (alist-get key overlook--project-order-snapshots) order)
-      order)))
-
-(defcustom overlook-project-annotation nil
-  "Function of a project NAME returning a tag shown after its heading, or nil."
-  :type '(choice (const :tag "None" nil) function))
-
-(defcustom overlook-project-filter nil
-  "Function of a project NAME returning nil to hide it, or nil to show all.
-The current project, and one with a row needing your attention, are
-shown regardless."
-  :type '(choice (const :tag "Show all" nil) function))
-
-(defcustom overlook-show-empty-projects nil
-  "Non-nil to list a project with no rows and no mark after its heading.
-A function of the project's name decides per project.  The current one
-is listed either way."
-  :type '(choice boolean function))
-
-(defcustom overlook-orphan-project nil
-  "Project listing the rows that belong to no project, or nil.
-Rows opened from there open in it.  Without it, they are listed under
-the current project."
-  :type '(choice (const :tag "The current project" nil) string))
-
-(defcustom overlook-section-order nil
-  "Functions of `overlook-sections' in the order the dashboard shows them.
-Sections not listed follow, by hook depth."
-  :type '(repeat function))
-
-(defcustom overlook-account-labels nil
-  "Short labels drawn in place of account names, keyed by name.
-Like ((\"work\" . \"W\") (\"home\" . \"H\")).  An account with a label
-shows it wherever the dashboard names the account, the first one too."
-  :type '(alist :key-type string :value-type string))
-
-(defun overlook-account-label (account)
-  "The label `overlook-account-labels' gives ACCOUNT, or nil."
-  (and account (alist-get account overlook-account-labels nil nil #'equal)))
-
-(defcustom overlook-account-width 3
-  "Characters of an account's name shown after @ on the dashboard; nil for all."
-  :type '(choice (const :tag "All" nil) natnum))
-
-(defun overlook-account-name (account)
-  "ACCOUNT as the dashboard draws it: its label, else @ACCOUNT, dimmed.
-The name is cut to `overlook-account-width' characters."
-  (or (overlook-account-label account)
-      (propertize (concat "@" (if overlook-account-width
-                                  (truncate-string-to-width account overlook-account-width)
-                                account))
-                  'face 'shadow)))
-
 (defcustom overlook-refresh-idle 0.5
   "Seconds input must pause before the dashboard redraws."
-  :type 'number)
+  :type 'number
+  :group 'overlook)
 
 (defcustom overlook-refresh-gap 1
   "Fewest seconds between two redraws the dashboard asks for itself."
-  :type 'number)
+  :type 'number
+  :group 'overlook)
 
 (defcustom overlook-refresh-max-wait 10
   "Most seconds a redraw waits for input to pause."
-  :type 'number)
-
-(defcustom overlook-tick-interval 5
-  "Seconds between runs of `overlook-tick-hook' while the dashboard is live."
-  :type 'number)
-
-
-
-;;; Project backend
-
-(defvar overlook-projects-function #'ignore
-  "Function returning the names of all projects, in display order.")
-
-(defvar overlook-current-project-function #'ignore
-  "Function returning the name of the current project, or nil.")
-
-(defvar overlook-switch-project-function #'ignore
-  "Function of a NAME switching to that project.")
-
-(defvar overlook-project-buffers-function #'ignore
-  "Function of a NAME returning that project's buffers.")
-
-(defvar overlook-project-root-function #'overlook-project--root
-  "Function of a NAME returning that project's root, or nil.")
-
-(defvar overlook-add-to-project-function #'ignore
-  "Function of a NAME and a BUFFER adding BUFFER to that project.")
-
-(defvar overlook-detach-function #'ignore
-  "Function of a BUFFER removing it from every project.")
-
-(defvar overlook-close-project-function #'ignore
-  "Function of a NAME closing that project and killing its own buffers.")
-
-(defcustom overlook-project-root #'overlook-project-guess-root
-  "Function of a project NAME returning its project root, or nil."
-  :type 'function
+  :type 'number
   :group 'overlook)
 
-(defun overlook-projects ()
-  "Names of all projects."
-  (funcall overlook-projects-function))
-
-(defun overlook-current-project ()
-  "Name of the current project, or nil."
-  (funcall overlook-current-project-function))
-
-(defvar overlook--buffers-cache nil
-  "Project buffers looked up during one render, keyed by name.")
-
-(defun overlook-project-buffers (name)
-  "Live buffers of project NAME."
-  (let ((lookup (lambda ()
-                  (seq-filter #'buffer-live-p
-                              (funcall overlook-project-buffers-function name)))))
-    (if overlook--buffers-cache
-        (with-memoization (gethash name overlook--buffers-cache) (funcall lookup))
-      (funcall lookup))))
-
-(defvar overlook--roots-cache nil
-  "Project roots looked up during one render, keyed by name, each in a list.")
-
-(defun overlook-project-root (name)
-  "Project root of project NAME, or nil."
-  (if overlook--roots-cache
-      (car (with-memoization (gethash name overlook--roots-cache)
-             (list (funcall overlook-project-root-function name))))
-    (funcall overlook-project-root-function name)))
-
-(defun overlook-project-guess-root (name)
-  "Root of the project of the first file or Dired buffer in project NAME."
-  (seq-some (lambda (buffer)
-              (when (or (buffer-file-name buffer)
-                        (eq (buffer-local-value 'major-mode buffer) 'dired-mode))
-                (when-let* ((project (project-current
-                                      nil (buffer-local-value 'default-directory buffer))))
-                  (project-root project))))
-            (overlook-project-buffers name)))
-
-(defun overlook-project--root (name)
-  "Project root of project NAME, per `overlook-project-root'."
-  (funcall overlook-project-root name))
-
-(defun overlook-orphan-project ()
-  "Name of `overlook-orphan-project' when it exists, else nil."
-  (car (member overlook-orphan-project (overlook-projects))))
-
-(defun overlook-orphans-project ()
-  "Name of the project rows of no project go under.
-That is `overlook-orphan-project', or else the current one."
-  (or (overlook-orphan-project) (overlook-current-project)))
-
-(defun overlook-add-to-project (name buffer)
-  "Add BUFFER to project NAME."
-  (funcall overlook-add-to-project-function name buffer))
-
-(defvar-local overlook-detached nil
-  "Non-nil in a buffer `overlook-detach' keeps out of every project.")
 (put 'overlook-detached 'permanent-local t)
 
-(defun overlook-detach (buffer)
-  "Keep BUFFER out of every project, even once shown in one.
-Opening it from the dashboard shows it in the current project."
-  (with-current-buffer buffer
-    (setq overlook-detached t)
-    (add-hook 'window-buffer-change-functions #'overlook--detach-shown nil t))
-  (funcall overlook-detach-function buffer))
-
-(defun overlook--detach-shown (window)
-  "Take the buffer WINDOW now shows back out of the projects."
-  (funcall overlook-detach-function (window-buffer window)))
 (put 'overlook--detach-shown 'permanent-local-hook t)
-
-(defun overlook-buffer-project (buffer)
-  "The project BUFFER belongs to, preferring the current one; or nil."
-  (let ((current (overlook-current-project)))
-    (if (and current (memq buffer (overlook-project-buffers current)))
-        current
-      (seq-find (lambda (name) (memq buffer (overlook-project-buffers name)))
-                (overlook-projects)))))
-
-(defun overlook-switch-project (name)
-  "Switch to project NAME, keeping the dashboard shown if it was."
-  (unless (equal name (overlook-current-project))
-    (funcall overlook-switch-project-function name)
-    (overlook-project-switched)))
-
-(defun overlook-ensure-project (name)
-  "Create project NAME if missing, staying in the current project."
-  (unless (member name (overlook-projects))
-    (let ((current (overlook-current-project)))
-      (overlook-switch-project name)
-      (when current (overlook-switch-project current)))))
-
-(defun overlook-close-project (name)
-  "Close project NAME, killing the buffers no other project holds."
-  (interactive
-   (let ((current (overlook-current-project)))
-     (list (completing-read (format-prompt "Close project" current)
-                            (overlook-projects) nil t nil nil current))))
-  (funcall overlook-close-project-function name)
-  (overlook-refresh))
-
-(defvar overlook-project-switch-hook nil
-  "Hook run after switching projects, in the new one.")
-
-(defvar overlook-project-switch-times nil
-  "Alist of project name to the time it was last switched to.
-Add it to `savehist-additional-variables' to keep it across sessions.")
-
-(defun overlook--record-switch ()
-  "Record the time of a switch to the current project."
-  (when-let* ((name (overlook-current-project)))
-    (setf (alist-get name overlook-project-switch-times nil nil #'equal)
-          (float-time))))
-
-(defun overlook-sort-projects (names &optional current)
-  "Sort NAMES by priority, last switch time, then name, with CURRENT first."
-  (let ((keys (mapcar (lambda (name)
-                        (list name
-                              (if overlook-project-priority-function
-                                  (funcall overlook-project-priority-function name) 0)
-                              (alist-get name overlook-project-switch-times 0 nil #'equal)))
-                      (remove current names))))
-    (append (and (member current names) (list current))
-            (mapcar #'car
-                    (sort keys
-                          (lambda (a b)
-                            (cond ((/= (nth 1 a) (nth 1 b)) (< (nth 1 a) (nth 1 b)))
-                                  ((/= (nth 2 a) (nth 2 b)) (> (nth 2 a) (nth 2 b)))
-                                  (t (string< (car a) (car b))))))))))
-
-(defun overlook-ordered-projects ()
-  "Names of all projects, in the order of `overlook-project-order'."
-  (let ((names (overlook-projects)))
-    (if (eq overlook-project-order 'recent)
-        (overlook-sort-projects names (overlook-current-project))
-      names)))
 
 (defvar overlook--to-current nil
   "Non-nil when the next redraw moves point to the current project.")
 
-(defun overlook-project-switched (&rest _)
-  "Show the dashboard in the new project and redraw it on its heading.
-Backends call this after any project switch, including ones not made
-through overlook, since switching projects replaces the windows."
-  (setq overlook--project-order-snapshots nil)
-  (overlook--record-switch)
-  (setq overlook--to-current t)
-  (overlook--follow)
-  (run-hooks 'overlook-project-switch-hook)
-  (overlook-refresh)
-  (overlook--render-soon))
-
-;;; Hooks
-
-(defvar overlook-sections nil
-  "Functions giving the dashboard's top level sections, by hook depth.
-Each is called with no arguments and returns a section, as made by
-`overlook-section-row', or nil.  The projects section sits at
-depth 0.")
-
-(defvar overlook-project-functions nil
-  "Functions giving the rows under a project's heading, by hook depth.
-Each is called with the project's NAME and returns a list of rows,
-as made by `overlook-row'.  The rows of what lies in a checkout come
-from `overlook-worktree-functions' instead, at depth 0 when the project
-lists no worktrees.  Under
-`overlook-orphans-project' a function also gives its rows that
-belong to no project.")
-
-(defvar overlook-closed-projects-functions nil
-  "Functions giving rows after the projects' headings, by hook depth.
-Each is called with no arguments and returns a list of rows, for what
-`overlook-projects' does not list, like projects that are not open.")
-
-(defvar overlook-worktrees-functions nil
-  "Functions of a project NAME returning the worktrees listed under it.
-Each returns a list of folders, each ending in a slash.")
-
-(defvar overlook-worktree-functions nil
-  "Functions giving the rows of what lies in a checkout, by hook depth.
-Each is called with the project's NAME and the worktree's folder
-DIR, or nil for what lies in none of its worktrees, and returns a list
-of rows.  Agents sit at depth 0 and changed repos at 50.  With DIR nil
-they go right under the project's heading while it lists no
-worktrees, else under the row of its main checkout, which a function of
-`overlook-project-functions' gives with those of its worktrees.")
-
-(defvar overlook--worktrees-cache nil
-  "Worktrees looked up during one render, keyed by project name.")
-
-(defun overlook-worktrees (name)
-  "Folders of the worktrees listed under project NAME."
-  (let ((lookup (lambda () (seq-mapcat (lambda (fn) (funcall fn name))
-                                       overlook-worktrees-functions))))
-    (if overlook--worktrees-cache
-        (car (with-memoization (gethash name overlook--worktrees-cache)
-               (list (funcall lookup))))
-      (funcall lookup))))
-
-(defun overlook-worktree-of (dir worktrees)
-  "The folder among WORKTREES holding DIR, or nil."
-  (when dir
-    (let ((dir (file-name-as-directory (expand-file-name dir))))
-      (seq-find (lambda (tree) (string-prefix-p tree dir)) worktrees))))
-
-(defvar overlook-folder-contents-functions nil
-  "Functions of a folder DIR returning what lies in it, before DIR goes.
-Each returns a list of (DESCRIPTION . DELETE), DESCRIPTION naming one
-thing, like \"agent claude\", and DELETE a function letting it go.")
-
-(defun overlook-folder-contents (dir)
-  "What lies in folder DIR, as `overlook-folder-contents-functions' tell."
-  (seq-mapcat (lambda (fn) (funcall fn dir)) overlook-folder-contents-functions))
-
-(defvar overlook-delete-functions nil
-  "Functions of a row's id, as `overlook-item-at-point' gives, deleting it.
-Each deletes what the row stands for.
-Each returns non-nil when it handled the item.")
-
-(defvar overlook-project-command-functions nil
-  "Functions of a project NAME returning commands for its heading.
-Each returns a list of commands, as `overlook-row' describes.")
-
-(defvar overlook-heading-mark-functions nil
-  "Functions of a project NAME returning a mark put right after its heading.
-Each returns a string, such as \"*\", or nil.")
-
-(defvar overlook-mode-line-functions nil
-  "Functions returning strings joined into the dashboard's mode line.")
-
-(defvar overlook-before-render-hook nil
-  "Hook run before `overlook-model' gathers the dashboard's rows.")
-
-(defvar overlook-after-model-hook nil
-  "Hook run once `overlook-model' has gathered the dashboard's rows afresh.
-For views drawing the model `overlook-latest-model' gives.")
-
-(defvar overlook-tick-hook nil
-  "Hook run every `overlook-tick-interval' seconds while the dashboard is live.")
-
-(defun overlook-toggle-hooks (on hooks)
-  "Add HOOKS when ON is non-nil, else remove them; for modules' modes.
-Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
-  (pcase-dolist (`(,hook ,function ,depth) hooks)
-    (if on (add-hook hook function depth) (remove-hook hook function))))
-
 ;;; Refresh
 
 (defvar overlook--timer nil)
-(defvar overlook--tick-timer nil)
+
 (defvar overlook--shown nil
   "Non-nil while the dashboard is toggled on; every project then shows it.")
 
-(defun overlook-live-p ()
-  "Non-nil when the dashboard buffer exists."
-  (and (get-buffer overlook-buffer-name) t))
-
 (defvar overlook--rendered 0
   "When the dashboard was last redrawn.")
-
-(defvar overlook-refresh-hook nil
-  "Hook run by `overlook-refresh', whether or not the dashboard is live.
-For other views of the dashboard; see `overlook-latest-model'.")
-
-(defvar overlook--generation 0
-  "Count of calls to `overlook-refresh', telling when a model is stale.")
-
-(defun overlook-refresh ()
-  "Redraw the dashboard soon, at most once per burst, and not while the user types.
-Redraws are `overlook-refresh-gap' seconds apart at least."
-  (setq overlook--generation (1+ overlook--generation))
-  (run-hooks 'overlook-refresh-hook)
-  (when (and (overlook-live-p) (not (timerp overlook--timer)))
-    (setq overlook--timer
-          (run-with-timer (max 0.1 (- (+ overlook--rendered overlook-refresh-gap) (float-time)))
-                          nil #'overlook--render-when-idle (float-time)))))
 
 (defun overlook--render-when-idle (asked)
   "Redraw once input has paused for `overlook-refresh-idle' seconds.
@@ -515,13 +109,6 @@ Waits no longer than `overlook-refresh-max-wait' seconds after time ASKED."
   (setq overlook--timer nil
         overlook--rendered (float-time))
   (overlook--render))
-
-(defun overlook--tick ()
-  "Run `overlook-tick-hook', or stop ticking once the dashboard is gone."
-  (if (overlook-live-p)
-      (run-hooks 'overlook-tick-hook)
-    (cancel-timer overlook--tick-timer)
-    (setq overlook--tick-timer nil)))
 
 ;;; Mode
 
@@ -576,6 +163,7 @@ The binding is recorded in `overlook-keys'."
   (advice-add 'set-window-configuration :after #'overlook--restore-points)
   (advice-add 'magit-section-maybe-update-visibility-indicator :after #'overlook--color-ellipses)
   (advice-add 'magit-section-maybe-paint-visibility-ellipses :after #'overlook--color-ellipses)
+  (add-hook 'kill-buffer-hook #'overlook--dashboard-killed nil t)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
 
 (defun overlook--mode-line ()
@@ -585,25 +173,6 @@ The binding is recorded in `overlook-keys'."
    (string-join (cons (concat " " (propertize "Overlook" 'face 'mode-line-buffer-id))
                       (delq nil (mapcar #'funcall overlook-mode-line-functions)))
                 "   ")))
-
-;;; Faces
-
-(defface overlook-section
-  '((t :inherit (font-lock-keyword-face bold)))
-  "Face of section titles.")
-
-(defface overlook-tabular
-  '((t))
-  "Face of rows whose text lines up in columns.
-Views in proportional fonts draw such rows in a fixed-pitch one.")
-
-(defface overlook-heading
-  '((t :inherit bold))
-  "Face of project headings.")
-
-(defface overlook-heading-current
-  '((t :inherit (success bold)))
-  "Face of the current project's heading.")
 
 (defclass overlook-section (magit-section) ()
   "A section or row of the dashboard.")
@@ -633,142 +202,6 @@ Magit takes their face from `font-lock-face', which the rows do not set."
                                                                    (overlays-at pos))
                                                            (list (get-char-property pos 'face)))))))))))
 
-;;; Rows
-
-(cl-defstruct (overlook-row (:constructor overlook-row) (:copier nil))
-  "A row of the dashboard, as data.
-Make one with `overlook-row', giving each slot as a keyword argument.
-ID identifies the row across redraws, like (agent . BUFFER); without
-one, the row goes by its text.  `overlook-item-at-point' and
-`overlook-delete-functions' get it.
-
-CONTENT is what the row says: a segment, or a list of them, nested
-lists and nils allowed.  A segment is
-  a string, its text properties giving its look, like `face';
-  (:right TEXT :columns N), TEXT ending N columns before the right
-          edge, as `overlook-align-right' makes;
-  (:cell GLYPH), GLYPH padded to three columns, as
-          `overlook-glyph-cell' makes;
-  (:fit TEXT :face FACE :before GAP :reserve N), TEXT in FACE after
-          GAP, cut with an ellipsis to fit before the last N columns,
-          or left out with GAP when hardly any fits;
-  (:pad TEXT :like TEXTS), TEXT padded as wide as the widest of
-          TEXTS, as each view measures them, so rows line up;
-  (:wrap PIECES :gap N), strings N columns apart, those that do not
-          fit going to lines below, which start where the first did.
-A string's `overlook-alt' property is its text for views without the
-fonts of icons.  CONTENT can also be a function of the columns the row
-has, or nil when unbounded, returning segments.
-
-HEADING and ATTENTION mark rows \\[overlook-next-heading] and
-\\[overlook-next-attention] stop at.  CHILDREN are the rows under it, or
-a function returning them once they show; FOLDED starts them folded.
-NEST indents them a step more.  GAP puts a blank line after the row and
-its children, folded with them.  DIM draws the row's line dimmed; FACE,
-a face or list of faces, is added under its own faces, past its indent.
-
-ACTION is what RET does, HELP its tooltip, WRAP what starts its
-continuation lines after its indent, KEYMAP its keys.  CHOICES, a list
-of (KEY LABEL . _), are the answers it offers, on a line under the row, and CHOOSE a function of a
-KEY giving that answer.
-
-COMMANDS are what views without the dashboard's keys, such as
-overlook-remote's page, offer on the row.  Each is a plist:
-  :name     its name, one of the row's;
-  :label    what its button says;
-  :input    when non-nil, what to ask for as text;
-  :options  strings to pick one of;
-  :confirm  a question to confirm first, or a function returning one,
-            or nil when none is needed;
-  :run      a function of the text, when :input, and then the option,
-            when :options.  It must not ask in the minibuffer; returning
-            an agent's buffer shows that agent, and (BUFFER . TEXT)
-            also leaves TEXT in its prompt, unsent.
-DIFF is a function returning the unified diff the row stands for, as
-text, which such views show when the row is picked."
-  id content heading attention folded children nest gap dim face
-  action help wrap keymap choices choose commands diff)
-
-(defun overlook-row-command (row name)
-  "ROW's command NAME, or nil."
-  (seq-find (lambda (command) (equal (plist-get command :name) name))
-            (overlook-row-commands row)))
-
-(defun overlook-row-attention-p (row)
-  "Non-nil when ROW, or a row under it shown so far, needs attention."
-  (or (overlook-row-attention row)
-      (let ((children (overlook-row-children row)))
-        (and (not (functionp children)) (seq-some #'overlook-row-attention-p children)))))
-
-(defun overlook-row-rows (row)
-  "The rows under ROW, gathering those put off until shown."
-  (let ((children (overlook-row-children row)))
-    (if (functionp children)
-        (setf (overlook-row-children row) (funcall children))
-      children)))
-
-(defun overlook-gaps (rows)
-  "ROWS, each but the last followed by a blank line."
-  (dolist (row (butlast rows))
-    (setf (overlook-row-gap row) t))
-  rows)
-
-(defun overlook-section-row (title rows &optional action commands)
-  "A top level section TITLE over ROWS, or nil when ROWS is empty.
-ACTION is what RET on the title does; by default it folds the section.
-COMMANDS are the title's, as `overlook-row' describes."
-  (when rows
-    (let ((title (copy-sequence title)))
-      (add-face-text-property 0 (length title) 'overlook-section t title)
-      (overlook-row :content title :heading t :action action :children rows :gap t
-                    :commands commands))))
-
-(defun overlook-rows (hook &rest args)
-  "The rows the functions of HOOK return given ARGS, in hook order.
-A function can return one row, or a list of them."
-  (let (rows)
-    (apply #'run-hook-wrapped hook
-           (lambda (function &rest args)
-             (push (ensure-list (apply function args)) rows)
-             nil)
-           args)
-    (apply #'append (nreverse rows))))
-
-(defun overlook-alt-text (string)
-  "STRING as views without icon fonts show it, each `overlook-alt' in place."
-  (let ((start 0) parts)
-    (while (< start (length string))
-      (let ((end (next-single-property-change start 'overlook-alt string (length string))))
-        (push (or (get-text-property start 'overlook-alt string) (substring string start end))
-              parts)
-        (setq start end)))
-    (apply #'concat (nreverse parts))))
-
-(defun overlook-icon (name)
-  "NAME's icon from `overlook-agent-icons', else NAME.
-The icon takes NAME's properties, its faces over the icon's own, and
-carries NAME as its `overlook-alt'."
-  (if-let* ((plain (substring-no-properties name))
-            (icon (alist-get plain overlook-agent-icons nil nil #'equal)))
-      (let ((icon (copy-sequence icon))
-            (face (get-text-property 0 'face name)))
-        (cl-loop for (property value) on (text-properties-at 0 name) by #'cddr
-                 unless (eq property 'face)
-                 do (put-text-property 0 (length icon) property value icon))
-        (when face (add-face-text-property 0 (length icon) face nil icon))
-        (put-text-property 0 (length icon) 'overlook-alt plain icon)
-        icon)
-    name))
-
-(defun overlook-align-right (text columns)
-  "A segment of TEXT aligned to end COLUMNS before the window's right edge."
-  (list :right text :columns columns))
-
-(defun overlook-glyph-cell (glyph)
-  "A segment of GLYPH padded to three columns, so the names after it line up.
-Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
-  (list :cell glyph))
-
 ;;; Drawing
 
 (defun overlook-columns ()
@@ -796,14 +229,6 @@ measure it in a temporary buffer."
       (with-no-warnings (string-pixel-width string (current-buffer)))
     (string-pixel-width string)))
 
-(defun overlook-truncate (text width)
-  "TEXT cut to WIDTH columns with an ellipsis in the face of the text it ends."
-  (truncate-string-to-width
-   text width nil nil
-   (propertize "…" 'face (and (> (length text) 0)
-                              (get-text-property (min (1- (length text)) (max 0 (- width 2)))
-                                                 'face text)))))
-
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
 Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
@@ -822,18 +247,13 @@ Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
 (defvar overlook--pad-widths (make-hash-table :test #'eq :weakness 'key)
   "Columns the widest of each `:pad' segment's texts takes as drawn.")
 
-(defun overlook--pad (text like fit)
-  "Spaces after TEXT making it as wide as the widest of LIKE.
-With FIT, as drawn in the current buffer; else by `overlook-alt-text'."
-  (let ((width (if fit
-                   #'overlook-string-columns
-                 (lambda (string) (string-width (overlook-alt-text string))))))
-    (make-string (max 0 (- (if fit
-                               (with-memoization (gethash like overlook--pad-widths)
-                                 (apply #'max 0 (mapcar width like)))
-                             (apply #'max 0 (mapcar width like)))
-                           (funcall width text)))
-                 ?\s)))
+(defun overlook--pad (text like)
+  "Spaces after TEXT making it as wide as the widest of LIKE as drawn."
+  (make-string
+   (max 0 (- (with-memoization (gethash like overlook--pad-widths)
+               (apply #'max 0 (mapcar #'overlook-string-columns like)))
+             (overlook-string-columns text)))
+   ?\s))
 
 (defun overlook--wrap (pieces gap head)
   "PIECES joined by GAP after HEAD, wrapped to the window showing the buffer.
@@ -853,88 +273,33 @@ Lines below start where the first piece did, and leave a column at the end."
               (t (setq text (concat text newline piece) x (+ start width))))))
     text))
 
-(defun overlook-row-segments (row &optional columns)
-  "ROW's content as a flat list of segments, for COLUMNS as in `overlook-row'."
-  (overlook--segments (overlook-row-content row) columns))
-
-(defun overlook--segments (content columns)
-  "CONTENT, a row's, as a flat list of segments, for COLUMNS as in `overlook-row'."
-  (cond ((null content) nil)
-        ((stringp content) (list content))
-        ((functionp content) (overlook--segments (funcall content columns) columns))
-        ((keywordp (car content)) (list content))
-        (t (mapcan (lambda (part) (overlook--segments part columns)) content))))
-
-(defun overlook--segment (segment head fit)
-  "SEGMENT as text, after HEAD on its line.
-With FIT, it is laid out for the window showing the current buffer;
-else nothing is cut."
+(defun overlook--segment (segment head)
+  "Lay out SEGMENT after HEAD for the current dashboard window."
   (pcase segment
-    ((pred stringp) segment)
-    (`(:right ,text . ,_)
-     (concat (propertize " " 'display
-                         `(space :align-to (- right ,(+ (plist-get segment :columns)
-                                                        (string-width text)))))
-             text))
     (`(:pad ,text . ,_)
-     (concat text (overlook--pad text (plist-get segment :like) fit)))
+     (concat text (overlook--pad text (plist-get segment :like))))
     (`(:wrap ,pieces . ,_)
-     (let ((gap (make-string (or (plist-get segment :gap) 1) ?\s)))
-       (if fit (overlook--wrap pieces gap head) (string-join pieces gap))))
+     (overlook--wrap pieces (make-string (or (plist-get segment :gap) 1) ?\s) head))
     (`(:cell ,glyph)
-     (concat glyph (if fit
-                       (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
-                         (propertize " " 'display `(space :width (,(max 1 pad)))))
-                     " ")))
+     (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
+       (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
     (`(:fit ,text . ,_)
-     (let* ((face (plist-get segment :face))
-            (before (or (plist-get segment :before) ""))
-            (text (if fit
-                      (overlook-fit text
-                                    (- (overlook-window-pixels)
-                                       (overlook-pixel-width (concat head before))
-                                       (* (or (plist-get segment :reserve) 0)
-                                          (frame-char-width)))
-                                    face)
-                    (propertize text 'face face))))
+     (let* ((before (or (plist-get segment :before) ""))
+            (text (overlook-fit text
+                                (- (overlook-window-pixels)
+                                   (overlook-pixel-width (concat head before))
+                                   (* (or (plist-get segment :reserve) 0)
+                                      (frame-char-width)))
+                                (plist-get segment :face))))
        (if text (concat before text) "")))
-    (_ "")))
+    (_ (overlook-segment-text segment))))
 
-(defun overlook--line (row fit &optional indent)
-  "ROW's content as one string after INDENT, laid out as with FIT.
-See `overlook--segment'."
+(defun overlook--line (row &optional indent)
+  "Lay out ROW's content as text after INDENT for the dashboard window."
   (let ((line (or indent "")))
-    (dolist (segment (overlook--segments
-                      (overlook-row-content row)
-                      (and fit (- (overlook--window-width) (length line)))))
-      (setq line (concat line (overlook--segment segment line fit))))
+    (dolist (segment (overlook-row-segments row (- (overlook--window-width) (length line))))
+      (setq line (concat line (overlook--segment segment line))))
     line))
-
-(defun overlook--add-faces (faces start end string &optional append)
-  "Add FACES, a face or list of faces, to STRING from START to END.
-They go under its own faces with APPEND, else over them."
-  (dolist (face (if (and (consp faces) (not (keywordp (car faces)))) faces (list faces)))
-    (add-face-text-property start end face append string)))
-
-(defun overlook--row-look (row text start end)
-  "Add ROW's face to TEXT past START, and dim it before END when ROW is dim."
-  (when (overlook-row-face row)
-    (overlook--add-faces (overlook-row-face row) start (length text) text t))
-  (when (overlook-row-dim row)
-    (add-face-text-property 0 end 'shadow nil text)))
-
-(defun overlook-row-text (row)
-  "ROW's content as one string with its look, nothing cut or aligned.
-For views other than the dashboard buffer."
-  (let ((text (overlook--line row nil)))
-    (overlook--row-look row text 0 (length text))
-    text))
-
-(defun overlook-row-key (row &optional text)
-  "What identifies ROW across redraws: its id, else its line TEXT, trimmed.
-TEXT defaults to `overlook-row-text'."
-  (or (overlook-row-id row)
-      (string-trim (substring-no-properties (or text (overlook-row-text row))))))
 
 (defun overlook--choose-at-point (choose)
   "Call CHOOSE with the answer at point, or visit the row off any answer."
@@ -975,13 +340,13 @@ TEXT defaults to `overlook-row-text'."
 (defun overlook--row-lines (row indent)
   "ROW's text in the dashboard after INDENT, its line then its answers'.
 Returns (TEXT . ID), ID being the row's id, else its trimmed text."
-  (let* ((line (overlook--line row t indent))
+  (let* ((line (overlook--line row indent))
          (heading-end (1+ (length line)))
          (wrap (and (overlook-row-wrap row)
                     (concat indent (overlook-row-wrap row))))
          (text (concat line "\n" (overlook--choices-line row (or wrap indent))))
          (keymap (overlook--keymap row)))
-    (overlook--row-look row text (length indent) heading-end)
+    (overlook-row-apply-look row text (length indent) heading-end)
     (when (overlook-row-heading row)
       (put-text-property 0 heading-end 'overlook-heading t text))
     (when (overlook-row-attention row)
@@ -1033,146 +398,10 @@ Like Magit's, it highlights and folds with SECTION."
   (dolist (row rows)
     (overlook--insert-row row (or indent ""))))
 
-(defun overlook-format-duration (seconds)
-  "Format SECONDS compactly with its two largest units, like 2h10m or 3d4h."
-  (let ((m (/ (max 0 (floor seconds)) 60)))
-    (cond ((< m 60) (format "%dm" m))
-          ((< m 1440) (format "%dh%dm" (/ m 60) (% m 60)))
-          (t (format "%dd%dh" (/ m 1440) (% (/ m 60) 24))))))
-
 (defun overlook-main-window ()
   "Select the most recently used window that is not a side window."
   (when (window-parameter (selected-window) 'window-side)
     (select-window (get-mru-window nil nil t))))
-
-;;; Projects section
-
-(defun overlook--sections ()
-  "Functions of `overlook-sections', sorted by `overlook-section-order'."
-  (let (functions)
-    (run-hook-wrapped 'overlook-sections (lambda (f) (push f functions) nil))
-    (seq-sort-by (lambda (f) (or (seq-position overlook-section-order f)
-                                 (length overlook-section-order)))
-                 #'< (nreverse functions))))
-
-(defun overlook--heading-marks (name)
-  "The marks `overlook-heading-mark-functions' put after project NAME."
-  (mapconcat (lambda (function) (or (funcall function name) ""))
-             overlook-heading-mark-functions))
-
-(defun overlook-project-heading (name face marks &rest slots)
-  "The heading row of project NAME in FACE, with the string MARKS after it.
-SLOTS are further keyword arguments of `overlook-row'."
-  (apply #'overlook-row
-         :content (list (propertize (concat name marks) 'face face)
-                        (when-let* ((tag (and overlook-project-annotation
-                                              (funcall overlook-project-annotation name))))
-                          (propertize (concat " " tag) 'face 'shadow)))
-         :heading t
-         :action (lambda () (overlook-show-elsewhere name #'ignore))
-         :commands (seq-mapcat (lambda (function) (funcall function name))
-                               overlook-project-command-functions)
-         slots))
-
-(defun overlook--checkout-rows (name)
-  "The rows of what lies in project NAME's only checkout, if it lists no worktrees."
-  (unless (overlook-worktrees name)
-    (overlook-rows 'overlook-worktree-functions name nil)))
-
-(add-hook 'overlook-project-functions #'overlook--checkout-rows)
-
-(defun overlook--project-row (name current)
-  "The heading of project NAME over its rows, or nil when left out.
-CURRENT is the current project's name.  See `overlook--projects'."
-  (let* ((marks (overlook--heading-marks name))
-         (rows (overlook-rows 'overlook-project-functions name))
-         (row (overlook-project-heading name
-                                        (if (equal name current)
-                                            'overlook-heading-current
-                                          'overlook-heading)
-                                        marks
-                                        :id (cons 'project name)
-                                        :children rows)))
-    (when (and (or rows (equal name current)
-                   (if (functionp overlook-show-empty-projects)
-                       (funcall overlook-show-empty-projects name)
-                     overlook-show-empty-projects)
-                   (not (string-empty-p marks)))
-               (or (equal name current)
-                   (null overlook-project-filter)
-                   (funcall overlook-project-filter name)
-                   (overlook-row-attention-p row)))
-      row)))
-
-(defun overlook--projects (&optional unordered)
-  "Each project's heading over its rows.
-One with no rows and no mark after its heading is left out unless
-current or `overlook-show-empty-projects' is set.  Those
-`overlook-project-filter' hides are left out unless current or
-needing attention.  UNORDERED leaves sorting to the containing section."
-  (let ((current (overlook-current-project)))
-    (overlook-gaps (seq-keep (lambda (name) (overlook--project-row name current))
-                             (if unordered (overlook-projects)
-                               (overlook-stable-project-order (overlook-ordered-projects) 'open))))))
-
-(defun overlook--projects-section ()
-  "The Projects section, merging open and closed projects by priority."
-  (let* ((rows (overlook--projects overlook-project-priority-function))
-         (closed (overlook-rows 'overlook-closed-projects-functions))
-         (all (append rows closed)))
-    (if overlook-project-priority-function
-        (let (projects others)
-          (dolist (row all)
-            (let ((name (pcase (overlook-row-id row)
-                          (`(project . ,name) name)
-                          (`(closed-project ,name) name))))
-              (if name (push (cons name row) projects) (push row others))))
-          (setq all
-                (append
-                 (mapcar (lambda (name) (cdr (assoc name projects)))
-                         (overlook-stable-project-order
-                          (overlook-sort-projects (mapcar #'car projects)
-                                                  (overlook-current-project))
-                          'projects))
-                 (nreverse others))))
-      (when (and rows closed)
-        (setf (overlook-row-gap (car (last rows))) t)))
-    (overlook-section-row "Projects" all)))
-
-(add-hook 'overlook-sections #'overlook--projects-section)
-
-;;; Model
-
-(defvar overlook--model nil
-  "The model `overlook-model' last gathered, as (GENERATION . SECTIONS).")
-
-(defun overlook-model ()
-  "The dashboard as data, gathered afresh: a list of sections.
-Each is a row, as `overlook-row' describes, its children the rows of
-the section.  Views keep it as `overlook-latest-model' gives it."
-  (let* ((generation overlook--generation)
-         (overlook--buffers-cache (make-hash-table :test #'equal))
-         (overlook--roots-cache (make-hash-table :test #'equal))
-         (overlook--worktrees-cache (make-hash-table :test #'equal))
-         (sections (progn
-                     (run-hooks 'overlook-before-render-hook)
-                     (seq-mapcat (lambda (function) (ensure-list (funcall function)))
-                                 (overlook--sections)))))
-    (setq overlook--model (cons generation sections))
-    (run-hooks 'overlook-after-model-hook)
-    sections))
-
-(defun overlook-model-fresh-p ()
-  "Non-nil when no `overlook-refresh' came since the last model was gathered."
-  (and overlook--model (= (car overlook--model) overlook--generation)))
-
-(defun overlook-latest-model ()
-  "The dashboard's model: the last one gathered while fresh, else a new one.
-The dashboard gathers one each redraw, so other views of it share that
-one; see `overlook-after-model-hook'."
-  (if (overlook-model-fresh-p)
-      (cdr overlook--model)
-    (overlook-model)))
 
 ;;; Render
 
@@ -1369,9 +598,7 @@ The dashboard stays shown; for actions on dashboard rows."
   "Make the dashboard live and draw it, without showing it."
   (with-current-buffer (get-buffer-create overlook-buffer-name)
     (unless (derived-mode-p 'overlook-mode) (overlook-mode)))
-  (unless overlook--tick-timer
-    (setq overlook--tick-timer
-          (run-with-timer 0 overlook-tick-interval #'overlook--tick)))
+  (overlook-start-updates 'dashboard)
   (overlook--render))
 
 ;;;###autoload
@@ -1384,6 +611,31 @@ The dashboard stays shown; for actions on dashboard rows."
     (setq overlook--shown t)
     (overlook-start)
     (select-window (overlook--display))))
+
+(defun overlook--schedule-render ()
+  "Schedule the Emacs view after a model invalidation."
+  (when (overlook-live-p)
+    (if overlook--to-current
+        (overlook--render-soon)
+      (unless (timerp overlook--timer)
+        (setq overlook--timer
+              (run-with-timer (max 0.1 (- (+ overlook--rendered overlook-refresh-gap) (float-time)))
+                              nil #'overlook--render-when-idle (float-time)))))))
+
+(defun overlook--project-switched ()
+  "Follow a project switch and place point on its heading at the next redraw."
+  (setq overlook--to-current t)
+  (overlook--follow))
+
+(defun overlook--dashboard-killed ()
+  "Release the Emacs view's update subscription and pending redraw."
+  (overlook-stop-updates 'dashboard)
+  (when (timerp overlook--timer) (cancel-timer overlook--timer))
+  (setq overlook--timer nil))
+
+(add-hook 'overlook-refresh-hook #'overlook--schedule-render)
+
+(add-hook 'overlook-project-switch-hook #'overlook--project-switched)
 
 (provide 'overlook)
 ;;; overlook.el ends here

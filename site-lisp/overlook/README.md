@@ -178,6 +178,7 @@ turn on.
 |---|---|
 | `overlook-tabspaces` | projects from the tabs of tabspaces |
 | `overlook-repo` | changed repos and worktrees under each project |
+| `overlook-worktree` | Git worktree operations, independent of agents and courier |
 | `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
@@ -467,11 +468,28 @@ Call `overlook-refresh` when something you show changed.
 `overlook-detach` keeps a buffer out of every project, even once
 shown, as courier does with the agents running a persona.
 
+**Worktrees**: `overlook-worktree` creates, lists and removes project
+checkouts, including folders of several repos.  It has no dashboard or
+courier dependency.  `overlook-worktree-directory` and
+`overlook-worktree-marker` configure their location and project marker;
+the earlier `overlook-courier-worktree-*` options remain aliases.
+After successful removal, `overlook-worktree-removed-functions` receives
+the project directory and branch argument.  The courier integration uses
+this hook to close the branch's room, including removals from the dashboard.
+`overlook-courier-worktree` owns spawning agents and room subscriptions;
+its earlier public Git operation functions remain aliases.
+
 **Other views** draw the same model: `overlook-model` gathers it,
 `overlook-latest-model` gives the one the dashboard last drew while
 nothing has changed since, and `overlook-after-model-hook` and
 `overlook-refresh-hook` tell a view when to look again, as overlook-remote
 does.
+
+A view calls `overlook-start-updates` with its own symbol while active,
+then `overlook-stop-updates` with that symbol when it closes.  All views
+share one tick timer; stopping one leaves the others running.  The phone
+page subscribes independently and needs no dashboard buffer.  Refreshing
+invalidates the model; the Emacs view schedules its own redraw.
 
 **Other backends**: another workspace implementation drives overlook by
 setting the `overlook-project-*-function` variables, as
@@ -483,6 +501,14 @@ prompts, replies and tool calls through `overlook-agent-event` lets views
 such as overlook-remote follow them live; see
 `overlook-agent-event-functions`.
 
+Agent consumers use `overlook-agent-ready-p` and `overlook-agent-submit`
+for prompt delivery.  `overlook-agent-call` invokes an optional identity
+capability in the agent's buffer, returning nil when absent and letting
+errors propagate.  `overlook-agent-title`, `overlook-agent-brief`,
+`overlook-agent-reply` and `overlook-agent-choices` provide display values.
+Readiness and submission are shared; courier mailboxes and remote prompt
+queues retain their own delivery and retry policies.
+
 ## Caveats
 
 Plan usage comes from undocumented sources: Claude's from rate limits
@@ -491,6 +517,29 @@ in `~/.codex/sessions`, Antigravity's from an internal Google endpoint.
 Any of them may change without notice.
 
 ## Development
+
+The public entry points remain `overlook`, `overlook-agent` and
+`overlook-remote`.  Their implementation layers are:
+
+| Layer | Responsibility | Dependencies within overlook |
+|---|---|---|
+| `overlook-row` | row protocol, segments, shared faces and unbounded text | none |
+| `overlook-model` | project backend, model collection, invalidation and update subscriptions | row |
+| `overlook` | Magit sections, window layout, navigation and redraw scheduling | model |
+| `overlook-agent-core` | identity, capabilities, project association, status and turns | model, markers |
+| `overlook-agent-session` | saved sessions, resume and fork persistence | agent core |
+| `overlook-agent-view` | live and saved rows, fork trees and labels | agent core, sessions |
+| `overlook-agent` | interactive commands and tracking mode | Emacs view, agent layers |
+| `overlook-remote-model` | row serialization, subtree hashes and deltas | agent core |
+| `overlook-remote-activity` | agent snapshots, prompt queues, history, diffs and images | remote model |
+| `overlook-remote` | HTTP routes, authentication, streaming and server lifecycle | agent entry point, remote layers |
+| `overlook-worktree` | Git checkout operations and removal hook | none |
+| `overlook-courier-worktree` | agent spawning, room subscriptions and cleanup | worktree, courier, rooms |
+
+Rows, model collection and agent state load without Magit or a dashboard
+buffer.  Interactive visit operations delegate to the Emacs view when
+invoked.  Session files and browser response formats remain shared across
+these layers.
 
 ```sh
 OVERLOOK_INSTALL_DEPS=1 make test lint

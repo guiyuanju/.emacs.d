@@ -37,7 +37,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'overlook-courier-event)
-(require 'overlook-courier-worktree)
+(require 'overlook-worktree)
 
 (defcustom overlook-courier-ci-interval 60
   "Seconds between looks at the CI of the branches agents work on."
@@ -99,7 +99,7 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
 
 (defun overlook-courier-ci--checkouts ()
   "The Git checkouts in the worktrees registered agents work in."
-  (let ((pattern (concat "\\`\\(.*/" (regexp-quote overlook-courier-worktree-directory) "/[^/]+/\\)"))
+  (let ((pattern (concat "\\`\\(.*/" (regexp-quote overlook-worktree-directory) "/[^/]+/\\)"))
         folders)
     (dolist (agent (overlook-courier-agents))
       (when-let* ((buffer (overlook-courier-agent-buffer agent))
@@ -107,7 +107,7 @@ of :id, :done (non-nil once finished), :result, :name, :url, :sha and
                   (dir (expand-file-name (buffer-local-value 'default-directory buffer)))
                   ((string-match pattern dir)))
         (cl-pushnew (match-string 1 dir) folders :test #'equal)))
-    (mapcan #'overlook-courier-worktree-repos (nreverse folders))))
+    (mapcan #'overlook-worktree-repos (nreverse folders))))
 
 (defun overlook-courier-ci--message (checkout branch run)
   "What is published of RUN, finished on BRANCH of CHECKOUT."
@@ -139,7 +139,7 @@ Returns its entry in `overlook-courier-event-log' when it was emitted."
   (if-let* ((known (assoc (cons checkout remote) overlook-courier-ci--backends)))
       (funcall then (cdr known))
     (overlook-courier-event-run
-     checkout (list (overlook-courier-worktree-git-program) "remote" "get-url" remote)
+     checkout (list (overlook-worktree-git-program) "remote" "get-url" remote)
      (lambda (url)
        (let ((backend (and url (cdr (seq-find (lambda (entry) (string-match-p (car entry) url))
                                               overlook-courier-ci-backends)))))
@@ -152,7 +152,7 @@ Returns its entry in `overlook-courier-event-log' when it was emitted."
     (push checkout overlook-courier-ci--reading)
     (let ((done (lambda (&rest _) (setq overlook-courier-ci--reading (delete checkout overlook-courier-ci--reading)))))
       (overlook-courier-event-run
-       checkout (list (overlook-courier-worktree-git-program) "rev-parse" "--abbrev-ref" "HEAD" "@{upstream}")
+       checkout (list (overlook-worktree-git-program) "rev-parse" "--abbrev-ref" "HEAD" "@{upstream}")
        (lambda (text)
          (pcase (and text (split-string text "\n" t))
            ((and `(,branch ,upstream)

@@ -80,7 +80,7 @@
 (defun overlook-watchdog--check-agent (buffer now)
   "Check agent BUFFER, spawned by another agent, at time NOW."
   (let* ((id (buffer-local-value 'overlook-agent-courier-id buffer))
-         (brief (lambda () (or (overlook-agent--brief buffer) "no activity shown"))))
+         (brief (lambda () (or (overlook-agent-brief buffer) "no activity shown"))))
     (with-current-buffer buffer
       (when-let* (((overlook-agent-turn-open-p))
                   (start (car overlook-agent-turn))

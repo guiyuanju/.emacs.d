@@ -98,7 +98,7 @@ A resumed agent gets its earlier id back unless another agent has it."
   "Register agent BUFFER with courier once its frontend is ready."
   (with-current-buffer buffer
     (when-let* (((not (and overlook-agent-courier-id (overlook-courier-agent overlook-agent-courier-id))))
-                (submit (overlook-agent-get buffer 'submit)))
+                ((overlook-agent-get buffer 'submit)))
       (let* ((environment (overlook-agent-get buffer 'environment))
              (id (or (seq-some (lambda (entry)
                                  (and (string-prefix-p "COURIER_ID=" entry)
@@ -106,7 +106,6 @@ A resumed agent gets its earlier id back unless another agent has it."
                                environment)
                      (overlook-courier-new-id (or (overlook-agent-get buffer 'agent) "agent")
                                      (or (overlook-agent-get buffer 'root) default-directory))))
-            (ready (overlook-agent-get buffer 'ready))
             (reply (overlook-agent-get buffer 'reply))
             (transcript (overlook-agent-get buffer 'transcript)))
         (setq overlook-agent-courier-id id)
@@ -114,14 +113,11 @@ A resumed agent gets its earlier id back unless another agent has it."
          id
          :buffer buffer
          :parent overlook-agent-courier--parent
-         :deliver (lambda (text) (with-current-buffer buffer (funcall submit text)))
-         :ready (lambda ()
-                  (with-current-buffer buffer
-                    (if ready (funcall ready)
-                      (not (memq overlook-agent-status '(working waiting))))))
-         :reply (and reply (lambda () (with-current-buffer buffer (funcall reply))))
+         :deliver (lambda (text) (overlook-agent-submit buffer text))
+         :ready (lambda () (overlook-agent-ready-p buffer))
+         :reply (and reply (lambda () (overlook-agent-call buffer 'reply)))
          :transcript (and transcript
-                          (lambda () (with-current-buffer buffer (funcall transcript)))))))))
+                          (lambda () (overlook-agent-call buffer 'transcript))))))))
 
 (defun overlook-agent-courier--detach-persona (buffer)
   "Keep agent BUFFER out of the projects when it runs a persona."
@@ -146,7 +142,7 @@ A resumed agent gets its earlier id back unless another agent has it."
 (defun overlook-agent-courier--blocked ()
   "Tell courier this agent waits for the user, and on what."
   (overlook-courier-blocked overlook-agent-courier-id
-                   (or (overlook-agent--brief (current-buffer)) "a request")))
+                   (or (overlook-agent-brief (current-buffer)) "a request")))
 
 (defun overlook-agent-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
@@ -166,7 +162,7 @@ projects goes to `overlook-orphan-project'."
          (buffer (let ((overlook-agent-courier--parent parent)
                        (overlook-agent-courier--as as)
                        (overlook-agent-starting-project project))
-                   (overlook-agent--launch name directory nil t effort))))
+                   (overlook-agent-start name directory nil t effort))))
     (let ((overlook-agent-courier--parent parent)) (overlook-agent-courier--register buffer))
     (overlook-agent-courier--detach-persona buffer)
     (buffer-local-value 'overlook-agent-courier-id buffer)))
@@ -228,16 +224,16 @@ Its backend's, when that has an icon, else its engine's."
   "The row of the agent of courier ID running PERSONA, by its session title."
   (let* ((buffer (overlook-courier-agent-buffer (overlook-courier-agent id)))
          (status (buffer-local-value 'overlook-agent-status buffer))
-         (brief (overlook-agent--brief buffer)))
+         (brief (overlook-agent-brief buffer)))
     (overlook-row :id (cons 'agent buffer)
                   :content (list "  "
                                  (overlook-icon
                                   (propertize (overlook-agent-courier--persona-icon-name persona)
                                               'face (overlook-agent-status-face status)))
-                                 " " (or (overlook-agent--title buffer)
+                                 " " (or (overlook-agent-title buffer)
                                          (propertize "New conversation" 'face 'shadow))
                                  (and brief (not (eq status 'idle))
-                                      (overlook-agent--brief-segment buffer brief 0)))
+                                      (overlook-agent-brief-segment buffer brief 0)))
                   :attention (and (memq status '(waiting failed done)) t)
                   :face (pcase status
                           ((or 'waiting 'failed) 'overlook-agent-waiting)
@@ -245,7 +241,7 @@ Its backend's, when that has an icon, else its engine's."
                   :action (lambda () (overlook-agent-visit buffer))
                   :help (concat id (if brief (concat "\n" brief) ""))
                   :commands (list (list :name "kill" :label "Kill"
-                                        :confirm (lambda () (overlook-agent--kill-question buffer))
+                                        :confirm (lambda () (overlook-agent-kill-question buffer))
                                         :run (lambda () (overlook-agent-kill buffer)))))))
 
 (defun overlook-agent-courier--multiple-row (name persona)

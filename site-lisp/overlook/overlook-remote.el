@@ -1,4 +1,4 @@
-;;; overlook-remote.el --- Steer the agents from a phone on the local network -*- lexical-binding: t; -*-
+;;; overlook-remote.el --- Steer agents from a phone on the local network -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 guiyuanju
 
@@ -23,29 +23,16 @@
 
 ;;; Commentary:
 
-;; `overlook-remote-mode' serves a page for a phone's browser: the
-;; dashboard, drawn from the same model as in Emacs, with the answers
-;; its agents wait for; and for each agent, what it is doing, its
-;; replies and a box to prompt it.  It runs on simple-httpd,
-;; whose single server it takes over while on.  It listens on this
-;; machine only until `overlook-remote-host' is set to "0.0.0.0", which
-;; serves every network it is on; `overlook-remote-url' then gives its
-;; Tailscale address if it has one, otherwise its local one.
-;;
-;; The page and its scripts hold nothing; its calls under /overlook/api/
-;; carry the token kept in `overlook-remote-token-file'.  `overlook-remote-url'
-;; gives the address with the token after #, which the page keeps for
-;; Home Screen launches.  Replies show as markdown, through marked, and DOMPurify strips
-;; what could run in the page and so get at the token.
-;; The calls travel as plain HTTP, so anyone watching the network can read
-;; the token: serve only a network you trust.
+;; Serves the browser API, manages connections and mode lifecycle.
+;; Dashboard serialization and agent activity live in separate modules.
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'simple-httpd)
 (require 'url-util)
 (require 'overlook-agent)
+(require 'overlook-remote-model)
+(require 'overlook-remote-activity)
 
 (defcustom overlook-remote-host "127.0.0.1"
   "Address the page is served on.
@@ -64,28 +51,8 @@ interface, so a phone on the local network can open it."
   :type 'file
   :group 'overlook)
 
-(defcustom overlook-remote-transcript-size 8000
-  "How many characters of an agent's buffer, from its end, the page shows."
-  :type 'natnum
-  :group 'overlook)
-
-(defcustom overlook-remote-history 300
-  "How many of each agent's latest prompts, replies and tool calls are kept."
-  :type 'natnum
-  :group 'overlook)
-
 (defcustom overlook-remote-wait 25
   "Seconds the page's call for news is held open while nothing happens."
-  :type 'natnum
-  :group 'overlook)
-
-(defcustom overlook-remote-diff-size 20000
-  "How many characters of a diff the page shows."
-  :type 'natnum
-  :group 'overlook)
-
-(defcustom overlook-remote-image-size (* 20 1024 1024)
-  "Largest image, in bytes, the page shows or takes from the phone."
   :type 'natnum
   :group 'overlook)
 
@@ -93,21 +60,6 @@ interface, so a phone on the local network can open it."
   "Minutes after which the mode turns off when it serves beyond this machine.
 Nil keeps it on."
   :type '(choice (natnum :tag "Minutes") (const :tag "Never" nil))
-  :group 'overlook)
-
-(defcustom overlook-remote-styles
-  '((overlook-section . "section") (overlook-tabular . "tabular")
-    (overlook-usage-bar-track . "track") (overlook-agent-done . "done")
-    (overlook-agent-waiting . "waiting") (help-key-binding . "key")
-    (shadow . "dim") (font-lock-comment-face . "dim") (completions-annotations . "dim")
-    (warning . "warning") (error . "error") (success . "success")
-    (link . "accent") (font-lock-keyword-face . "accent")
-    (font-lock-string-face . "string") (font-lock-function-name-face . "name")
-    (font-lock-type-face . "name") (font-lock-doc-face . "italic")
-    (bold . "bold") (italic . "italic"))
-  "Styles the page draws faces in, each (FACE . STYLE).
-The faces a face inherits from count only when it has no style here."
-  :type '(alist :key-type face :value-type string)
   :group 'overlook)
 
 (defconst overlook-remote--directory
@@ -170,334 +122,11 @@ The faces a face inherits from count only when it has no style here."
     (if (overlook-agent-p buffer) buffer
       (signal 'overlook-remote-missing-agent (list (format "No agent %s" id))))))
 
-(defun overlook-remote--text (text)
-  "TEXT without properties, or an empty string for nil."
-  (if text (substring-no-properties text) ""))
-
-(defun overlook-remote--tail (buffer)
-  "The last `overlook-remote-transcript-size' characters of BUFFER."
-  (with-current-buffer buffer
-    (buffer-substring-no-properties
-     (max (point-min) (- (point-max) overlook-remote-transcript-size))
-     (point-max))))
-
-(defun overlook-remote--choices (choices)
-  "CHOICES an agent offers, as the page shows them."
-  (vconcat (mapcar (pcase-lambda (`(,key ,label . ,_))
-                     `(:key ,key :label ,(overlook-remote--text label)))
-                   choices)))
-
-(defun overlook-remote--controls (buffer)
-  "What agent BUFFER's `remote-controls' offers, or nil."
-  (when-let* ((controls (overlook-agent-get buffer 'remote-controls)))
-    (with-current-buffer buffer (funcall controls))))
-
-(defun overlook-remote--agent (buffer &optional detail)
-  "Agent BUFFER as the page shows it.
-With DETAIL, its last reply and the end of its transcript too."
-  (let ((root (overlook-agent-get buffer 'root)))
-    `(:id ,(buffer-name buffer)
-      :agent ,(overlook-remote--text (overlook-agent-get buffer 'agent))
-      :status ,(symbol-name (buffer-local-value 'overlook-agent-status buffer))
-      :context ,(buffer-local-value 'overlook-agent-context buffer)
-      :title ,(overlook-remote--text (overlook-agent--title buffer))
-      :project ,(overlook-remote--text (ignore-errors (overlook-agent-project buffer)))
-      :folder ,(if root (file-name-nondirectory (directory-file-name root)) "")
-      :brief ,(overlook-remote--text (overlook-agent--brief buffer))
-      :choices ,(overlook-remote--choices (overlook-agent--choices buffer))
-      :queued ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
-      :queueError ,(or (buffer-local-value 'overlook-remote--queue-error buffer) :null)
-      ,@(when-let* ((controls (overlook-remote--controls buffer)))
-          `(:controls (:slash ,(vconcat (plist-get controls :slash))
-                       :steer ,(if (plist-get controls :steer) t :false)
-                       :actions ,(vconcat (plist-get controls :actions)))))
-      ,@(when detail
-          `(:reply ,(overlook-remote--text (overlook-agent--reply buffer))
-            :transcript ,(overlook-remote--tail buffer))))))
-
-(defvar-local overlook-remote--queue nil
-  "Prompts from the page waiting for this agent to take one, oldest first.")
-(put 'overlook-remote--queue 'permanent-local t)
-
-(defvar-local overlook-remote--queue-error nil
-  "Last queue submission error; blocks delivery until explicitly retried.")
-(put 'overlook-remote--queue-error 'permanent-local t)
-
-(defvar overlook-remote--queue-timer nil
-  "Timer sending queued prompts while some wait, or nil.")
-
-(defun overlook-remote--ready-p (buffer)
-  "Non-nil when agent BUFFER can take a prompt now."
-  (with-current-buffer buffer
-    (if-let* ((ready (overlook-agent-get buffer 'ready)))
-        (funcall ready)
-      (not (memq overlook-agent-status '(working waiting))))))
-
-(defun overlook-remote--prompt (buffer text)
-  "Submit TEXT to agent BUFFER, or queue it while the agent is busy.
-Return non-nil when it was queued."
-  (let ((submit (or (overlook-agent-get buffer 'submit)
-                    (user-error "%s cannot take a prompt" (buffer-name buffer)))))
-    (with-current-buffer buffer
-      (if (and (null overlook-remote--queue) (overlook-remote--ready-p buffer))
-          (progn (funcall submit text) nil)
-        (setq overlook-remote--queue (append overlook-remote--queue (list text)))
-        (unless overlook-remote--queue-timer
-          (setq overlook-remote--queue-timer (run-at-time 1 1 #'overlook-remote--send-queued)))
-        (overlook-remote--wake)
-        t))))
-
-(defun overlook-remote--send-queued ()
-  "Submit to each agent ready for it the first prompt queued for it.
-Stop looking once no prompt is queued."
-  (let ((waiting (seq-filter (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer))
-                             (overlook-agent-buffers))))
-    (dolist (buffer waiting)
-      (when (and (not (buffer-local-value 'overlook-remote--queue-error buffer))
-                 (overlook-remote--ready-p buffer))
-        (with-current-buffer buffer
-          (let ((text (car overlook-remote--queue)))
-            (condition-case err
-                (progn
-                  (funcall (overlook-agent-get buffer 'submit) text)
-                  (pop overlook-remote--queue))
-              (error (setq overlook-remote--queue-error (error-message-string err))))))
-        (overlook-remote--wake)))
-    (unless (seq-some (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer)) waiting)
-      (cancel-timer overlook-remote--queue-timer)
-      (setq overlook-remote--queue-timer nil))))
-
-(defun overlook-remote--unqueue (buffer text)
-  "Take the first prompt TEXT out of agent BUFFER's queue."
-  (with-current-buffer buffer
-    (unless (member text overlook-remote--queue)
-      (user-error "That prompt was sent already"))
-    (setq overlook-remote--queue (cl-remove text overlook-remote--queue :count 1 :test #'equal)))
-  (overlook-remote--clear-queue-error buffer))
-
-(defun overlook-remote--clear-queue-error (buffer)
-  "Let agent BUFFER's queue go on after an error."
-  (with-current-buffer buffer (setq overlook-remote--queue-error nil))
-  (overlook-remote--wake))
-
-;;; Dashboard
-
-(defun overlook-remote--styles (face)
-  "Styles of FACE, a face or list of faces, from `overlook-remote-styles'.
-A face without one takes those of the faces it inherits from, and
-\"bold\" or \"italic\" when it sets that itself."
-  (let ((todo (list face))
-        seen styles)
-    (while todo
-      (let ((face (pop todo)))
-        (cond ((and (symbolp face) face (not (keywordp face)) (facep face)
-                    (not (memq face seen)))
-               (push face seen)
-               (if-let* ((style (alist-get face overlook-remote-styles)))
-                   (push style styles)
-                 (setq styles (append (overlook-remote--own-styles
-                                       (face-attribute face :weight nil)
-                                       (face-attribute face :slant nil))
-                                      styles))
-                 (push (face-attribute face :inherit nil) todo)))
-              ((keywordp (car-safe face))
-               (setq styles (append (overlook-remote--own-styles (plist-get face :weight)
-                                                                 (plist-get face :slant))
-                                    styles))
-               (push (plist-get face :inherit) todo))
-              ((proper-list-p face) (setq todo (append face todo))))))
-    (delete-dups (nreverse styles))))
-
-(defun overlook-remote--own-styles (weight slant)
-  "Styles a face of WEIGHT and SLANT sets itself."
-  (append (and (memq weight '(semi-bold bold extra-bold ultra-bold heavy black ultra-heavy))
-               '("bold"))
-          (and (memq slant '(italic oblique)) '("italic"))))
-
-(defun overlook-remote--merge-run (head run)
-  "Add RUN's text to run HEAD when both are text of one look.
-Return non-nil when it did; HEAD may be nil or not a run."
-  (when (and (plist-get head :text)
-             (not (plist-get head :icon))
-             (not (plist-get run :icon))
-             (equal (plist-get head :styles) (plist-get run :styles)))
-    (plist-put head :text (concat (plist-get head :text) (plist-get run :text)))))
-
-(defun overlook-remote--runs (row text)
-  "TEXT's runs of one look, ROW's look added, each (:text T :styles NAMES).
-A string with an `overlook-alt' carries that name as :icon and fallback text."
-  (let ((text (copy-sequence text))
-        (start 0)
-        runs)
-    (overlook--row-look row text 0 (length text))
-    (while (< start (length text))
-      (let* ((alt (get-text-property start 'overlook-alt text))
-             (end (if alt
-                      (next-single-property-change start 'overlook-alt text (length text))
-                    (next-property-change start text (length text))))
-             (run (append (list :text (or alt (substring-no-properties text start end))
-                                :styles (vconcat (overlook-remote--styles
-                                                  (get-text-property start 'face text))))
-                          (and alt (list :icon alt)))))
-        (unless (overlook-remote--merge-run (car runs) run)
-          (push run runs))
-        (setq start end)))
-    (nreverse runs)))
-
-(defun overlook-remote--spans (row)
-  "ROW's content as the page lays it out, a vector of spans in order.
-A span is a run of one look, (:text T :styles NAMES); (:right RUNS),
-aligned to the right edge; (:fit RUNS), cut to fit its line; or
-\(:wrap PIECES :gap N), pieces, each a vector of runs, wrapping to lines
-that start where the first did."
-  (let (spans)
-    (cl-flet ((add (text)
-                (dolist (run (overlook-remote--runs row (if spans text (string-trim-left text))))
-                  (unless (overlook-remote--merge-run (car spans) run)
-                    (push run spans)))))
-      (dolist (segment (overlook-row-segments row))
-        (pcase segment
-          (`(:pad ,text . ,_)
-           (push (list :pad (vconcat (overlook-remote--runs row text))
-                       :labels (vconcat (mapcar (lambda (label)
-                                                  (vconcat (overlook-remote--runs row label)))
-                                                (plist-get segment :like))))
-                 spans))
-          (`(:right ,text . ,_)
-           (unless (string-blank-p text)
-             (push (list :right (vconcat (overlook-remote--runs row text))) spans)))
-          (`(:fit ,text . ,_)
-           (add (or (plist-get segment :before) ""))
-           (push (list :fit (vconcat (overlook-remote--runs
-                                      row (propertize text 'face (plist-get segment :face)))))
-                 spans))
-          (`(:wrap ,pieces . ,_)
-           (push (list :wrap (vconcat (mapcar (lambda (piece)
-                                                (vconcat (overlook-remote--runs row piece)))
-                                              pieces))
-                       :gap (or (plist-get segment :gap) 1))
-                 spans))
-          (_ (add (overlook--segment segment "" nil))))))
-    (vconcat (nreverse spans))))
-
-(defvar overlook-remote--rows nil
-  "Table of the rows of the dashboard last made, by their node's id.")
-
-(defun overlook-remote--commands (commands)
-  "COMMANDS of a row, as the page shows them."
-  (vconcat (mapcar (lambda (command)
-                     `(:name ,(plist-get command :name)
-                       :label ,(overlook-remote--text (plist-get command :label))
-                       ,@(and (plist-get command :input)
-                              `(:input ,(overlook-remote--text (plist-get command :input))))
-                       ,@(and (plist-get command :options)
-                              `(:options ,(vconcat (plist-get command :options))))
-                       ,@(and (plist-get command :confirm) '(:confirm t))))
-                   commands)))
-
-(defun overlook-remote--node (row parent)
-  "ROW of the dashboard's model as the page shows it, under the node of id PARENT.
-An agent's row names it in :agent and gives the answers it offers in
-:choices; :commands are the row's, run through /api/command by the
-node's id, and :diff tells that /api/diff gives its diff.  :hash
-changes whenever the node or any under it does."
-  (let* ((value (overlook-row-key row))
-         (id (substring (secure-hash 'sha1 (concat parent
-                                                   (let ((print-length nil) (print-level nil))
-                                                     (prin1-to-string value))))
-                        0 16))
-         (agent (pcase (overlook-row-id row) (`(agent . ,buffer) buffer)))
-         (children (vconcat (mapcar (lambda (child) (overlook-remote--node child id))
-                                    (overlook-row-rows row))))
-         (node `(:id ,id
-                 :spans ,(overlook-remote--spans row)
-                 ,@(and (overlook-row-heading row) '(:heading t))
-                 ,@(and (overlook-row-attention row) '(:attention t))
-                 ,@(and (overlook-row-folded row) '(:folded t))
-                 ,@(and (overlook-agent-p agent)
-                        `(:agent ,(buffer-name agent)
-                          :choices ,(overlook-remote--choices (overlook-row-choices row))))
-                 ,@(and (overlook-row-commands row)
-                        `(:commands ,(overlook-remote--commands (overlook-row-commands row))))
-                 ,@(and (overlook-row-diff row) '(:diff t)))))
-    (when overlook-remote--rows (puthash id row overlook-remote--rows))
-    `(:hash ,(substring (secure-hash
-                         'sha1 (json-serialize
-                                (append node `(:children ,(vconcat
-                                                          (mapcar (lambda (child)
-                                                                    (plist-get child :hash))
-                                                                  children))))))
-                        0 16)
-      ,@node
-      :children ,children)))
-
-(defvar overlook-remote--dashboard nil
-  "The model the page's dashboard was last made of, and that dashboard.
-As (MODEL SECTIONS . HASH).")
-
-(defvar overlook-remote--versions nil
-  "The latest dashboards the page may know, newest first, each (HASH . NODES).
-NODES is a table of the hashes of their nodes.")
-
 (defvar overlook-remote--streams nil
   "Dashboard streams open, each (PROCESS . HASH), HASH the dashboard last sent.")
 
 (defvar overlook-remote--ping-timer nil
   "Timer keeping `overlook-remote--streams' alive, or nil.")
-
-(defvar overlook-remote--model nil
-  "A cell holding the model the calls answered together share, or nil.")
-
-(defmacro overlook-remote--together (&rest body)
-  "Run BODY, the calls it answers sharing one model."
-  (declare (indent 0))
-  `(let ((overlook-remote--model (list nil))) ,@body))
-
-(defun overlook-remote--model ()
-  "The dashboard's model: the live dashboard's while fresh, else a new one.
-Calls answered in one `overlook-remote--together' share a new one."
-  (if (overlook-live-p)
-      (overlook-latest-model)
-    (if overlook-remote--model
-        (with-memoization (car overlook-remote--model) (overlook-model))
-      (overlook-model))))
-
-(defun overlook-remote--dashboard ()
-  "The dashboard as the page shows it, and a hash telling when that changes.
-Made once per model `overlook-remote--model' gives."
-  (let ((model (overlook-remote--model)))
-    (unless (eq model (car overlook-remote--dashboard))
-      (setq overlook-remote--rows (make-hash-table :test #'equal))
-      (let* ((sections (vconcat (mapcar (lambda (row) (overlook-remote--node row ""))
-                                        model)))
-             (hash (secure-hash 'sha1 (mapconcat (lambda (node) (plist-get node :hash))
-                                                 sections "")))
-             (nodes (make-hash-table :test #'equal)))
-        (setq overlook-remote--dashboard (cons model (cons sections hash)))
-        (unless (assoc hash overlook-remote--versions)
-          (named-let walk ((children sections))
-            (seq-doseq (node children)
-              (puthash (plist-get node :hash) t nodes)
-              (walk (plist-get node :children))))
-          (setq overlook-remote--versions
-                (seq-take (cons (cons hash nodes) overlook-remote--versions) 8)))))
-    (cdr overlook-remote--dashboard)))
-
-(defun overlook-remote--delta (nodes known)
-  "NODES with each one the table KNOWN holds the hash of sent as (:same HASH)."
-  (vconcat (seq-map (lambda (node)
-                      (if (gethash (plist-get node :hash) known)
-                          `(:same ,(plist-get node :hash))
-                        (plist-put (copy-sequence node) :children
-                                   (overlook-remote--delta (plist-get node :children) known))))
-                    nodes)))
-
-(defun overlook-remote--dashboard-news (known)
-  "The dashboard for a page knowing state KNOWN, with only what it lacks.
-What it knows goes as (:same HASH), when KNOWN is among the latest."
-  (pcase-let ((`(,sections . ,hash) (overlook-remote--dashboard))
-              (nodes (cdr (assoc known overlook-remote--versions))))
-    `(:sections ,(if nodes (overlook-remote--delta sections nodes) sections) :known ,hash)))
 
 (defun overlook-remote--dashboard-call (known)
   "A call for the dashboard from a page knowing state KNOWN.
@@ -545,119 +174,6 @@ the redraw gathers the model the page then shares."
             (run-at-time overlook-remote-wait overlook-remote-wait #'overlook-remote--ping)))
     (overlook-remote--stream-news stream)))
 
-;;; Images
-
-(defconst overlook-remote--image-types
-  '(("png" . "image/png") ("jpg" . "image/jpeg") ("jpeg" . "image/jpeg")
-    ("gif" . "image/gif") ("webp" . "image/webp"))
-  "Extensions of the images the page shows, with their types.")
-
-(defconst overlook-remote--image-path-regexp
-  (rx (or (seq "@\"" (group (+ (not (any "\"\n"))) "." (or "png" "jpg" "jpeg" "gif" "webp"))
-               "\"")
-          (seq (? (or "@" "file://"))
-               (group (+ (not (any "][ \t\n\"'`()<>|,;" nonascii)))
-                      "." (or "png" "jpg" "jpeg" "gif" "webp"))
-               symbol-end)))
-  "A path to an image in text: plain, file://, or an @ mention, maybe quoted.
-Unquoted, it is ASCII, so that it ends where prose in other scripts begins.")
-
-(defvar overlook-remote--images nil
-  "Images the page may fetch, newest first, each (NUMBER FILE STAMP HASH).
-STAMP is the file's size and modification time when it was numbered, HASH
-its contents' SHA-1: one picture gets one number, a file rewritten a new one.")
-
-(defvar overlook-remote--image-count 0
-  "Number of the latest image in `overlook-remote--images'.")
-
-(defvar overlook-remote--image-directory nil
-  "Directory of the images that came as data, made on first use.")
-
-(defun overlook-remote--image-mime (file)
-  "Type of image FILE by its extension, or nil when it is no image."
-  (cdr (assoc (downcase (or (file-name-extension file) "")) overlook-remote--image-types)))
-
-(defun overlook-remote--image (file)
-  "Number the page fetches image FILE by, or nil unless it is a readable image."
-  (let* ((file (expand-file-name file))
-         (attributes (file-attributes file))
-         (stamp (and attributes (list (file-attribute-size attributes)
-                                      (file-attribute-modification-time attributes)))))
-    (when (and stamp
-               (overlook-remote--image-mime file)
-               (eq (file-attribute-type attributes) nil)
-               (file-readable-p file)
-               (<= (car stamp) overlook-remote-image-size))
-      (or (car (seq-find (lambda (image) (and (equal (nth 1 image) file)
-                                              (equal (nth 2 image) stamp)))
-                         overlook-remote--images))
-          (let ((hash (with-temp-buffer
-                        (set-buffer-multibyte nil)
-                        (insert-file-contents-literally file)
-                        (secure-hash 'sha1 (current-buffer)))))
-            (or (car (seq-find (lambda (image) (equal (nth 3 image) hash))
-                               overlook-remote--images))
-                (progn
-                  (setq overlook-remote--image-count (1+ overlook-remote--image-count))
-                  (push (list overlook-remote--image-count file stamp hash)
-                        overlook-remote--images)
-                  (setq overlook-remote--images (seq-take overlook-remote--images 500))
-                  overlook-remote--image-count)))))))
-
-(defun overlook-remote--image-data-p (data mime)
-  "Non-nil when the bytes DATA begin as an image of type MIME does."
-  (pcase mime
-    ("image/png" (string-prefix-p "\x89PNG" data))
-    ("image/jpeg" (string-prefix-p "\xff\xd8\xff" data))
-    ("image/gif" (string-prefix-p "GIF8" data))
-    ("image/webp" (and (string-prefix-p "RIFF" data)
-                       (equal (substring data 8 (min 12 (length data))) "WEBP")))))
-
-(defun overlook-remote--image-data (base64 mime)
-  "Save image BASE64 of type MIME and return its file, or nil if it is none."
-  (when-let* ((extension (car (rassoc mime overlook-remote--image-types)))
-              (data (ignore-errors (base64-decode-string base64)))
-              ((overlook-remote--image-data-p data mime)))
-    (unless (and overlook-remote--image-directory
-                 (file-directory-p overlook-remote--image-directory))
-      (setq overlook-remote--image-directory (make-temp-file "overlook-remote-images" t)))
-    (let ((file (expand-file-name (format "%s.%s" (secure-hash 'sha1 data) extension)
-                                  overlook-remote--image-directory))
-          (coding-system-for-write 'no-conversion))
-      (unless (file-exists-p file)
-        (write-region data nil file nil 'silent))
-      file)))
-
-(defun overlook-remote--image-files (text root)
-  "The image files TEXT names that exist, relative ones under ROOT."
-  (let ((case-fold-search t)
-        (start 0)
-        files)
-    (while (string-match overlook-remote--image-path-regexp (or text "") start)
-      (setq start (match-end 0))
-      (let ((file (expand-file-name (url-unhex-string (or (match-string 1 text)
-                                                          (match-string 2 text)))
-                                    root)))
-        (when (overlook-remote--image file)
-          (push file files))))
-    (delete-dups (nreverse files))))
-
-;;; Activity
-
-(defvar overlook-remote--seq 0
-  "Number of the latest change to any agent's items.")
-
-(defvar overlook-remote--epoch (format-time-string "%s%N")
-  "Name of this Emacs session's run of `overlook-remote--seq'.")
-
-(defvar-local overlook-remote--items nil
-  "This agent's activity since `overlook-remote-mode' started, newest first.
-Each item is a plist: :item its number, :seq the change that last
-touched it, :type and the entries of the event that made it.  Pieces of
-one reply make one item, and so do the updates of one tool call; a reply
-keeps in :marks its text's length at each change, newest first.")
-(put 'overlook-remote--items 'permanent-local t)
-
 (defvar overlook-remote--waiting nil
   "Calls for news held open, each (PROCESS CALL TIMER).
 CALL is (NEWS-P . ANSWER): NEWS-P tells whether it has news, ANSWER
@@ -666,143 +182,11 @@ gives the response.")
 (defvar overlook-remote--wake-timer nil
   "Timer answering the calls for news that have some, or nil.")
 
-(defun overlook-remote--unified (file old new)
-  "Unified diff of FILE from OLD to NEW text."
-  (let ((coding-system-for-write 'utf-8)
-        (coding-system-for-read 'utf-8)
-        (a (make-temp-file "overlook-old"))
-        (b (make-temp-file "overlook-new")))
-    (unwind-protect
-        (with-temp-buffer
-          (with-temp-file a (insert old))
-          (with-temp-file b (insert new))
-          (call-process "diff" nil t nil "-u" "--label" file "--label" file a b)
-          (buffer-string))
-      (delete-file a)
-      (delete-file b))))
-
-(defun overlook-remote--cut (diff)
-  "DIFF cut short to `overlook-remote-diff-size' characters."
-  (truncate-string-to-width diff overlook-remote-diff-size nil nil "\n…"))
-
-(defun overlook-remote--diff (diffs)
-  "DIFFS, each (:file F :old OLD :new NEW), as one unified diff, cut short."
-  (overlook-remote--cut
-   (mapconcat (lambda (diff)
-                (overlook-remote--unified (or (plist-get diff :file) "file")
-                                          (or (plist-get diff :old) "")
-                                          (or (plist-get diff :new) "")))
-              diffs "")))
-
-(defun overlook-remote--new-item (event)
-  "A new item for EVENT, every entry the page reads present."
-  (pcase (plist-get event :type)
-    ('tool (list :type "tool" :id (plist-get event :id) :title "" :status "" :kind "" :diff ""
-                 :files nil))
-    ('text (list :type "text" :text ""))
-    (type (list :type (symbol-name type) :text (or (plist-get event :text) "")))))
-
-(defun overlook-remote--update (item event)
-  "Bring ITEM up to date with EVENT, of the same reply or tool call."
-  (pcase (plist-get event :type)
-    ('text (plist-put item :text (concat (plist-get item :text) (plist-get event :text))))
-    ('tool
-     (dolist (key '(:title :status :kind))
-       (when-let* ((value (plist-get event key)))
-         (plist-put item key value)))
-     (when (and (string-empty-p (plist-get item :diff)) (plist-get event :diffs))
-       (plist-put item :diff (overlook-remote--diff (plist-get event :diffs))))))
-  (when-let* ((files (append (seq-keep (lambda (image)
-                                         (if (plist-get image :data)
-                                             (overlook-remote--image-data
-                                              (plist-get image :data) (plist-get image :mime))
-                                           (plist-get image :file)))
-                                       (plist-get event :images))
-                             (overlook-remote--image-files (plist-get event :output)
-                                                           default-directory))))
-    (plist-put item :files (delete-dups (append (plist-get item :files) files)))))
-
-(defun overlook-remote--present (item root after)
-  "ITEM as the page reads it, with :images the numbers of the images it shows.
-Relative paths in its text are under ROOT.  A reply a page knew at change
-AFTER comes as the text it lacks, after :offset characters."
-  (let ((offset (or (and after (<= (plist-get item :item) after)
-                         (cdr (seq-find (lambda (mark) (<= (car mark) after))
-                                        (plist-get item :marks))))
-                    0))
-        (images (delete-dups
-                 (seq-keep #'overlook-remote--image
-                           (append (plist-get item :files)
-                                   (overlook-remote--image-files
-                                    (concat (plist-get item :title) "\n" (plist-get item :text))
-                                    root))))))
-    (append (cl-loop for (key value) on item by #'cddr
-                     unless (memq key '(:files :marks))
-                     append (list key (if (eq key :text) (substring value offset) value)))
-            (list :offset offset :images (vconcat images)))))
-
-(defun overlook-remote--record (buffer event)
-  "Add EVENT of agent BUFFER to its items, and wake the calls waiting for news."
-  (with-current-buffer buffer
-    (setq overlook-remote--seq (1+ overlook-remote--seq))
-    (let ((item (pcase (plist-get event :type)
-                  ('text (and (equal (plist-get (car overlook-remote--items) :type) "text")
-                              (car overlook-remote--items)))
-                  ('tool (seq-find (lambda (item)
-                                     (and (equal (plist-get item :type) "tool")
-                                          (equal (plist-get item :id) (plist-get event :id))))
-                                   overlook-remote--items)))))
-      (unless item
-        (setq item (append (list :item overlook-remote--seq :seq 0)
-                           (overlook-remote--new-item event)))
-        (push item overlook-remote--items)
-        (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
-      (plist-put item :seq overlook-remote--seq)
-      (overlook-remote--update item event)
-      (when (equal (plist-get item :type) "text")
-        (plist-put item :marks (cons (cons overlook-remote--seq (length (plist-get item :text)))
-                                     (plist-get item :marks))))))
-  (overlook-remote--wake))
-
-(defun overlook-remote--state (buffer)
-  "Agent BUFFER as the page shows it, and a hash telling when that changes."
-  (let ((agent (overlook-remote--agent buffer)))
-    (cons agent (secure-hash 'sha1 (json-serialize agent)))))
-
-(defun overlook-remote--reset-p (after)
-  "Non-nil when change AFTER is not one this Emacs made; nil AFTER is none."
-  (or (null after) (> after overlook-remote--seq)))
-
 (defun overlook-remote--news (buffer after)
-  "Agent BUFFER's state and its items changed after change AFTER.
-After a change Emacs never made, as when it restarted, all its items,
-marked :reset."
-  (cond
-   ((not (buffer-live-p buffer))
-    (overlook-remote--json 409 '(:error "The agent is gone")))
-   (t
-    (let ((reset (overlook-remote--reset-p after))
-          (state (overlook-remote--state buffer)))
-      (overlook-remote--json
-       200 `(:agent ,(car state) :known ,(cdr state) :seq ,overlook-remote--seq
-             :epoch ,overlook-remote--epoch :reset ,(if reset t :false)
-             :items ,(let ((root (or (overlook-agent-get buffer 'root) default-directory)))
-                       (vconcat
-                        (mapcar (lambda (item)
-                                  (overlook-remote--present item root (and (not reset) after)))
-                                (seq-filter (lambda (item)
-                                              (or reset (> (plist-get item :seq) after)))
-                                            (reverse (buffer-local-value 'overlook-remote--items
-                                                                         buffer))))))))))))
-
-(defun overlook-remote--news-p (buffer after known)
-  "Non-nil when agent BUFFER has news for a page at change AFTER and state KNOWN.
-Nil AFTER is a change of another Emacs session."
-  (or (not (buffer-live-p buffer))
-      (overlook-remote--reset-p after)
-      (seq-some (lambda (item) (> (plist-get item :seq) after))
-                (buffer-local-value 'overlook-remote--items buffer))
-      (not (equal known (cdr (overlook-remote--state buffer))))))
+  "HTTP response for agent BUFFER's activity changed after AFTER."
+  (if (not (buffer-live-p buffer))
+      (overlook-remote--json 409 '(:error "The agent is gone"))
+    (overlook-remote--json 200 (overlook-remote--news-data buffer after))))
 
 (defun overlook-remote--events-call (buffer after known)
   "A call for agent BUFFER's news after AFTER and state KNOWN.
@@ -1143,6 +527,7 @@ over simple-httpd's server, which serves one Emacs at a time."
   :group 'overlook
   (cond
    ((not overlook-remote-mode)
+    (overlook-stop-updates 'remote)
     (remove-hook 'overlook-agent-event-functions #'overlook-remote--record)
     (remove-hook 'overlook-agent-changed-hook #'overlook-remote--wake)
     (remove-hook 'overlook-refresh-hook #'overlook-remote--refreshed)
@@ -1186,7 +571,7 @@ over simple-httpd's server, which serves one Emacs at a time."
                         'help-echo "overlook-remote serves the local network")))
     (add-hook 'overlook-mode-line-functions #'overlook-remote--mode-line)
     (force-mode-line-update t)
-    (overlook-start)
+    (overlook-start-updates 'remote)
     (when (and overlook-remote-network-minutes (not (overlook-remote--local-p)))
       (setq overlook-remote--off-timer
             (run-at-time (* 60 overlook-remote-network-minutes) nil

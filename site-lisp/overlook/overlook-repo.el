@@ -51,17 +51,11 @@
 (require 'overlook)
 (require 'diff-mode)
 (require 'overlook-markers)
+(require 'overlook-worktree)
 
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
 (declare-function vc-version-diff "vc")
-
-(declare-function overlook-courier-worktree-list "overlook-courier-worktree")
-(declare-function overlook-courier-worktree-path "overlook-courier-worktree")
-(declare-function overlook-courier-worktree-repos "overlook-courier-worktree")
-(declare-function overlook-courier-worktree-remove "overlook-courier-worktree")
-(declare-function overlook-courier-worktree-at "overlook-courier-worktree")
-(declare-function overlook-courier-worktree--git "overlook-courier-worktree")
 
 (defcustom overlook-repo-status-interval 30
   "Seconds before a repo's branch and changes are read again."
@@ -347,10 +341,9 @@ Their common folders are left out, and the name when only folders changed."
                 :diff (lambda () (overlook-repo-file-diff dir file))))
 
 (defun overlook-repo--worktrees (root)
-  "Worktrees courier made in project ROOT, each as (DIR . NAME)."
-  (when (fboundp 'overlook-courier-worktree-list)
-    (mapcar (lambda (name) (cons (overlook-courier-worktree-path root name) name))
-            (overlook-courier-worktree-list root))))
+  "Worktrees in project ROOT, each as (DIR . NAME)."
+  (mapcar (lambda (name) (cons (overlook-worktree-path root name) name))
+          (overlook-worktree-list root)))
 
 (defun overlook-repo--worktree-dirs (project)
   "Folders of the worktrees of PROJECT's root."
@@ -472,7 +465,7 @@ changed files, or a row of each of its repos when it has several.  Each
 repo shows its commits ahead of and behind the main checkout's branch.
 The row is dimmed while nothing lies in TREE, nothing is changed and no
 commit is unmerged."
-  (let* ((repos (overlook-courier-worktree-repos tree))
+  (let* ((repos (overlook-worktree-repos tree))
          (divergences (mapcar (lambda (dir)
                                 (cons dir (overlook-repo--divergence
                                            dir (overlook-repo--base dir tree root))))
@@ -489,7 +482,7 @@ commit is unmerged."
           (and (seq-every-p (lambda (divergence) (eql (cadr divergence) 0)) divergences)
                (not (seq-some (lambda (dir) (cdr (overlook-repo--status dir))) repos))
                (null (overlook-folder-contents tree))))
-    (when (and (fboundp 'overlook-courier-worktree-at) (overlook-courier-worktree-at tree))
+    (when (overlook-worktree-at tree)
       (setf (overlook-row-commands row)
             (list (list :name "delete" :label "Delete"
                         :confirm (lambda () (overlook-repo--delete-question tree))
@@ -553,19 +546,19 @@ Under a main checkout that is a repo, its own files are on its row."
   "The repos of worktree TREE with uncommitted changes."
   (seq-filter (lambda (dir)
                 (not (string-empty-p
-                      (or (ignore-errors (overlook-courier-worktree--git dir "status" "--porcelain")) ""))))
-              (overlook-courier-worktree-repos tree)))
+                      (or (ignore-errors (overlook-worktree-git dir "status" "--porcelain")) ""))))
+              (overlook-worktree-repos tree)))
 
 (defun overlook-repo--delete-question (tree)
   "The question confirming that worktree TREE, and what lies in it, is to go."
-  (pcase-let* ((`(,_ . ,name) (or (overlook-courier-worktree-at tree)
+  (pcase-let* ((`(,_ . ,name) (or (overlook-worktree-at tree)
                                   (user-error "Not a worktree: %s" tree)))
                (contents (overlook-folder-contents tree))
                (changed (overlook-repo--uncommitted tree))
                ;; From the last read; reading again would outlive the worktree.
                (unmerged (seq-some (lambda (dir)
                                      (> (or (nth 2 (gethash dir overlook-repo--diverged)) 0) 0))
-                                   (overlook-courier-worktree-repos tree))))
+                                   (overlook-worktree-repos tree))))
     (concat (format "Delete worktree %s" name)
             (if contents (format " and %s" (mapconcat #'car contents ", ")) "")
             (if changed
@@ -578,7 +571,7 @@ Under a main checkout that is a repo, its own files are on its row."
 (defun overlook-repo--delete-worktree (tree)
   "Delete worktree TREE with what lies in it, such as its agents.
 Its branch stays."
-  (pcase-let ((`(,root . ,name) (or (overlook-courier-worktree-at tree)
+  (pcase-let ((`(,root . ,name) (or (overlook-worktree-at tree)
                                     (user-error "Not a worktree: %s" tree))))
     (pcase-dolist (`(,_ . ,delete) (overlook-folder-contents tree)) (funcall delete))
     (let ((kill-buffer-query-functions nil))
@@ -586,7 +579,7 @@ Its branch stays."
         (when (file-in-directory-p (buffer-local-value 'default-directory buffer) tree)
           (with-current-buffer buffer (set-buffer-modified-p nil))
           (kill-buffer buffer))))
-    (overlook-courier-worktree-remove root name t)
+    (overlook-worktree-remove root name t)
     (overlook-refresh)
     (message "Deleted worktree %s" name)))
 
@@ -600,7 +593,7 @@ Its branch stays."
   "Delete the worktree ITEM stands for, if it is one."
   (pcase item
     (`(,(or 'repo 'worktree) . ,dir)
-     (when (and (fboundp 'overlook-courier-worktree-at) (overlook-courier-worktree-at dir))
+     (when (overlook-worktree-at dir)
        (overlook-repo-delete-worktree dir)
        t))))
 
@@ -614,7 +607,7 @@ Its branch stays."
 
 (defun overlook-repo--touch (dir)
   "Read the shown repos and folders holding DIR, or inside its repo, soon."
-  (when (overlook-live-p)
+  (when (overlook-updating-p)
     (push (file-name-as-directory (expand-file-name dir)) overlook-repo--touched)
     (unless (timerp overlook-repo--touch-timer)
       (setq overlook-repo--touch-timer
