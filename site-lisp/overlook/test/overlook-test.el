@@ -1424,6 +1424,19 @@ Agents are listed; usage and repos are not."
             (should (string-search "footer\n\nclosed\n" (buffer-string)))))
       (kill-buffer alpha))))
 
+(ert-deftest overlook-projects-gapped-after-priority-sort ()
+  (overlook-test-with-dashboard '(("one") ("two")) "one"
+    (let ((overlook-project-priority-function
+           (lambda (name) (if (string-prefix-p "later" name) 1 0)))
+          (overlook-project-switch-times nil)
+          (overlook--project-order-snapshots nil)
+          (overlook-closed-projects-functions
+           (list (lambda ()
+                   (list (overlook-row :id '(closed-project "later") :content "later")
+                         (overlook-row :id '(closed-project "later2") :content "later2"))))))
+      (overlook--render)
+      (should (string-search "two\n\nlater\n\nlater2\n" (buffer-string))))))
+
 (ert-deftest overlook-show-empty-projects-can-be-a-function ()
   (overlook-test-with-dashboard '(("one") ("two") ("three")) "one"
     (let ((overlook-show-empty-projects (lambda (name) (equal name "two"))))

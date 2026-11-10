@@ -509,9 +509,10 @@ needing attention.  UNORDERED leaves sorting to the containing section."
                           (overlook-sort-projects (mapcar #'car projects)
                                                   (overlook-current-project))
                           'projects))
-                 (nreverse others))))
-      (when (and rows closed)
-        (setf (overlook-row-gap (car (last rows))) t)))
+                 (nreverse others)))))
+    (let ((final (car (last all))))
+      (dolist (row all)
+        (setf (overlook-row-gap row) (not (eq row final)))))
     (overlook-section-row "Projects" all)))
 
 (add-hook 'overlook-sections #'overlook--projects-section)
