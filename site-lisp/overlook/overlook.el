@@ -209,7 +209,12 @@ Magit takes their face from `font-lock-face', which the rows do not set."
                        (propertize (substring-no-properties (overlay-get overlay 'after-string))
                                    'face (delq nil (append (mapcar (lambda (o) (overlay-get o 'font-lock-face))
                                                                    (overlays-at pos))
-                                                           (list (get-char-property pos 'face)))))))))))
+                                                           ;; Not `get-char-property': the face alias would
+                                                           ;; give the highlight overlay's face instead.
+                                                           (let ((face (get-text-property pos 'face)))
+                                                             (if (keywordp (car-safe face))
+                                                                 (list face)
+                                                               (ensure-list face))))))))))))
 
 ;;; Drawing
 
@@ -240,13 +245,14 @@ measure it in a temporary buffer."
 
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
-Measured in pixels, as fonts draw glyphs like … wider than `string-width'."
-  (let* ((width (lambda (s) (overlook-pixel-width (propertize s 'face face))))
+Without FACE, TEXT keeps its own faces.  Measured in pixels, as fonts
+draw glyphs like … wider than `string-width'."
+  (let* ((width (lambda (s) (overlook-pixel-width (if face (propertize s 'face face) s))))
          (cut (truncate-string-to-width text (/ pixels (max 1 (funcall width "x"))) nil nil "…")))
     (while (and (> (string-width cut) 1) (> (funcall width cut) pixels))
       (setq cut (truncate-string-to-width text (1- (string-width cut)) nil nil "…")))
     (when (>= pixels (* 4 (frame-char-width)))
-      (propertize cut 'face face))))
+      (if face (propertize cut 'face face) cut))))
 
 (defun overlook-string-columns (string)
   "Columns STRING takes as drawn; fonts draw icons wider than `string-width'."

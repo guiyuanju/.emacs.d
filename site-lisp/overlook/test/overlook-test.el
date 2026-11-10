@@ -1580,7 +1580,12 @@ Agents are listed; usage and repos are not."
       (overlay-put overlay 'after-string "…")
       (overlook--color-ellipses)
       (should (equal (get-text-property 0 'face (overlay-get overlay 'after-string))
-                     '(shadow))))))
+                     '(shadow)))
+      (let ((highlight (make-overlay 1 10)))
+        (overlay-put highlight 'font-lock-face 'magit-section-highlight)
+        (overlook--color-ellipses)
+        (should (equal (get-text-property 0 'face (overlay-get overlay 'after-string))
+                       '(magit-section-highlight shadow)))))))
 
 ;;; overlook-test.el ends here
 

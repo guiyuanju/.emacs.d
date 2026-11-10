@@ -138,7 +138,9 @@ that start where the first did."
           (`(:fit ,text . ,_)
            (add (or (plist-get segment :before) ""))
            (push (list :fit (vconcat (overlook-remote--runs
-                                      row (propertize text 'face (plist-get segment :face)))))
+                                      row (if-let* ((face (plist-get segment :face)))
+                                              (propertize text 'face face)
+                                            text))))
                  spans))
           (`(:wrap ,pieces . ,_)
            (push (list :wrap (vconcat (mapcar (lambda (piece)

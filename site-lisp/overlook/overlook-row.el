@@ -58,9 +58,10 @@ lists and nils allowed.  A segment is
           edge, as `overlook-align-right' makes;
   (:cell GLYPH), GLYPH padded to three columns, as
           `overlook-glyph-cell' makes;
-  (:fit TEXT :face FACE :before GAP :reserve N), TEXT in FACE after
-          GAP, cut with an ellipsis to fit before the last N columns,
-          or left out with GAP when hardly any fits;
+  (:fit TEXT :face FACE :before GAP :reserve N), TEXT in FACE, or in
+          its own faces without one, after GAP, cut with an ellipsis
+          to fit before the last N columns, or left out with GAP when
+          hardly any fits;
   (:pad TEXT :like TEXTS), TEXT padded as wide as the widest of
           TEXTS, as each view measures them, so rows line up;
   (:wrap PIECES :gap N), strings N columns apart, those that do not
@@ -234,7 +235,9 @@ TEXT defaults to `overlook-row-text'."
     (`(:cell ,glyph) (concat glyph " "))
     (`(:fit ,text . ,_)
      (concat (or (plist-get segment :before) "")
-             (propertize text 'face (plist-get segment :face))))
+             (if-let* ((face (plist-get segment :face)))
+                 (propertize text 'face face)
+               text)))
     (_ "")))
 
 ;;; Faces
