@@ -231,5 +231,30 @@ vm.runInContext('composeId = "original";',context);
   assert.equal(key({metaKey:true}), true);
   assert.equal(key({ctrlKey:true}), true);
   assert.equal(sends, 2);
+  // An agent's line: its icon in a column of its own, beside it the name line over the brief.
+  const agentLine = new Element();
+  vm.runInContext('agentSpansInto', context)(agentLine, [
+    {text:'└ ', styles:[]},
+    {text:'', icon:'claude', styles:[]},
+    {text:' a long session title that does not fit', styles:[]},
+    {text:'', styles:[]},
+    {text:' me', styles:[]},
+    {fit:[{text:'running the tests', styles:[]}], styles:[]},
+    {right:[{text:' 16%', styles:[]}], styles:[]},
+  ]);
+  const [agentText, agentRight] = agentLine.children;
+  const [glyph, body] = agentText.children;
+  assert.equal(glyph.className, 'glyph');
+  assert.equal(glyph.children.length, 2);
+  assert.deepEqual(body.children.map(c => c.className.trim()), ['head', 'fit']);
+  // Empty pieces are left out and the gap, not their spaces, sets the rest apart.
+  assert.deepEqual(body.children[0].children.map(c => c.textContent), ['a long session title that does not fit', 'me']);
+  assert.deepEqual(body.children[0].children.map(c => (c.className || '').includes('short')), [false, true]);
+  assert.equal(agentRight.className, 'right');
+  // Without an icon, nothing takes the icon's column.
+  const bare = new Element();
+  vm.runInContext('agentSpansInto', context)(bare, [{text:'agent', styles:[]}]);
+  assert.equal(bare.children[0].children[0].children.length, 0);
+  assert.equal(bare.children[0].children[1].children[0].children.length, 1);
   console.log('Draft isolation, concurrent typing, stable retry IDs; JS syntax, slash filtering/selection, steer routing, cancellation draft retention, confirmation retry, fork navigation and Cmd/Ctrl+Enter sending passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

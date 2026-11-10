@@ -229,10 +229,14 @@
   .line .text:has(> .wrap), .line .text:has(> .fit) { display: flex; align-items: baseline; }
   .line .text:has(> .fit) > * { flex: none; white-space: pre; }
   .line .text > .fit { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .line.agent .text { display: flex; flex-wrap: wrap; align-items: baseline; overflow: hidden; }
-  .line.agent .text > * { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .line.agent .text > span:has(> .icon) { flex: none; margin-inline: 6px; }
-  .line.agent .text > .fit { flex: 1 1 100%; }
+  .line.agent .text { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; }
+  .line.agent .glyph { white-space: pre; margin-inline-end: 1ch; }
+  .line.agent .glyph:empty { margin: 0; }
+  .line.agent .body { display: flex; flex-direction: column; min-width: 0; }
+  .line.agent .head { display: flex; align-items: baseline; min-width: 0; column-gap: 1ch; }
+  .line.agent .head > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line.agent .head > .short { flex: none; }
+  .line.agent .body > .fit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line.agent .right { align-self: flex-start; }
   .line .lead { flex: none; }
   .line .wrap { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; }
@@ -855,6 +859,35 @@ function spansInto(container, spans) {
   if (right) container.append(right);
 }
 
+// An agent's line: its icon, and what comes up to it, in a column of
+// its own; beside it, its name and marks on one line, the longest cut
+// first and set apart by the line's gap, and what it is doing under them.
+function agentSpansInto(container, spans) {
+  const text = el("span", "text");
+  const glyph = el("span", "glyph");
+  const body = el("span", "body");
+  const head = el("span", "head");
+  body.append(head);
+  let right = null;
+  let iconed = !spans.some(span => span.icon);
+  for (const span of spans) {
+    if (span.right) (right ??= el("span", "right")).append(runs("", span.right));
+    else if (span.fit) body.append(runs("fit", span.fit));
+    else if (right) right.lastChild.append(run(span));
+    else if (!iconed) {
+      glyph.append(run(span));
+      iconed = !!span.icon;
+    } else if (span.icon || span.text.trim()) {
+      const node = run({ ...span, text: span.icon ? span.text : span.text.trim() });
+      if ([...(node.textContent || "")].length <= 12) node.classList.add("short");
+      head.append(node);
+    }
+  }
+  text.append(glyph, body);
+  container.append(text);
+  if (right) container.append(right);
+}
+
 function renderNode(node, top) {
   const box = el("div", top ? "section node" : "node");
   const line = el("div", "line");
@@ -864,7 +897,7 @@ function renderNode(node, top) {
   if (node.heading) line.classList.add("heading");
   if (node.attention) line.classList.add("attention");
   if (!top) line.append(el("span", "twist", kids ? (folded ? "▸" : "▾") : ""));
-  spansInto(line, node.spans);
+  (node.agent ? agentSpansInto : spansInto)(line, node.spans);
   if (node.agent) {
     line.classList.add("link", "agent");
     line.onclick = () => open(node.agent);
