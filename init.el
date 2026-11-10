@@ -1139,7 +1139,7 @@
   :commands (agent-shell-anthropic-start-claude-code agent-shell-openai-start-codex)
   :custom
   (agent-shell-header-style 'text)
-  (agent-shell-show-busy-indicator nil)
+  (agent-shell-busy-indicator-frames nil)
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-openai-default-config-options '(("reasoning_effort" . "low")))
