@@ -28,12 +28,9 @@
 ;; learns its courier id from $COURIER_ID and finds the courier script on
 ;; its PATH.  Its errors and requests for the user reach the agent that
 ;; spawned it.  A spawned agent opens in the project whose root holds the
-;; folder it works in, else in its parent's; the
-;; dashboard marks who spawned it, and the messages waiting for it.
-;; Above the projects, a Rooms section lists courier's chat rooms with
-;; the posts the user has not read; RET opens one.  The room named after a
-;; worktree's branch is listed under the worktree's row instead.  `d d' on
-;; a room closes it, moving its posts to the archive.  A Personas section
+;; folder it works in, else in its parent's; the dashboard marks who
+;; spawned it, and the messages waiting for it.  An agent handed off to
+;; the user gets its task at its prompt, unsent.  A Personas section
 ;; lists courier's personas; RET starts one, or shows the agent running it.
 ;; A persona that may run several times lists its agents under it, each
 ;; by its session title; RET on the persona starts another.
@@ -47,11 +44,7 @@
 
 (require 'overlook-agent)
 (require 'overlook-courier)
-(require 'overlook-courier-room)
 (require 'overlook-courier-persona)
-(require 'overlook-courier-worktree)
-
-(declare-function overlook-room-open "overlook-room")
 
 (defvar overlook-agent-shell-configs)
 
@@ -116,6 +109,8 @@ A resumed agent gets its earlier id back unless another agent has it."
          :deliver (lambda (text) (overlook-agent-submit buffer text))
          :ready (lambda () (overlook-agent-ready-p buffer))
          :reply (and reply (lambda () (overlook-agent-call buffer 'reply)))
+         :insert (and (overlook-agent-get buffer 'insert)
+                      (lambda (text) (overlook-agent-call buffer 'insert text)))
          :transcript (and transcript
                           (lambda () (overlook-agent-call buffer 'transcript))))))))
 
@@ -174,43 +169,6 @@ projects goes to `overlook-orphan-project'."
           (pending (length (overlook-courier-agent-mailbox agent))))
       (concat (if parent (propertize (concat " ← " parent) 'face 'shadow) "")
               (if (> pending 0) (propertize (format " ✉%d" pending) 'face 'warning) "")))))
-
-(defun overlook-agent-courier--room-row (name &optional dim)
-  "The row of room NAME: its unread posts, and whether one names the user.
-With DIM, its name is dimmed; unread posts still stand out."
-  (let* ((room (overlook-courier-room name))
-         (read (plist-get (overlook-courier-room-member room overlook-courier-room-user) :read))
-         (unread (if read
-                     (cl-loop for post in (overlook-courier-room-posts room)
-                              while (> (plist-get post :n) read)
-                              collect post)
-                   '()))
-         (named (seq-some (lambda (post)
-                            (and (not (equal (plist-get post :from) overlook-courier-room-user))
-                                 (overlook-courier-room-mentions-p (plist-get post :body) overlook-courier-room-user)))
-                          unread))
-         (members (length (overlook-courier-room-members room)))
-         (last (car (overlook-courier-room-posts room)))
-         (meta (propertize (format "%d member%s" members (if (= members 1) "" "s"))
-                           'face 'shadow)))
-    (overlook-row :id (cons 'room name)
-                  :content (list "#" name
-                                 (and unread (propertize (format " ✉%d" (length unread))
-                                                         'face 'warning))
-                                 (overlook-align-right meta 1))
-                  :face (append (and dim '(shadow)) (and named '(overlook-agent-waiting)))
-                  :attention (and named t)
-                  :action (lambda () (overlook-room-open name))
-                  :help (if last (overlook-courier-room-format last) "No posts yet")
-                  :commands (list (list :name "post" :label "Post"
-                                        :input (format "Post to #%s" name)
-                                        :run (lambda (text)
-                                               (overlook-courier-room-post
-                                                name overlook-courier-room-user text)
-                                               nil))
-                                  (list :name "close" :label "Close"
-                                        :confirm (overlook-agent-courier--close-question name)
-                                        :run (lambda () (overlook-courier-room-close name)))))))
 
 (defun overlook-agent-courier--persona-icon-name (persona)
   "Name of PERSONA's icon in `overlook-agent-icons'.
@@ -365,8 +323,7 @@ Opens its persona.md to fill in."
   (interactive
    (list (let ((name (read-string "New persona: ")))
            (unless (overlook-courier-persona-name-p name)
-             (user-error "Persona names are lowercase letters, digits, - and _, but not %s"
-                         (string-join overlook-courier-persona-reserved ", ")))
+             (user-error "Persona names are lowercase letters, digits, - and _"))
            (when (overlook-courier-persona name) (user-error "Persona %s exists" name))
            name)
          (if (cdr overlook-courier-persona-directories)
@@ -390,40 +347,6 @@ Opens its persona.md to fill in."
            (_ (completing-read "Edit persona: " (overlook-courier-persona-names) nil t)))))
   (find-file (expand-file-name "persona.md" (plist-get (overlook-courier-persona name) :folder))))
 
-(defun overlook-agent-courier--worktree-room (dir)
-  "Name of the room of worktree DIR's branch."
-  (overlook-courier-worktree-room (file-name-nondirectory (directory-file-name dir))))
-
-(defun overlook-agent-courier--worktree-room-rows (_project dir)
-  "The dimmed row of the room of worktree DIR's branch, when it has one."
-  (when-let* ((name (and dir (overlook-agent-courier--worktree-room dir)))
-              ((overlook-courier-room name)))
-    (list (overlook-agent-courier--room-row name t))))
-
-(defun overlook-agent-courier--close-question (name)
-  "The question confirming that room NAME is to be closed."
-  (format "Close room #%s, archiving its posts? " name))
-
-(defun overlook-agent-courier--delete (item)
-  "Close the room ITEM stands for, once confirmed, moving its posts to the archive."
-  (pcase item
-    (`(room . ,name)
-     (when (yes-or-no-p (overlook-agent-courier--close-question name))
-       (overlook-courier-room-close name)
-       (message "Closed room #%s" name))
-     t)))
-
-(defun overlook-agent-courier--rooms-section ()
-  "The Rooms section: a row per courier room not under a worktree."
-  (let ((under (mapcar #'overlook-agent-courier--worktree-room
-                       (seq-mapcat #'overlook-worktrees (overlook-projects)))))
-    (overlook-section-row
-     "Rooms"
-     (seq-keep (lambda (name)
-                 (unless (member name under) (overlook-agent-courier--room-row name)))
-               (overlook-courier-room-names))
-     (lambda () (call-interactively #'overlook-room-open)))))
-
 ;;;###autoload
 (define-minor-mode overlook-agent-courier-mode
   "Let overlook's agents message, spawn and monitor each other through courier.
@@ -440,9 +363,6 @@ Turning it on links courier's skills where agents find them; see
      (overlook-agent-attention-hook overlook-agent-courier--blocked)
      (overlook-agent-row-marks overlook-agent-courier--mark)
      (overlook-agent-hide-functions overlook-agent-courier--persona-item-p)
-     (overlook-sections overlook-agent-courier--rooms-section -10)
-     (overlook-worktree-functions overlook-agent-courier--worktree-room-rows 50)
-     (overlook-delete-functions overlook-agent-courier--delete)
      (overlook-sections overlook-agent-courier--personas-section -9)
      (overlook-agent-save-functions overlook-agent-courier--saved)
      (overlook-agent-resume-functions overlook-agent-courier--check-resume)

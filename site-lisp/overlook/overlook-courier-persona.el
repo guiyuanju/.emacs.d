@@ -82,13 +82,9 @@ The function takes the persona, a plist from `overlook-courier-persona',
 the task or nil, and the id of the agent starting it or nil; it
 registers the persona with courier under its name.")
 
-(defconst overlook-courier-persona-reserved '("all" "user")
-  "Names rooms give other meanings, which no persona may have.")
-
 (defun overlook-courier-persona-name-p (name)
   "Non-nil when NAME may name a persona."
-  (and (string-match-p "\\`[a-z0-9][a-z0-9_-]*\\'" name)
-       (not (member name overlook-courier-persona-reserved))))
+  (string-match-p "\\`[a-z0-9][a-z0-9_-]*\\'" name))
 
 (defun overlook-courier-persona--folders ()
   "Alist of each persona's name to its folder; the first directory wins a name."

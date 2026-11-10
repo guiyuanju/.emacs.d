@@ -20,15 +20,10 @@
   (overlook-worktree-test--batch
    (list (file-name-directory (locate-library "overlook-worktree")))
    '(progn
-      (setq overlook-courier-worktree-directory "checkouts"
-            overlook-courier-worktree-marker ".project")
       (require 'overlook-worktree)
-      (cl-assert (equal overlook-worktree-directory "checkouts"))
-      (cl-assert (equal overlook-worktree-marker ".project"))
-      (let ((overlook-courier-worktree-directory "trees"))
+      (let ((overlook-worktree-directory "trees"))
         (cl-assert (equal (overlook-worktree-path "/tmp/project" "fix/login")
                           "/tmp/project/trees/fix-login/")))
-      (cl-assert (equal overlook-worktree-directory "checkouts"))
       (cl-assert (not (featurep 'overlook-courier)))
       (cl-assert (not (featurep 'overlook))))))
 

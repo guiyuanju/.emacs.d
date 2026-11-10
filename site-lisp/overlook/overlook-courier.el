@@ -33,11 +33,13 @@
 ;; tells the parent what the child cannot: that it ended a turn on the
 ;; parent's message without reporting, waits for the user, hit an error,
 ;; or is gone.  Nothing here waits, so Emacs never blocks: an agent sends,
-;; ends its turn, and is woken by the reply.
+;; ends its turn, and is woken by the reply.  `overlook-courier-hand-off'
+;; starts an agent for the user instead: it gets no parent, and its task
+;; waits unsent at its prompt.
 ;;
 ;; Courier knows no agent program.  A frontend registers each agent with
 ;; functions delivering a prompt, telling whether it is ready and
-;; returning its last reply, and reports its turns through
+;; returning its last reply, and optionally one inserting a draft, and reports its turns through
 ;; `overlook-courier-turn-started' and `overlook-courier-turn-finished', and requests for
 ;; the user through `overlook-courier-blocked'.  Agents call in through the
 ;; bin/courier script, which finds them by $COURIER_ID.
@@ -74,8 +76,7 @@ spends one turn on them."
 (defcustom overlook-courier-delivery-timeout 120
   "Seconds a delivery may go without starting a turn before courier gives up on it.
 An agent ready for a prompt that took a delivery without starting a turn
-would get no more mail; after this long it gets it again, and
-`overlook-courier-stalled-functions' run."
+would get no more mail; after this long it gets it again."
   :type 'number
   :group 'overlook-courier)
 
@@ -98,18 +99,8 @@ get, or nil for a new one.")
   "Functions of an id and the id of the agent asking, starting that offline agent.
 The first to start it returns its id; the others return nil.")
 
-(defvar overlook-courier-stalled-functions nil
-  "Functions of an agent's id and the time of a delivery that started no turn.
-Called when courier gives up waiting for that turn; the message may be lost.")
-
-(defvar overlook-courier-prompt-functions nil
-  "Functions of an agent's id returning a note for the prompt delivered to it.
-A function returns nil to add nothing.")
-
-(autoload 'overlook-courier-room-cli "overlook-courier-room")
 (autoload 'overlook-courier-worktree-cli "overlook-courier-worktree")
 (autoload 'overlook-courier-worktree-spawn "overlook-courier-worktree")
-(autoload 'overlook-courier-event-cli "overlook-courier-event")
 (autoload 'overlook-courier-persona-cli "overlook-courier-persona")
 
 (defvar overlook-courier-changed-hook nil
@@ -149,7 +140,8 @@ same name is left alone.  Returns the links made."
 
 (cl-defstruct (overlook-courier-agent (:constructor overlook-courier-agent--make) (:copier nil))
   "An agent registered with courier."
-  id buffer deliver ready reply
+  id buffer deliver ready reply insert
+  (draft nil :documentation "Text to leave unsent at its prompt once it is ready, or nil.")
   (mailbox nil :documentation "Messages not delivered yet, oldest first.")
   (monitors nil :documentation "Ids of agents to tell when this one next stops.")
   (hops 0 :documentation "Hops of the messages this agent's turn handles.")
@@ -208,16 +200,17 @@ same name is left alone.  Returns the links made."
                         (expand-file-name (bound-and-true-p server-name)
                                           (bound-and-true-p server-socket-dir)))))))
 
-(cl-defun overlook-courier-register (id &key buffer deliver ready reply transcript parent)
+(cl-defun overlook-courier-register (id &key buffer deliver ready reply insert transcript parent)
   "Register agent ID and return it.
 BUFFER is the agent's buffer, unregistered when killed.  DELIVER is a
 function of a prompt submitting it to the agent; READY a function telling
 whether it can take one now; REPLY a function returning its last reply,
-or nil; TRANSCRIPT a function returning the file of its whole session, or
-nil.  PARENT is the id of the agent that spawned it."
+or nil; INSERT a function of a text putting it at the agent's prompt
+unsent, or nil; TRANSCRIPT a function returning the file of its whole
+session, or nil.  PARENT is the id of the agent that spawned it."
   (let ((agent (overlook-courier-agent--make :id id :buffer buffer :deliver deliver
-                                    :ready ready :reply reply :transcript transcript
-                                    :parent parent)))
+                                    :ready ready :reply reply :insert insert
+                                    :transcript transcript :parent parent)))
     (puthash id agent overlook-courier--agents)
     (when (buffer-live-p buffer)
       (with-current-buffer buffer
@@ -243,16 +236,14 @@ A parent it already reported to only finds that in its next prompt."
 
 ;;; Messages
 
-(defun overlook-courier--enqueue (to from body hops &optional aside)
-  "Put BODY from FROM in TO's mailbox, HOPS from a human prompt.
-ASIDE non-nil marks a message that asks TO for no report, like a room's."
+(defun overlook-courier--enqueue (to from body hops)
+  "Put BODY from FROM in TO's mailbox, HOPS from a human prompt."
   (if (> hops overlook-courier-max-hops)
       (message "courier: dropped a message from %s to %s after %d hops"
                (or from "?") (overlook-courier-agent-id to) overlook-courier-max-hops)
     (setf (overlook-courier-agent-mailbox to)
           (append (overlook-courier-agent-mailbox to)
-                  (list (list :from from :body body :hops hops :time (float-time)
-                              :aside aside))))
+                  (list (list :from from :body body :hops hops :time (float-time)))))
     (run-hooks 'overlook-courier-changed-hook)
     (overlook-courier--schedule)))
 
@@ -304,6 +295,20 @@ Returns the new agent's id."
                                (concat (overlook-courier--briefing id from t) "\n\n" prompt))
                              (overlook-courier--hops from)))
           ((not unbriefed) (overlook-courier-note id (overlook-courier--briefing id from nil))))
+    id))
+
+(defun overlook-courier-hand-off (name directory prompt &optional effort)
+  "Start agent NAME in DIRECTORY for the user, with PROMPT left at its prompt.
+The agent has no parent and is told nothing about courier; the user
+reads PROMPT and sends it.  EFFORT is as for `overlook-courier-spawn'.
+Returns the new agent's id."
+  (let* ((id (overlook-courier-spawn name directory nil nil effort nil t))
+         (agent (overlook-courier-agent id)))
+    (when prompt
+      (unless (and agent (overlook-courier-agent-insert agent))
+        (user-error "%s cannot take a draft" id))
+      (setf (overlook-courier-agent-draft agent) prompt)
+      (overlook-courier--schedule))
     id))
 
 (defun overlook-courier-or-empty (text default)
@@ -440,9 +445,7 @@ It goes on once they answer in its buffer." id what)))))
 (defun overlook-courier--prompt (agent messages)
   "The prompt delivering MESSAGES to AGENT, with the notes for it."
   (string-join (append (overlook-courier-agent-notes agent)
-                       (list (overlook-courier--format messages))
-                       (delq nil (mapcar (lambda (fn) (funcall fn (overlook-courier-agent-id agent)))
-                                         overlook-courier-prompt-functions)))
+                       (list (overlook-courier--format messages)))
                "\n\n---\n\n"))
 
 (defun overlook-courier--frontend-ready-p (agent)
@@ -463,13 +466,24 @@ The time is `overlook-courier-delivery-timeout'."
   (when-let* ((delivered (overlook-courier-agent-delivered agent))
               ((> (- (float-time) delivered) overlook-courier-delivery-timeout))
               ((overlook-courier--frontend-ready-p agent)))
-    (setf (overlook-courier-agent-delivered agent) nil)
-    (run-hook-with-args 'overlook-courier-stalled-functions (overlook-courier-agent-id agent) delivered)))
+    (setf (overlook-courier-agent-delivered agent) nil)))
+
+(defun overlook-courier--draft (agent)
+  "Leave AGENT's draft at its prompt if it is ready; non-nil while it is not."
+  (when-let* ((draft (overlook-courier-agent-draft agent)))
+    (if (not (overlook-courier--ready-p agent))
+        t
+      (setf (overlook-courier-agent-draft agent) nil)
+      (condition-case err
+          (funcall (overlook-courier-agent-insert agent) draft)
+        (error (message "courier: drafting for %s failed: %S" (overlook-courier-agent-id agent) err)))
+      nil)))
 
 (defun overlook-courier-deliver ()
-  "Deliver the mail of every agent that is ready, and retry the rest later."
+  "Deliver the mail and drafts of every ready agent, and retry the rest later."
   (let ((waiting nil))
     (dolist (agent (overlook-courier-agents))
+      (when (overlook-courier--draft agent) (setq waiting t))
       (when-let* ((messages (overlook-courier-agent-mailbox agent)))
         (overlook-courier--give-up agent)
         (if (not (overlook-courier--ready-p agent))
@@ -477,9 +491,7 @@ The time is `overlook-courier-delivery-timeout'."
           (setf (overlook-courier-agent-mailbox agent) nil
                 (overlook-courier-agent-delivered agent) (float-time)
                 (overlook-courier-agent-askers agent)
-                (delete-dups (delq nil (mapcar (lambda (m) (and (not (plist-get m :aside))
-                                                                (plist-get m :from)))
-                                               messages)))
+                (delete-dups (delq nil (mapcar (lambda (m) (plist-get m :from)) messages)))
                 (overlook-courier-agent-owes agent)
                 (or (overlook-courier-agent-owes agent)
                     (and (member (overlook-courier-agent-parent agent) (overlook-courier-agent-askers agent)) t))
@@ -545,15 +557,15 @@ in the agent's working directory."
                       (let* ((effort (overlook-courier-option "--effort" options))
                              (branch (overlook-courier-option "--worktree" options))
                              (handoff (overlook-courier-option "--handoff" options))
-                             (id (cond ((and handoff branch)
-                                        (user-error "--handoff and --worktree do not go together"))
-                                       (handoff (overlook-courier-spawn name directory prompt nil effort nil t))
-                                       (branch (overlook-courier-worktree-spawn name directory branch prompt from effort))
+                             (id (cond (branch (overlook-courier-worktree-spawn name directory branch prompt
+                                                                       from effort handoff))
+                                       (handoff (overlook-courier-hand-off name directory prompt effort))
                                        (t (overlook-courier-spawn name directory prompt from effort)))))
                         (format "Started %s.%s" id
                                 (cond
                                  (handoff "  It is your user's now, told nothing of you or \
-courier; do not wait for it or message it.")
+courier; the task waits unsent at its prompt for your user to check and \
+send.  Do not wait for it or message it.")
                                  ((overlook-courier-agent from)
                                   "  It reports when done or stuck, and courier tells you \
 if it stops without reporting, waits for the user, hits an error or is \
@@ -568,14 +580,11 @@ gone.  End your turn now.")
                                 (format "\nOffline, started by a message: %s"
                                         (string-join offline ", ")))))
                      (`("whoami") (or from "Not a courier agent: COURIER_ID is unset."))
-                     (`("room" . ,rest) (overlook-courier-room-cli from rest))
                      (`("worktree" . ,rest) (overlook-courier-worktree-cli rest))
-                     (`("event" . ,rest) (overlook-courier-event-cli from rest))
                      (`("persona" . ,rest) (overlook-courier-persona-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
-| spawn [--effort LEVEL] [--worktree BRANCH | --handoff] AGENT DIR PROMPT | monitor ID \
-| list | whoami | room COMMAND | persona COMMAND | worktree COMMAND \
-| event COMMAND")))
+| spawn [--effort LEVEL] [--worktree BRANCH] [--handoff] AGENT DIR PROMPT | monitor ID \
+| list | whoami | persona COMMAND | worktree COMMAND")))
                  (error (concat "error: " (error-message-string err))))))
     (with-temp-file output
       (set-buffer-file-coding-system 'utf-8)

@@ -1,6 +1,6 @@
 ---
 name: courier
-description: "Work with other AI agents running in the user's Emacs through courier: delegate a task to a new agent, message or wait on another agent, report back to the agent that started you, or talk in a shared chat room. Use when the user asks to involve another agent, to spawn, delegate, or use a chat room, or when a prompt starts with [courier]. To start an agent the user takes over, with no report back, use courier-handoff instead. Requires COURIER_ID."
+description: "Work with other AI agents running in the user's Emacs through courier: delegate a task to a new agent, message or wait on another agent, or report back to the agent that started you. Use when the user asks to involve another agent, to spawn or delegate, or when a prompt starts with [courier]. To start an agent the user takes over, with no report back, use courier-handoff instead. Requires COURIER_ID."
 ---
 
 # courier
@@ -74,41 +74,11 @@ courier send codex@shop 'Tests pass on my side'
 courier monitor codex@shop        # be told, with its reply, when it next finishes a turn
 ```
 
-## Chat rooms
-
-A room is a shared log that agents and the user (`user`) read at will.  A
-post wakes only the members it names with `@ID` or `@all`, and brings
-along the posts they had not read; naming an agent that is not a member
-adds it.  `courier room read` is for the rest.
-
-```sh
-courier room list                        # rooms and members; (gone) ones get nothing
-courier room join design                 # --wake all: every post wakes you
-courier room read design                 # posts you have not read; --last 50
-courier room post design '@codex@shop the API is v2 now'
-courier room invite design codex@shop    # --wake all first: every post wakes it
-courier room spawn design claude . 'Draft the schema'   # a new member; without a task it idles until named
-                                         # options first: --effort, --worktree BRANCH, --wake all|none
-courier room leave design
-courier room close design                # archives the posts
-```
-
-Some rooms carry events, such as CI results for a branch, posted with
-`courier event emit`; an agent spawned with `--worktree BRANCH`
-already follows the room of its branch.  An event that wakes nobody goes
-to the router, if one is set, to hand it to an agent.  `courier event log`
-lists the latest events and who got them.
-
-Name only the members who must act, since each one you wake spends a
-turn.  Do not answer a post that needs no answer, and close or leave rooms
-you no longer need.
-
 ## Personas
 
 A persona is a lasting identity, like `reviewer`, with a role and its own
 memory; any engine may run it, and its id stays the same.  `courier list`
-names the offline ones.  Messaging one, or naming it in a room, starts it,
-which costs a startup; prefer a running agent when one fits.
+names the offline ones.  Messaging one starts it, which costs a startup; prefer a running agent when one fits.
 
 ```sh
 courier persona list
@@ -129,7 +99,7 @@ agent costs a startup of tens of thousands of tokens.
 - Start agents on simple, well-scoped work with `--effort low`.
 - Send one message with everything rather than several small ones, and
   report once, at the end or when stuck.
-- Keep messages and posts short; put long material in a file and send the
+- Keep messages short; put long material in a file and send the
   path.
 - You need not answer notes that only inform you, such as an agent
   waiting for the user or gone.
@@ -139,4 +109,3 @@ agent costs a startup of tens of thousands of tokens.
 - A chain of messages set off by one human prompt stops after 8 hops.
 - Spawned agents still ask the user for permissions as usual; do not try
   to get around that.
-- Close only rooms you opened, unless the user asks.

@@ -23,52 +23,30 @@
 
 ;;; Commentary:
 
-;; Starts agents in project worktrees and subscribes them to branch rooms.
-;; Removing a worktree closes its room.  Git operations live in
+;; Starts agents in project worktrees.  Git operations live in
 ;; `overlook-worktree'.
 
 ;;; Code:
 
 (require 'overlook-courier)
-(require 'overlook-courier-room)
 (require 'overlook-worktree)
 
-(defalias 'overlook-courier-worktree-git-program #'overlook-worktree-git-program)
-(defalias 'overlook-courier-worktree-repos #'overlook-worktree-repos)
-(defalias 'overlook-courier-worktree-path #'overlook-worktree-path)
-(defalias 'overlook-courier-worktree-at #'overlook-worktree-at)
-(defalias 'overlook-courier-worktree-add #'overlook-worktree-add)
-(defalias 'overlook-courier-worktree-remove #'overlook-worktree-remove)
-(defalias 'overlook-courier-worktree-list #'overlook-worktree-list)
-
-(defun overlook-courier-worktree-room (branch)
-  "Name of the room events about BRANCH go to.
-The name of BRANCH's worktree folder names the same room."
-  (overlook-courier-room-name-for branch))
-
-(defun overlook-courier-worktree-spawn (name dir branch prompt &optional from effort)
+(defun overlook-courier-worktree-spawn (name dir branch prompt &optional from effort handoff)
   "Start agent NAME in the worktree of project DIR for BRANCH, made if missing.
 It works on PROMPT for agent FROM at reasoning EFFORT, as
-`overlook-courier-spawn' starts it, and every post in the room named after
-BRANCH wakes it.
+`overlook-courier-spawn' starts it; with HANDOFF non-nil it is the user's,
+as `overlook-courier-hand-off' starts it.
 Returns its id."
   (let* ((path (overlook-worktree-add dir branch))
-         (room (overlook-courier-worktree-room branch))
          (note (format "You work in a Git worktree of your own, %s, on branch %s; \
-commit your work there, and leave the main checkout alone.  Events about \
-the branch, such as CI results, reach you from the room #%s."
-                       (abbreviate-file-name path) branch room))
-         (id (overlook-courier-spawn name path (and prompt (concat note "\n\n" prompt)) from effort)))
-    (overlook-courier-room-join room id 'all)
-    (unless prompt (overlook-courier-note id note))
-    id))
-
-(defun overlook-courier-worktree--removed (_dir branch)
-  "Close the room of the removed worktree's BRANCH."
-  (let ((room (overlook-courier-worktree-room branch)))
-    (when (overlook-courier-room room) (overlook-courier-room-close room))))
-
-(add-hook 'overlook-worktree-removed-functions #'overlook-courier-worktree--removed)
+commit your work there, and leave the main checkout alone."
+                       (abbreviate-file-name path) branch))
+         (prompt (and prompt (concat note "\n\n" prompt))))
+    (if handoff
+        (overlook-courier-hand-off name path prompt effort)
+      (let ((id (overlook-courier-spawn name path prompt from effort)))
+        (unless prompt (overlook-courier-note id note))
+        id))))
 
 (defun overlook-courier-worktree-cli (args)
   "Run the worktree command ARGS and return its output."

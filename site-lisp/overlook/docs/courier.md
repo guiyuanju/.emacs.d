@@ -33,7 +33,7 @@ courier list                                  # the agents, who spawned them, un
 courier spawn codex . 'Review the diff of foo.go'  # then end your turn; it reports back
 courier spawn --effort high claude . 'Find why the build fails'  # at that reasoning effort
 courier spawn --worktree fix-login claude . 'Fix the login redirect'  # in a checkout of its own
-courier spawn --handoff claude ~/p 'Draft the plan'  # the user's: told nothing, reports nothing
+courier spawn --handoff claude ~/p 'Draft the plan'  # the user's: left unsent at its prompt, reports nothing
 courier send claude@shop 'Tests pass on my side'
 courier monitor codex@shop                    # be told when it next finishes
 courier whoami
@@ -75,14 +75,14 @@ messages arriving together cost one turn.
 A turn the user starts in the child's buffer is not reported.
 
 `courier spawn --handoff` starts an agent for the user instead: it has no
-parent, gets the prompt as is, with no briefing or `[courier]` header,
-and courier tells nobody about its turns.
+parent, and courier tells nobody about its turns.  The prompt, as is,
+with no briefing or `[courier]` header, waits unsent at the agent's
+prompt once it is ready, for the user to check and send; a frontend
+offers this by registering the agent with `:insert`.
 
 A delivery to an agent that is ready yet starts no turn would keep its
 mail waiting for good, so after `overlook-courier-delivery-timeout` (120) seconds
-courier gives up on it, delivers the next mail, and runs
-`overlook-courier-stalled-functions` with the agent's id and the delivery's time;
-overlook's watchdog reports it.
+courier gives up on it and delivers the next mail.
 
 ### Worktrees
 
@@ -93,11 +93,8 @@ becomes `-`): a Git worktree when DIR is a repo; otherwise a folder with
 a worktree of each repo directly in DIR and a `.overlook` file making it
 one project.  The branch is made from each repo's checked out commit
 unless it exists; `.worktrees/` is added to the repo's `info/exclude`.
-The child is told its branch and to commit there, and follows the room
-named after the branch (`overlook-courier-room-name-for`: lowercase, other
-characters as `-`) with `--wake all`, so events published about the
-branch reach it.  Merging is left to whoever asked for the work.
-Removing the worktree closes that room.
+The child is told its branch and to commit there.  Merging is left to
+whoever asked for the work.  `--worktree` goes with `--handoff` too.
 
 ```sh
 courier worktree list .
@@ -108,96 +105,6 @@ courier worktree remove . fix-login        # keeps the branch; --force first dro
 overlook lists each worktree under its project, clean or
 not, as `BRANCH/REPO`, or `BRANCH` for a single repo.
 
-## Rooms
-
-A room is a chat log that agents and you share, kept in
-`overlook-courier-room-directory` so it outlives Emacs.  Posting wakes only the
-members it names, `@ID` or `@all`: waking every member on every post would
-cost each a turn and let agents answer each other until the hop limit.
-Naming an agent that is not a member adds it.  A post that wakes a
-member brings along its latest unread posts, up to
-`overlook-courier-room-wake-context` (20), and marks them read.  Other posts wait,
-and the next prompt a member gets says how many are unread.
-
-```sh
-courier room join design                 # posts naming you wake you
-courier room join design --wake all      # every post wakes you; --wake none: none does
-courier room post design '@codex@shop the API is v2 now'
-courier room read design                 # what you have not read
-courier room read design --last 50
-courier room list                        # members marked (gone) can no longer be woken
-courier room invite design codex@shop    # add an agent and tell it; --wake all first: every post wakes it
-courier room spawn design claude . 'Draft the schema'   # start one as a member; no task: it idles until named
-                                         # options first: --effort LEVEL, --worktree BRANCH, --wake all|none
-courier room leave design
-courier room close design                # archive the posts under archive/
-```
-
-### Events
-
-An event is something an agent may have to act on: a CI run that
-failed, a comment on a pull request.  Each belongs to a thread, a stream
-of events such as a branch's CI runs, and goes to the room named after
-the thread.  Agents working on the thread follow that room with
-`--wake all`; an agent spawned with `--worktree BRANCH` follows its
-branch's.  `overlook-courier-event-emit` (in `overlook-courier-event.el`) takes a plist:
-
-| | |
-|---|---|
-| `:source` | who saw it, such as `"ci"` |
-| `:thread` | the thread; its room is `(overlook-courier-room-name-for THREAD)` |
-| `:text` | what the agents are told |
-| `:key` | optional; an event of the same source and key again is a duplicate and left out |
-| `:fallback` | who hears of it when no agent follows the room: an id, `"none"`, or nil for `overlook-courier-room-publish-fallback` |
-
-It leaves out duplicates, runs `overlook-courier-event-filters` (each returns the
-event, changed or not, or nil to drop it), posts it in the room for a
-source that does not join it, and logs what became of it in
-`overlook-courier-event-log`: `delivered`, `unclaimed`, `dropped` or `duplicate`.
-An event that wakes nobody goes to the fallback, say a router agent,
-which may invite an agent to the room or start one there; so the router
-hears only of events no agent has claimed.  From a shell:
-
-```sh
-courier event emit --from ci --key run-42 fix-login 'CI failed on fix-login: …'
-courier event log 50                     # the latest events and what became of them
-```
-
-A source pushing events, from a hook say, calls `overlook-courier-event-emit`.
-One asking for them registers a poll, and all polls share one timer:
-
-```elisp
-(overlook-courier-event-add-source 'ci :interval 60 :poll #'overlook-courier-ci-look)
-(overlook-courier-event-remove-source 'ci)
-```
-
-A poll runs its commands with `overlook-courier-event-run`, which keeps all
-sources to `overlook-courier-event-max-processes` (4) processes at once, and may
-leave out what happened before it first looked at something with
-`overlook-courier-event-first-look-p`, remembering such an event's key with
-`overlook-courier-event-remember`.
-
-`overlook-courier-ci-mode` is such a source.  Every `overlook-courier-ci-interval` (60)
-seconds it looks at the branch checked out in each worktree a registered
-agent works in, skips the ones with no upstream, and asks the remote's
-CI, through `gh` for GitHub and `glab` for GitLab (`overlook-courier-ci-backends`),
-for the branch's latest run.  A run that finishes is an event from `ci`
-in the branch's thread, with its link and, when it failed, the command
-reading why.  A run that had finished before the branch was first looked
-at is not.  overlook's watchdog is another.
-
-```elisp
-(require 'overlook-courier-ci)
-(overlook-courier-ci-mode 1)
-```
-
-You are the member `user`.  `M-x overlook-room-open` shows a room in a
-[lui](https://github.com/emacs-circe/circe) buffer, where RET posts as
-you, `C-c C-i` invites an agent, `C-c C-n` starts one in the room (with a
-prefix argument, at an effort you give) and `C-c C-k` closes the room.  A
-post naming `@user` while the room is not shown is announced in the echo
-area.
-
 ## Personas
 
 A persona is an identity that outlives the agents running it: a folder in
@@ -205,8 +112,8 @@ one of `overlook-courier-persona-directories`, say
 `~/workspace/me/personas/reviewer/`, holding `persona.md` and `memory/`.
 An agent started as `reviewer` gets the courier id `reviewer`, whatever
 engine runs it and however often it restarts, and one agent at most runs
-it.  Messaging a persona nobody runs, with `courier send` or `@reviewer`
-in a room, starts it on its own engine; `@all` does not.
+it.  Messaging a persona nobody runs with `courier send` starts it on
+its own engine.
 
 ```markdown
 ---
@@ -214,7 +121,7 @@ engine: claude          # the agent to run it, required
 effort: medium          # its reasoning effort
 directory: ~/src/shop   # where it starts, else the folder above the personas
 description: Reviews diffs; never edits
-avatar: 🦉              # heads its posts in rooms; the rest are optional too
+avatar: 🦉              # its icon on the dashboard; the rest are optional too
 personality: calm, exacting
 tone: terse
 memory: off             # no memory, for an agent that may not write files
@@ -224,8 +131,7 @@ Its role, its rules, and any background story.
 ```
 
 A `#` after a space starts a comment.  Names are lowercase letters,
-digits, `-` and `_`; `all` and `user` mean other things in rooms, so no
-persona has them.
+digits, `-` and `_`.
 
 Starting, the agent is told the body, the personality and tone, and the
 index of its memory, `memory/MEMORY.md` (up to
@@ -248,11 +154,10 @@ courier persona start --engine codex --effort high reviewer ~/repo 'Review the d
 On the dashboard a Personas section lists them: RET starts one or shows
 the agent running it, `e` opens its `persona.md`, and RET on the heading,
 or on its only row while there are none, makes a new one.  An agent
-running a persona is listed there only, not under a project, and its
-avatar heads its posts in rooms.  overlook keeps every agent's courier id when it
-resumes the agent in a later Emacs, and refuses to resume a persona's
-session while another agent runs that persona.  A persona named in a
-post that fails to start is left out; the others still get the post.
+running a persona is listed there only, not under a project.  overlook
+keeps every agent's courier id when it resumes the agent in a later
+Emacs, and refuses to resume a persona's session while another agent
+runs that persona.
 
 ### Personas on gptel
 
@@ -290,15 +195,14 @@ reports its turns:
                            :buffer buffer                 ; unregistered when killed
                            :deliver (lambda (prompt) ...) ; submit PROMPT to the agent
                            :ready (lambda () ...)         ; can it take a prompt now?
-                           :reply (lambda () ...))        ; its last reply, or nil
+                           :reply (lambda () ...)         ; its last reply, or nil
+                           :insert (lambda (text) ...))   ; put TEXT at its prompt unsent, or nil
 (overlook-courier-turn-started id)
 (overlook-courier-turn-finished id)    ; or (overlook-courier-turn-finished id error-message)
 (overlook-courier-blocked id "what it asks the user")
 ```
 
-`overlook-courier-note` adds a note to an agent's next prompt without waking it,
-and `overlook-courier-prompt-functions` add notes, like the unread rooms, to the
-prompts courier delivers.
+`overlook-courier-note` adds a note to an agent's next prompt without waking it.
 
 It starts each agent with `(overlook-courier-environment id)` in its environment,
 from an id of `overlook-courier-new-id`, and sets `overlook-courier-spawn-function` to start

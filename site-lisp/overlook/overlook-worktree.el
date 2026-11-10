@@ -37,13 +37,6 @@
   :group 'overlook
   :prefix "overlook-worktree-")
 
-(defvaralias 'overlook-courier-worktree-directory 'overlook-worktree-directory)
-(defvaralias 'overlook-courier-worktree-marker 'overlook-worktree-marker)
-
-(defvar overlook-worktree-removed-functions nil
-  "Functions called with a project's DIR and BRANCH after its worktree is removed.
-The branch argument is the name passed to `overlook-worktree-remove'.")
-
 (defcustom overlook-worktree-directory ".worktrees"
   "Folder, inside a project, holding its worktrees."
   :type 'string
@@ -160,15 +153,13 @@ An existing one is returned as it is."
 
 (defun overlook-worktree-remove (dir branch &optional force)
   "Remove the worktree of project DIR for BRANCH, keeping the branch.
-Git refuses while a checkout has changes, unless FORCE is non-nil.
-After removal, run `overlook-worktree-removed-functions'."
+Git refuses while a checkout has changes, unless FORCE is non-nil."
   (let ((path (overlook-worktree-path dir branch)))
     (unless (file-directory-p path) (user-error "No worktree %s" (abbreviate-file-name path)))
     (dolist (checkout (overlook-worktree-repos path))
       (apply #'overlook-worktree-git checkout "worktree" "remove"
              (append (and force '("--force")) (list (directory-file-name checkout)))))
     (when (file-directory-p path) (delete-directory path t))
-    (run-hook-with-args 'overlook-worktree-removed-functions dir branch)
     path))
 
 (defun overlook-worktree-list (dir)

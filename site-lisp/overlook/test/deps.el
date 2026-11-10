@@ -10,7 +10,7 @@
       package-archives '(("gnu" . "https://elpa.gnu.org/packages/")
                          ("melpa" . "https://melpa.org/packages/")))
 (package-initialize)
-(let ((wanted '(magit tabspaces agent-shell circe simple-httpd package-lint)))
+(let ((wanted '(magit tabspaces agent-shell simple-httpd package-lint)))
   (when (seq-remove #'package-installed-p wanted)
     (package-refresh-contents)
     (dolist (name wanted)

@@ -1199,11 +1199,8 @@
   :load-path "site-lisp/overlook"
   :commands overlook-courier-cli
   :custom
-  (overlook-courier-room-directory (expand-file-name "courier-rooms/" iuiw-state-directory))
   ;; 人设随所属 workspace 走：me 的推到 GitHub，okj 的只在本机。
-  (overlook-courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/"))
-  ;; 没有 agent 跟进的事件（CI 等）交给 router 人设分派。
-  (overlook-courier-room-publish-fallback "router"))
+  (overlook-courier-persona-directories '("~/workspace/me/personas/" "~/workspace/okj/personas/")))
 
 ;; engine 为 gptel 的人设（如 jp）不跑 agent：每问一次发一个独立请求，不带历史。
 (use-package overlook-courier-gptel
@@ -1214,15 +1211,6 @@
   :commands overlook-courier-gptel-ask
   :custom
   (overlook-courier-gptel-history-directory (expand-file-name "courier-gptel/" iuiw-state-directory)))
-
-;; lui 是 circe 带的聊天界面库，courier 聊天室用它。
-(use-package circe :defer t)
-
-;; courier 聊天室的 buffer。
-(use-package overlook-room
-  :ensure nil
-  :load-path "site-lisp/overlook"
-  :commands overlook-room-open)
 
 ;; overlook-remote 的网页服务器；只开 overlook 的页面，不把 httpd-root 下的文件放出去。
 (use-package simple-httpd
@@ -1281,7 +1269,6 @@
   (overlook-orphan-project "main")
   (overlook-section-order '(overlook-usage--section
                             overlook-agent-courier--personas-section
-                            overlook-agent-courier--rooms-section
                             overlook--projects-section
                             iuiw-workspace--inbox-section
                             iuiw-elfeed-sync--digest-section))
@@ -1317,12 +1304,6 @@
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
   (overlook-agent-courier-mode 1)
-  ;; worktree 里 agent 的分支跑完 CI，把结果发到以分支命名的房间。
-  (require 'overlook-courier-ci)
-  (overlook-courier-ci-mode 1)
-  ;; 被派出的 agent 一轮跑太久、等人太久，或信件投递后没开始新一轮时，报到 #watchdog。
-  (require 'overlook-watchdog)
-  (overlook-watchdog-mode 1)
   (add-to-list 'savehist-additional-variables 'overlook-project-switch-times)
   ;; 看板上 agent 的名字换成图标。
   (with-eval-after-load 'nerd-icons

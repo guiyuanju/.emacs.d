@@ -48,8 +48,8 @@ you see at a glance where you are needed.
 ## Install
 
 Requires Emacs 29.1 or later.  overlook is not on MELPA yet; install it
-from GitHub.  It pulls in magit-section, tabspaces, agent-shell, circe
-(for chat rooms) and simple-httpd (for the phone page).  agent-shell
+from GitHub.  It pulls in magit-section, tabspaces, agent-shell and
+simple-httpd (for the phone page).  agent-shell
 needs the ACP adapters of the agents you use; see its README.
 
 With `package-vc` (Emacs 30):
@@ -128,7 +128,7 @@ returning updates it. New projects append and closed projects disappear.
 - **Worktrees**: while a project has some, its rows are grouped by
   checkout.  The main checkout comes first, with the agents in no worktree
   and the changed repos; then each worktree, with the agents working in
-  it, its branch's room and its changed files.  A worktree shows its
+  it and its changed files.  A worktree shows its
   commits ahead of (`↑N`) and behind (`↓N`) the main checkout's branch, or
   `merged`, and is dimmed when merged with nothing in it.
 - A project with no rows is left out, unless it is current or
@@ -142,7 +142,7 @@ returning updates it. New projects append and closed projects disappear.
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
-| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a room |
+| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch) |
 | `H` | hand the agent's task off to another agent |
 | `e` | edit a persona |
 | `g` | redraw |
@@ -182,8 +182,7 @@ turn on.
 | `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
-| `overlook-agent-courier` | agents messaging, spawning and watching each other; chat rooms; personas |
-| `overlook-courier-ci`, `overlook-watchdog` | CI results and stuck agents, reported to rooms |
+| `overlook-agent-courier` | agents messaging, spawning and watching each other; personas |
 | `overlook-remote` | the dashboard and the agents in a phone's browser |
 | `overlook-agent-update`, `overlook-agent-rules` | keeping agent CLIs and their rules up to date |
 
@@ -233,32 +232,12 @@ see [courier](docs/courier.md).  On the dashboard:
   through the session option `overlook-agent-shell-effort-options` names
   (Claude's `effort`, Codex's `reasoning_effort`).  `--worktree BRANCH`
   starts it in a Git worktree of its own, listed under the project.
-- **Rooms**: agents and you talk in shared chat rooms.  `M-x
-  overlook-room-open` shows one; a Rooms section lists them with your
-  unread posts (`✉N`), highlighted when one names you.  The room of a
-  worktree's branch is listed under the worktree instead.
+  `--handoff` starts it for you instead: it gets no parent, is told
+  nothing about courier, and its task waits unsent at its prompt for you
+  to check and send.
 - **Personas**: folders in `overlook-courier-persona-directories` give an
   agent a lasting id, role and memory.  A Personas section lists them;
   messaging one nobody runs starts it.
-
-Two more modes act on agents working on branches:
-
-```elisp
-(require 'overlook-courier-ci)
-(overlook-courier-ci-mode 1)
-(require 'overlook-watchdog)
-(overlook-watchdog-mode 1)
-```
-
-- `overlook-courier-ci-mode` asks GitHub (`gh`) or GitLab (`glab`) about
-  each pushed branch an agent works on in a worktree, and posts each
-  finished run in the room named after the branch, which that agent
-  follows; see [courier](docs/courier.md#events).
-- `overlook-watchdog-mode` reports a spawned agent whose turn runs past
-  `overlook-watchdog-turn-limit` (30 min), one that waits for you past
-  `overlook-watchdog-waiting-limit` (15 min), and a delivery that started
-  no turn.  Each finding goes once to the room `#watchdog`, and to the
-  agent's parent when nobody follows that room.
 
 ### From your phone: overlook-remote
 
@@ -274,8 +253,7 @@ The page, plain HTML with no build step, shows:
   it changes, sending only what changed.  Buttons answer what an agent
   waits for, such as a permission request.  A row's `⋯`, or the row itself
   when tapping it does nothing else, offers the commands it declares: kill an agent, resume or forget a saved one, start
-  a persona, start an agent in a project, post to a room or close it,
-  delete a worktree.  Those that lose something ask first.
+  a persona, start an agent in a project, delete a worktree.  Those that lose something ask first.
 - **An agent's page**, following its prompts, replies and tool calls as
   they come, with the diff of each edit and the images it shows, from when
   the mode started; before that, its last reply.  You prompt it from
@@ -334,7 +312,6 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook-agent-send` | paste the region, or an `@` reference to the file, into this project's agent |
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
-| `overlook-room-open` | show a chat room, made if missing |
 | `overlook-persona-start`, `overlook-persona-new` | start a persona, or make one |
 | `overlook-remote-mode`, `overlook-remote-url` | serve the phone page; copy its address |
 
@@ -471,13 +448,8 @@ shown, as courier does with the agents running a persona.
 **Worktrees**: `overlook-worktree` creates, lists and removes project
 checkouts, including folders of several repos.  It has no dashboard or
 courier dependency.  `overlook-worktree-directory` and
-`overlook-worktree-marker` configure their location and project marker;
-the earlier `overlook-courier-worktree-*` options remain aliases.
-After successful removal, `overlook-worktree-removed-functions` receives
-the project directory and branch argument.  The courier integration uses
-this hook to close the branch's room, including removals from the dashboard.
-`overlook-courier-worktree` owns spawning agents and room subscriptions;
-its earlier public Git operation functions remain aliases.
+`overlook-worktree-marker` configure their location and project marker.
+`overlook-courier-worktree` starts agents in them.
 
 **Other views** draw the same model: `overlook-model` gathers it,
 `overlook-latest-model` gives the one the dashboard last drew while
@@ -533,8 +505,8 @@ The public entry points remain `overlook`, `overlook-agent` and
 | `overlook-remote-model` | row serialization, subtree hashes and deltas | agent core |
 | `overlook-remote-activity` | agent snapshots, prompt queues, history, diffs and images | remote model |
 | `overlook-remote` | HTTP routes, authentication, streaming and server lifecycle | agent entry point, remote layers |
-| `overlook-worktree` | Git checkout operations and removal hook | none |
-| `overlook-courier-worktree` | agent spawning, room subscriptions and cleanup | worktree, courier, rooms |
+| `overlook-worktree` | Git checkout operations | none |
+| `overlook-courier-worktree` | agent spawning in worktrees | worktree, courier |
 
 Rows, model collection and agent state load without Magit or a dashboard
 buffer.  Interactive visit operations delegate to the Emacs view when

@@ -1,13 +1,14 @@
 ---
 name: courier-handoff
-description: "Hand a task to a new AI agent in the user's Emacs that the user takes over themselves: optionally make a project for it, start it on the task, and forget it; it is not told about you and reports nothing. Use when the user asks to start an agent or a project for some work they will drive, or says no reply is needed. When you need the result back, use the courier skill instead. Requires COURIER_ID."
+description: "Hand a task to a new AI agent in the user's Emacs that the user takes over themselves: optionally make a project for it, start it with the task waiting unsent at its prompt, and forget it; it is not told about you and reports nothing. Use when the user asks to start an agent or a project for some work they will drive, or says no reply is needed. When you need the result back, use the courier skill instead. Requires COURIER_ID."
 ---
 
 # courier-handoff
 
-Start an agent for your user and step away.  The new agent sees the task
-as if your user had typed it; it does not know about you or courier, and
-nothing it does comes back to you.
+Start an agent for your user and step away.  The task waits unsent at
+the new agent's prompt; your user checks it and sends it, so the agent
+sees it as typed by your user.  It does not know about you or courier,
+and nothing it does comes back to you.
 
 ```sh
 test -n "${COURIER_ID:-}" && courier whoami
@@ -31,9 +32,12 @@ If `COURIER_ID` is unset, say you are not running under courier and stop.
    ```sh
    courier spawn --handoff claude ~/path/to/project 'Task text'
    courier spawn --handoff --effort high codex . 'Task text'
+   courier spawn --handoff --worktree fix-login claude ~/repo 'Task text'
    ```
 
-   `--handoff` cannot go with `--worktree`.
-4. **Tell your user** the agent's id and the folder, and end your turn.
+   Add `--worktree BRANCH` only when your user asks for a checkout of its
+   own.
+4. **Tell your user** the agent's id and the folder, and that the task
+   waits at its prompt for them to send; then end your turn.
    Do not `courier send` to it, `courier monitor` it, or check on it
    later.
