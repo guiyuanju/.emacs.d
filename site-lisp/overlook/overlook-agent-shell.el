@@ -602,6 +602,19 @@ Nil until they are gathered, so that an empty environment is gathered once.")
                                         :on-notification #'overlook-agent-shell--on-notification))
       (overlook-agent-register buffer (car origin)))))
 
+(defun overlook-agent-shell--carry-on (command &rest args)
+  "Run COMMAND with ARGS so the shell it starts carries on this shell's agent.
+The new shell keeps the agent's name, root and project, and its courier
+id once this shell is gone, rather than taking the current project's."
+  (if-let* ((shell (agent-shell--current-shell))
+            ((buffer-local-value 'overlook-agent-identity shell)))
+      (let ((overlook-agent-shell--starting (buffer-local-value 'overlook-agent-shell--origin shell))
+            (overlook-agent-starting-project (overlook-agent-project shell))
+            (overlook-agent-resuming (seq-mapcat (lambda (fn) (funcall fn shell))
+                                                overlook-agent-save-functions)))
+        (apply command args))
+    (apply command args)))
+
 (defun overlook-agent-shell--with-effort (config name effort)
   "CONFIG of agent NAME, setting its reasoning EFFORT at session start."
   (if-let* ((effort)
@@ -636,10 +649,9 @@ SESSION resumes the session of that id.  It starts at the reasoning effort
     (list (list :name "new-agent" :label "New agent"
                 :options (mapcar #'car overlook-agent-shell-configs)
                 :run (lambda (name)
-                       (let ((buffer (overlook-agent--launch name root nil t)))
-                         (overlook-ensure-project project)
-                         (overlook-add-to-project project buffer)
-                         buffer))))))
+                       (overlook-ensure-project project)
+                       (let ((overlook-agent-starting-project project))
+                         (overlook-agent--launch name root nil t)))))))
 
 ;;;###autoload
 (defun overlook-agent-shell-handoff ()
@@ -710,6 +722,8 @@ other MCP calls asked for permission showing only their tool name."
         (add-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
         (add-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
         (add-hook 'overlook-usage-current-functions #'overlook-agent-shell--current-usage-p)
+        (advice-add 'agent-shell-restart :around #'overlook-agent-shell--carry-on)
+        (advice-add 'agent-shell-fork :around #'overlook-agent-shell--carry-on)
         (add-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
         (add-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
         (setq overlook-agent-start-function #'overlook-agent-shell-start)
@@ -722,6 +736,8 @@ other MCP calls asked for permission showing only their tool name."
     (remove-hook 'overlook-agent-row-marks #'overlook-agent-shell--account-mark)
     (remove-hook 'overlook-mode-line-functions #'overlook-agent-shell--account-mode-line)
     (remove-hook 'overlook-usage-current-functions #'overlook-agent-shell--current-usage-p)
+    (advice-remove 'agent-shell-restart #'overlook-agent-shell--carry-on)
+    (advice-remove 'agent-shell-fork #'overlook-agent-shell--carry-on)
     (remove-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
     (remove-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
     (setq overlook-agent-start-function nil)))

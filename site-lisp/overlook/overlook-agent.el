@@ -40,6 +40,7 @@
 ;;; Code:
 
 (require 'overlook)
+(require 'overlook-markers)
 (require 'project)
 
 (declare-function notifications-notify "notifications" (&rest params))
@@ -297,26 +298,61 @@ PROPERTIES are the event's other entries; see `overlook-agent-event-functions'."
   (setq overlook-agent--last (overlook-agent-get buffer 'agent))
   (pop-to-buffer buffer '((display-buffer-reuse-window display-buffer-same-window))))
 
-(defvar-local overlook-agent--guessed nil
-  "Project an agent without a home was first found in.")
-(put 'overlook-agent--guessed 'permanent-local t)
+(defvar overlook-agent-starting-project nil
+  "Project the agent being started belongs to.
+Nil works it out from the agent's root; `none' puts it in no project.")
+
+(defun overlook-agent-project-holding (directory)
+  "The open project whose root holds DIRECTORY most closely, or nil."
+  (let ((directory (file-name-as-directory (file-truename directory)))
+        (best nil)
+        (length 0))
+    (dolist (name (overlook-projects))
+      (when-let* ((root (overlook-project-root name))
+                  (root (file-name-as-directory (file-truename root)))
+                  ((string-prefix-p root directory))
+                  ((> (length root) length)))
+        (setq best name length (length root))))
+    best))
+
+(defun overlook-agent-marked-project (directory)
+  "Project named after the marked folder holding DIRECTORY, opened if missing.
+Nil when no folder marked by `overlook-markers' holds DIRECTORY."
+  (when-let* ((project (overlook-markers-try directory))
+              (name (file-name-nondirectory (directory-file-name (cdr project)))))
+    (overlook-ensure-project name)
+    (car (member name (overlook-projects)))))
+
+(defun overlook-agent-project-at (directory)
+  "The project an agent working in DIRECTORY belongs to, or nil.
+That is the open project whose root holds it, else the project of the
+marked folder holding it, opened in the background."
+  (and directory
+       (or (overlook-agent-project-holding directory)
+           (overlook-agent-marked-project directory))))
 
 (defun overlook-agent-project (buffer)
-  "The project agent BUFFER is listed under, or nil.
-That is its home, else the project whose root it runs at, else the
-first project it was found in, so showing it elsewhere keeps it put."
-  (let ((root (overlook-agent-get buffer 'root))
-        (guessed (buffer-local-value 'overlook-agent--guessed buffer)))
-    (or (overlook-buffer-home buffer)
-        (and root (seq-find (lambda (name)
-                              (and (equal (overlook-project-root name) root)
-                                   (memq buffer (overlook-project-buffers name))))
-                            (overlook-projects)))
-        (and guessed (member guessed (overlook-projects))
-             (memq buffer (overlook-project-buffers guessed))
-             guessed)
-        (when-let* ((project (overlook-buffer-project buffer)))
-          (with-current-buffer buffer (setq overlook-agent--guessed project))))))
+  "The project agent BUFFER belongs to, while it is open; nil when detached."
+  (unless (buffer-local-value 'overlook-detached buffer)
+    (car (member (overlook-agent-get buffer 'project) (overlook-projects)))))
+
+(defun overlook-agent-set-project (buffer project)
+  "Make agent BUFFER belong to PROJECT."
+  (with-current-buffer buffer
+    (setf (alist-get 'project overlook-agent-identity) project))
+  (when project (overlook-add-to-project project buffer))
+  (overlook-agent-changed))
+
+(defun overlook-agent-move (buffer project)
+  "Move agent BUFFER to PROJECT.
+Interactively, the agent at point or the current buffer's, to a project read."
+  (interactive
+   (let ((buffer (or (overlook-agent-at-point)
+                     (and (overlook-agent-p (current-buffer)) (current-buffer))
+                     (user-error "No agent here"))))
+     (list buffer (completing-read (format "Move %s to project: " (buffer-name buffer))
+                                   (overlook-projects) nil t))))
+  (overlook-agent-set-project buffer project))
 
 (defun overlook-agent-visit (buffer)
   "Switch to agent BUFFER's project and show it there.
@@ -492,6 +528,15 @@ An unknown context value keeps the last one."
     (when-let* ((root (alist-get 'root overlook-agent-identity)))
       (setf (alist-get 'root overlook-agent-identity)
             (file-name-as-directory (expand-file-name root))))
+    (unless (assq 'project overlook-agent-identity)
+      (setf (alist-get 'project overlook-agent-identity)
+            (pcase overlook-agent-starting-project
+              ('none nil)
+              ('nil (or (overlook-agent-project-at (alist-get 'root overlook-agent-identity))
+                        (overlook-current-project)))
+              (project project))))
+    (when-let* ((project (alist-get 'project overlook-agent-identity)))
+      (overlook-add-to-project project buffer))
     (add-hook 'kill-buffer-hook (lambda () (run-at-time 0 nil #'overlook-agent-changed)) nil t))
   (setq overlook-agent--last name)
   (overlook-agent-changed))
@@ -600,7 +645,10 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
     (unless (file-directory-p root)
       (overlook-agent-changed)
       (user-error "%s is gone; forgot its agent" root))
-    (let ((overlook-agent-resuming saved))
+    (let ((overlook-agent-resuming saved)
+          (overlook-agent-starting-project (or (overlook-agent--saved-project saved)
+                                               (overlook-orphan-project)
+                                               (overlook-current-project))))
       (overlook-agent--launch (alist-get 'agent saved) root (alist-get 'session saved)))))
 
 (defun overlook-agent--saved-project (saved)
@@ -615,12 +663,7 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
 
 (defun overlook-agent-resume (saved)
   "Resume SAVED agent in its project, without showing it; return its buffer."
-  (let ((project (or (overlook-agent--saved-project saved)
-                         (overlook-orphan-project)
-                         (overlook-current-project)))
-        (buffer (overlook-agent--resume saved)))
-    (when project (overlook-add-to-project project buffer))
-    buffer))
+  (overlook-agent--resume saved))
 
 (defun overlook-agent-forget (saved)
   "Forget SAVED agent."

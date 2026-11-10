@@ -90,7 +90,11 @@ Then:
   in a tab named after it.
 - Start agents with agent-shell's own commands, such as `M-x agent-shell`.
   Every agent-shell buffer shows up on the dashboard, however it was
-  started.
+  started.  An agent belongs to one project, fixed when it starts: the
+  open project whose root holds its folder, else the project of the
+  `.overlook` folder holding it, else the current one.
+  Showing it in another tab does not move it; `M-x overlook-agent-move`
+  does.  Restarting, reloading or forking it keeps its project.
 - `M-x overlook` toggles the dashboard.  `RET` on a row visits it;
   `] a` jumps to the next agent waiting for you.
 
@@ -215,7 +219,8 @@ Agents get a `courier` command to message, spawn and monitor each other;
 see [courier](docs/courier.md).  On the dashboard:
 
 - A spawned agent opens in the project whose root holds the folder it works in,
-  else in its parent's.  Its row shows `← parent`, and `✉N` while messages
+  else in the project of the `.overlook` folder holding it, opened in the
+  background, else in its parent's.  Its row shows `← parent`, and `✉N` while messages
   wait for it.
 - `courier spawn --effort LEVEL` starts it at that reasoning effort,
   through the session option `overlook-agent-shell-effort-options` names
@@ -318,6 +323,7 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook` | toggle the dashboard |
 | `overlook-close-project` | close a project, killing the buffers only it holds |
 | `overlook-agent-switch` | pick any running agent and show it in its project |
+| `overlook-agent-move` | move the agent at point, or this one, to another project |
 | `overlook-agent-send` | paste the region, or an `@` reference to the file, into this project's agent |
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
@@ -351,8 +357,8 @@ it and add it again from the address copied by `overlook-remote-url`.
 - `overlook-repo-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-repo-folders`, as a `*` after its
   project's heading while it has changes, instead of listing them.
-- `overlook-agent-root-function`: the project an agent belongs to, worked
-  out in its shell's directory.
+- `overlook-agent-root-function`: the root of an agent its frontend did
+  not start, worked out in its shell's directory.
 - `overlook-agent-shell-configs`: the names agents are shown by, and the
   agent-shell configs overlook starts them with.
 - `overlook-agent-shell-handoff-prompt`: the handoff draft.

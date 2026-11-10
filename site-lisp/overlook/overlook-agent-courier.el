@@ -50,7 +50,6 @@
 (require 'overlook-courier-room)
 (require 'overlook-courier-persona)
 (require 'overlook-courier-worktree)
-(require 'overlook-markers)
 
 (declare-function overlook-room-open "overlook-room")
 
@@ -149,46 +148,25 @@ A resumed agent gets its earlier id back unless another agent has it."
   (overlook-courier-blocked overlook-agent-courier-id
                    (or (overlook-agent--brief (current-buffer)) "a request")))
 
-(defun overlook-agent-courier--project-of (directory)
-  "The project whose root holds DIRECTORY most closely, or nil."
-  (let ((directory (file-name-as-directory (file-truename directory)))
-        (best nil)
-        (length 0))
-    (dolist (name (overlook-projects))
-      (when-let* ((root (overlook-project-root name))
-                  (root (file-name-as-directory (file-truename root)))
-                  ((string-prefix-p root directory))
-                  ((> (length root) length)))
-        (setq best name length (length root))))
-    best))
-
-(defun overlook-agent-courier--marked-project (directory)
-  "Project named after the marked folder holding DIRECTORY, opened if missing.
-Nil when no folder marked by `overlook-markers' holds DIRECTORY."
-  (when-let* ((project (overlook-markers-try directory))
-              (name (file-name-nondirectory (directory-file-name (cdr project)))))
-    (overlook-ensure-project name)
-    (car (member name (overlook-projects)))))
-
 (defun overlook-agent-courier--spawn (name directory parent &optional effort as)
   "Start agent NAME in DIRECTORY for agent PARENT and return its id.
-It opens in the project whose root holds DIRECTORY, else in the project
-of the marked folder holding it, opened in the background, else in
-PARENT's, at reasoning EFFORT if non-nil, with courier id AS if non-nil.
+It belongs to the project `overlook-agent-project-at' finds for
+DIRECTORY, else to PARENT's.  It starts at reasoning EFFORT if non-nil,
+with courier id AS if non-nil.
 A persona opens in no project, and what a persona spawns outside the
 projects goes to `overlook-orphan-project'."
   (let* ((parent-buffer (when-let* ((agent (overlook-courier-agent parent))) (overlook-courier-agent-buffer agent)))
-         (project (unless (and as (overlook-courier-persona-of as))
-                        (or (overlook-agent-courier--project-of directory)
-                            (overlook-agent-courier--marked-project directory)
-                            (and (buffer-live-p parent-buffer)
-                                 (if (buffer-local-value 'overlook-detached parent-buffer)
-                                     (overlook-orphan-project)
-                                   (overlook-agent-project parent-buffer))))))
+         (project (if (and as (overlook-courier-persona-of as))
+                      'none
+                    (or (overlook-agent-project-at directory)
+                        (and (buffer-live-p parent-buffer)
+                             (if (buffer-local-value 'overlook-detached parent-buffer)
+                                 (overlook-orphan-project)
+                               (overlook-agent-project parent-buffer))))))
          (buffer (let ((overlook-agent-courier--parent parent)
-                       (overlook-agent-courier--as as))
+                       (overlook-agent-courier--as as)
+                       (overlook-agent-starting-project project))
                    (overlook-agent--launch name directory nil t effort))))
-    (when project (overlook-add-to-project project buffer))
     (let ((overlook-agent-courier--parent parent)) (overlook-agent-courier--register buffer))
     (overlook-agent-courier--detach-persona buffer)
     (buffer-local-value 'overlook-agent-courier-id buffer)))

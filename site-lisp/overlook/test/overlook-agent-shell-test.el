@@ -68,6 +68,27 @@ each environment gathered says how many were gathered so far."
              ,@body))
        (kill-buffer buffer))))
 
+(ert-deftest overlook-agent-shell-restart-carries-on-the-agent ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let ((overlook-agent-root-function (lambda () "/tmp/elsewhere/"))
+          (added nil)
+          (new (generate-new-buffer "new-shell")))
+      (unwind-protect
+          (cl-letf (((symbol-function 'agent-shell--current-shell) (lambda () buffer))
+                    ((symbol-function 'overlook-agent-project) (lambda (_) "shop"))
+                    ((symbol-function 'overlook-add-to-project)
+                     (lambda (name buf) (push (cons name buf) added))))
+            (overlook-agent-shell--carry-on
+             (lambda ()
+               (with-current-buffer new
+                 (setq major-mode 'agent-shell-mode)
+                 (setq-local agent-shell--state (buffer-local-value 'agent-shell--state buffer))
+                 (overlook-agent-shell--track))))
+            (should (equal (overlook-agent-get new 'root) "/tmp/shop/"))
+            (should (equal added (list (cons "shop" new)))))
+        (kill-buffer new)))))
+
 (ert-deftest overlook-agent-shell-adds-the-environment-once-per-shell ()
   (overlook-agent-shell-test-with-shell 'claude-code
     (let ((args (list :context-buffer buffer :environment-variables '("A=1"))))

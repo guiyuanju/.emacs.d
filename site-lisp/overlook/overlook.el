@@ -237,21 +237,9 @@ The name is cut to `overlook-account-width' characters."
 That is `overlook-orphan-project', or else the current one."
   (or (overlook-orphan-project) (overlook-current-project)))
 
-(defvar-local overlook-home nil
-  "Project the buffer belongs to, though shown in others too.")
-(put 'overlook-home 'permanent-local t)
-
 (defun overlook-add-to-project (name buffer)
-  "Add BUFFER to project NAME, making it BUFFER's home."
-  (with-current-buffer buffer (setq overlook-home name))
+  "Add BUFFER to project NAME."
   (funcall overlook-add-to-project-function name buffer))
-
-(defun overlook-buffer-home (buffer)
-  "BUFFER's home project, while it is open and still holds BUFFER; or nil."
-  (when-let* ((home (buffer-local-value 'overlook-home buffer))
-              ((member home (overlook-projects)))
-              ((memq buffer (overlook-project-buffers home))))
-    home))
 
 (defvar-local overlook-detached nil
   "Non-nil in a buffer `overlook-detach' keeps out of every project.")
@@ -261,7 +249,7 @@ That is `overlook-orphan-project', or else the current one."
   "Keep BUFFER out of every project, even once shown in one.
 Opening it from the dashboard shows it in the current project."
   (with-current-buffer buffer
-    (setq overlook-detached t overlook-home nil)
+    (setq overlook-detached t)
     (add-hook 'window-buffer-change-functions #'overlook--detach-shown nil t))
   (funcall overlook-detach-function buffer))
 

@@ -32,6 +32,11 @@ Agents are listed; usage and repos are not."
           (overlook-worktrees-functions nil)
           (overlook-worktree-functions (list #'overlook-agent--rows))
           (dashboard (get-buffer-create overlook-buffer-name)))
+     (pcase-dolist (`(,name . ,buffers) (reverse overlook-test--projects))
+       (dolist (buffer buffers)
+         (when (overlook-agent-p buffer)
+           (with-current-buffer buffer
+             (setf (alist-get 'project overlook-agent-identity) name)))))
      (unwind-protect
          (with-current-buffer dashboard
            (overlook-mode)
@@ -111,33 +116,31 @@ Agents are listed; usage and repos are not."
                       'overlook-heading-current)))
       (mapc #'kill-buffer (list alpha beta stray)))))
 
-(ert-deftest overlook-agent-shown-in-several-projects-sits-under-its-project ()
-  (let ((alpha (overlook-test--agent "alpha"))
-        (overlook-project-order 'backend))
-    (unwind-protect
-        (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,alpha)) "one"
-          (let ((overlook-project-root-function
-                 (lambda (name) (and (equal name "two") "/project/"))))
-            (overlook--render)
-            (should (equal (overlook-agent-project alpha) "two"))
-            (should (< (overlook-test--line-of "two") (overlook-test--line-of "alpha")))
-            (goto-char (point-min))
-            (search-forward "alpha")
-            (should-not (search-forward "alpha" nil t))))
-      (kill-buffer alpha))))
-
-(ert-deftest overlook-agent-stays-home-when-shown-elsewhere ()
+(ert-deftest overlook-agent-stays-in-its-project-when-shown-elsewhere ()
   (let ((alpha (overlook-test--agent "alpha"))
         (overlook-project-order 'backend))
     (unwind-protect
         (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,alpha)) "two"
-          (with-current-buffer alpha (setq overlook-home "one"))
           (should (equal (overlook-agent-project alpha) "one"))
-          (with-current-buffer alpha (setq overlook-home nil overlook-agent--guessed nil))
-          (should (equal (overlook-agent-project alpha) "two"))
-          (let ((overlook-current-project-function (lambda () "one")))
-            (should (equal (overlook-agent-project alpha) "two"))))
+          (with-current-buffer alpha (setq overlook-detached t))
+          (should-not (overlook-agent-project alpha))
+          (with-current-buffer alpha (setq overlook-detached nil))
+          (overlook-agent-set-project alpha "gone")
+          (should-not (overlook-agent-project alpha)))
       (kill-buffer alpha))))
+
+(ert-deftest overlook-agent-registers-into-the-project-it-starts-for ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (beta (overlook-test--agent "beta"))
+        (overlook-agent-changed-hook nil))
+    (unwind-protect
+        (overlook-test-with-dashboard '(("one") ("two")) "two"
+          (let ((overlook-agent-starting-project "one"))
+            (overlook-agent-register alpha "alpha"))
+          (should (equal (overlook-agent-project alpha) "one"))
+          (overlook-agent-register beta "beta")
+          (should (equal (overlook-agent-project beta) "two")))
+      (mapc #'kill-buffer (list alpha beta)))))
 
 (ert-deftest overlook-project-annotation-after-heading ()
   (let ((overlook-project-annotation (lambda (name) (and (equal name "one") "me")))
@@ -634,6 +637,7 @@ Agents are listed; usage and repos are not."
          (overlook-current-project-function #'ignore))
     (unwind-protect
         (with-current-buffer agent
+          (setf (alist-get 'project overlook-agent-identity) "checkout")
           (overlook-agent-report 'working)
           (should-not sent)
           (overlook-agent-report 'attention)
@@ -683,7 +687,8 @@ Agents are listed; usage and repos are not."
     (unwind-protect
         (progn
           (with-current-buffer agent
-            (push '(session . (lambda () "s1")) overlook-agent-identity))
+            (push '(session . (lambda () "s1")) overlook-agent-identity)
+            (push '(project . "one") overlook-agent-identity))
           (overlook-agent-save)
           (should (equal (overlook-agent--to-save) overlook-agent--saved-written))
           (setq overlook-agent-saved nil)
@@ -845,10 +850,10 @@ Agents are listed; usage and repos are not."
     (unwind-protect
         (progn
           (make-directory (expand-file-name ".worktrees/fix" shop) t)
-          (should (equal (overlook-agent-courier--project-of (expand-file-name ".worktrees/fix" shop))
+          (should (equal (overlook-agent-project-holding (expand-file-name ".worktrees/fix" shop))
                          "shop"))
-          (should (equal (overlook-agent-courier--project-of root) "all"))
-          (should-not (overlook-agent-courier--project-of temporary-file-directory)))
+          (should (equal (overlook-agent-project-holding root) "all"))
+          (should-not (overlook-agent-project-holding temporary-file-directory)))
       (delete-directory root t))))
 
 ;; overlook-test-with-dashboard binds the backend for visiting too.
@@ -894,6 +899,7 @@ Agents are listed; usage and repos are not."
                     `((agent . ,name) (root . ,root)
                       (environment . ,(overlook-agent-make-environment name root))
                       (submit . ignore)))
+              (overlook-agent-register (current-buffer) name)
               (current-buffer))))
          (overlook-agent-environment-functions (list #'overlook-agent-courier--environment)))
     (unwind-protect
