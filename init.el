@@ -1139,9 +1139,7 @@
   :commands (agent-shell-anthropic-start-claude-code agent-shell-openai-start-codex)
   :custom
   (agent-shell-header-style 'text)
-  ;; An 8-frame braille ring instead of agent-shell's default "░░░" bar.
-  ;; Alternatives: wave, arc, bouncingBar, arrow.
-  (agent-shell-busy-indicator-frames 'dots-block)
+  (agent-shell-show-busy-indicator nil)
   (agent-shell-session-strategy 'prompt)
   (agent-shell-session-restore-verbosity 'full)
   (agent-shell-openai-default-config-options '(("reasoning_effort" . "low")))
