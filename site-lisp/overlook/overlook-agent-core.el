@@ -112,6 +112,7 @@ offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
 in its buffer, or nil; `forked-from' a function returning the session id
 its session was forked from, or nil; `environment' the entries of
 `overlook-agent-make-environment' its process started with, or nil;
+`persona' the name of the persona it runs without an agent program, or nil;
 `remote-controls' a function returning a plist of :slash, a list of
 \(:name N :description D), :steer, non-nil when it can be steered, and
 :actions, a list of names; `remote-action' a function of ACTION and TEXT

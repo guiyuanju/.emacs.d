@@ -41,7 +41,9 @@
 ;; `overlook-courier-gptel-history-directory', which is also the
 ;; persona's buffer while it runs; it is kept for reading and never sent
 ;; back.  `overlook-courier-gptel-ask' asks a persona from anywhere, and
-;; courier delivers messages to it like to any agent.
+;; courier delivers messages to it like to any agent.  With overlook-agent
+;; loaded the buffer is an agent too, so views that follow agents, like
+;; overlook-remote, list it, prompt it and show its replies.
 
 ;;; Code:
 
@@ -55,7 +57,12 @@
 (declare-function gptel-make-fsm "gptel-request")
 (declare-function gptel-fsm-info "gptel-request")
 (declare-function gptel-abort "gptel")
-(declare-function overlook-agent-changed "overlook-agent")
+(declare-function overlook-agent-event "overlook-agent")
+(declare-function overlook-agent-p "overlook-agent")
+(declare-function overlook-agent-register "overlook-agent")
+(declare-function overlook-agent-report "overlook-agent")
+(defvar overlook-agent-identity)
+(defvar overlook-agent-error)
 (defvar gptel-backend)
 (defvar gptel-model)
 (defvar gptel-tools)
@@ -65,7 +72,6 @@
 (defvar gptel-include-tool-results)
 (defvar gptel-stream)
 (defvar gptel-request--handlers)
-(defvar overlook-agent-status)
 (defvar overlook-detached)
 
 (defcustom overlook-courier-gptel-history-directory
@@ -87,6 +93,11 @@
 
 (defvar-local overlook-courier-gptel--reply nil
   "Text of the last reply, without the tool calls.")
+
+(defvar-local overlook-courier-gptel--own-turns nil
+  "Non-nil when this persona tells courier of its turns itself.
+Otherwise it is an overlook agent courier learned of, and whose turns
+reach courier through overlook's turn hooks.")
 
 (defvar overlook-courier-gptel-mode-map
   (let ((map (make-sparse-keymap)))
@@ -140,11 +151,50 @@
       (unless (equal tail "\n\n")
         (overlook-courier-gptel--append buffer (if (string-suffix-p "\n" tail) "\n" "\n\n"))))))
 
-(defun overlook-courier-gptel--set-status (buffer status)
-  "Show STATUS, an `overlook-agent-status' value, for persona BUFFER."
+(defun overlook-courier-gptel--agent-p (buffer)
+  "Non-nil when persona BUFFER is an overlook agent."
+  (and (fboundp 'overlook-agent-p) (overlook-agent-p buffer)))
+
+(defun overlook-courier-gptel--turn-started (buffer)
+  "Start persona BUFFER's turn."
   (with-current-buffer buffer
-    (setq-local overlook-agent-status status))
-  (when (fboundp 'overlook-agent-changed) (overlook-agent-changed)))
+    (when (overlook-courier-gptel--agent-p buffer) (overlook-agent-report 'working))
+    (when overlook-courier-gptel--own-turns
+      (overlook-courier-turn-started overlook-courier-gptel--name))))
+
+(defun overlook-courier-gptel--turn-finished (buffer error)
+  "End persona BUFFER's turn, failed with message ERROR if non-nil."
+  (with-current-buffer buffer
+    (when (overlook-courier-gptel--agent-p buffer)
+      (setq overlook-agent-error error)
+      (overlook-agent-report (if error 'failed 'finished)))
+    (when overlook-courier-gptel--own-turns
+      (overlook-courier-turn-finished overlook-courier-gptel--name error))))
+
+(defun overlook-courier-gptel--event (buffer type &rest properties)
+  "Tell the views following persona BUFFER of event TYPE with PROPERTIES."
+  (when (overlook-courier-gptel--agent-p buffer)
+    (with-current-buffer buffer (apply #'overlook-agent-event type properties))))
+
+(defun overlook-courier-gptel--make-agent (buffer persona)
+  "Make persona BUFFER an overlook agent running PERSONA, if overlook-agent is on.
+Its identity names the persona, so courier knows it by the persona's name
+and the dashboard lists it with the personas, not in a project."
+  (when (fboundp 'overlook-agent-register)
+    (let ((name (plist-get persona :name))
+          (backend (plist-get persona :backend)))
+      (with-current-buffer buffer
+        (setq-local overlook-agent-identity
+                    `((agent . ,(if backend (downcase backend) "gptel"))
+                      (root . ,(overlook-courier-persona-directory persona))
+                      (persona . ,name)
+                      (title . ,(lambda () name))
+                      (submit . ,(lambda (text) (overlook-courier-gptel--send buffer text)))
+                      (ready . ,(lambda () (not overlook-courier-gptel--busy)))
+                      (reply . ,(lambda () overlook-courier-gptel--reply))
+                      (remote-controls . ,(lambda () '(:actions ("stop" "restart"))))
+                      (remote-action . overlook-courier-gptel--remote-action))))
+      (overlook-agent-register buffer name))))
 
 (defun overlook-courier-gptel--tool-line (tool args result)
   "A history line for TOOL called with ARGS and giving RESULT."
@@ -156,8 +206,7 @@
 (defun overlook-courier-gptel--finish (buffer state info)
   "End persona BUFFER's request, which reached gptel STATE with INFO."
   (when (buffer-live-p buffer)
-    (let* ((name (buffer-local-value 'overlook-courier-gptel--name buffer))
-           (error (pcase state
+    (let* ((error (pcase state
                     ('DONE nil)
                     ('ABRT "Aborted")
                     (_ (string-trim (format "%s %s" (or (plist-get info :status) "")
@@ -167,8 +216,8 @@
       (overlook-courier-gptel--append buffer (if error (format "\n> Failed: %s\n" error) "\n"))
       (with-current-buffer buffer
         (let ((save-silently t)) (save-buffer)))
-      (overlook-courier-gptel--set-status buffer (if error 'failed 'idle))
-      (overlook-courier-turn-finished name error))))
+      (overlook-courier-gptel--event buffer (if error 'error 'end) :text error)
+      (overlook-courier-gptel--turn-finished buffer error))))
 
 (defun overlook-courier-gptel--handlers (buffer)
   "The gptel request handlers, ending persona BUFFER's request when it ends."
@@ -192,11 +241,11 @@
            (tools (overlook-courier-gptel--tools persona)))
       (setq overlook-courier-gptel--busy t
             overlook-courier-gptel--reply "")
-      (overlook-courier-turn-started name)
-      (overlook-courier-gptel--set-status buffer 'working)
+      (overlook-courier-gptel--turn-started buffer)
       (overlook-courier-gptel--append
        buffer (format "\n## %s%s\n\n%s\n\n" (format-time-string "%F %R")
                       (if from (concat " · " from) "") (string-trim prompt)))
+      (overlook-courier-gptel--event buffer 'prompt :text prompt)
       (condition-case err
           (let ((gptel-backend (gptel-get-backend backend))
                 (gptel-model (if-let* ((model (plist-get persona :model))) (intern model) gptel-model))
@@ -216,12 +265,18 @@
                   ((pred stringp)
                    (with-current-buffer buffer
                      (setq overlook-courier-gptel--reply (concat overlook-courier-gptel--reply response)))
-                   (overlook-courier-gptel--append buffer response))
+                   (overlook-courier-gptel--append buffer response)
+                   (overlook-courier-gptel--event buffer 'text :text response))
                   (`(tool-result . ,results)
                    (overlook-courier-gptel--paragraph buffer)
                    (pcase-dolist (`(,tool ,args ,result) results)
                      (overlook-courier-gptel--append
-                      buffer (overlook-courier-gptel--tool-line tool args result)))
+                      buffer (overlook-courier-gptel--tool-line tool args result))
+                     (overlook-courier-gptel--event
+                      buffer 'tool :id (format "%s-%s" (gptel-tool-name tool) (float-time))
+                      :title (format "%s %s" (gptel-tool-name tool)
+                                     (replace-regexp-in-string "\n" " " (prin1-to-string args)))
+                      :status "completed" :kind "other" :output (format "%s" result)))
                    (overlook-courier-gptel--append buffer "\n"))))))
         (error (overlook-courier-gptel--finish buffer 'ERRS (list :error (error-message-string err))))))))
 
@@ -246,11 +301,15 @@ It answers TASK at once if non-nil."
             buffer-read-only t)
       (setq-local overlook-detached t)
       (overlook-courier-gptel-mode 1))
-    (overlook-courier-register
-     name :buffer buffer :parent from
-     :deliver (lambda (text) (overlook-courier-gptel--send buffer text))
-     :ready (lambda () (not (buffer-local-value 'overlook-courier-gptel--busy buffer)))
-     :reply (lambda () (buffer-local-value 'overlook-courier-gptel--reply buffer)))
+    (overlook-courier-gptel--make-agent buffer persona)
+    (if-let* ((agent (overlook-courier-agent name)))
+        (setf (overlook-courier-agent-parent agent) from)
+      (with-current-buffer buffer (setq overlook-courier-gptel--own-turns t))
+      (overlook-courier-register
+       name :buffer buffer :parent from
+       :deliver (lambda (text) (overlook-courier-gptel--send buffer text))
+       :ready (lambda () (not (buffer-local-value 'overlook-courier-gptel--busy buffer)))
+       :reply (lambda () (buffer-local-value 'overlook-courier-gptel--reply buffer))))
     (when task (overlook-courier-gptel--send buffer task from))
     buffer))
 
@@ -288,6 +347,33 @@ elsewhere, with several gptel personas, a prefix argument picks one."
   (interactive)
   (unless overlook-courier-gptel--busy (user-error "Nothing to stop"))
   (gptel-abort (current-buffer)))
+
+(defun overlook-courier-gptel-restart ()
+  "Start the persona of this buffer afresh, its history moved to the archive.
+The history goes to archive/NAME-TIME.md in
+`overlook-courier-gptel-history-directory'.  Return the new buffer."
+  (interactive)
+  (let ((name (or overlook-courier-gptel--name (user-error "Not a gptel persona's buffer")))
+        (file buffer-file-name))
+    (when overlook-courier-gptel--busy (user-error "%s is still answering" name))
+    (when (and file (file-exists-p file) (> (file-attribute-size (file-attributes file)) 0))
+      (let ((archive (expand-file-name "archive/" overlook-courier-gptel-history-directory)))
+        (make-directory archive t)
+        (rename-file file (expand-file-name (format-time-string (concat name "-%Y%m%d-%H%M%S.md"))
+                                            archive))))
+    (set-buffer-modified-p nil)
+    (let ((kill-buffer-query-functions nil)) (kill-buffer))
+    (overlook-courier-persona-start name :wait t)
+    (let ((buffer (overlook-courier-gptel--buffer name)))
+      (when (called-interactively-p 'any) (pop-to-buffer-same-window buffer))
+      buffer)))
+
+(defun overlook-courier-gptel--remote-action (action _text)
+  "Run session ACTION from a remote view; return the persona's buffer."
+  (pcase action
+    ("stop" (overlook-courier-gptel-abort) (current-buffer))
+    ("restart" (overlook-courier-gptel-restart))
+    (_ (user-error "Unknown session action: %s" action))))
 
 (add-to-list 'overlook-courier-persona-engines
              (cons "gptel" (lambda (persona task from)

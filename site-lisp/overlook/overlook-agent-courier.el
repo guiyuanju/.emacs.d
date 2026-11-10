@@ -88,7 +88,8 @@ A resumed agent gets its earlier id back unless another agent has it."
     `((courier . ,id))))
 
 (defun overlook-agent-courier--register (buffer)
-  "Register agent BUFFER with courier once its frontend is ready."
+  "Register agent BUFFER with courier once its frontend is ready.
+Its id comes from its $COURIER_ID, else the persona its identity names."
   (with-current-buffer buffer
     (when-let* (((not (and overlook-agent-courier-id (overlook-courier-agent overlook-agent-courier-id))))
                 ((overlook-agent-get buffer 'submit)))
@@ -97,6 +98,7 @@ A resumed agent gets its earlier id back unless another agent has it."
                                  (and (string-prefix-p "COURIER_ID=" entry)
                                       (substring entry (length "COURIER_ID="))))
                                environment)
+                     (overlook-agent-get buffer 'persona)
                      (overlook-courier-new-id (or (overlook-agent-get buffer 'agent) "agent")
                                      (or (overlook-agent-get buffer 'root) default-directory))))
             (reply (overlook-agent-get buffer 'reply))
@@ -241,7 +243,8 @@ NAME is one of the personas that may run several times."
                   (overlook-courier-agent (overlook-courier-persona-start name)))))
 
 (defun overlook-agent-courier--persona-row (name)
-  "The row of persona NAME: its model's icon, colored by its status, and its name."
+  "The row of persona NAME: its model's icon, colored by its status, and its name.
+While it runs in an agent buffer, the row stands for that agent."
   (let* ((persona (overlook-courier-persona name))
          (agent (overlook-courier-agent name))
          (buffer (and agent (overlook-courier-agent-buffer agent)))
@@ -249,7 +252,9 @@ NAME is one of the personas that may run several times."
          (meta (propertize (if running "" "offline") 'face 'shadow)))
     (if (overlook-courier-persona-multiple-p persona)
         (overlook-agent-courier--multiple-row name persona)
-      (overlook-row :id (cons 'persona name)
+      (overlook-row :id (if (and running (overlook-agent-p buffer))
+                            (cons 'agent buffer)
+                          (cons 'persona name))
                     :content (list (overlook-icon
                                     (propertize (overlook-agent-courier--persona-icon-name persona)
 						'face (if running
@@ -344,6 +349,10 @@ Opens its persona.md to fill in."
   (interactive
    (list (pcase (and (derived-mode-p 'overlook-mode) (overlook-item-at-point))
            (`(persona . ,name) name)
+           ((and `(agent . ,buffer)
+                 (guard (member (buffer-local-value 'overlook-agent-courier-id buffer)
+                                (overlook-courier-persona-names))))
+            (buffer-local-value 'overlook-agent-courier-id buffer))
            (_ (completing-read "Edit persona: " (overlook-courier-persona-names) nil t)))))
   (find-file (expand-file-name "persona.md" (plist-get (overlook-courier-persona name) :folder))))
 
