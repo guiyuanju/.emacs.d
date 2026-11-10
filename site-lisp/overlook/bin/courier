@@ -4,6 +4,7 @@
 #   courier spawn AGENT DIR PROMPT start AGENT in DIR on PROMPT; it reports back
 #     --effort LEVEL               right after spawn: start it at that reasoning effort
 #     --worktree BRANCH            right after spawn: start it in a worktree of DIR on BRANCH
+#     --handoff                    right after spawn: hand it to the user; it is told nothing and reports nothing
 #   courier monitor ID             be told when agent ID next finishes a turn
 #   courier list                   list the agents, and the offline personas
 #   courier whoami                 print your own id
@@ -20,7 +21,7 @@
 #   courier persona start NAME [DIR [TASK]]  start persona NAME (--engine E --effort L first)
 #   courier worktree list DIR      list the worktrees of project DIR; worktree add DIR BRANCH
 #   courier worktree remove DIR BRANCH  remove one, keeping the branch (--force first: even if dirty)
-#   courier skill                  print the guide to courier for agents
+#   courier skill [NAME]           print the guide to courier for agents, or skill courier-NAME
 # Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.
 set -euo pipefail
 
@@ -30,7 +31,7 @@ if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 if [ "$1" = "skill" ]; then
-  cat "$(dirname "$(readlink -f "$0")")/../skills/courier/SKILL.md"
+  cat "$(dirname "$(readlink -f "$0")")/../skills/courier${2:+-$2}/SKILL.md"
   exit 0
 fi
 

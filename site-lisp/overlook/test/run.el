@@ -23,5 +23,6 @@
   (mapc #'load (directory-files (expand-file-name "test" root) t "-test\\.el\\'"))
   ;; Batch Emacs has no focused frame, so agent turns would notify the desktop.
   (setq overlook-agent-notify-function #'ignore
-        overlook-agent--focused-function #'always)
+        overlook-agent--focused-function #'always
+        overlook-courier-skill-directories nil)
   (ert-run-tests-batch-and-exit))

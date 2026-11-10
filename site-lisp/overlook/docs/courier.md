@@ -21,15 +21,19 @@ open while another works.
 
 An agent started through a frontend finds the `courier` script on its
 `PATH`, and its own id in `$COURIER_ID`.  `courier skill` prints a guide
-for agents, kept as an [Agent Skill](../skills/courier/SKILL.md); link
-that folder into `~/.claude/skills/` or `~/.codex/skills/` so agents load
-it on their own.
+for agents, kept as an [Agent Skill](../skills/courier/SKILL.md);
+[courier-handoff](../skills/courier-handoff/SKILL.md) guides an agent
+starting one the user takes over.  Turning on `overlook-agent-courier-mode`
+links every folder of `skills/` into `overlook-courier-skill-directories`
+(`~/.claude/skills/` and `~/.codex/skills/`), so agents load them on their
+own; a missing or dangling link is made anew, anything else left alone.
 
 ```sh
 courier list                                  # the agents, who spawned them, unread mail
 courier spawn codex . 'Review the diff of foo.go'  # then end your turn; it reports back
 courier spawn --effort high claude . 'Find why the build fails'  # at that reasoning effort
 courier spawn --worktree fix-login claude . 'Fix the login redirect'  # in a checkout of its own
+courier spawn --handoff claude ~/p 'Draft the plan'  # the user's: told nothing, reports nothing
 courier send claude@shop 'Tests pass on my side'
 courier monitor codex@shop                    # be told when it next finishes
 courier whoami
@@ -69,6 +73,10 @@ mail for `overlook-courier-delivery-delay` (2) seconds before delivering, so
 messages arriving together cost one turn.
 
 A turn the user starts in the child's buffer is not reported.
+
+`courier spawn --handoff` starts an agent for the user instead: it has no
+parent, gets the prompt as is, with no briefing or `[courier]` header,
+and courier tells nobody about its turns.
 
 A delivery to an agent that is ready yet starts no turn would keep its
 mail waiting for good, so after `overlook-courier-delivery-timeout` (120) seconds

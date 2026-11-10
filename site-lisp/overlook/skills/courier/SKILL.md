@@ -1,6 +1,6 @@
 ---
 name: courier
-description: "Work with other AI agents running in the user's Emacs through courier: delegate a task to a new agent, message or wait on another agent, report back to the agent that started you, or talk in a shared chat room. Use when the user asks to involve another agent, to spawn, delegate, or use a chat room, or when a prompt starts with [courier]. Requires COURIER_ID."
+description: "Work with other AI agents running in the user's Emacs through courier: delegate a task to a new agent, message or wait on another agent, report back to the agent that started you, or talk in a shared chat room. Use when the user asks to involve another agent, to spawn, delegate, or use a chat room, or when a prompt starts with [courier]. To start an agent the user takes over, with no report back, use courier-handoff instead. Requires COURIER_ID."
 ---
 
 # courier

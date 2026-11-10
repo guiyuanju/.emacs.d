@@ -124,6 +124,52 @@
       (overlook-courier-deliver)
       (should (string-match-p "looks fine" (car (overlook-courier-test--received "a@p")))))))
 
+(ert-deftest overlook-courier-spawn-handoff-leaves-the-child-to-the-user ()
+  (overlook-courier-test-with-agents '("a@p")
+    (let ((overlook-courier-spawn-function
+           (lambda (name directory parent _effort &optional as)
+             (let ((id (or as (overlook-courier-new-id name directory))))
+               (overlook-courier-test--register id parent)
+               id)))
+          (output (make-temp-file "overlook-courier-out")))
+      (unwind-protect
+          (progn
+            (overlook-courier-cli output (base64-encode-string "a@p")
+                         (base64-encode-string "spawn")
+                         (base64-encode-string "--handoff")
+                         (base64-encode-string "codex")
+                         (base64-encode-string "/work/p/")
+                         (base64-encode-string "review foo.go"))
+            (should (string-search "do not wait for it" (with-temp-buffer
+                                                          (insert-file-contents output)
+                                                          (buffer-string))))
+            (should-error (overlook-courier-options '("--handoff" "--effort") '("--effort") '("--handoff"))))
+        (delete-file output))
+      (should-not (overlook-courier-agent-parent (overlook-courier-agent "codex@p")))
+      (overlook-courier-deliver)
+      (should (equal (overlook-courier-test--received "codex@p") '("review foo.go")))
+      (overlook-courier-turn-started "codex@p")
+      (setf (alist-get "codex@p" overlook-courier-test--replies nil nil #'equal) "looks fine")
+      (overlook-courier-turn-finished "codex@p")
+      (overlook-courier-deliver)
+      (should-not (overlook-courier-test--received "a@p")))))
+
+(ert-deftest overlook-courier-link-skills-repairs-only-its-own-gaps ()
+  (let* ((home (make-temp-file "overlook-courier-home" t))
+         (claude (expand-file-name ".claude/skills/" home))
+         (overlook-courier-skill-directories (list claude (expand-file-name ".codex/skills/" home))))
+    (unwind-protect
+        (progn
+          (make-directory claude t)
+          (make-symbolic-link (expand-file-name "gone" home) (expand-file-name "courier" claude))
+          (make-directory (expand-file-name "courier-handoff" claude))
+          (should (equal (overlook-courier-link-skills) (list (expand-file-name "courier" claude))))
+          (should (file-exists-p (expand-file-name "courier/SKILL.md" claude)))
+          (should-not (file-symlink-p (expand-file-name "courier-handoff" claude)))
+          (should-not (file-exists-p (expand-file-name ".codex" home)))
+          (should-not (overlook-courier-link-skills)))
+      (delete-directory home t))))
+
 (ert-deftest overlook-courier-new-id-stays-unique ()
   (overlook-courier-test-with-agents '("claude@shop")
     (should (equal (overlook-courier-new-id "claude" "/x/shop/") "claude@shop-2"))
@@ -755,6 +801,8 @@
   (should (equal (overlook-courier-options '("--effort" "low" "--worktree" "b" "x" "y")
                                   '("--effort" "--worktree"))
                  '((("--worktree" . "b") ("--effort" . "low")) "x" "y")))
+  (should (equal (overlook-courier-options '("--handoff" "--effort" "low" "x") '("--effort") '("--handoff"))
+                 '((("--effort" . "low") ("--handoff" . t)) "x")))
   (should-error (overlook-courier-options '("--effort") '("--effort"))))
 
 ;;; Events

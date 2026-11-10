@@ -119,6 +119,32 @@ A function returns nil to add nothing.")
   (expand-file-name "bin" (file-name-directory (or load-file-name buffer-file-name "")))
   "Directory of the courier script agents call.")
 
+(defcustom overlook-courier-skill-directories '("~/.claude/skills/" "~/.codex/skills/")
+  "Directories agents load skills from, where courier links its skills.
+One whose parent folder is missing is skipped, since that agent is not
+installed."
+  :type '(repeat directory)
+  :group 'overlook-courier)
+
+(defun overlook-courier-link-skills ()
+  "Link each of courier's skills into `overlook-courier-skill-directories'.
+A link that is missing or dangling is made anew; anything else of the
+same name is left alone.  Returns the links made."
+  (let ((skills (directory-files (expand-file-name "../skills" overlook-courier-bin-directory)
+                                 t directory-files-no-dot-files-regexp))
+        (made nil))
+    (dolist (dir overlook-courier-skill-directories)
+      (let ((dir (file-name-as-directory (expand-file-name dir))))
+        (when (file-directory-p (file-name-directory (directory-file-name dir)))
+          (make-directory dir t)
+          (dolist (skill skills)
+            (let ((link (expand-file-name (file-name-nondirectory skill) dir)))
+              (unless (file-exists-p link)
+                (when (file-symlink-p link) (delete-file link))
+                (make-symbolic-link skill link)
+                (push link made)))))))
+    (nreverse made)))
+
 ;;; Agents
 
 (cl-defstruct (overlook-courier-agent (:constructor overlook-courier-agent--make) (:copier nil))
@@ -284,13 +310,17 @@ Returns the new agent's id."
   "TEXT, or DEFAULT when TEXT is empty."
   (if (string-empty-p text) default text))
 
-(defun overlook-courier-options (args names)
-  "Split ARGS into the options NAMES leading it and the rest.
-Returns (OPTIONS . REST), OPTIONS an alist of each option given to its value."
+(defun overlook-courier-options (args names &optional flags)
+  "Split ARGS into the options NAMES and FLAGS leading it and the rest.
+Returns (OPTIONS . REST), OPTIONS an alist of each option given to its
+value, and of each flag given to t."
   (let ((options nil))
-    (while (member (car args) names)
+    (while (or (member (car args) names) (member (car args) flags))
       (let ((name (pop args)))
-        (push (cons name (or (pop args) (user-error "No value after %s" name))) options)))
+        (push (cons name (or (and (member name flags) t)
+                             (pop args)
+                             (user-error "No value after %s" name)))
+              options)))
     (cons options args)))
 
 (defun overlook-courier-option (name options)
@@ -511,18 +541,24 @@ in the agent's working directory."
                                 (if offline (format "  %s was offline, so it was started." to) ""))))
                      ((and `("spawn" . ,rest)
                            (let `(,options ,name ,directory ,prompt)
-                             (overlook-courier-options rest '("--effort" "--worktree"))))
+                             (overlook-courier-options rest '("--effort" "--worktree") '("--handoff"))))
                       (let* ((effort (overlook-courier-option "--effort" options))
                              (branch (overlook-courier-option "--worktree" options))
-                             (id (if branch
-                                     (overlook-courier-worktree-spawn name directory branch prompt from effort)
-                                   (overlook-courier-spawn name directory prompt from effort))))
+                             (handoff (overlook-courier-option "--handoff" options))
+                             (id (cond ((and handoff branch)
+                                        (user-error "--handoff and --worktree do not go together"))
+                                       (handoff (overlook-courier-spawn name directory prompt nil effort nil t))
+                                       (branch (overlook-courier-worktree-spawn name directory branch prompt from effort))
+                                       (t (overlook-courier-spawn name directory prompt from effort)))))
                         (format "Started %s.%s" id
-                                (if (overlook-courier-agent from)
-                                    "  It reports when done or stuck, and courier tells you \
+                                (cond
+                                 (handoff "  It is your user's now, told nothing of you or \
+courier; do not wait for it or message it.")
+                                 ((overlook-courier-agent from)
+                                  "  It reports when done or stuck, and courier tells you \
 if it stops without reporting, waits for the user, hits an error or is \
-gone.  End your turn now."
-                                  ""))))
+gone.  End your turn now.")
+                                 (t "")))))
                      (`("monitor" ,target)
                       (overlook-courier-monitor (or from (user-error "No COURIER_ID")) target)
                       (format "You will be told when %s next finishes a turn." target))
@@ -537,7 +573,7 @@ gone.  End your turn now."
                      (`("event" . ,rest) (overlook-courier-event-cli from rest))
                      (`("persona" . ,rest) (overlook-courier-persona-cli from rest))
                      (_ (user-error "Usage: courier send ID MESSAGE \
-| spawn [--effort LEVEL] [--worktree BRANCH] AGENT DIR PROMPT | monitor ID \
+| spawn [--effort LEVEL] [--worktree BRANCH | --handoff] AGENT DIR PROMPT | monitor ID \
 | list | whoami | room COMMAND | persona COMMAND | worktree COMMAND \
 | event COMMAND")))
                  (error (concat "error: " (error-message-string err))))))

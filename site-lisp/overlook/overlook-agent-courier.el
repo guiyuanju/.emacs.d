@@ -452,7 +452,9 @@ Opens its persona.md to fill in."
 
 ;;;###autoload
 (define-minor-mode overlook-agent-courier-mode
-  "Let overlook's agents message, spawn and monitor each other through courier."
+  "Let overlook's agents message, spawn and monitor each other through courier.
+Turning it on links courier's skills where agents find them; see
+`overlook-courier-link-skills'."
   :global t
   :group 'overlook
   (overlook-toggle-hooks
@@ -472,7 +474,9 @@ Opens its persona.md to fill in."
      (overlook-agent-resume-functions overlook-agent-courier--check-resume)
      (overlook-courier-changed-hook overlook-refresh)))
   (setq overlook-courier-spawn-function (and overlook-agent-courier-mode #'overlook-agent-courier--spawn))
-  (when overlook-agent-courier-mode (overlook-agent-courier--sync))
+  (when overlook-agent-courier-mode
+    (overlook-agent-courier--sync)
+    (overlook-courier-link-skills))
   (overlook-refresh))
 
 (overlook-define-key "e" #'overlook-persona-edit)
