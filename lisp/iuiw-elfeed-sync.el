@@ -55,6 +55,9 @@
 (defvar iuiw-elfeed-sync--summaries (make-hash-table :test #'equal)
   "(KIND . entry id) to its latest summary record.")
 
+(defvar iuiw-elfeed-sync--seen (make-hash-table :test #'equal)
+  "Names of the digests opened on some machine.")
+
 (defvar iuiw-elfeed-sync--applying nil
   "Non-nil while synced records are applied, so tag changes are not recorded again.")
 
@@ -96,6 +99,7 @@
   "Read every record into the tables."
   (clrhash iuiw-elfeed-sync--state)
   (clrhash iuiw-elfeed-sync--summaries)
+  (clrhash iuiw-elfeed-sync--seen)
   (iuiw-elfeed-sync--read
    "state" (lambda (record)
              (iuiw-elfeed-sync--keep iuiw-elfeed-sync--state
@@ -105,7 +109,10 @@
                  (iuiw-elfeed-sync--keep iuiw-elfeed-sync--summaries
                                         (cons (intern (plist-get record :kind))
                                               (iuiw-elfeed-sync--id record))
-                                        record))))
+                                        record)))
+  (iuiw-elfeed-sync--read
+   "seen" (lambda (record)
+            (puthash (plist-get record :digest) t iuiw-elfeed-sync--seen))))
 
 (defun iuiw-elfeed-sync--record (entry &rest props)
   "Return a record about ENTRY with PROPS."
@@ -270,7 +277,10 @@ Then call CALLBACK with an error message, or nil on success."
        (lambda (err)
          (setq iuiw-elfeed-sync--running nil
                iuiw-elfeed-sync--last (float-time))
-         (iuiw-elfeed-sync--load)
+         (let ((seen (iuiw-elfeed-sync--digest-seen-p)))
+           (iuiw-elfeed-sync--load)
+           (unless (eq seen (iuiw-elfeed-sync--digest-seen-p))
+             (when (fboundp 'overlook-refresh) (overlook-refresh))))
          (iuiw-elfeed-sync--apply-all)
          (iuiw-elfeed-sync--announce-digest)
          (when (and err (not callbacks))
@@ -440,10 +450,25 @@ The digested entries are marked read."
         (erase-buffer)
         (insert-file-contents file)
         (iuiw-elfeed-ai-digest-mode)))
+    (iuiw-elfeed-sync--mark-seen file)
     (select-window (display-buffer buf '(display-buffer-in-side-window
                                          (side . right) (window-width . 0.4))))))
 
 ;;; Dashboard
+
+(defun iuiw-elfeed-sync--digest-seen-p ()
+  "Return non-nil if the latest digest was opened on some machine."
+  (when-let* ((file (iuiw-elfeed-sync--latest-digest)))
+    (gethash (file-name-base file) iuiw-elfeed-sync--seen)))
+
+(defun iuiw-elfeed-sync--mark-seen (file)
+  "Record digest FILE as seen, for every machine."
+  (let ((name (file-name-base file)))
+    (unless (gethash name iuiw-elfeed-sync--seen)
+      (puthash name t iuiw-elfeed-sync--seen)
+      (iuiw-elfeed-sync--append "seen" (list :t (float-time) :host iuiw-elfeed-sync--host
+                                             :digest name))
+      (when (fboundp 'overlook-refresh) (overlook-refresh)))))
 
 (defun iuiw-elfeed-sync--digest-points (file)
   "Return the items under \"* 要点\" in digest FILE."
@@ -457,8 +482,9 @@ The digested entries are marked read."
         (nreverse points)))))
 
 (defun iuiw-elfeed-sync--digest-section ()
-  "A section with the points of the latest digest, for overlook."
-  (when-let* ((file (iuiw-elfeed-sync--latest-digest)))
+  "A section with the points of the latest digest until it is opened, for overlook."
+  (when-let* ((file (iuiw-elfeed-sync--latest-digest))
+              ((not (iuiw-elfeed-sync--digest-seen-p))))
     (overlook-section-row
      (concat "Elfeed " (propertize (file-name-base file) 'face 'shadow))
      (mapcar (lambda (point)

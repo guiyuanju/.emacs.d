@@ -1265,11 +1265,11 @@
   (overlook-project-priority-function #'iuiw-workspace-overlook-priority)
   (overlook-show-empty-projects #'iuiw-workspace-overlook-ongoing-p)
   (overlook-orphan-project "main")
-  (overlook-section-order '(overlook-usage--section
+  (overlook-section-order '(iuiw-elfeed-sync--digest-section
+                            overlook-usage--section
                             overlook-agent-courier--personas-section
                             overlook--projects-section
-                            iuiw-workspace--inbox-section
-                            iuiw-elfeed-sync--digest-section))
+                            iuiw-workspace--inbox-section))
   (overlook-agent-shell-ignore-function #'iuiw-assistant-shell-p)
   (overlook-usage-file (expand-file-name "claude-usage.json" iuiw-state-directory))
   ;; DeepSeek 的 key 在 local.el 里，elfeed 的总结也用它。
