@@ -609,6 +609,7 @@
     "od" '(overlook :which-key "agent dashboard")
     "oe" '(iuiw-eshell-toggle :which-key "Eshell")
     "og" '(iuiw-playground :which-key "playground")
+    "oj" '(iuiw-jp-list :which-key "jp notes")
     "oG" '(iuiw-playground-open :which-key "open playground")
     "ow" '(elpher :which-key "Gemini/Gopher (elpher)")
     "of" '(iuiw-reveal-in-finder :which-key "reveal in Finder")
@@ -1361,6 +1362,18 @@
 
 (use-package gptel
   :defer t)
+
+(use-package iuiw-jp-list
+  :ensure nil
+  :commands iuiw-jp-list
+  :config
+  (evil-define-key* 'normal iuiw-jp-list-mode-map
+    (kbd "RET") #'iuiw-jp-list-open
+    "/" #'iuiw-jp-list-filter
+    "s" #'iuiw-jp-list-search
+    "c" #'iuiw-jp-list-clear
+    "gr" #'revert-buffer
+    "q" #'quit-window))
 
 ;; 人设 jp 的工具（查、记 jp-notes）和 DeepSeek 后端。
 (use-package iuiw-jp

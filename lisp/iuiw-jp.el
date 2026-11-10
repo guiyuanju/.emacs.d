@@ -10,15 +10,9 @@
 
 (require 'gptel)
 (require 'gptel-openai-extras)
+(require 'iuiw-jp-list)
 
 (defvar iuiw-deepseek-api-key)
-
-(defcustom iuiw-jp-program
-  (or (executable-find "jp")
-      (expand-file-name "bin/jp" (string-trim (shell-command-to-string "go env GOPATH"))))
-  "Path of the jp-notes command."
-  :type 'file
-  :group 'gptel)
 
 (defcustom iuiw-jp-search-limit 1500
   "Most characters of search results handed to the model."
