@@ -521,11 +521,17 @@ needing attention.  UNORDERED leaves sorting to the containing section."
 (defvar overlook--model nil
   "The model `overlook-model' last gathered, as (GENERATION . SECTIONS).")
 
+(defvar overlook-model-cache nil
+  "Hash table for lookups shared within one `overlook-model' call.
+Nil outside model gathering.  Modules should use distinct keys and wrap
+possibly nil values in a list.")
+
 (defun overlook-model ()
   "The dashboard as data, gathered afresh: a list of sections.
 Each is a row, as `overlook-row' describes, its children the rows of
 the section.  Views keep it as `overlook-latest-model' gives it."
   (let* ((generation overlook--generation)
+         (overlook-model-cache (make-hash-table :test #'equal))
          (overlook--buffers-cache (make-hash-table :test #'equal))
          (overlook--roots-cache (make-hash-table :test #'equal))
          (overlook--worktrees-cache (make-hash-table :test #'equal))

@@ -87,20 +87,29 @@ An integer is a number of columns; a float is a fraction of the frame width."
 (defvar overlook--rendered 0
   "When the dashboard was last redrawn.")
 
+(defvar overlook--render-generation -1
+  "Model generation last drawn in the dashboard.")
+
+(defun overlook--visible-p ()
+  "Non-nil when a window on any frame displays the dashboard."
+  (get-buffer-window overlook-buffer-name t))
+
 (defun overlook--render-when-idle (asked)
   "Redraw once input has paused for `overlook-refresh-idle' seconds.
 Waits no longer than `overlook-refresh-max-wait' seconds after time ASKED."
-  (let ((idle (current-idle-time)))
-    (if (and (or (null idle) (< (float-time idle) overlook-refresh-idle))
-             (< (- (float-time) asked) overlook-refresh-max-wait))
-        (setq overlook--timer (run-with-timer 0.2 nil #'overlook--render-when-idle asked))
-      (setq overlook--timer nil
-            overlook--rendered (float-time))
-      (overlook--render))))
+  (if (not (overlook--visible-p))
+      (setq overlook--timer nil)
+    (let ((idle (current-idle-time)))
+      (if (and (or (null idle) (< (float-time idle) overlook-refresh-idle))
+               (< (- (float-time) asked) overlook-refresh-max-wait))
+          (setq overlook--timer (run-with-timer 0.2 nil #'overlook--render-when-idle asked))
+        (setq overlook--timer nil
+              overlook--rendered (float-time))
+        (overlook--render)))))
 
 (defun overlook--render-soon ()
   "Redraw the dashboard once the current command is done, skipping the wait."
-  (when (overlook-live-p)
+  (when (overlook--visible-p)
     (when (timerp overlook--timer) (cancel-timer overlook--timer))
     (setq overlook--timer (run-at-time 0 nil #'overlook--render-now))))
 
@@ -108,7 +117,7 @@ Waits no longer than `overlook-refresh-max-wait' seconds after time ASKED."
   "Redraw the dashboard now."
   (setq overlook--timer nil
         overlook--rendered (float-time))
-  (overlook--render))
+  (when (overlook--visible-p) (overlook--render)))
 
 ;;; Mode
 
@@ -470,7 +479,8 @@ After a project switch, point goes to the current project instead."
         (erase-buffer)
         (let ((model (overlook-model)))
           (magit-insert-section (overlook-section 'root)
-            (overlook-insert-rows model)))
+            (overlook-insert-rows model))
+          (setq overlook--render-generation (car overlook--model)))
         (magit-section-show magit-root-section)
         (pcase-dolist (`(,window ,point ,start) places)
           (let ((point (overlook--redrawn-point point))
@@ -614,13 +624,20 @@ The dashboard stays shown; for actions on dashboard rows."
 
 (defun overlook--schedule-render ()
   "Schedule the Emacs view after a model invalidation."
-  (when (overlook-live-p)
+  (when (overlook--visible-p)
     (if overlook--to-current
         (overlook--render-soon)
       (unless (timerp overlook--timer)
         (setq overlook--timer
               (run-with-timer (max 0.1 (- (+ overlook--rendered overlook-refresh-gap) (float-time)))
                               nil #'overlook--render-when-idle (float-time)))))))
+
+(defun overlook--window-changed ()
+  "Refresh a newly displayed dashboard when its model has changed."
+  (when (and (overlook--visible-p)
+             (or overlook--to-current
+                 (/= overlook--render-generation overlook--generation)))
+    (overlook--schedule-render)))
 
 (defun overlook--project-switched ()
   "Follow a project switch and place point on its heading at the next redraw."
@@ -634,6 +651,8 @@ The dashboard stays shown; for actions on dashboard rows."
   (setq overlook--timer nil))
 
 (add-hook 'overlook-refresh-hook #'overlook--schedule-render)
+
+(add-hook 'window-configuration-change-hook #'overlook--window-changed)
 
 (add-hook 'overlook-project-switch-hook #'overlook--project-switched)
 

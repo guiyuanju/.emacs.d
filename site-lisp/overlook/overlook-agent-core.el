@@ -225,10 +225,16 @@ The caller decides when to submit and whether to queue busy agents."
 
 (defun overlook-agent-buffers (&optional pred)
   "Live agent buffers, restricted to those satisfying PRED when given."
-  (seq-filter (lambda (buffer)
-                (and (overlook-agent-p buffer)
-                     (or (null pred) (funcall pred buffer))))
-              (buffer-list)))
+  (let* ((collect (lambda () (seq-filter #'overlook-agent-p (buffer-list))))
+         (buffers (if overlook-model-cache
+                      (car (with-memoization
+                               (gethash 'overlook-agent-buffers overlook-model-cache)
+                             (list (funcall collect))))
+                    (funcall collect))))
+    (seq-filter (lambda (buffer)
+                  (and (buffer-live-p buffer)
+                       (or (null pred) (funcall pred buffer))))
+                buffers)))
 
 (defun overlook-agent-project-root ()
   "The current project's root, or `default-directory' outside a project."

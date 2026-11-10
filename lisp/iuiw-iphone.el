@@ -17,9 +17,16 @@
 
 (defun iuiw-iphone--xcodeproj (project)
   "The Xcode project in PROJECT's root or a repository right under it."
-  (when-let* ((root (overlook-project-root project)))
-    (car (or (file-expand-wildcards (expand-file-name "*.xcodeproj" root))
-             (file-expand-wildcards (expand-file-name "*/*.xcodeproj" root))))))
+  (let ((lookup
+         (lambda ()
+           (when-let* ((root (overlook-project-root project)))
+             (car (or (file-expand-wildcards (expand-file-name "*.xcodeproj" root))
+                      (file-expand-wildcards (expand-file-name "*/*.xcodeproj" root))))))))
+    (if overlook-model-cache
+        (car (with-memoization
+                 (gethash (cons 'iuiw-iphone-xcodeproj project) overlook-model-cache)
+               (list (funcall lookup))))
+      (funcall lookup))))
 
 (defun iuiw-iphone--finish (project process)
   "Record how PROCESS, installing PROJECT's Xcode project, ended."
