@@ -126,6 +126,19 @@ Agents are listed; usage and repos are not."
             (should-not (search-forward "alpha" nil t))))
       (kill-buffer alpha))))
 
+(ert-deftest overlook-agent-stays-home-when-shown-elsewhere ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (overlook-project-order 'backend))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha) ("two" ,alpha)) "two"
+          (with-current-buffer alpha (setq overlook-home "one"))
+          (should (equal (overlook-agent-project alpha) "one"))
+          (with-current-buffer alpha (setq overlook-home nil overlook-agent--guessed nil))
+          (should (equal (overlook-agent-project alpha) "two"))
+          (let ((overlook-current-project-function (lambda () "one")))
+            (should (equal (overlook-agent-project alpha) "two"))))
+      (kill-buffer alpha))))
+
 (ert-deftest overlook-project-annotation-after-heading ()
   (let ((overlook-project-annotation (lambda (name) (and (equal name "one") "me")))
         (overlook-project-order 'backend))

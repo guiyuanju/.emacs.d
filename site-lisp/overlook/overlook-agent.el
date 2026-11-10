@@ -297,15 +297,26 @@ PROPERTIES are the event's other entries; see `overlook-agent-event-functions'."
   (setq overlook-agent--last (overlook-agent-get buffer 'agent))
   (pop-to-buffer buffer '((display-buffer-reuse-window display-buffer-same-window))))
 
+(defvar-local overlook-agent--guessed nil
+  "Project an agent without a home was first found in.")
+(put 'overlook-agent--guessed 'permanent-local t)
+
 (defun overlook-agent-project (buffer)
   "The project agent BUFFER is listed under, or nil.
-A buffer shown in several projects belongs to the one whose root it runs at."
-  (let ((root (overlook-agent-get buffer 'root)))
-    (or (and root (seq-find (lambda (name)
+That is its home, else the project whose root it runs at, else the
+first project it was found in, so showing it elsewhere keeps it put."
+  (let ((root (overlook-agent-get buffer 'root))
+        (guessed (buffer-local-value 'overlook-agent--guessed buffer)))
+    (or (overlook-buffer-home buffer)
+        (and root (seq-find (lambda (name)
                               (and (equal (overlook-project-root name) root)
                                    (memq buffer (overlook-project-buffers name))))
                             (overlook-projects)))
-        (overlook-buffer-project buffer))))
+        (and guessed (member guessed (overlook-projects))
+             (memq buffer (overlook-project-buffers guessed))
+             guessed)
+        (when-let* ((project (overlook-buffer-project buffer)))
+          (with-current-buffer buffer (setq overlook-agent--guessed project))))))
 
 (defun overlook-agent-visit (buffer)
   "Switch to agent BUFFER's project and show it there.
