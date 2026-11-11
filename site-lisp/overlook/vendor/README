@@ -2,4 +2,4 @@ Browser libraries and fonts for overlook-remote.html, unmodified but for the sou
 
 - marked.js: marked 18.1.1, lib/marked.umd.js (MIT, marked-LICENSE)
 - purify.js: DOMPurify 3.4.17, dist/purify.min.js (Apache-2.0 or MPL-2.0, purify-LICENSE)
-- pixelify-sans-400.woff2, pixelify-sans-700.woff2: Pixelify Sans, latin subset from @fontsource/pixelify-sans 5 (OFL-1.1, pixelify-sans-LICENSE)
+- framework7.js, framework7.css: Framework7 9.3.0, framework7-bundle.min.js / .css from the official npm package (MIT, framework7-LICENSE)

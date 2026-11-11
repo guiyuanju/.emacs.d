@@ -70,8 +70,8 @@ Nil keeps it on."
   '(("" "overlook-remote.html" "text/html")
     ("/vendor/marked.js" "vendor/marked.js" "text/javascript")
     ("/vendor/purify.js" "vendor/purify.js" "text/javascript")
-    ("/vendor/pixelify-sans-400.woff2" "vendor/pixelify-sans-400.woff2" "font/woff2")
-    ("/vendor/pixelify-sans-700.woff2" "vendor/pixelify-sans-700.woff2" "font/woff2"))
+    ("/vendor/framework7.js" "vendor/framework7.js" "text/javascript")
+    ("/vendor/framework7.css" "vendor/framework7.css" "text/css"))
   "Routes under /overlook served without the token, each (ROUTE FILE MIME).")
 
 ;;; Token

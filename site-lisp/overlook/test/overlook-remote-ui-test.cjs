@@ -3,6 +3,7 @@ const vm = require('vm');
 const assert = require('assert/strict');
 class Element {
   constructor() { this.value=''; this.style={}; this.children=[]; this.events={}; this.scrollHeight=44; }
+  setAttribute(name, value) { this[name]=value; }
   addEventListener(name, fn) { this.events[name]=fn; }
   dispatchEvent(e) { this.events[e.type]?.({...e,target:this}); }
   replaceChildren(...children) { this.children=children; }
@@ -16,9 +17,21 @@ const elements = new Map();
 const docEvents = {};
 const context = vm.createContext({
   document: { documentElement: {scrollHeight:2000,style:{setProperty(){}}}, body: {scrollHeight:2000, style:{}, classList:{toggle(){}}}, getElementById: id => { if(!elements.has(id)) elements.set(id,new Element()); return elements.get(id); }, createElement: () => new Element(), addEventListener: (name,fn) => docEvents[name]=fn },
+  history: {state:null},
   location: {hash:'#test',search:'?agent=original',pathname:'/overlook/'},
   localStorage: {getItem:(key)=>key==='overlook-token'?'test':null, setItem(){}},
-  DOMPurify: {addHook(){}}, window: {addEventListener(){}}, URLSearchParams, AbortController, Event: class {constructor(type) {this.type=type;}},
+  DOMPurify: {addHook(){}, sanitize: text => text}, window: {addEventListener(){}}, URLSearchParams, AbortController, Event: class {constructor(type) {this.type=type;}},
+  Framework7: function() {
+    const modal = () => ({open(){},close(){}});
+    this.views = {create(){}};
+    this.toast = {create: modal};
+    this.dialog = {create: options => {
+      context.lastDialog = options;
+      return {open() { if (!context.deferDialog) options.buttons[context.confirm() ? 1 : 0].onClick(); }};
+    }, close(){}};
+    this.actions = {create: modal, close(){}};
+    this.photoBrowser = {create: modal, get(){}};
+  },
   performance: {now:()=>2000}, innerHeight:800, scrollY:0,
   crypto: require("crypto").webcrypto, Uint8Array, clearTimeout(){},setTimeout(){},setInterval(){},confirm:()=>true,
 });
@@ -28,6 +41,15 @@ context.scrollTo = (x,y) => {context.lastScroll = [x,y];};
 vm.runInContext(script,context);
 vm.runInContext('composeId = "original";',context);
 (async()=>{
+  assert.equal(vm.runInContext('checkProtocol({protocolVersion:2}).protocolVersion',context),2);
+  assert.throws(()=>vm.runInContext('checkProtocol({protocolVersion:99})',context),error=>error.code==='protocol_mismatch');
+  assert.equal(vm.runInContext('formatDuration(125)',context),'2m 5s');
+  vm.runInContext('renderLive({id:"original",queueError:null,choices:[],queued:["same","same"],queueItems:[{id:"q1",text:"same"},{id:"q2",text:"same"}],status:"idle"})',context);
+  const queueRequests=[];
+  context.fetch=async (url,options)=>{queueRequests.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true,protocolVersion:2})};};
+  await elements.get('d-live').children[1].children[2].onclick();
+  assert.equal(queueRequests[0].queueId,'q2');
+
   vm.runInContext('agentControls = {steer:true, actions:["fork","reload","restart"], slash:[{name:"compact",description:"Compact context"},{name:"help",description:"Help"}]}',context);
   elements.get('text').value='/';
   vm.runInContext('renderSlashCommands()',context);
@@ -159,11 +181,6 @@ vm.runInContext('composeId = "original";',context);
   vm.runInContext('renderLive({queueError:"Submission failed", choices:[], queued:[], status:"idle"})', context);
   assert.equal(elements.get('d-live').children.length, 1);
   assert.equal(elements.get('d-live').children[0].textContent, 'Not sent: Submission failed');
-  const pieces = code => vm.runInContext(code, context).children.map(node => [node.textContent, node.className || '', node.style.flex]);
-  assert.deepEqual(pieces('meterPiece([{text:"a ━━ ",styles:[]}])'),
-    [['a ','',undefined],['━━',' meter','2 1 0'],[' ','',undefined]]);
-  assert.deepEqual(pieces('metricPiece([{text:"used  10%  ",styles:[]}])'),
-    [['used','',undefined],['  ',' metric-gap',undefined],['10%','',undefined],['  ','','none']]);
   elements.get('text').scrollHeight = 0;
   vm.runInContext('syncCompose()', context);
   assert.equal(elements.get('text').style.height, '44px');
@@ -231,30 +248,25 @@ vm.runInContext('composeId = "original";',context);
   assert.equal(key({metaKey:true}), true);
   assert.equal(key({ctrlKey:true}), true);
   assert.equal(sends, 2);
-  // An agent's line: its icon in a column of its own, beside it the name line over the brief.
-  const agentLine = new Element();
-  vm.runInContext('agentSpansInto', context)(agentLine, [
-    {text:'└ ', styles:[]},
-    {text:'', icon:'claude', styles:[]},
-    {text:' a long session title that does not fit', styles:[]},
-    {text:'', styles:[]},
-    {text:' me', styles:[]},
-    {fit:[{text:'running the tests', styles:[]}], styles:[]},
-    {right:[{text:' 16%', styles:[]}], styles:[]},
-  ]);
-  const [agentText, agentRight] = agentLine.children;
-  const [glyph, body] = agentText.children;
-  assert.equal(glyph.className, 'glyph');
-  assert.equal(glyph.children.length, 2);
-  assert.deepEqual(body.children.map(c => c.className.trim()), ['head', 'fit']);
-  // Empty pieces are left out and the gap, not their spaces, sets the rest apart.
-  assert.deepEqual(body.children[0].children.map(c => c.textContent), ['a long session title that does not fit', 'me']);
-  assert.deepEqual(body.children[0].children.map(c => (c.className || '').includes('short')), [false, true]);
-  assert.equal(agentRight.className, 'right');
-  // Without an icon, nothing takes the icon's column.
-  const bare = new Element();
-  vm.runInContext('agentSpansInto', context)(bare, [{text:'agent', styles:[]}]);
-  assert.equal(bare.children[0].children[0].children.length, 0);
-  assert.equal(bare.children[0].children[1].children[0].children.length, 1);
+  assert.equal(vm.runInContext('nodeTitle({title:"Full untruncated session title"})',context),'Full untruncated session title');
+  const hierarchy = [{id:'projects',children:[{id:'project',children:[{id:'repo',children:[]}]}]}];
+  const path = vm.runInContext('dashboardPath', context)('repo', hierarchy);
+  assert.equal(path.map(node => node.id).join('/'), 'projects/project/repo');
+  assert.equal(vm.runInContext('dashboardPath', context)('removed', hierarchy), null);
+  // Closing a dialog without choosing a button must release the pending action.
+  context.deferDialog = true;
+  const cancelled = vm.runInContext('confirmAction("Delete <file> & retry?")', context);
+  assert.equal(context.lastDialog.text, 'Delete &lt;file&gt; &amp; retry?');
+  context.lastDialog.on.closed();
+  assert.equal(await cancelled, false);
+  context.deferDialog = false;
+  const previousDialog = context.lastDialog;
+  context.fetch = async () => new Promise(resolve => { finish = resolve; });
+  const lateAction = vm.runInContext('sessionAction("reload", $("session-menu"))', context);
+  vm.runInContext('viewGeneration++', context);
+  finish({ok:true,json:async()=>({confirm:'Restart the old session?'})});
+  await lateAction;
+  assert.equal(context.lastDialog, previousDialog);
+  assert.equal(vm.runInContext('sessionPending || draft(composeId).pending', context), false);
   console.log('Draft isolation, concurrent typing, stable retry IDs; JS syntax, slash filtering/selection, steer routing, cancellation draft retention, confirmation retry, fork navigation and Cmd/Ctrl+Enter sending passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

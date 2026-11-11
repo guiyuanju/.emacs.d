@@ -281,12 +281,18 @@ see [courier](docs/courier.md).  On the dashboard:
 (overlook-remote-mode 1)         ; copies the page's address, with its token
 ```
 
-The page, plain HTML with no build step, shows:
+The page uses Framework7 Core with an iOS layout and follows system
+light / dark mode. Projects and nested groups open as separate screens
+with back navigation; the overview uses grouped lists and usage windows have
+separate labeled progress bars. System fonts, message bubbles, and a growing
+message bar keep the phone layout consistent. Its pinned scripts
+and styles are served locally, with no CDN dependency or build step. It shows:
 
-- **The dashboard**, drawn by the same modules as in Emacs and streamed as
+- **The dashboard**, populated by the same modules as in Emacs and streamed as
   it changes, sending only what changed.  Buttons answer what an agent
   waits for, such as a permission request.  A row's `⋯`, or the row itself
-  when tapping it does nothing else, offers the commands it declares: kill an agent, resume or forget a saved one, start
+  when tapping it does nothing else, offers an action menu: kill an agent,
+  resume or forget a saved one, start
   a persona, start an agent in a project, delete a worktree.  Those that lose something ask first.
 - **An agent's page**, following its prompts, replies and tool calls as
   they come, with the diff of each edit and the images it shows, from when
@@ -294,9 +300,9 @@ The page, plain HTML with no build step, shows:
   there, with photos attached.  Prompts sent while it is busy wait in a
   queue, which you can take them back out of, until it is free.
   With agent-shell, typing `/` lists the commands advertised by the agent.
-  **Steer**, when supported, sends the prompt into the running turn instead
-  of the queue, or starts a new turn when idle.  The button remains available
-  when the running turn ends.  Steering while the agent awaits user action asks first.
+  **Steer with current draft** in the session menu, when supported, sends
+  the prompt into the running turn instead of the queue, or starts a new
+  turn when idle. Steering remains available when the running turn ends.  Steering while the agent awaits user action asks first.
   The session menu offers reload, a fresh conversation and, when supported,
   fork; reload and restart ask for confirmation.
 
