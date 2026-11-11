@@ -234,14 +234,22 @@ Magit takes their face from `font-lock-face', which the rows do not set."
   "Body width in pixels of the window showing the dashboard."
   (overlook--window-width t))
 
+(defun overlook-char-width ()
+  "Pixels of a column in the current buffer, its face remappings included."
+  (default-font-width))
+
 (defun overlook-pixel-width (string)
   "Width of STRING in pixels, as drawn in the current buffer.
-Emacs 31 measures it with the buffer's face remappings; earlier versions
-measure it in a temporary buffer."
-  (if (>= (or (cdr-safe (func-arity #'string-pixel-width)) 0) 2)
-      ;; The BUFFER argument is new in Emacs 31; earlier ones never get here.
-      (with-no-warnings (string-pixel-width string (current-buffer)))
-    (string-pixel-width string)))
+Measured with the buffer's face remappings, as `overlook-char-width' is."
+  (cond ((>= (or (cdr-safe (func-arity #'string-pixel-width)) 0) 2)
+         ;; The BUFFER argument is new in Emacs 31; earlier ones never get here.
+         (with-no-warnings (string-pixel-width string (current-buffer))))
+        ((null face-remapping-alist) (string-pixel-width string))
+        (t (let ((remapping face-remapping-alist))
+             (with-temp-buffer
+               (setq-local face-remapping-alist remapping)
+               (insert string)
+               (car (buffer-text-pixel-size nil nil t)))))))
 
 (defun overlook-fit (text pixels &optional face)
   "TEXT in FACE cut with an ellipsis to fit PIXELS, or nil when hardly any fit.
@@ -255,13 +263,13 @@ draw glyphs like … wider than `string-width'."
       ;; The ellipsis takes the face of the text it ends.
       (put-text-property (1- (length cut)) (length cut) 'face
                          (get-text-property (- (length cut) 2) 'face cut) cut))
-    (when (>= pixels (* 4 (frame-char-width)))
+    (when (>= pixels (* 4 (overlook-char-width)))
       (if face (propertize cut 'face face) cut))))
 
 (defun overlook-string-columns (string)
   "Columns STRING takes as drawn; fonts draw icons wider than `string-width'."
   (max (string-width string)
-       (ceiling (overlook-pixel-width string) (frame-char-width))))
+       (ceiling (overlook-pixel-width string) (overlook-char-width))))
 
 (defvar overlook--pad-widths (make-hash-table :test #'eq :weakness 'key)
   "Columns the widest of each `:pad' segment's texts takes as drawn.")
@@ -278,7 +286,7 @@ draw glyphs like … wider than `string-width'."
   "PIECES joined by GAP after HEAD, wrapped to the window showing the buffer.
 Lines below start where the first piece did, and leave a column at the end."
   (let* ((start (overlook-pixel-width head))
-         (limit (- (overlook-window-pixels) (frame-char-width)))
+         (limit (- (overlook-window-pixels) (overlook-char-width)))
          (gap-width (overlook-pixel-width gap))
          (newline (concat "\n" (propertize " " 'display `(space :width (,start)))))
          (x start)
@@ -300,7 +308,7 @@ Lines below start where the first piece did, and leave a column at the end."
     (`(:wrap ,pieces . ,_)
      (overlook--wrap pieces (make-string (or (plist-get segment :gap) 1) ?\s) head))
     (`(:cell ,glyph)
-     (let ((pad (- (* overlook-cell-columns (frame-char-width))
+     (let ((pad (- (* overlook-cell-columns (overlook-char-width))
                     (overlook-pixel-width glyph))))
        (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
     (`(:fit ,text . ,_)
@@ -309,7 +317,7 @@ Lines below start where the first piece did, and leave a column at the end."
                                 (- (overlook-window-pixels)
                                    (overlook-pixel-width (concat head before))
                                    (* (or (plist-get segment :reserve) 0)
-                                      (frame-char-width)))
+                                      (overlook-char-width)))
                                 (plist-get segment :face))))
        (if text (concat before text) "")))
     (_ (overlook-segment-text segment))))
