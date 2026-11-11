@@ -454,7 +454,8 @@ backend can stream; CALLBACK still gets the whole text."
           (t (org-open-at-point)))))
 
 (defun iuiw-elfeed-ai-digest-open ()
-  "Show the entry of the link at point in elfeed in another window, keeping the digest on the side."
+  "Show the entry of the link at point in elfeed in another window.
+The digest stays on the side."
   (interactive)
   (let ((id (iuiw-elfeed-ai--link-id))
         (buf (current-buffer))

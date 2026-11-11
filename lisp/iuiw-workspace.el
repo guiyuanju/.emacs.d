@@ -39,7 +39,7 @@
 (declare-function magit-git-items "magit-git")
 (declare-function magit-gitdir "magit-git")
 (declare-function magit-run-git-async "magit-process")
-(declare-function magit-status "magit-status")
+(declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-process-sentinel "magit-process")
 (declare-function overlook-agent-forget-project "overlook-agent")
 (declare-function overlook-agent-draft-command "overlook-agent")
@@ -879,7 +879,7 @@ opened from the repository's Magit status buffer, where its suffixes run."
   (let ((repo (iuiw-workspace-repo-directory notes)))
     (if (and (get command 'transient--prefix)
              (not (file-in-directory-p default-directory repo)))
-        (progn (magit-status repo)
+        (progn (magit-status-setup-buffer repo)
                (call-interactively command))
       (let ((default-directory repo))
         (call-interactively command)))))
@@ -1081,7 +1081,8 @@ It first switches to PROJECT, creating it if needed, when non-nil."
   (list :name "done" :label "Done" :run (lambda () (iuiw-workspace--tick file line text))))
 
 (defun iuiw-workspace--todo-prompt (file line last text root)
-  "A prompt to carry out item TEXT, lines LINE to LAST of FILE, for an agent in ROOT."
+  "A prompt for an agent in ROOT to carry out item TEXT.
+The item is lines LINE to LAST of FILE."
   (with-temp-buffer
     (insert-file-contents file)
     (goto-char (point-min))

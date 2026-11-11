@@ -16,8 +16,9 @@
 
 (defun iuiw-agent-shell-toggle (&optional arg)
   "Show the most recently used agent in the current project.
-Assistant shells are skipped.  Inside an agent, with prefix ARG, or without a project agent,
-delegate to `agent-shell' to keep its toggle and startup behavior."
+Assistant shells are skipped.  Inside an agent, with prefix ARG, or
+without a project agent, delegate to `agent-shell' to keep its toggle
+and startup behavior."
   (interactive "P")
   (require 'overlook-agent)
   (let* ((project (overlook-current-project))
@@ -110,8 +111,9 @@ Antigravity's \"thinking_level\" is \"low\", \"medium\" or \"high\"."
   :group 'agent-shell)
 
 (defun iuiw-agent-shell--antigravity-defaults (config)
-  "Return Antigravity CONFIG starting in `iuiw-agent-shell-antigravity-session-mode'.
-It also sets `iuiw-agent-shell-antigravity-config-options'."
+  "Return Antigravity CONFIG, starting in the session mode.
+The mode is `iuiw-agent-shell-antigravity-session-mode'.  It also sets
+`iuiw-agent-shell-antigravity-config-options'."
   (setf (map-elt config :default-session-mode-id)
         (lambda () iuiw-agent-shell-antigravity-session-mode))
   (setf (map-elt config :default-config-options)
