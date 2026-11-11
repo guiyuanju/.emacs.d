@@ -299,6 +299,9 @@ and styles are served locally, with no CDN dependency or build step. It shows:
   a persona, start an agent in a project, delete a worktree. Project and persona
   rows also offer touch-and-hold, right-click, or Shift+F10 menus; their detail
   pages keep the same actions visible. Those that lose something ask first.
+  Touch and hold a running Persona to choose **Kill**, with confirmation; this
+  ends its live conversation and leaves its definition available to Start again.
+  For Personas with multiple conversations, each conversation has its own Kill action.
   Persona descriptions appear in the conversation, while their overview rows
   show identity and status. Command sheets retain unfinished input until a
   successful submission or the page is reloaded.

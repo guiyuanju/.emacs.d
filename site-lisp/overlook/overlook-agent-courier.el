@@ -203,6 +203,12 @@ Its backend's, when that has an icon, else its engine's."
 
 (add-hook 'overlook-data-functions #'overlook-agent-courier-data)
 
+(defun overlook-agent-courier--kill-command (buffer)
+  "Return the command to confirm and kill persona agent BUFFER."
+  (list :name "kill" :label "Kill"
+        :confirm (lambda () (overlook-agent-kill-question buffer))
+        :run (lambda () (overlook-agent-kill buffer))))
+
 (defun overlook-agent-courier--instance-row (id persona)
   "The row of the agent of courier ID running PERSONA, by its session title."
   (let* ((buffer (overlook-courier-agent-buffer (overlook-courier-agent id)))
@@ -223,9 +229,7 @@ Its backend's, when that has an icon, else its engine's."
                           ('done 'overlook-agent-done))
                   :action (lambda () (overlook-agent-visit buffer))
                   :help (concat id (if brief (concat "\n" brief) ""))
-                  :commands (list (list :name "kill" :label "Kill"
-                                        :confirm (lambda () (overlook-agent-kill-question buffer))
-                                        :run (lambda () (overlook-agent-kill buffer)))))))
+                  :commands (list (overlook-agent-courier--kill-command buffer)))))
 
 (defun overlook-agent-courier--multiple-row (name persona)
   "The row of persona NAME, PERSONA, that may run several times.
@@ -289,9 +293,10 @@ While it runs in an agent buffer, the row stands for that agent."
                     :action (if running
 				(lambda () (overlook-agent-visit buffer))
                               (lambda () (overlook-persona-start name)))
-                    :commands (list (if running
-					(list :name "open" :label "Open" :run (lambda () buffer))
-                                      (list :name "start" :label "Start"
+                    :commands (if running
+                                  (list (list :name "open" :label "Open" :run (lambda () buffer))
+                                        (overlook-agent-courier--kill-command buffer))
+                                (list (list :name "start" :label "Start"
                                             :run (lambda ()
                                                    (overlook-courier-agent-buffer
                                                     (overlook-courier-agent

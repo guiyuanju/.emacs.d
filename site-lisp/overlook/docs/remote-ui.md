@@ -59,6 +59,11 @@ confirmation and terminates the live agent; resumable sessions retain a saved
 entry. Pending remote prompts are discarded. Agents without a resumable session
 cannot be restored through that entry.
 
+A running single-instance Persona offers Kill in its touch-and-hold action
+menu. It requires confirmation and discards the live conversation, leaving
+the Persona definition available to start again. Multiple-instance Personas
+offer Kill on each conversation.
+
 Session confirmation responses include the complete `confirmations` array bound
 to their token. Clients replace their previous array with this value after
 accepting the question, so a state change can restart the confirmation sequence.
