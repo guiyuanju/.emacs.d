@@ -1171,13 +1171,13 @@ each after the text of its parent todo, if any."
   (car (plist-get card :split)))
 
 (defun iuiw-workspace--closed-row (card &optional folded)
-  "The heading of CARD, whose project is not open, over its todos.
+  "The dimmed heading of CARD, whose project is not open, over its todos.
 With #now todos they show unless FOLDED; otherwise the heading folds all
 the todos."
   (let ((id (plist-get card :id))
         (now (and (not folded) (iuiw-workspace--has-now-p card))))
     (overlook-project-heading
-     id 'overlook-heading nil
+     id 'shadow nil
      :id (list 'closed-project id)
      :children (if now
                    (iuiw-workspace--todo-rows card)
