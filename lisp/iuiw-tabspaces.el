@@ -11,10 +11,8 @@
 
 ;; 恢复的布局里，看板的 side window 还在，显示的却是别的 buffer。
 (defun iuiw-tabspaces--delete-side-windows ()
-  "Delete the side windows of every tab, then reselect the current one.
-Visiting the tabs does not count as switching to them."
-  (let ((current (alist-get 'name (tab-bar--current-tab)))
-        (tab-bar-tab-post-select-functions nil))
+  "Delete the side windows of every tab, then reselect the current one."
+  (let ((current (tabspaces--current-tab-name)))
     (dolist (name (tabspaces--list-tabspaces))
       (tab-bar-select-tab-by-name name)
       (dolist (window (window-list nil 'nomini))
@@ -34,8 +32,13 @@ Visiting the tabs does not count as switching to them."
   (unless (alist-get 'explicit-name (tab-bar--current-tab))
     (tab-bar-rename-tab "main"))
   (when (file-exists-p tabspaces-session-file)
-    (tabspaces-restore-session tabspaces-session-file)
-    (iuiw-tabspaces--delete-side-windows)
+    ;; 恢复时逐个访问 tab，overlook 会把每次访问记成切换。
+    (let ((times (and (boundp 'overlook-project-switch-times)
+                      (list overlook-project-switch-times))))
+      (tabspaces-restore-session tabspaces-session-file)
+      (iuiw-tabspaces--delete-side-windows)
+      (when times
+        (setq overlook-project-switch-times (car times))))
     (when-let* ((name (iuiw-tabspaces--most-recent)))
       (tab-bar-select-tab-by-name name))))
 
