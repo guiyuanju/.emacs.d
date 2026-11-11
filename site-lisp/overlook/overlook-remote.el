@@ -33,6 +33,8 @@
 (require 'overlook-agent)
 (require 'overlook-remote-model)
 (require 'overlook-remote-activity)
+(require 'overlook-remote-contract)
+(require 'overlook-remote-service)
 
 (defcustom overlook-remote-host "127.0.0.1"
   "Address the page is served on.
@@ -117,10 +119,8 @@ Nil keeps it on."
 (define-error 'overlook-remote-missing-agent "Agent no longer exists" 'user-error)
 
 (defun overlook-remote--agent-buffer (id)
-  "The agent buffer named ID."
-  (let ((buffer (and (stringp id) (get-buffer id))))
-    (if (overlook-agent-p buffer) buffer
-      (signal 'overlook-remote-missing-agent (list (format "No agent %s" id))))))
+  "Resolve the conversation identified by ID."
+  (overlook-remote-service-agent-buffer id))
 
 (defvar overlook-remote--streams nil
   "Dashboard streams open, each (PROCESS . HASH), HASH the dashboard last sent.")
@@ -151,18 +151,19 @@ the redraw gathers the model the page then shares."
     (let ((news (overlook-remote--dashboard-news (cdr stream))))
       (setcdr stream (plist-get news :known))
       (overlook-remote--stream-write
-       stream (concat "data: " (json-serialize news) "\n\n")))))
+       stream (concat "data: " (nth 2 (overlook-remote--json 200 news)) "\n\n")))))
 
 (defun overlook-remote--ping ()
   "Keep the streams' connections busy, so that dead ones show."
   (dolist (stream overlook-remote--streams)
     (overlook-remote--stream-write stream ": ping\n\n"))
   (unless overlook-remote--streams
-    (cancel-timer overlook-remote--ping-timer)
+    (when overlook-remote--ping-timer (cancel-timer overlook-remote--ping-timer))
     (setq overlook-remote--ping-timer nil)))
 
 (defun overlook-remote--stream (proc known)
   "Stream the dashboard to PROC as server-sent events, from state KNOWN on."
+  (overlook-remote--watch-connection proc)
   (let ((stream (cons proc known)))
     (process-send-string proc (concat "HTTP/1.1 200 OK\r\n"
                                       "Content-Type: text/event-stream\r\n"
@@ -182,10 +183,34 @@ gives the response.")
 (defvar overlook-remote--wake-timer nil
   "Timer answering the calls for news that have some, or nil.")
 
+(defun overlook-remote--connection-closed (proc event)
+  "Release PROC's subscriptions and delegate EVENT to its original sentinel."
+  (unless (process-live-p proc)
+    (dolist (waiting (copy-sequence overlook-remote--waiting))
+      (when (eq (car waiting) proc)
+        (cancel-timer (nth 2 waiting))
+        (setq overlook-remote--waiting (delq waiting overlook-remote--waiting))))
+    (setq overlook-remote--streams
+          (seq-remove (lambda (stream) (eq (car stream) proc)) overlook-remote--streams))
+    (unless overlook-remote--streams
+      (when overlook-remote--ping-timer (cancel-timer overlook-remote--ping-timer))
+      (setq overlook-remote--ping-timer nil))
+    (unless (or overlook-remote--waiting overlook-remote--streams)
+      (when overlook-remote--wake-timer (cancel-timer overlook-remote--wake-timer))
+      (setq overlook-remote--wake-timer nil)))
+  (when-let* ((sentinel (process-get proc 'overlook-remote-sentinel)))
+    (funcall sentinel proc event)))
+
+(defun overlook-remote--watch-connection (proc)
+  "Arrange cleanup when subscribed connection PROC closes."
+  (unless (eq (process-sentinel proc) #'overlook-remote--connection-closed)
+    (process-put proc 'overlook-remote-sentinel (process-sentinel proc))
+    (set-process-sentinel proc #'overlook-remote--connection-closed)))
+
 (defun overlook-remote--news (buffer after)
   "HTTP response for agent BUFFER's activity changed after AFTER."
   (if (not (buffer-live-p buffer))
-      (overlook-remote--json 409 '(:error "The agent is gone"))
+      (overlook-remote--json 404 (overlook-remote-problem 404 "agent_missing" "The agent is gone"))
     (overlook-remote--json 200 (overlook-remote--news-data buffer after))))
 
 (defun overlook-remote--events-call (buffer after known)
@@ -228,6 +253,7 @@ As (NEWS-P . ANSWER), what `overlook-remote--hold' takes."
 
 (defun overlook-remote--hold (proc call)
   "Hold CALL on PROC, a (NEWS-P . ANSWER), until it has news or waits too long."
+  (overlook-remote--watch-connection proc)
   (let ((waiting (list proc call nil)))
     (setf (nth 2 waiting) (run-at-time overlook-remote-wait nil
                                        #'overlook-remote--answer waiting))
@@ -240,52 +266,45 @@ CALL is (NEWS-P . ANSWER)."
 
 ;;; Requests
 
-(defun overlook-remote--body (request)
-  "REQUEST's JSON body as an alist."
-  (condition-case nil
-      (json-parse-string (decode-coding-string (or (cadr (assoc "Content" request)) "")
-                                               'utf-8)
-                         :object-type 'alist)
-    (json-error (user-error "The body is not JSON"))))
+(defcustom overlook-remote-request-size (* 30 1024 1024)
+  "Maximum JSON request body size in bytes, including base64 uploads."
+  :type 'natnum
+  :group 'overlook)
+
+(defun overlook-remote--body (request &optional route)
+  "Parse and validate REQUEST's JSON body for ROUTE."
+  (let ((content (or (cadr (assoc "Content" request)) "")))
+    (when (> (string-bytes content) overlook-remote-request-size)
+      (signal 'overlook-remote-api-error '(413 "request_too_large" "Request body is too large")))
+    (condition-case nil
+        (overlook-remote-contract-request
+         route (json-parse-string (decode-coding-string content 'utf-8)
+                                  :object-type 'alist :null-object :null
+                                  :false-object :false))
+      (json-error
+       (signal 'overlook-remote-api-error '(400 "invalid_json" "The body is not JSON"))))))
 
 (defun overlook-remote--json (status data)
-  "A response of STATUS carrying DATA as JSON."
-  (list status "application/json" (decode-coding-string (json-serialize data) 'utf-8)))
-
-(defvar overlook-remote--receipts (make-hash-table :test #'equal)
-  "Successful message requests retained for the lifetime of this Emacs.")
+  "A response of STATUS carrying DATA as versioned JSON."
+  (list status (if (>= status 400) "application/problem+json" "application/json")
+        (decode-coding-string
+         (json-serialize (overlook-remote-contract-response data))
+         'utf-8)))
 
 (defun overlook-remote--once (route body send)
-  "Call SEND with message BODY for ROUTE, once for BODY's `requestId'.
-A retry gets the response of the first call that succeeded."
-  (let* ((key (alist-get 'requestId body))
-         (signature (list route (alist-get 'id body) (alist-get 'action body)
-                          (alist-get 'text body)))
-         (receipt (and key (gethash key overlook-remote--receipts))))
-    (when (and key (not (and (stringp key) (<= 1 (length key) 128))))
-      (user-error "Invalid request ID"))
-    (if receipt
-        (if (equal signature (car receipt)) (cdr receipt)
-          (user-error "Request ID already used for a different message"))
-      (let ((response (funcall send body)))
-        (when (and key (alist-get 'ok (json-parse-string (nth 2 response) :object-type 'alist)))
-          (puthash key (cons signature response) overlook-remote--receipts))
-        response))))
+  "Execute SEND for ROUTE and BODY with bounded retry receipts."
+  (overlook-remote--json 200 (overlook-remote-service-once route body send)))
 
 (defun overlook-remote--send-prompt (body)
-  "Give the agent BODY names the prompt in it."
-  (let ((text (string-trim (or (alist-get 'text body) ""))))
-    (when (string-empty-p text) (user-error "Nothing to send"))
-    (overlook-remote--json
-     200 `(:ok t :queued ,(if (overlook-remote--prompt
-                               (overlook-remote--agent-buffer (alist-get 'id body)) text)
-                              t :false)))))
+  "Execute BODY's prompt submission and encode its result."
+  (overlook-remote--json 200 (overlook-remote-service-prompt body)))
 
 (defun overlook-remote--api (method route query request)
   "Answer METHOD on ROUTE with QUERY and REQUEST, as (STATUS MIME BODY).
 A call for news with none yet is answered (:hold CALL), as
 `overlook-remote--news-or-hold' gives, and one for the dashboard's
 stream (:stream KNOWN)."
+  (overlook-remote-contract-query route query)
   (pcase (list method route)
     ('("GET" "/api/agents")
      (overlook-remote--json
@@ -307,126 +326,44 @@ stream (:stream KNOWN)."
     ('("GET" "/api/dashboard/stream")
      (list :stream (cadr (assoc "known" query))))
     ('("POST" "/api/prompt")
-     (overlook-remote--once route (overlook-remote--body request)
-                            #'overlook-remote--send-prompt))
+     (overlook-remote--once route (overlook-remote--body request route)
+                            #'overlook-remote-service-prompt))
     ('("POST" "/api/unqueue")
-     (let ((body (overlook-remote--body request)))
-       (overlook-remote--unqueue (overlook-remote--agent-buffer (alist-get 'id body))
-                                 (or (alist-get 'text body) ""))
-       (overlook-remote--json 200 '(:ok t))))
+     (overlook-remote--json 200 (overlook-remote-service-unqueue (overlook-remote--body request route))))
     ('("POST" "/api/seen")
-     (overlook-agent-seen (overlook-remote--agent-buffer
-                           (alist-get 'id (overlook-remote--body request))))
-     (overlook-remote--json 200 '(:ok t)))
+     (overlook-remote--json 200 (overlook-remote-service-seen (overlook-remote--body request route))))
     ('("POST" "/api/retry")
-     (let ((body (overlook-remote--body request)))
-       (overlook-remote--clear-queue-error
-        (overlook-remote--agent-buffer (alist-get 'id body)))
-       (overlook-remote--json 200 '(:ok t))))
+     (overlook-remote--json 200 (overlook-remote-service-retry (overlook-remote--body request route))))
     ('("POST" "/api/session")
-     (overlook-remote--once route (overlook-remote--body request)
-                            #'overlook-remote--session))
+     (overlook-remote--once route (overlook-remote--body request route)
+                            #'overlook-remote-service-session))
     ('("GET" "/api/image")
      (let ((file (nth 1 (assq (string-to-number (or (cadr (assoc "n" query)) ""))
                               overlook-remote--images))))
-       (unless (and file (overlook-remote--image file)) (user-error "No such image"))
+       (unless (and file (overlook-remote--image file)) (overlook-remote-contract-error 404 "image_missing" "No such image"))
        (list 200 (overlook-remote--image-mime file)
              (with-temp-buffer
                (set-buffer-multibyte nil)
                (insert-file-contents-literally file)
                (buffer-string)))))
     ('("POST" "/api/upload")
-     (let* ((body (overlook-remote--body request))
-            (buffer (overlook-remote--agent-buffer (alist-get 'id body)))
-            (mime (alist-get 'mime body))
-            (extension (car (rassoc mime overlook-remote--image-types)))
-            (data (ignore-errors (base64-decode-string (or (alist-get 'data body) ""))))
-            (attach (or (overlook-agent-get buffer 'attach)
-                        (user-error "%s cannot take files" (buffer-name buffer)))))
-       (unless (and extension data (overlook-remote--image-data-p data mime))
-         (user-error "Send a PNG, JPEG, GIF or WebP image"))
-       (when (> (length data) overlook-remote-image-size)
-         (user-error "The image is over %s" (file-size-human-readable overlook-remote-image-size)))
-       (overlook-remote--json
-        200 `(:text ,(overlook-remote--text
-                      (with-current-buffer buffer
-                        (funcall attach (format "phone-%s.%s"
-                                                (format-time-string "%Y%m%d-%H%M%S-%3N")
-                                                extension)
-                                 data)))))))
+     (overlook-remote--json 200 (overlook-remote-service-upload (overlook-remote--body request route))))
     ('("GET" "/api/diff")
-     (overlook-remote--dashboard)
-     (let ((diff (overlook-row-diff (or (gethash (cadr (assoc "node" query)) overlook-remote--rows)
-                                        (user-error "That row is gone")))))
-       (unless diff (user-error "That row has no diff"))
-       (overlook-remote--json 200 `(:diff ,(overlook-remote--cut (funcall diff))))))
+     (overlook-remote--json 200 (overlook-remote-service-diff (cadr (assoc "node" query)))))
     ('("POST" "/api/command")
-     (overlook-remote--command (overlook-remote--body request)))
+     (overlook-remote--command (overlook-remote--body request route)))
     ('("POST" "/api/choose")
-     (let ((body (overlook-remote--body request)))
-       (overlook-agent-choose (overlook-remote--agent-buffer (alist-get 'id body))
-                              (alist-get 'key body))
-       (overlook-remote--json 200 '(:ok t))))
-    (_ (overlook-remote--json 404 `(:error ,(format "No %s %s" method route))))))
+     (overlook-remote--json 200 (overlook-remote-service-choose (overlook-remote--body request route))))
+    (_ (overlook-remote--json 404 (overlook-remote-problem 404 "route_missing" (format "No %s %s" method route))))))
 
 (defun overlook-remote--session (body)
-  "Run the allowlisted session action in BODY, confirming in the browser."
-  (let* ((buffer (overlook-remote--agent-buffer (alist-get 'id body)))
-         (action (alist-get 'action body))
-         (text (string-trim (or (alist-get 'text body) "")))
-         (run (or (overlook-agent-get buffer 'remote-action)
-                  (user-error "This agent has no session controls")))
-         (controls (overlook-remote--controls buffer))
-         (confirmed (append (alist-get 'confirmations body) nil))
-         (question (pcase action
-                     ("reload" "Reload this session? Unsent prompts may be lost.")
-                     ("restart" "Start a fresh conversation? Unsent prompts may be lost.")))
-         (ask (lambda (prompt &rest _)
-                (unless (member prompt confirmed) (throw 'confirm prompt))
-                t)))
-    (unless (or (and (equal action "steer") (plist-get controls :steer))
-                (member action (plist-get controls :actions)))
-      (user-error "This agent does not support %s" action))
-    (when (and (equal action "steer") (string-empty-p text))
-      (user-error "Nothing to steer"))
-    (let ((result
-           (catch 'confirm
-             (when question (funcall ask question))
-             (cl-letf (((symbol-function 'y-or-n-p) ask)
-                       ((symbol-function 'yes-or-no-p) ask))
-               (with-current-buffer buffer (funcall run action text))))))
-      (if (stringp result)
-          (overlook-remote--json 200 `(:confirm ,result))
-        (overlook-remote--json 200 `(:ok t :agent ,(buffer-name result)))))))
+  "Execute BODY's session action and encode its business result."
+  (overlook-remote--json 200 (overlook-remote-service-session body)))
 
 (defun overlook-remote--command (body)
-  "Run the command BODY names on a row of the dashboard, once confirmed.
-A command needing confirmation that BODY does not confirm is answered
-with its question in :confirm instead."
-  (overlook-remote--dashboard)
-  (let* ((row (or (gethash (alist-get 'node body) overlook-remote--rows)
-                  (user-error "That row is gone")))
-         (command (or (overlook-row-command row (alist-get 'name body))
-                      (user-error "That row no longer offers %s" (alist-get 'name body))))
-         (text (string-trim (or (alist-get 'text body) "")))
-         (option (alist-get 'option body))
-         (confirm (plist-get command :confirm))
-         (question (if (functionp confirm) (funcall confirm) confirm)))
-    (when (and (plist-get command :input) (string-empty-p text))
-      (user-error "Nothing to send"))
-    (when (and (plist-get command :options) (not (member option (plist-get command :options))))
-      (user-error "Pick one of %s" (string-join (plist-get command :options) ", ")))
-    (if (and question (not (eq (alist-get 'confirmed body) t)))
-        (overlook-remote--json 200 `(:confirm ,(overlook-remote--text question)))
-      (let ((result (apply (plist-get command :run)
-                           (append (and (plist-get command :input) (list text))
-                                   (and (plist-get command :options) (list option))))))
-        (overlook-refresh)
-        (pcase-let ((`(,agent . ,draft) (if (bufferp (car-safe result)) result (list result))))
-          (overlook-remote--json
-           200 `(:ok t
-                 ,@(and (overlook-agent-p agent) `(:agent ,(buffer-name agent)))
-                 ,@(and draft `(:draft ,(overlook-remote--text draft))))))))))
+  "Execute BODY's resource action and encode its business result."
+  (overlook-remote--json
+   200 (overlook-remote-service-once "/api/command" body #'overlook-remote-service-command)))
 
 (defun overlook-remote--respond (method path query request)
   "Answer METHOD on PATH with QUERY and REQUEST, as (STATUS MIME BODY)."
@@ -442,12 +379,20 @@ with its question in :confirm instead."
                              (insert-file-contents file)))
                          (buffer-string)))))
      ((not (overlook-remote--authorized-p request))
-      (overlook-remote--json 401 '(:error "Open the page from M-x overlook-remote-url")))
+      (overlook-remote--json 401 (overlook-remote-problem 401 "unauthorized" "Open the page from M-x overlook-remote-url")))
      (t (condition-case err
             (overlook-remote--api method route query request)
+          (overlook-remote-api-error
+           (pcase-let ((`(,status ,code ,detail) (cdr err)))
+             (overlook-remote--json status (overlook-remote-problem status code detail))))
           (overlook-remote-missing-agent
-           (overlook-remote--json 404 `(:error ,(error-message-string err) :code "agent_missing")))
-          (user-error (overlook-remote--json 409 `(:error ,(error-message-string err)))))))))
+           (overlook-remote--json 404 (overlook-remote-problem 404 "agent_missing" (error-message-string err))))
+          (user-error
+           (overlook-remote--json 409 (overlook-remote-problem 409 "state_conflict" (error-message-string err))))
+          (error
+           (message "Overlook remote: %s %s failed (%s)" method route (car err))
+           (overlook-remote--json 500 (overlook-remote-problem 500 "internal_error" "The request could not be completed"))))))))
+
 
 (defun overlook-remote--send (proc response)
   "Send RESPONSE, (STATUS MIME BODY), to PROC."
@@ -537,6 +482,8 @@ over simple-httpd's server, which serves one Emacs at a time."
     (setq overlook-remote--dashboard nil
           overlook-remote--versions nil
           overlook-remote--rows nil)
+    (when overlook-remote--wake-timer (cancel-timer overlook-remote--wake-timer))
+    (setq overlook-remote--wake-timer nil)
     (mapc #'overlook-remote--answer overlook-remote--waiting)
     (mapc (lambda (stream) (delete-process (car stream))) overlook-remote--streams)
     (setq overlook-remote--streams nil)

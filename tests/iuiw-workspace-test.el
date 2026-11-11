@@ -550,3 +550,57 @@ status: done
                    (lambda (repo) (push repo checked))))
           (iuiw-workspace--check-sync-saved)
           (should-not checked))))))
+
+(ert-deftest iuiw-workspace-task-data-has-no-display-marks ()
+  (let* ((rows (iuiw-workspace--item-rows
+                '(("Review `#code` #now [due:: 2026-11-20]" 10 0 nil))
+                "/tmp/project.md" nil (lambda (_) "☐")))
+         (row (car rows))
+         (data (iuiw-workspace--row-data row)))
+    (should (equal (plist-get data :kind) "todo"))
+    (should (equal (plist-get data :title) "Review `#code`"))
+    (should (equal (plist-get data :due) "2026-11-20"))
+    (should (equal (plist-get data :status) "open"))
+    (should (overlook-row-command row "done"))
+    (should (equal (run-hook-with-args-until-success 'overlook-data-functions (overlook-row-id row)) data))))
+
+(ert-deftest iuiw-workspace-task-identity-ignores-source-line-and-display ()
+  (let* ((first (car (iuiw-workspace--item-rows '(("Task #now" 10 0 nil))
+                                              "/tmp/project.md" nil (lambda (_) "☐"))))
+         (moved (car (iuiw-workspace--item-rows '(("Task #now" 20 0 nil))
+                                              "/tmp/project.md" nil (lambda (_) "different icon"))))
+         (one (overlook-data (overlook-row-id first)))
+         (two (overlook-data (overlook-row-id moved))))
+    (should (equal (plist-get one :resourceId) (plist-get two :resourceId)))))
+
+(ert-deftest iuiw-workspace-duplicate-tasks-have-distinct-identities ()
+  (let* ((rows (iuiw-workspace--item-rows '(("Task" 10 0 nil) ("Task" 11 0 nil))
+                                         "/tmp/project.md" nil (lambda (_) "☐")))
+         (ids (mapcar (lambda (row) (plist-get (overlook-data (overlook-row-id row)) :resourceId)) rows)))
+    (should-not (equal (car ids) (cadr ids)))))
+
+(ert-deftest iuiw-workspace-stale-task-command-does-not-modify-file ()
+  (let* ((file (make-temp-file "workspace-task" nil ".md" "- [ ] Changed\n"))
+         (command (iuiw-workspace--done-command file 1 "Original")))
+    (unwind-protect
+        (progn
+          (should-error (funcall (plist-get command :run)) :type 'user-error)
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (equal (buffer-string) "- [ ] Changed\n"))))
+      (when-let* ((buffer (get-file-buffer file))) (kill-buffer buffer))
+      (delete-file file))))
+
+(ert-deftest iuiw-workspace-task-command-preserves-external-edits ()
+  (let* ((file (make-temp-file "workspace-task" nil ".md" "- [ ] Task\n"))
+         (buffer (find-file-noselect file))
+         (command (iuiw-workspace--done-command file 1 "Task")))
+    (unwind-protect
+        (progn
+          (write-region "- [ ] Task\nExternal content\n" nil file nil 'silent)
+          (should-error (funcall (plist-get command :run)) :type 'user-error)
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (string-suffix-p "External content\n" (buffer-string)))))
+      (kill-buffer buffer)
+      (delete-file file))))

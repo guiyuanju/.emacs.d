@@ -36,6 +36,7 @@
 
 ;;; Code:
 
+(require 'overlook-data)
 (require 'overlook)
 (require 'cl-lib)
 (require 'json)
@@ -380,12 +381,7 @@ window has left, up to 20 columns; where that is too little, each window
 takes a line of its own, under the first, and its bar fills the line."
   (let* ((now (float-time))
          (rows (mapcar (lambda (row)
-                         (cons (car row)
-                               (mapcar (lambda (window)
-                                         (if (and (numberp (nth 2 window)) (<= (nth 2 window) now))
-                                             (list (car window) 0 nil)
-                                           window))
-                                       (cdr row))))
+                         (cons (car row) (overlook-usage-windows (cdr row) now)))
                        (seq-filter #'cdr overlook-usage--rows)))
          (shown (overlook-usage--labels (mapcar #'car rows)))
          (windows (mapcan (lambda (row) (copy-sequence (cdr row))) rows))
@@ -517,6 +513,37 @@ a started request."
      (overlook-tick-hook overlook-usage--poll)
      (overlook-tick-hook overlook-usage-scan)))
   (overlook-refresh))
+
+(defun overlook-usage-windows (windows &optional now)
+  "Current values of WINDOWS, counting expired windows as empty at NOW."
+  (let ((now (or now (float-time))))
+    (mapcar (lambda (window)
+              (if (and (numberp (nth 2 window)) (<= (nth 2 window) now))
+                  (list (car window) 0 nil)
+                window))
+            windows)))
+
+(defun overlook-usage-data (key)
+  "Usage KEY's windows as values, independent of the dashboard bars."
+  (pcase key
+    (`(usage . ,name)
+     (let* ((provider (overlook-usage--agent name))
+            (at (string-search " @" name))
+            (account (if at (substring name (+ at 2))
+                       (alist-get name overlook-usage-accounts nil nil #'equal))))
+       (list :kind "usage" :title provider :provider provider :account account
+             :windows
+             (vconcat
+              (mapcar (pcase-lambda (`(,label ,value ,reset))
+                        (list :label label :value value :reset reset))
+                      (overlook-usage-windows
+                       (cdr (assoc name overlook-usage--rows))))))))))
+
+(defun overlook-usage--row-data (row)
+  "Compatibility adapter for ROW's business data."
+  (overlook-usage-data (overlook-row-id row)))
+
+(add-hook 'overlook-data-functions #'overlook-usage-data)
 
 (provide 'overlook-usage)
 ;;; overlook-usage.el ends here

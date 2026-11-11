@@ -1,0 +1,57 @@
+;;; overlook-remote-transport-test.el --- HTTP boundary tests -*- lexical-binding: t; -*-
+
+(require 'ert)
+(require 'overlook-remote)
+
+(ert-deftest overlook-remote-transport-rejects-invalid-json-before-service ()
+  (dolist (body '("[]" "false" "null" "42" "\"text\"" "{" "{\"id\":{},\"text\":\"hello\"}"))
+    (let ((called nil))
+      (cl-letf (((symbol-function 'overlook-remote--authorized-p) #'always)
+                ((symbol-function 'overlook-remote-service-prompt)
+                 (lambda (_) (setq called t))))
+        (pcase-let ((`(,status ,mime ,text)
+                     (overlook-remote--respond "POST" "/overlook/api/prompt" nil
+                                               `(("Content" ,body)))))
+          (should (= status 400))
+          (should (equal mime "application/problem+json"))
+          (should (= (alist-get 'status (json-parse-string text :object-type 'alist)) 400))
+          (should-not called))))))
+
+(ert-deftest overlook-remote-transport-enforces-request-size ()
+  (let ((overlook-remote-request-size 2))
+    (cl-letf (((symbol-function 'overlook-remote--authorized-p) #'always))
+      (should (= 413 (car (overlook-remote--respond
+                          "POST" "/overlook/api/prompt" nil '(("Content" "{} ")))))))))
+
+(ert-deftest overlook-remote-transport-does-not-leak-internal-errors ()
+  (cl-letf (((symbol-function 'overlook-remote--authorized-p) #'always)
+            ((symbol-function 'overlook-remote--api)
+             (lambda (&rest _) (error "private prompt content"))))
+    (let ((response (overlook-remote--respond "GET" "/overlook/api/agents" nil nil)))
+      (should (= 500 (car response)))
+      (should-not (string-match-p "private prompt" (nth 2 response)))
+      (should (string-match-p "internal_error" (nth 2 response))))))
+
+(ert-deftest overlook-remote-transport-disconnect-releases-subscriptions ()
+  (let* ((overlook-remote--waiting nil)
+         (overlook-remote--streams nil)
+         (overlook-remote--ping-timer nil)
+         (overlook-remote--wake-timer nil)
+         (proc (make-pipe-process :name "overlook-disconnect-test" :noquery t))
+         (delegated nil))
+    (unwind-protect
+        (progn
+          (set-process-sentinel proc (lambda (&rest _) (setq delegated t)))
+          (overlook-remote--hold proc (cons #'ignore #'ignore))
+          (push (cons proc "version") overlook-remote--streams)
+          (setq overlook-remote--ping-timer (run-at-time 3600 nil #'ignore)
+                overlook-remote--wake-timer (run-at-time 3600 nil #'ignore))
+          (let ((timer (nth 2 (car overlook-remote--waiting))))
+            (delete-process proc)
+            (should delegated)
+            (should-not overlook-remote--waiting)
+            (should-not overlook-remote--streams)
+            (should-not overlook-remote--ping-timer)
+            (should-not overlook-remote--wake-timer)
+            (should-not (memq timer timer-list))))
+      (when (process-live-p proc) (delete-process proc)))))

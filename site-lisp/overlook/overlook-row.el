@@ -44,6 +44,11 @@
 
 ;;; Rows
 
+(defvar overlook-row-data-functions nil
+  "Compatibility providers of semantic data for legacy extension rows.
+Each function takes a row and returns a semantic plist, or nil.
+New providers use `overlook-data-functions' and business keys instead.")
+
 (cl-defstruct (overlook-row (:constructor overlook-row) (:copier nil))
   "A row of the dashboard, as data.
 Make one with `overlook-row', giving each slot as a keyword argument.
@@ -130,7 +135,8 @@ COMMANDS are the title's, as `overlook-row' describes."
   (when rows
     (let ((title (copy-sequence title)))
       (add-face-text-property 0 (length title) 'overlook-section t title)
-      (overlook-row :content title :heading t :action action :children rows :gap t
+      (overlook-row :id (list 'section (substring-no-properties title))
+                    :content title :heading t :action action :children rows :gap t
                     :commands commands))))
 
 (defun overlook-rows (hook &rest args)

@@ -27,7 +27,7 @@
 
 ;;; Code:
 
-(require 'overlook-agent-core)
+(require 'overlook-data)
 (require 'overlook-agent-session)
 
 (defcustom overlook-agent-context-warning 70
@@ -139,9 +139,11 @@ is idle with no question for you; the answers it offers you sit on a
 line of their own under it."
   (let* ((depth (or depth 0))
          (session (overlook-agent-session buffer))
-         (title (overlook-agent-title buffer))
+         (data (overlook-agent-data buffer))
+         (title (unless (string-empty-p (plist-get data :title))
+                  (plist-get data :title)))
          (meta (overlook-agent--meta buffer))
-         (brief (overlook-agent-brief buffer))
+         (brief (plist-get data :subtitle))
          (status (buffer-local-value 'overlook-agent-status buffer)))
     (overlook-row
      :id (cons 'agent buffer)
@@ -307,6 +309,10 @@ PROJECT's worktrees."
                     'help-echo "Agents needing you: waiting, failed or done"))))
        "  "))))
 
+
+(defun overlook-agent--row-data (row)
+  "Compatibility adapter for agent ROW's business data."
+  (overlook-data (overlook-row-id row)))
 
 (provide 'overlook-agent-view)
 ;;; overlook-agent-view.el ends here

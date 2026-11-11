@@ -46,6 +46,7 @@
 (declare-function overlook-courier-hand-off "overlook-courier")
 (declare-function overlook-project-heading "overlook")
 (declare-function overlook-refresh "overlook")
+(declare-function overlook-data-id "overlook-data")
 (declare-function overlook-section-row "overlook")
 (declare-function overlook-row "overlook")
 (declare-function overlook-gaps "overlook")
@@ -1014,19 +1015,21 @@ A todo moves with its subitems, ranked by the most urgent of them."
   "The [due:: DATE] date of todo TEXT, or nil."
   (and (string-match "\\[due:: *\\([0-9-]+\\)\\]" text) (match-string 1 text)))
 
+(defun iuiw-workspace--todo-text (text)
+  "TEXT without task tags or inline fields, preserving inline code."
+  (string-trim
+   (replace-regexp-in-string
+    " +" " "
+    (replace-regexp-in-string
+     "\\(`[^`]*`\\)\\|\\[[a-z]+::[^]]*\\]\\|#[[:alnum:]_-]+"
+     (lambda (match) (if (string-prefix-p "`" match) match "")) text t t))))
+
 (defun iuiw-workspace--todo-display (text)
   "Return TEXT without inline fields and tags, with its due date appended.
 All dimmed, #waiting also italic."
   (let ((due (iuiw-workspace--todo-due text))
-        (face (if (= (iuiw-workspace--todo-rank text) 1) '(italic shadow) 'shadow))
-        (clean (string-trim
-                (replace-regexp-in-string
-                 " +" " "
-                 (replace-regexp-in-string
-                  "\\(`[^`]*`\\)\\|\\[[a-z]+::[^]]*\\]\\|#[[:alnum:]_-]+"
-                  (lambda (match) (if (string-prefix-p "`" match) match ""))
-                  text t t)))))
-    (concat (propertize clean 'face face)
+        (face (if (= (iuiw-workspace--todo-rank text) 1) '(italic shadow) 'shadow)))
+    (concat (propertize (iuiw-workspace--todo-text text) 'face face)
             (if due (propertize (concat " " due) 'face 'shadow) ""))))
 
 (defun iuiw-workspace--todo-take-now (todos)
@@ -1061,9 +1064,11 @@ It first switches to PROJECT, creating it if needed, when non-nil."
 
 (defun iuiw-workspace--tick (file line text)
   "Tick item TEXT on LINE of FILE as done, and save FILE."
-  (with-current-buffer (find-file-noselect file)
+  (with-current-buffer (find-file-noselect file t)
     (when (buffer-modified-p)
       (user-error "%s has unsaved changes" (buffer-name)))
+    (unless (verify-visited-file-modtime (current-buffer))
+      (user-error "%s changed on disk; refresh it before completing the task" (buffer-name)))
     (save-excursion
       (goto-char (point-min))
       (forward-line (1- line))
@@ -1095,19 +1100,24 @@ The item is lines LINE to LAST of FILE."
       (concat "实现这条 todo：\n"
               (overlook-agent-reference (file-relative-name file root) beg (point))))))
 
-(defun iuiw-workspace--item-rows (items file project mark &optional draft)
+(defun iuiw-workspace--item-rows (items file project mark &optional draft identities)
   "Rows of ITEMS of FILE, each led by MARK of its text.
 ITEMS are (TEXT LINE DEPTH BEFORE), deeper ones under the item before
 them, with the string BEFORE, if any, ahead of the text.  Visiting one
 switches to PROJECT first when it is non-nil.  DRAFT, if any, is what
-`overlook-agent-draft-command' gives."
-  (let (rows)
+`overlook-agent-draft-command' gives.  IDENTITIES counts duplicate tasks."
+  (let ((identities (or identities (make-hash-table :test #'equal))) rows)
     (while items
       (pcase-let* ((`(,text ,line ,depth ,before) (pop items))
                    (children (seq-take-while (lambda (child) (> (nth 2 child) depth)) items))
-                   (indent (make-string depth ?\s)))
+                   (indent (make-string depth ?\s))
+                   (identity (list (substring-no-properties text) before))
+                   (occurrence (1+ (gethash identity identities 0))))
+        (puthash identity occurrence identities)
         (setq items (nthcdr (length children) items))
         (push (overlook-row
+               :id (list 'todo file line (substring-no-properties text)
+                         (and before (substring-no-properties before)) occurrence)
                :content (list indent (funcall mark text)
                               (list :fit (concat before (iuiw-workspace--todo-display text))
                                     :before " "))
@@ -1121,9 +1131,28 @@ switches to PROJECT first when it is non-nil.  DRAFT, if any, is what
                                                     text)))
                                      (iuiw-workspace--done-command file line text)))
                :children (and children
-                              (iuiw-workspace--item-rows children file project mark draft)))
+                              (iuiw-workspace--item-rows children file project mark draft identities)))
               rows)))
     (nreverse rows)))
+
+(defun iuiw-workspace-data (key)
+  "Task business data identified by KEY, without Emacs display marks."
+  (pcase key
+    (`(todo ,file ,_line ,text ,parent . ,rest)
+     (let ((due (iuiw-workspace--todo-due text)))
+       (list :kind "todo"
+             :resourceId (overlook-data-id (list 'todo file text parent (or (car rest) 1)))
+             :title (iuiw-workspace--todo-text text)
+             :subtitle (and parent (string-trim-right (substring-no-properties parent) "[ ›]+"))
+             :due due :status (if (= (iuiw-workspace--todo-rank text) 1) "waiting" "open"))))
+    (`(todo-group ,name) (list :kind "tasks" :title name))))
+
+(defun iuiw-workspace--row-data (row)
+  "Compatibility adapter for ROW's task data."
+  (iuiw-workspace-data (overlook-row-id row)))
+
+(with-eval-after-load 'overlook-data
+  (add-hook 'overlook-data-functions #'iuiw-workspace-data))
 
 (defun iuiw-workspace--group-rows (groups)
   "Rows of GROUPS separated by blank lines.
@@ -1279,9 +1308,11 @@ workspace of the current project comes first."
 
 (defun iuiw-workspace-inbox-add (file text)
   "Add TEXT as an item at the end of inbox FILE, and save it."
-  (with-current-buffer (find-file-noselect file)
+  (with-current-buffer (find-file-noselect file t)
     (when (buffer-modified-p)
       (user-error "%s has unsaved changes" (buffer-name)))
+    (unless (verify-visited-file-modtime (current-buffer))
+      (user-error "%s changed on disk; refresh it before completing the task" (buffer-name)))
     (save-excursion
       (goto-char (point-max))
       (unless (bolp) (insert "\n"))

@@ -551,18 +551,49 @@ The public entry points remain `overlook`, `overlook-agent` and
 
 | Layer | Responsibility | Dependencies within overlook |
 |---|---|---|
-| `overlook-row` | row protocol, segments, shared faces and unbounded text | none |
+| `overlook-row` | row protocol, segments and shared faces | none |
 | `overlook-model` | project backend, model collection, invalidation and update subscriptions | row |
 | `overlook` | Magit sections, window layout, navigation and redraw scheduling | model |
 | `overlook-agent-core` | identity, capabilities, project association, status and turns | model, markers |
 | `overlook-agent-session` | saved sessions, resume and fork persistence | agent core |
 | `overlook-agent-view` | live and saved rows, fork trees and labels | agent core, sessions |
 | `overlook-agent` | interactive commands and tracking mode | Emacs view, agent layers |
-| `overlook-remote-model` | row serialization, subtree hashes and deltas | agent core |
+| `overlook-data` | shared business queries and resource identities | agent core |
+| `overlook-remote-contract` | typed DTOs, request validation, protocol version and problem details | none |
+| `overlook-remote-model` | semantic JSON serialization, subtree hashes and deltas | data, contract |
 | `overlook-remote-activity` | agent snapshots, prompt queues, history, diffs and images | remote model |
+| `overlook-remote-service` | prompt/session/resource commands, confirmations and bounded retry receipts | remote activity |
 | `overlook-remote` | HTTP routes, authentication, streaming and server lifecycle | agent entry point, remote layers |
 | `overlook-worktree` | Git checkout operations | none |
 | `overlook-courier-worktree` | agent spawning in worktrees | worktree, courier |
+
+Dashboard JSON contains business data, not Emacs faces or layout segments.
+Each node has `kind`, `title`, `children`, opaque `id` / `hash`, and any available
+commands. Agent nodes add provider, status, full title, brief, context and duration;
+usage nodes carry window values and reset timestamps; files carry paths and numeric
+change counts. Tasks carry text, due date and state, with completion exposed as a
+command. `overlook-data-functions` queries business keys without a display row;
+Emacs rows and remote DTOs share these queries. `overlook-row-data-functions`
+remains an extension compatibility adapter, with plain text fallback for legacy
+rows. Dashboard composition and allowlisted commands still use the shared row
+model; business fields never parse built-in display segments. The browser owns
+fonts, colors, progress bars, task controls and navigation.
+
+The version 2 wire contract is in [remote-api.schema.json](docs/remote-api.schema.json).
+Nullable fields, booleans and arrays have explicit encoders; malformed input is
+rejected before service execution. Errors use `application/problem+json` with a
+stable `code`. HTTP and SSE carry the same `protocolVersion`; expired cursors
+receive snapshots. Disconnected clients release their subscriptions and timers.
+
+Conversation IDs survive buffer renames for the live buffer lifetime; restored
+conversations receive new IDs. Task IDs survive line moves and distinguish
+identical occurrences; editing task text creates a new identity. Source content
+is revalidated before completion. Queued prompts have individual IDs, including
+identical text. Successful prompt/session/resource actions with `requestId` can
+be replayed within `overlook-remote-receipt-seconds` and
+`overlook-remote-receipt-limit`; receipts are in memory and expire on restart.
+Confirmations bind the action and target state, and are requested again after
+changes. Refresh an open remote page when updating this protocol.
 
 Rows, model collection and agent state load without Magit or a dashboard
 buffer.  Interactive visit operations delegate to the Emacs view when
@@ -576,6 +607,17 @@ OVERLOOK_INSTALL_DEPS=1 make test lint
 This installs the dependencies into `.elpa/` and runs the tests,
 package-lint and checkdoc.  Without `OVERLOOK_INSTALL_DEPS`, list the
 directories of installed dependencies in `OVERLOOK_LOAD_PATH`.
+
+For the phone UI, with Playwright and Chromium installed:
+
+```sh
+node test/overlook-remote-browser-test.cjs
+```
+
+This uses local assets and a fixture API, checks the iOS layout on phone sizes in light
+and dark mode, and saves screenshots in the temporary directory. Set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium binary.
+Keyboard and Home Screen behavior still need testing on an actual iPhone.
 
 ## License
 

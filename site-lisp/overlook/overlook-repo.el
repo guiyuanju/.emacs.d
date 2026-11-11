@@ -48,6 +48,7 @@
 
 ;;; Code:
 
+(require 'overlook-data)
 (require 'overlook)
 (require 'diff-mode)
 (require 'overlook-markers)
@@ -462,14 +463,15 @@ it, indented."
 BEFORE are rows under it ahead of the changed files.  MARKS go after
 its branch.  A branch named as the row is left out."
   (pcase-let* ((`(,branch . ,files) (overlook-repo--status dir))
-               (name (or name (overlook-repo--label dir)))
+               (data (overlook-repo-data (cons 'repo dir)))
+               (name (or name (plist-get data :title)))
                (branch (and (not (equal branch name)) branch)))
     (overlook-repo--heading
      (concat (propertize (concat (if (and branch width) (string-pad name width) name)
                                  (if branch (concat "  " branch) ""))
                          'face 'overlook-repo-name)
              marks)
-     (overlook-repo--total files)
+     (cons (plist-get data :added) (plist-get data :removed))
      (cons 'repo dir)
      (lambda () (overlook-show-elsewhere project (lambda () (overlook-repo-open dir))))
      (append before (overlook-repo--file-rows dir files project)))))
@@ -776,6 +778,31 @@ Its branch stays."
     (remove-hook 'after-load-functions #'overlook-repo--watch-magit)
     (remove-hook 'magit-post-refresh-hook #'overlook-repo--magit-refreshed))
   (overlook-refresh))
+
+(defun overlook-repo-data (key)
+  "Repository KEY as paths, status and change counts."
+  (pcase key
+    (`(repo-file ,dir ,path)
+     (when-let* ((file (assoc path (cdr (overlook-repo--status dir)))))
+       (list :kind "file" :title (file-name-nondirectory path)
+             :repositoryId (overlook-data-id (cons 'repo dir))
+             :path path :subtitle (or (file-name-directory path) "")
+             :status (nth 1 file) :added (nth 2 file) :removed (nth 3 file)
+             :from (nth 4 file))))
+    (`(repo . ,dir)
+     (pcase-let* ((`(,branch . ,files) (overlook-repo--status dir))
+                  (`(,added . ,removed) (overlook-repo--total files)))
+       (list :kind "repo" :title (overlook-repo--label dir) :branch branch
+             :repositoryId (overlook-data-id (cons 'repo dir))
+             :added added :removed removed)))
+    (`(worktree . ,dir)
+     (list :kind "folder" :title (overlook-repo--label dir)))))
+
+(defun overlook-repo--row-data (row)
+  "Compatibility adapter for ROW's business data."
+  (overlook-repo-data (overlook-row-id row)))
+
+(add-hook 'overlook-data-functions #'overlook-repo-data)
 
 (provide 'overlook-repo)
 ;;; overlook-repo.el ends here

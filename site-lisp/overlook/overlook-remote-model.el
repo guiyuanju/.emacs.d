@@ -28,128 +28,30 @@
 
 ;;; Code:
 
-(require 'overlook-agent-core)
-
-(defcustom overlook-remote-styles
-  '((overlook-section . "section") (overlook-tabular . "tabular")
-    (overlook-usage-bar-track . "track") (overlook-agent-done . "done")
-    (overlook-agent-waiting . "waiting") (help-key-binding . "key")
-    (shadow . "dim") (font-lock-comment-face . "dim") (completions-annotations . "dim")
-    (warning . "warning") (error . "error") (success . "success")
-    (link . "accent") (font-lock-keyword-face . "accent")
-    (font-lock-string-face . "string") (font-lock-function-name-face . "name")
-    (font-lock-type-face . "name") (font-lock-doc-face . "italic")
-    (bold . "bold") (italic . "italic"))
-  "Styles the page draws faces in, each (FACE . STYLE).
-The faces a face inherits from count only when it has no style here."
-  :type '(alist :key-type face :value-type string)
-  :group 'overlook)
+(require 'overlook-data)
+(require 'overlook-remote-contract)
 
 (defun overlook-remote--text (text)
   "TEXT without properties, or an empty string for nil."
   (if text (substring-no-properties text) ""))
 
-;;; Dashboard
+(defun overlook-remote--legacy-row-data (row)
+  "Plain text compatibility data for extension ROW without a data provider."
+  (let (title subtitle)
+    (dolist (segment (overlook-row-segments row))
+      (pcase segment
+        (`(:fit ,text . ,_) (push (overlook-remote--text text) subtitle))
+        (`(:cell . ,_) nil)
+        (_ (push (overlook-remote--text (overlook-segment-text segment)) title))))
+    (list :kind (if (overlook-row-heading row) "group" "text")
+          :title (string-trim (apply #'concat (nreverse title)))
+          :subtitle (string-join (nreverse subtitle) " "))))
 
-(defun overlook-remote--styles (face)
-  "Styles of FACE, a face or list of faces, from `overlook-remote-styles'.
-A face without one takes those of the faces it inherits from, and
-\"bold\" or \"italic\" when it sets that itself."
-  (let ((todo (list face))
-        seen styles)
-    (while todo
-      (let ((face (pop todo)))
-        (cond ((and (symbolp face) face (not (keywordp face)) (facep face)
-                    (not (memq face seen)))
-               (push face seen)
-               (if-let* ((style (alist-get face overlook-remote-styles)))
-                   (push style styles)
-                 (setq styles (append (overlook-remote--own-styles
-                                       (face-attribute face :weight nil)
-                                       (face-attribute face :slant nil))
-                                      styles))
-                 (push (face-attribute face :inherit nil) todo)))
-              ((keywordp (car-safe face))
-               (setq styles (append (overlook-remote--own-styles (plist-get face :weight)
-                                                                 (plist-get face :slant))
-                                    styles))
-               (push (plist-get face :inherit) todo))
-              ((proper-list-p face) (setq todo (append face todo))))))
-    (delete-dups (nreverse styles))))
-
-(defun overlook-remote--own-styles (weight slant)
-  "Styles a face of WEIGHT and SLANT sets itself."
-  (append (and (memq weight '(semi-bold bold extra-bold ultra-bold heavy black ultra-heavy))
-               '("bold"))
-          (and (memq slant '(italic oblique)) '("italic"))))
-
-(defun overlook-remote--merge-run (head run)
-  "Add RUN's text to run HEAD when both are text of one look.
-Return non-nil when it did; HEAD may be nil or not a run."
-  (when (and (plist-get head :text)
-             (not (plist-get head :icon))
-             (not (plist-get run :icon))
-             (equal (plist-get head :styles) (plist-get run :styles)))
-    (plist-put head :text (concat (plist-get head :text) (plist-get run :text)))))
-
-(defun overlook-remote--runs (row text)
-  "TEXT's runs of one look, ROW's look added, each (:text T :styles NAMES).
-A string with an `overlook-alt' carries that name as :icon and fallback text."
-  (let ((text (copy-sequence text))
-        (start 0)
-        runs)
-    (overlook-row-apply-look row text 0 (length text))
-    (while (< start (length text))
-      (let* ((alt (get-text-property start 'overlook-alt text))
-             (end (if alt
-                      (next-single-property-change start 'overlook-alt text (length text))
-                    (next-property-change start text (length text))))
-             (run (append (list :text (or alt (substring-no-properties text start end))
-                                :styles (vconcat (overlook-remote--styles
-                                                  (get-text-property start 'face text))))
-                          (and alt (list :icon alt)))))
-        (unless (overlook-remote--merge-run (car runs) run)
-          (push run runs))
-        (setq start end)))
-    (nreverse runs)))
-
-(defun overlook-remote--spans (row)
-  "ROW's content as the page lays it out, a vector of spans in order.
-A span is a run of one look, (:text T :styles NAMES); (:right RUNS),
-aligned to the right edge; (:fit RUNS), cut to fit its line; or
-\(:wrap PIECES :gap N), pieces, each a vector of runs, wrapping to lines
-that start where the first did."
-  (let (spans)
-    (cl-flet ((add (text)
-                (dolist (run (overlook-remote--runs row (if spans text (string-trim-left text))))
-                  (unless (overlook-remote--merge-run (car spans) run)
-                    (push run spans)))))
-      (dolist (segment (overlook-row-segments row))
-        (pcase segment
-          (`(:pad ,text . ,_)
-           (push (list :pad (vconcat (overlook-remote--runs row text))
-                       :labels (vconcat (mapcar (lambda (label)
-                                                  (vconcat (overlook-remote--runs row label)))
-                                                (plist-get segment :like))))
-                 spans))
-          (`(:right ,text . ,_)
-           (unless (string-blank-p text)
-             (push (list :right (vconcat (overlook-remote--runs row text))) spans)))
-          (`(:fit ,text . ,_)
-           (add (or (plist-get segment :before) ""))
-           (push (list :fit (vconcat (overlook-remote--runs
-                                      row (if-let* ((face (plist-get segment :face)))
-                                              (propertize text 'face face)
-                                            text))))
-                 spans))
-          (`(:wrap ,pieces . ,_)
-           (push (list :wrap (vconcat (mapcar (lambda (piece)
-                                                (vconcat (overlook-remote--runs row piece)))
-                                              pieces))
-                       :gap (or (plist-get segment :gap) 1))
-                 spans))
-          (_ (add (overlook-segment-text segment))))))
-    (vconcat (nreverse spans))))
+(defun overlook-remote--row-data (row)
+  "Business data behind ROW, or explicitly adapted legacy extension text."
+  (or (overlook-data (overlook-row-id row))
+      (run-hook-with-args-until-success 'overlook-row-data-functions row)
+      (overlook-remote--legacy-row-data row)))
 
 (defvar overlook-remote--rows nil
   "Table of the rows of the dashboard last made, by their node's id.")
@@ -172,7 +74,8 @@ An agent's row names it in :agent and gives the answers it offers in
 :choices; :commands are the row's, run through /api/command by the
 node's id, and :diff tells that /api/diff gives its diff.  :hash
 changes whenever the node or any under it does."
-  (let* ((value (overlook-row-key row))
+  (let* ((data (overlook-remote--row-data row))
+         (value (or (plist-get data :resourceId) (overlook-row-key row)))
          (id (substring (secure-hash 'sha1 (concat parent
                                                    (let ((print-length nil) (print-level nil))
                                                      (prin1-to-string value))))
@@ -181,12 +84,11 @@ changes whenever the node or any under it does."
          (children (vconcat (mapcar (lambda (child) (overlook-remote--node child id))
                                     (overlook-row-rows row))))
          (node `(:id ,id
-                 :spans ,(overlook-remote--spans row)
+                 ,@(overlook-remote-contract-node data)
                  ,@(and (overlook-row-heading row) '(:heading t))
                  ,@(and (overlook-row-attention row) '(:attention t))
-                 ,@(and (overlook-row-folded row) '(:folded t))
                  ,@(and (overlook-agent-p agent)
-                        `(:agent ,(buffer-name agent)
+                        `(:agent ,(overlook-data-agent-id agent)
                           :choices ,(overlook-remote--choices (overlook-row-choices row))))
                  ,@(and (overlook-row-commands row)
                         `(:commands ,(overlook-remote--commands (overlook-row-commands row))))

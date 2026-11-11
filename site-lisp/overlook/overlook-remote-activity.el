@@ -29,6 +29,8 @@
 ;;; Code:
 
 (require 'overlook-remote-model)
+(require 'overlook-remote-contract)
+(require 'overlook-data)
 
 (declare-function overlook-remote--wake "overlook-remote" ())
 
@@ -52,6 +54,22 @@
   :type 'natnum
   :group 'overlook)
 
+(defun overlook-remote-service-agent-id (buffer)
+  "Return BUFFER's stable live-conversation identity."
+  (overlook-data-agent-id buffer))
+
+(define-error 'overlook-remote-missing-agent "Agent no longer exists" 'user-error)
+
+(defun overlook-remote-service-agent-buffer (id)
+  "Resolve live conversation ID, accepting buffer names during migration."
+  (or (and (stringp id)
+           (seq-find (lambda (buffer)
+                       (equal id (overlook-remote-service-agent-id buffer)))
+                     (overlook-agent-buffers)))
+      (let ((buffer (and (stringp id) (get-buffer id))))
+        (and (overlook-agent-p buffer) buffer))
+      (signal 'overlook-remote-missing-agent (list "Conversation no longer exists"))))
+
 (defun overlook-remote--tail (buffer)
   "The last `overlook-remote-transcript-size' characters of BUFFER."
   (with-current-buffer buffer
@@ -67,16 +85,19 @@
   "Agent BUFFER as the page shows it.
 With DETAIL, its last reply and the end of its transcript too."
   (let ((root (overlook-agent-get buffer 'root)))
-    `(:id ,(buffer-name buffer)
+    (overlook-remote-contract-conversation
+     `(:id ,(overlook-remote-service-agent-id buffer)
+      :bufferName ,(buffer-name buffer)
       :agent ,(overlook-remote--text (overlook-agent-get buffer 'agent))
       :status ,(symbol-name (buffer-local-value 'overlook-agent-status buffer))
-      :context ,(buffer-local-value 'overlook-agent-context buffer)
+      :context ,(or (buffer-local-value 'overlook-agent-context buffer) :null)
       :title ,(overlook-remote--text (overlook-agent-title buffer))
       :project ,(overlook-remote--text (ignore-errors (overlook-agent-project buffer)))
       :folder ,(if root (file-name-nondirectory (directory-file-name root)) "")
       :brief ,(overlook-remote--text (overlook-agent-brief buffer))
       :choices ,(overlook-remote--choices (overlook-agent-choices buffer))
       :queued ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
+      :queueItems ,(with-current-buffer buffer (vconcat (overlook-remote--queue-items)))
       :queueError ,(or (buffer-local-value 'overlook-remote--queue-error buffer) :null)
       ,@(when-let* ((controls (overlook-remote--controls buffer)))
           `(:controls (:slash ,(vconcat (plist-get controls :slash))
@@ -84,10 +105,26 @@ With DETAIL, its last reply and the end of its transcript too."
                        :actions ,(vconcat (plist-get controls :actions)))))
       ,@(when detail
           `(:reply ,(overlook-remote--text (overlook-agent-reply buffer))
-            :transcript ,(overlook-remote--tail buffer))))))
+            :transcript ,(overlook-remote--tail buffer)))))))
 
 (defvar-local overlook-remote--queue nil
   "Prompts from the page waiting for this agent to take one, oldest first.")
+
+(defvar-local overlook-remote--queue-entries nil
+  "Queue identities paired with the legacy text queue.")
+
+(put 'overlook-remote--queue-entries 'permanent-local t)
+
+(defun overlook-remote--queue-items ()
+  "Return this buffer's identified queue, importing legacy text entries."
+  (unless (equal overlook-remote--queue
+                 (mapcar (lambda (item) (plist-get item :text)) overlook-remote--queue-entries))
+    (setq overlook-remote--queue-entries
+          (mapcar (lambda (text)
+                    (list :id (concat "queued-" (secure-hash 'sha256
+                                       (format "%s:%s:%s" (float-time) (random) text)))
+                          :text text)) overlook-remote--queue)))
+  overlook-remote--queue-entries)
 
 (defvar-local overlook-remote--queue-error nil
   "Last queue submission error; blocks delivery until explicitly retried.")
@@ -103,7 +140,12 @@ Return non-nil when it was queued."
   (with-current-buffer buffer
     (if (and (null overlook-remote--queue) (overlook-agent-ready-p buffer))
         (progn (overlook-agent-submit buffer text) nil)
-      (setq overlook-remote--queue (append overlook-remote--queue (list text)))
+      (overlook-remote--queue-items)
+      (let ((item (list :id (concat "queued-" (secure-hash 'sha256
+                                    (format "%s:%s:%s" (float-time) (random) text)))
+                        :text text)))
+        (setq overlook-remote--queue (append overlook-remote--queue (list text))
+              overlook-remote--queue-entries (append overlook-remote--queue-entries (list item))))
       (unless overlook-remote--queue-timer
         (setq overlook-remote--queue-timer (run-at-time 1 1 #'overlook-remote--send-queued)))
       (overlook-remote--wake)
@@ -118,23 +160,30 @@ Stop looking once no prompt is queued."
       (when (and (not (buffer-local-value 'overlook-remote--queue-error buffer))
                  (overlook-agent-ready-p buffer))
         (with-current-buffer buffer
+          (overlook-remote--queue-items)
           (let ((text (car overlook-remote--queue)))
             (condition-case err
                 (progn
                   (overlook-agent-submit buffer text)
-                  (pop overlook-remote--queue))
+                  (pop overlook-remote--queue)
+                  (pop overlook-remote--queue-entries))
               (error (setq overlook-remote--queue-error (error-message-string err))))))
         (overlook-remote--wake)))
     (unless (seq-some (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer)) waiting)
       (cancel-timer overlook-remote--queue-timer)
       (setq overlook-remote--queue-timer nil))))
 
-(defun overlook-remote--unqueue (buffer text)
-  "Take the first prompt TEXT out of agent BUFFER's queue."
+(defun overlook-remote--unqueue (buffer text &optional queue-id)
+  "Remove QUEUE-ID from BUFFER, falling back to the first matching TEXT."
   (with-current-buffer buffer
-    (unless (member text overlook-remote--queue)
-      (user-error "That prompt was sent already"))
-    (setq overlook-remote--queue (cl-remove text overlook-remote--queue :count 1 :test #'equal)))
+    (let ((item (seq-find (lambda (item)
+                            (if queue-id (equal queue-id (plist-get item :id))
+                              (equal text (plist-get item :text))))
+                          (overlook-remote--queue-items))))
+      (unless item (user-error "That prompt was sent already"))
+      (setq overlook-remote--queue-entries (delq item overlook-remote--queue-entries)
+            overlook-remote--queue (mapcar (lambda (entry) (plist-get entry :text))
+                                          overlook-remote--queue-entries))))
   (overlook-remote--clear-queue-error buffer))
 
 (defun overlook-remote--clear-queue-error (buffer)
@@ -247,6 +296,11 @@ its contents' SHA-1: one picture gets one number, a file rewritten a new one.")
 (defvar overlook-remote--epoch (format-time-string "%s%N")
   "Name of this Emacs session's run of `overlook-remote--seq'.")
 
+(defvar-local overlook-remote--history-floor 0
+  "Latest change discarded from this conversation's retained history.")
+
+(put 'overlook-remote--history-floor 'permanent-local t)
+
 (defvar-local overlook-remote--items nil
   "This agent's activity since `overlook-remote-mode' started, newest first.
 Each item is a plist: :item its number, :seq the change that last
@@ -344,6 +398,10 @@ AFTER comes as the text it lacks, after :offset characters."
         (setq item (append (list :item overlook-remote--seq :seq 0)
                            (overlook-remote--new-item event)))
         (push item overlook-remote--items)
+        (dolist (removed (nthcdr overlook-remote-history overlook-remote--items))
+          (setq overlook-remote--history-floor
+                (max overlook-remote--history-floor
+                     (plist-get removed :seq) (plist-get removed :item))))
         (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
       (plist-put item :seq overlook-remote--seq)
       (overlook-remote--update item event)
@@ -357,15 +415,16 @@ AFTER comes as the text it lacks, after :offset characters."
   (let ((agent (overlook-remote--agent buffer)))
     (cons agent (secure-hash 'sha1 (json-serialize agent)))))
 
-(defun overlook-remote--reset-p (after)
-  "Non-nil when change AFTER is not one this Emacs made; nil AFTER is none."
-  (or (null after) (> after overlook-remote--seq)))
+(defun overlook-remote--reset-p (after &optional buffer)
+  "Whether AFTER needs a full snapshot, including BUFFER's expired history."
+  (or (null after) (> after overlook-remote--seq)
+      (and buffer (< after (buffer-local-value 'overlook-remote--history-floor buffer)))))
 
 (defun overlook-remote--news-p (buffer after known)
   "Non-nil when agent BUFFER has news for a page at change AFTER and state KNOWN.
 Nil AFTER is a change of another Emacs session."
   (or (not (buffer-live-p buffer))
-      (overlook-remote--reset-p after)
+      (overlook-remote--reset-p after buffer)
       (seq-some (lambda (item) (> (plist-get item :seq) after))
                 (buffer-local-value 'overlook-remote--items buffer))
       (not (equal known (cdr (overlook-remote--state buffer))))))
@@ -378,7 +437,7 @@ Nil AFTER is a change of another Emacs session."
 
 (defun overlook-remote--news-data (buffer after)
   "Agent BUFFER's state and activity changed after AFTER, as browser data."
-  (let ((reset (overlook-remote--reset-p after))
+  (let ((reset (overlook-remote--reset-p after buffer))
         (state (overlook-remote--state buffer)))
     `(:agent ,(car state) :known ,(cdr state) :seq ,overlook-remote--seq
       :epoch ,overlook-remote--epoch :reset ,(if reset t :false)
