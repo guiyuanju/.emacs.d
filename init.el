@@ -766,7 +766,7 @@
 
 (use-package iuiw-notify
   :ensure nil
-  :commands (iuiw-notify-send iuiw-notify-set-key))
+  :commands (iuiw-notify-send iuiw-notify-set-key iuiw-notify-set-encryption-key))
 
 (use-package totp-auth
   :commands (totp-auth totp-auth-add-secret totp-auth-import-file)

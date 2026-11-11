@@ -1,6 +1,7 @@
 ;;; iuiw-notify.el --- Send iPhone notifications via Bark -*- lexical-binding: t; -*-
 
-;; Install Bark on the iPhone, then run M-x iuiw-notify-set-key.
+;; Configure AES-128-CBC in Bark, then run M-x iuiw-notify-set-key
+;; and M-x iuiw-notify-set-encryption-key with the matching keys.
 ;; Run M-x iuiw-notify-send to test.  Other callers can use:
 ;; (iuiw-notify-send "Emacs" "Hello" :group "emacs")
 
@@ -8,6 +9,7 @@
 (require 'json)
 (require 'subr-x)
 (require 'url-parse)
+(require 'gnutls)
 
 (defgroup iuiw-notify nil
   "Send notifications to an iPhone."
@@ -61,6 +63,87 @@ Kept outside version control so unattended sending needs no Touch ID."
 (defcustom iuiw-notify-timeout 15
   "Maximum seconds to wait for a Bark request."
   :type 'natnum)
+
+(defcustom iuiw-notify-encryption-key-file
+  (locate-user-emacs-file "var/bark-encryption-key")
+  "Local file containing the same AES-128-CBC key as the Bark app.
+Notifications require encryption; missing keys never fall back to plaintext."
+  :type 'file)
+
+(defun iuiw-notify-set-encryption-key (key)
+  "Save the Bark AES-128-CBC KEY locally with permissions 600.
+KEY must encode to exactly 16 UTF-8 bytes, matching the iPhone setting."
+  (interactive (list (read-passwd "Bark AES-128-CBC key (16 ASCII characters): ")))
+  (setq key (apply #'string
+                   (mapcar (lambda (char)
+                             (pcase char
+                               ((or #x2018 #x2019) ?')
+                               ((or #x201c #x201d) ?\")
+                               (_ char)))
+                           (string-to-list key))))
+  (unless (string-match-p "\\`[ -~]\\{16\\}\\'" key)
+    (user-error "Bark AES-128-CBC key must be 16 printable ASCII characters"))
+  (unless (= (string-bytes (encode-coding-string key 'utf-8-unix)) 16)
+    (user-error "Bark AES-128-CBC key must be exactly 16 UTF-8 bytes"))
+  (when (string-match-p "[\n\r]" key)
+    (user-error "Bark encryption key must not contain newlines"))
+  (let* ((file (expand-file-name iuiw-notify-encryption-key-file))
+         (directory (file-name-directory file)))
+    (when (or (file-remote-p file) (file-symlink-p file))
+      (user-error "Bark encryption key must be a local file, not a symlink"))
+    (make-directory directory t)
+    (let ((temporary (make-temp-file (expand-file-name ".bark-crypto-" directory))))
+      (unwind-protect
+          (progn
+            (with-temp-buffer
+              (insert key)
+              (let ((coding-system-for-write 'utf-8-unix))
+                (write-region (point-min) (point-max) temporary nil 'silent)))
+            (rename-file temporary file t))
+        (when (file-exists-p temporary) (delete-file temporary))))
+    (message "Bark encryption key saved")))
+
+(defun iuiw-notify--encryption-key ()
+  "Read the private AES key as 16 bytes without authentication prompts."
+  (let ((file (expand-file-name iuiw-notify-encryption-key-file)))
+    (unless (and (not (file-remote-p file)) (not (file-symlink-p file))
+                 (file-regular-p file) (file-readable-p file)
+                 (zerop (logand (file-modes file) #o077)))
+      (user-error "Configure encryption with M-x iuiw-notify-set-encryption-key"))
+    (let ((key (with-temp-buffer
+                 (set-buffer-multibyte nil)
+                 (insert-file-contents-literally file)
+                 (buffer-string))))
+      (unless (= (length key) 16)
+        (user-error "Bark encryption key must be exactly 16 bytes"))
+      key)))
+
+(defun iuiw-notify--iv ()
+  "Generate a fresh 16-character IV using OpenSSL's secure random source."
+  (let ((openssl (executable-find "openssl")))
+    (unless openssl (user-error "openssl is required to generate Bark IVs"))
+    (with-temp-buffer
+      (unless (eq 0 (call-process openssl nil t nil "rand" "-base64" "12"))
+        (error "Could not generate a secure Bark IV"))
+      (let ((iv (string-trim (buffer-string))))
+        (unless (string-match-p "\\`[A-Za-z0-9+/]\\{16\\}\\'" iv)
+          (error "Invalid secure random output"))
+        iv))))
+
+(defun iuiw-notify--encrypt (payload)
+  "Encrypt PAYLOAD for Bark as AES-128-CBC with PKCS#7 padding."
+  (let* ((key (iuiw-notify--encryption-key))
+         (iv (iuiw-notify--iv))
+         (input (encode-coding-string (json-encode payload) 'utf-8-unix))
+         (padding (- 16 (% (length input) 16)))
+         (padded (concat input (make-string padding padding)))
+         ciphertext)
+    (unwind-protect
+        (setq ciphertext (gnutls-symmetric-encrypt 'AES-128-CBC key iv padded))
+      (clear-string key))
+    (when (consp ciphertext) (setq ciphertext (car ciphertext)))
+    (unless ciphertext (error "Bark encryption failed"))
+    `((ciphertext . ,(base64-encode-string ciphertext t)) (iv . ,iv))))
 
 (defun iuiw-notify--finish (process _event)
   "Handle the completed Bark PROCESS."
@@ -138,9 +221,10 @@ Missing credentials and invalid arguments signal errors immediately."
       (user-error "Bark server must be an HTTPS base URL"))
     (unless curl (user-error "curl is required for Bark notifications"))
     (let ((key (iuiw-notify--key)))
-      (let* ((payload `((device_key . ,key) (title . ,title) (body . ,body)
+      (let* ((content `((title . ,title) (body . ,body)
                         ,@(when group `((group . ,group)))
                         ,@(when url `((url . ,url)))))
+             (payload (cons (cons 'device_key key) (iuiw-notify--encrypt content)))
              (buffer (generate-new-buffer " *iuiw-notify*"))
              process)
         (unwind-protect
