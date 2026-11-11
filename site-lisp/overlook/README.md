@@ -283,9 +283,12 @@ see [courier](docs/courier.md).  On the dashboard:
 
 The page uses Framework7 Core with an iOS layout and follows system
 light / dark mode. Projects and nested groups open as separate screens
-with back navigation; the overview uses grouped lists and usage windows have
-separate labeled progress bars. System fonts, message bubbles, and a growing
-message bar keep the phone layout consistent. Its pinned scripts
+with back navigation and restored reading positions. Projects and personas
+come before compact, expandable usage summaries. Project pages show a
+conversation/task/change overview and a direct new-conversation action; long
+resource lists expand on demand. Usage windows have separate labeled progress
+bars. System fonts, message bubbles, and a growing message bar keep the phone
+layout consistent. Its pinned scripts
 and styles are served locally, with no CDN dependency or build step. It shows:
 
 - **The dashboard**, populated by the same modules as in Emacs and streamed as
@@ -293,18 +296,34 @@ and styles are served locally, with no CDN dependency or build step. It shows:
   waits for, such as a permission request.  A row's `⋯`, or the row itself
   when tapping it does nothing else, offers an action menu: kill an agent,
   resume or forget a saved one, start
-  a persona, start an agent in a project, delete a worktree.  Those that lose something ask first.
+  a persona, start an agent in a project, delete a worktree. Project and persona
+  rows also offer touch-and-hold, right-click, or Shift+F10 menus; their detail
+  pages keep the same actions visible. Those that lose something ask first.
+  Persona descriptions appear in the conversation, while their overview rows
+  show identity and status. Command sheets retain unfinished input until a
+  successful submission or the page is reloaded.
 - **An agent's page**, following its prompts, replies and tool calls as
   they come, with the diff of each edit and the images it shows, from when
   the mode started; before that, its last reply.  You prompt it from
   there, with photos attached.  Prompts sent while it is busy wait in a
-  queue, which you can take them back out of, until it is free.
+  queue. You can remove queued messages or move them back to the draft until
+  they are sent. Sending errors stay beside the composer with a retry action;
+  failed image uploads keep their preview for retry or removal. Busy sessions
+  show Stop and, when supported, Adjust now beside the composer. Tap the
+  conversation title for session information. Completed tool runs collapse
+  together, and code blocks have a copy action.
   With agent-shell, typing `/` lists the commands advertised by the agent.
   **Steer with current draft** in the session menu, when supported, sends
   the prompt into the running turn instead of the queue, or starts a new
   turn when idle. Steering remains available when the running turn ends.  Steering while the agent awaits user action asks first.
   The session menu offers reload, a fresh conversation and, when supported,
-  fork; reload and restart ask for confirmation.
+  fork; reload and restart ask for confirmation. Close Agent ends the live
+  session after confirmation and keeps a resumable entry when supported.
+  Long messages have expandable previews. Message times, unread counts and
+  paged earlier activity come from the backend.
+
+See [Remote interface](docs/remote-ui.md) for navigation, draft and attachment
+behavior and the limits of browser-only state.
 
 While the mode is on, the dashboard's mode line shows a network icon
 (or `remote` without Nerd Icons). Hover over it to see the serving address.

@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert/strict');
 class Element {
-  constructor() { this.value=''; this.style={}; this.children=[]; this.events={}; this.scrollHeight=44; }
+  constructor() { this.value=''; this.style={setProperty(){}}; this.dataset={}; this.children=[]; this.events={}; this.scrollHeight=44; }
   setAttribute(name, value) { this[name]=value; }
   addEventListener(name, fn) { this.events[name]=fn; }
   dispatchEvent(e) { this.events[e.type]?.({...e,target:this}); }
@@ -11,12 +11,17 @@ class Element {
   getBoundingClientRect() { return {height: this.height ?? 100}; }
   focus() { this.focused=true; }
   closest() { return null; }
+  removeAttribute(name) { delete this[name]; }
+  remove() { this.removed=true; }
+  querySelector() { return null; }
+  querySelectorAll(selector) { return selector==='button' ? this.children.filter(child=>child.tagName==='BUTTON') : []; }
+  click() { return this.onclick?.(); }
   get classList() { return {add: name => { this.className = (this.className || '') + ' ' + name; }}; }
 }
 const elements = new Map();
 const docEvents = {};
 const context = vm.createContext({
-  document: { documentElement: {scrollHeight:2000,style:{setProperty(){}}}, body: {scrollHeight:2000, style:{}, classList:{toggle(){}}}, getElementById: id => { if(!elements.has(id)) elements.set(id,new Element()); return elements.get(id); }, createElement: () => new Element(), addEventListener: (name,fn) => docEvents[name]=fn },
+  document: { documentElement: {scrollHeight:2000,style:{setProperty(){}}}, body: {scrollHeight:2000, style:{}, classList:{toggle(){}}}, getElementById: id => { if(!elements.has(id)) elements.set(id,new Element()); return elements.get(id); }, createElement: tag => { const el=new Element(); el.tagName=tag.toUpperCase(); return el; }, addEventListener: (name,fn) => docEvents[name]=fn },
   history: {state:null},
   location: {hash:'#test',search:'?agent=original',pathname:'/overlook/'},
   localStorage: {getItem:(key)=>key==='overlook-token'?'test':null, setItem(){}},
@@ -32,10 +37,10 @@ const context = vm.createContext({
     this.actions = {create: modal, close(){}};
     this.photoBrowser = {create: modal, get(){}};
   },
-  performance: {now:()=>2000}, innerHeight:800, scrollY:0,
+  navigator: {onLine:true}, performance: {now:()=>2000}, innerHeight:800, scrollY:0,
   crypto: require("crypto").webcrypto, Uint8Array, clearTimeout(){},setTimeout(){},setInterval(){},confirm:()=>true,
 });
-let script=fs.readFileSync(require('path').join(__dirname, '..', 'overlook-remote.html'),'utf8').match(/<script>\s*([\s\S]*?)<\/script>/)[1];
+let script=fs.readFileSync(process.env.OVERLOOK_UI_HTML || require('path').join(__dirname, '..', 'overlook-remote.html'),'utf8').match(/<script>\s*([\s\S]*?)<\/script>/)[1];
 script=script.replace(/\nshow\(\);\s*$/,'');
 context.scrollTo = (x,y) => {context.lastScroll = [x,y];};
 vm.runInContext(script,context);
@@ -47,8 +52,19 @@ vm.runInContext('composeId = "original";',context);
   vm.runInContext('renderLive({id:"original",queueError:null,choices:[],queued:["same","same"],queueItems:[{id:"q1",text:"same"},{id:"q2",text:"same"}],status:"idle"})',context);
   const queueRequests=[];
   context.fetch=async (url,options)=>{queueRequests.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true,protocolVersion:2})};};
-  await elements.get('d-live').children[1].children[2].onclick();
+  await elements.get('d-live').children[1].children[1].children[2].onclick();
   assert.equal(queueRequests[0].queueId,'q2');
+  vm.runInContext('renderLive({id:"original",choices:[{key:"allow",label:"Allow"}],queued:[],status:"waiting"})',context);
+  await elements.get('d-live').children[0].children[2].children[0].onclick();
+  vm.runInContext('renderLive({id:"original",choices:[{key:"allow",label:"Allow"}],queued:[],status:"waiting"})',context);
+  assert.equal(elements.get('d-live').children[0].children[2].children[0].disabled,true);
+  vm.runInContext('renderLive({id:"original",choices:[],queued:[],status:"idle"});renderLive({id:"original",choices:[{key:"allow",label:"Allow"}],queued:[],status:"waiting"})',context);
+  assert.equal(elements.get('d-live').children[0].children[2].children[0].disabled,false);
+  assert.equal(vm.runInContext('dashboardDue("2026-11-12",new Date(2026,10,12)).label',context),'Due today');
+  assert.equal(vm.runInContext('dashboardDue("2026-11-11",new Date(2026,10,12)).overdue',context),true);
+  const sorted=vm.runInContext('stableProjectNodes([{id:"z",title:"Zulu",kind:"project"},{id:"r",title:"Resource",kind:"text"},{id:"a",title:"Alpha",kind:"project"}]).map(node=>node.id).join(",")',context);
+  assert.equal(sorted,'a,r,z');
+
 
   vm.runInContext('agentControls = {steer:true, actions:["fork","reload","restart"], slash:[{name:"compact",description:"Compact context"},{name:"help",description:"Help"}]}',context);
   elements.get('text').value='/';
@@ -72,12 +88,21 @@ vm.runInContext('composeId = "original";',context);
   const seen=[];
   const realFetch=context.fetch;
   context.fetch=async (path,options) => { seen.push([path,options.body]); return {ok:true,status:200,json:async()=>({ok:true})}; };
-  vm.runInContext('renderHeader({id:"original",status:"idle",agent:"claude",choices:[],queued:[]})',context);
-  assert.equal(seen.length,0);
   vm.runInContext('renderHeader({id:"original",status:"done",agent:"claude",choices:[],queued:[]})',context);
-  assert.deepEqual(seen,[['/overlook/api/seen','{"id":"original"}']]);
-  vm.runInContext('renderHeader({id:"other",status:"done",agent:"claude",choices:[],queued:[]})',context);
-  assert.equal(seen.length,1);
+  assert.equal(seen.length,0, 'Header state alone must not mark unseen activity read');
+  elements.get('detail').scrollTop=0; elements.get('detail').clientHeight=100;
+  vm.runInContext('poller={id:"original",epoch:"test",presentedSeq:12,firstNews:false};markSeen();markSeen()',context);
+  assert.deepEqual(seen,[['/overlook/api/seen','{"id":"original","through":12,"epoch":"test"}']]);
+  elements.get('detail').scrollHeight=1000;
+  vm.runInContext('poller.presentedSeq=14;markSeen()',context);
+  assert.equal(seen.length,1, 'Reading old history must not acknowledge new messages');
+  elements.get('detail').scrollTop=1000;
+  vm.runInContext('markSeen()',context);
+  assert.equal(seen.length,2);
+  assert.equal(JSON.parse(seen[1][1]).through,14);
+  vm.runInContext('poller.presentedSeq=16;poller.nodes=new Map([[1,{timer:1}]]);markSeen();poller.nodes.clear();document.hidden=true;markSeen();document.hidden=false;poller=null',context);
+  assert.equal(seen.length,2, 'Hidden pages must not acknowledge messages');
+  elements.get('detail').scrollHeight=44;
   context.fetch=realFetch;
   const requests=[];
   context.fetch=async (url,opts)=>{requests.push(JSON.parse(opts.body));return {ok:true,json:async()=>({ok:true,agent:'original'})};};
@@ -147,7 +172,7 @@ vm.runInContext('composeId = "original";',context);
   assert.match(elements.get('conn').title, /Last synced/);
   vm.runInContext('connectionFailure({status:401})', context);
   assert.equal(vm.runInContext('connectionBlocked', context), true);
-  assert.match(elements.get('connection-message').textContent, /Credential expired/);
+  assert.match(elements.get('connection-message').textContent, /Open a fresh link/);
   vm.runInContext('connectionFailure({status:404, code:"agent_missing"})', context);
   assert.equal(elements.get('return-dashboard').hidden, false);
   vm.runInContext('connectionFailure(new TypeError("offline"))', context);
@@ -180,7 +205,7 @@ vm.runInContext('composeId = "original";',context);
   assert.equal(elements.get('d-live').children.length, 0);
   vm.runInContext('renderLive({queueError:"Submission failed", choices:[], queued:[], status:"idle"})', context);
   assert.equal(elements.get('d-live').children.length, 1);
-  assert.equal(elements.get('d-live').children[0].textContent, 'Not sent: Submission failed');
+  assert.equal(elements.get('d-live').children[0].textContent, 'Queued messages paused: Submission failed');
   elements.get('text').scrollHeight = 0;
   vm.runInContext('syncCompose()', context);
   assert.equal(elements.get('text').style.height, '44px');

@@ -96,7 +96,25 @@
   .row-icon { flex: none; width: 28px; min-width: 28px; margin: 0 12px 0 0; align-self: center; }
   .row-icon svg { display: block; width: 24px; height: 24px; }
   :is(#dashboard-content,[data-snapshot-id="dashboard-content"]) .remote-row .item-inner { margin-left: 0; }
-  .conversation-row .row-icon { align-self: flex-start; margin-top: 18px; width: 36px; min-width: 36px; height: 36px; display: grid; place-items: center; background: var(--bg); border-radius: 10px; }
+  .conversation-row .row-icon { align-self: flex-start; margin-top: 18px; width: 36px; min-width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0; background: var(--bg); border-radius: 10px; }
+  .conversation-row .agent-icon > .icon { display: block; flex: none; width: 22px; height: 22px; margin: 0; padding: 0; vertical-align: initial; }
+  .persona-avatar { display: flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: 50%; background: hsl(var(--avatar-hue, 210) 65% 92%); color: hsl(var(--avatar-hue, 210) 48% 38%); font-size: 19px; font-weight: 600; line-height: 1; }
+  .persona-row .row-icon { width: 44px; min-width: 44px; height: 44px; padding: 0; margin-right: 14px; }
+  .dark .persona-avatar { background: hsl(var(--avatar-hue, 210) 30% 23%); color: hsl(var(--avatar-hue, 210) 65% 80%); }
+  :is(#dashboard-content,[data-snapshot-id="dashboard-content"]) .persona-row .remote-row,
+  :is(#dashboard-content,[data-snapshot-id="dashboard-content"]) .persona-row .item-inner { min-height: 76px; }
+  .persona-row .row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .persona-row .agent-meta { margin-top: 5px; font-size: 13px; gap: 4px 8px; }
+  .persona-row .agent-state::before { width: 5px; height: 5px; }
+  .persona-row .remote-row { -webkit-touch-callout: none; user-select: none; }
+  .persona-row .remote-row:focus-visible { outline-offset: -3px; }
+  .persona-row .row-subtitle { font-size: 15px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .persona-profile { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 8px 0 28px; text-align: center; }
+  .persona-profile .persona-avatar { width: 64px; height: 64px; font-size: 26px; }
+  .persona-profile h2 { margin: 0; font-size: 22px; font-weight: 600; }
+  .persona-profile p { margin: 0; max-width: 360px; color: var(--dim); font-size: 15px; line-height: 1.5; white-space: pre-line; }
+  .conversation-row .row-subtitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .unread-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; padding: 1px 6px; border-radius: 10px; color: white; background: var(--accent); font-size: 12px; font-weight: 600; }
   .conversation-row .row-title { font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .agent-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 7px; color: var(--dim); font-size: 12px; line-height: 1.4; }
   .agent-state { display: inline-flex; align-items: center; gap: 5px; }
@@ -165,6 +183,50 @@
   .prompt.queued { background: var(--bg); color: var(--dim); display: flex; gap: 8px; align-items: baseline; }
   .prompt.queued span { flex: 1; }
   .prompt.queued small { font-size: 12px; }
+  .compose-status { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 12px; line-height: 1.5; }
+  .compose-status:empty { display: none; }
+  .compose-status > span { flex: 1; min-width: 100px; }
+  .compose-status > button, .queued-actions > button, .attachment > button { width: auto; flex: none; }
+  .compose-status > button { padding: 4px 10px; }
+  .compose-status > .stop-task { margin-left: auto; }
+  .permission-card .choices > button { width: auto; flex: 1 1 120px; }
+  .compose-status button, .queued-actions button, .attachment button, .permission-card button, .code-copy { min-height: 44px; border: 0; background: transparent; color: var(--accent); padding: 8px; font: inherit; }
+  .compose-status .stop-task { color: var(--failed); }
+  #send:disabled { opacity: .35; }
+  .prompt.queued { display: block; max-width: calc(100% - 16px); border-radius: 16px; border: .5px solid var(--line); }
+  .queued-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; font-size: 13px; }
+  .queued-actions small { margin-right: auto; }
+  .permission-card { padding: 16px; margin: 20px 0; border-radius: 16px; background: var(--wait-bg); border: .5px solid var(--line); }
+  .permission-card h3 { margin: 0 0 6px; font-size: 17px; }
+  .permission-card p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--dim); }
+  .permission-card .choices { margin-bottom: 0; }
+  .permission-card button { border-radius: 10px; background: var(--card); padding: 10px 14px; }
+  .inline-feedback { font-size: 13px; line-height: 1.5; }
+  .attachment { position: relative; display: flex; align-items: center; gap: 8px; border: .5px solid var(--line); background: var(--bg); padding: 6px; border-radius: 12px; max-width: 100%; }
+  .attachment img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+  .attachment-info { flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+  .attachment-info span { display: block; color: var(--dim); }
+  #previews { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .tool-group { background: var(--bg); border-radius: 14px; padding: 0 12px; margin: 20px 0; }
+  .tool-group > summary { padding: 14px 0; color: var(--dim); font-size: 13px; cursor: pointer; }
+  .tool-group .tool { margin: 8px 0; padding: 8px 0; }
+  .tool.failed { border: .5px solid var(--failed); }
+  .code-container { position: relative; }
+  .code-copy { display: block; width: auto; margin-left: auto; font-size: 12px; }
+  .code-container pre { margin-top: 0; }
+  .content-preview { max-height: 340px; overflow: hidden; position: relative; }
+  .content-preview::after { content: ""; position: absolute; pointer-events: none; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--card)); }
+  .tool .content-preview::after { background: linear-gradient(transparent, var(--bg)); }
+  .content-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .content-actions button, .code-expand { width: auto; min-height: 44px; padding: 8px 0; color: var(--accent); font-size: 14px; }
+  .code-container pre.code-preview { max-height: 240px; overflow: auto; }
+  .message-time { display: block; margin-top: 6px; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .history-controls { text-align: center; margin: 0 0 20px; color: var(--dim); font-size: 13px; }
+  .history-controls button { width: auto; min-height: 44px; color: var(--accent); }
+  .history-controls .error { font-size: 13px; }
+  #d-transcript { max-height: 320px; overflow: auto; }
+
+
   .unqueue { flex: none; width: 32px; height: 32px; border: 0; background: transparent; color: var(--accent); }
   .working { display: flex; align-items: center; gap: 10px; margin: 20px 0; color: var(--dim); font-size: 15px; }
   .working > .preloader { width: 18px; height: 18px; flex: none; }
@@ -231,7 +293,66 @@
   }
   .file-diff pre.diff { margin: 0; }
   [hidden] { display: none !important; }
-  @media (prefers-reduced-motion: reduce) { .remote-row { transition: none; } }
+  .navigation-info { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 44px; padding: 0 2px; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: center; }
+  .navigation-info .navigation-title, .navigation-info .navigation-subtitle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navigation-info .navigation-subtitle { color: var(--dim); }
+  .navigation-info:active { opacity: .6; }
+  :is(#connection,[data-snapshot-id="connection"]) { margin: 0; padding: 8px 16px; border-radius: 0; border-bottom: .5px solid var(--line); background: var(--bg); font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; }
+  :is(#connection,[data-snapshot-id="connection"]) #connection-message { flex: 1; min-width: 160px; }
+  :is(#connection,[data-snapshot-id="connection"]) .button { min-height: 44px; margin: 0; padding: 0 8px; font-size: 13px; }
+  .view-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 44px 28px; color: var(--dim); text-align: center; font-size: 15px; }
+  .view-state h2 { margin: 0; color: var(--fg); font-size: 20px; line-height: 1.35; font-weight: 600; }
+  .view-state p { margin: 0; max-width: 340px; line-height: 1.5; }
+  .view-state.loading .preloader { width: 24px; height: 24px; margin-bottom: 8px; }
+  .operation-error { padding: 10px 12px; margin: 8px 0 0; border-radius: 10px; background: var(--wait-bg); color: var(--failed); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+  :is(#compose,[data-snapshot-id="compose"]) :is(#attach,[data-snapshot-id="attach"]),
+  :is(#compose,[data-snapshot-id="compose"]) :is(#send,[data-snapshot-id="send"]) { width: 44px; height: 44px; min-height: 44px; margin: 0; }
+  :is(#compose,[data-snapshot-id="compose"]) :is(#send,[data-snapshot-id="send"]) { background: radial-gradient(circle at center, var(--accent) 16px, transparent 16.5px); }
+  .toolbar.messagebar > .operation-error { margin: 0 12px 8px; }
+  .form-label { color: var(--dim); font-size: 14px; line-height: 1.4; }
+  .remote-sheet .toolbar .link, .remote-sheet .button, .choices .button { min-height: 44px; }
+  .remote-sheet .toolbar .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .remote-sheet textarea:focus-visible, .remote-sheet select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .conversation-info { display: grid; grid-template-columns: minmax(75px,auto) minmax(0,1fr); gap: 14px 20px; margin: 0; font-size: 15px; line-height: 1.45; }
+  .conversation-info dt { color: var(--dim); }
+  .conversation-info dd { margin: 0; overflow-wrap: anywhere; }
+  @media (prefers-reduced-motion: reduce) { .remote-row { transition: none; } .preloader { animation: none !important; } }
+
+  .dashboard-navigable .dashboard-chevron { display: flex; align-items: center; flex: none; width: 8px; height: 16px; margin-left: 2px; color: var(--dim); opacity: .55; }
+  .dashboard-chevron svg { width: 8px; height: 14px; }
+  :is(#dashboard-content,[data-snapshot-id="dashboard-content"]) .dashboard-navigable .remote-row.item-link .item-inner::after { display: none; }
+  :is(#dashboard-content,[data-snapshot-id="dashboard-content"]) .dashboard-navigable:not(.has-menu) .remote-row.item-link .item-inner { padding-right: 18px; }
+  .dashboard-navigable .group-count { font-size: 12px; line-height: 17px; max-width: 106px; text-align: right; white-space: normal; }
+  .dashboard-navigable.group-row .row-title { overflow: hidden; text-overflow: ellipsis; }
+  .project-list-meta { display: block; margin-top: 4px; color: var(--dim); font-size: 12px; line-height: 17px; font-weight: 400; white-space: normal; }
+  .dashboard-show-more, .usage-actions { display: block; width: 100%; min-height: 48px; padding: 12px 16px; border: 0; border-top: .5px solid var(--line); background: transparent; color: var(--accent); font: inherit; font-size: 15px; text-align: center; }
+  .dashboard-show-more:active, .usage-actions:active { background: var(--soft); }
+  .dashboard-overview { margin: 0 20px 28px; padding: 18px 16px; border-radius: 12px; background: var(--card); }
+  .overview-facts { display: flex; flex-wrap: wrap; gap: 7px 16px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+  .overview-new { margin-top: 16px; height: 44px; font-size: 16px; font-weight: 500; border-radius: 10px; }
+  .dashboard-attention > .attention-shortcut { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: calc(100% - 40px); margin: 0 20px; padding: 16px; min-height: 76px; border: 0; border-radius: 12px; background: var(--card); color: var(--fg); font: inherit; text-align: left; }
+  .attention-caption { min-width: 0; font-size: 17px; font-weight: 600; }
+  .attention-detail { display: block; margin-top: 5px; color: var(--dim); font-size: 13px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attention-number { flex: none; display: grid; place-items: center; min-width: 30px; height: 30px; padding: 0 7px; box-sizing: border-box; border-radius: 15px; background: var(--wait-bg); color: var(--waiting); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dashboard-attention > .dashboard-section { margin: 10px 0 0; }
+  .usage-disclosure { padding: 0; }
+  .usage-summary { position: relative; display: block; padding: 16px 38px 16px 16px; cursor: pointer; list-style: none; }
+  .usage-summary::-webkit-details-marker { display: none; }
+  .usage-summary::after { position: absolute; right: 17px; top: 24px; width: 6px; height: 6px; border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim); content: ""; transform: rotate(45deg); transition: transform .18s ease; }
+  .usage-disclosure[open] > .usage-summary::after { transform: rotate(225deg); }
+  .usage-summary .usage-account { display: flex; gap: 8px; margin: 0 0 8px; font-size: 15px; line-height: 20px; }
+  .usage-summary .usage-account .icon { width: 20px; height: 20px; flex: none; }
+  .usage-summary .usage-account > span:not(.usage-account-name) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usage-summary .usage-account-name { margin-left: auto; font-size: 12px; }
+  .usage-summary-values { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; line-height: 18px; }
+  .usage-summary-value { display: inline-flex; gap: 7px; }
+  .usage-summary-value.warning .usage-value { color: var(--working); }
+  .usage-disclosure > .usage-windows { padding: 8px 16px 20px; gap: 20px; }
+  .task-due.overdue { color: var(--failed); }
+  .task-check[aria-busy="true"] { opacity: .45; }
+  .file-row .row-subtitle { white-space: normal; overflow-wrap: anywhere; }
+  @media (min-width: 700px) { .dashboard-overview { max-width: 608px; margin-left: auto; margin-right: auto; } }
+
 </style>
 </head>
 <body>
@@ -248,23 +369,25 @@
       </div>
     </div>
   </div>
-  <div id="connection" role="status" hidden>
-    <span id="connection-message"></span><br>
+  <div id="connection" role="status" aria-live="polite" aria-atomic="true" hidden>
+    <span id="connection-message"></span>
     <button id="reconnect" class="button button-tonal button-small">Reconnect</button>
     <button id="return-dashboard" class="button button-tonal button-small" hidden>Dashboard</button>
   </div>
   <main id="dash" class="page-content remote-content">
     <div class="screen-intro" id="dashboard-intro"><h1>Overlook</h1></div>
     <div id="dashboard-content"></div>
-    <div class="sync-footer"><span id="conn" role="status">Connecting…</span></div>
+    <div class="sync-footer"><span id="conn">Connecting…</span></div>
   </main>
   <main id="detail" class="page-content remote-content" hidden>
+    <div id="persona-profile" class="persona-profile" hidden></div>
     <div id="detail-meta"><span id="context" hidden title="Context window used"></span></div>
     <div id="d-earlier" hidden>
       <h2>Last reply</h2>
       <div id="d-reply" class="markdown"></div>
       <details><summary>Transcript (end)</summary><pre id="d-transcript"></pre></details>
     </div>
+    <div id="history-controls" class="history-controls" hidden></div>
     <div id="d-feed"></div>
     <div id="d-live"></div>
   </main>
@@ -272,6 +395,7 @@
   <div id="compose" class="toolbar messagebar" hidden>
     <div id="slash-commands" aria-label="Available slash commands"></div>
     <div class="toolbar-inner">
+      <div id="compose-status" class="compose-status" role="status" aria-live="polite"></div>
       <div id="previews" class="images"></div>
       <button id="attach" class="link" title="Attach images" aria-label="Attach images"><svg class="composer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg></button>
       <input id="files" type="file" accept="image/*" multiple hidden>
@@ -298,12 +422,16 @@ function htmlText(text) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
 
-function confirmAction(message) {
+function confirmAction(message, {title = "Confirm action", label, danger} = {}) {
+  const inferred = /^(delete|remove|kill|stop|restart|reload|close|start)\b/i.exec(message)?.[1]?.toLowerCase();
+  label ||= ({delete: "Delete", remove: "Remove", kill: "End conversation", stop: "Stop task", restart: "New conversation", reload: "Reload session", close: "Close", start: "Start"})[inferred] || "Confirm";
+  danger ??= /delete|remove|kill|stop|restart/i.test(inferred || "");
   return new Promise((resolve) => {
-    app.dialog.create({ title: "overlook", text: htmlText(message), destroyOnClose: true,
-      on: { closed: () => resolve(false) },
+    const previous = document.activeElement;
+    app.dialog.create({ title: htmlText(title), text: htmlText(message), destroyOnClose: true,
+      on: { closed: () => { resolve(false); if (previous?.isConnected) previous.focus({preventScroll: true}); } },
       buttons: [{ text: "Cancel", onClick: () => resolve(false) },
-        { text: "Continue", bold: true, onClick: () => resolve(true) }] }).open();
+        { text: htmlText(label), bold: true, color: danger ? "red" : undefined, onClick: () => resolve(true) }] }).open();
   });
 }
 
@@ -332,21 +460,65 @@ function connected() {
   $("conn").textContent = "Updated " + lastSync.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
   $("conn").title = "Last synced: " + lastSync.toLocaleString();
   $("connection").hidden = true;
+  $("connection").removeAttribute("data-error");
+  $("dashboard-content").removeAttribute("aria-busy");
 }
 function connectionFailure(error) {
   const auth = error.status === 401;
   const missing = error.code === "agent_missing";
   const incompatible = error.code === "protocol_mismatch";
   connectionBlocked = auth || missing || incompatible;
-  const message = auth ? "Credential expired. Open a fresh link from Emacs: M-x overlook-remote-url."
-    : incompatible ? "The app has been updated. Refresh this page to continue."
-    : missing ? "This session no longer exists. Return to the dashboard to choose a session."
-    : "Connection lost. Reconnecting…";
-  $("conn").textContent = auth ? "Sign in" : missing ? "Session gone" : "Reconnecting";
-  $("connection-message").textContent = message + (lastSync ? " Last synced: " + lastSync.toLocaleTimeString() : " No successful sync yet.");
+  const offline = navigator.onLine === false;
+  const message = auth ? "Open a fresh link in Emacs with M-x overlook-remote-url. Keep this page open to retain your unsent draft."
+    : incompatible ? "The app has been updated. Refresh to continue."
+    : missing ? "This conversation has ended. Your unsent draft is still available on this page."
+    : offline ? "You’re offline. Reconnecting when a network is available."
+    : "Connection interrupted. Reconnecting…";
+  const state = auth ? "auth" : incompatible ? "version" : missing ? "missing" : offline ? "offline" : "retry";
+  $("conn").textContent = auth ? "Link required" : incompatible ? "Update available" : missing ? "Conversation ended" : offline ? "Offline" : "Reconnecting";
+  if ($("connection").dataset.error !== state) {
+    $("connection-message").textContent = message;
+    $("connection").dataset.error = state;
+  }
   $("connection").hidden = false;
   $("return-dashboard").hidden = !missing;
+  $("reconnect").hidden = auth || missing;
+  $("reconnect").textContent = incompatible ? "Refresh" : "Retry";
+  $("reconnect").onclick = incompatible ? () => location.reload() : () => show();
+  if (connectionBlocked) {
+    const target = current() ? $("d-feed") : $("dashboard-content");
+    target.querySelector(".view-state.loading")?.replaceWith(viewState(
+      auth ? "Open your personal link" : incompatible ? "Update available" : "Conversation ended", message));
+    target.removeAttribute("aria-busy");
+  }
   return connectionBlocked;
+}
+
+function viewState(title, message, loading = false) {
+  const state = el("div", "view-state" + (loading ? " loading" : ""));
+  if (loading) { const spinner = el("span", "preloader"); spinner.setAttribute("aria-hidden", "true"); state.append(spinner); }
+  state.append(el("h2", "", title));
+  if (message) state.append(el("p", "", message));
+  return state;
+}
+
+function renderLoading(id, title) {
+  $(id).setAttribute("aria-busy", "true");
+  $(id).replaceChildren(viewState(title, "", true));
+}
+
+function actionFailure(error, control) {
+  const target = control?.closest?.(".commands, .choices, .remote-item")
+    || (current() ? $("compose") : $("dashboard-content"));
+  let feedback = target.querySelector?.(":scope > .operation-error");
+  if (!feedback) {
+    feedback = el("p", "operation-error");
+    feedback.setAttribute("role", "status");
+    feedback.setAttribute("aria-live", "polite");
+    target.append(feedback);
+  }
+  feedback.textContent = error.message || "The action could not be completed. Try again.";
+  return feedback;
 }
 
 function checkProtocol(data) {
@@ -404,7 +576,7 @@ function markdown(text) {
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (tag === "button" && !/(?:^| )(?:link|more|unqueue|remote-row|task-check)(?: |$)/.test(className || "")) {
+  if (tag === "button" && !/(?:^| )button(?: |$)/.test(className || "") && !/(?:^| )(?:link|more|unqueue|remote-row|task-check)(?: |$)/.test(className || "")) {
     node.classList.add("button", className === "primary" ? "button-fill" : "button-tonal");
     if (className === "danger") node.classList.add("color-red");
   }
@@ -452,7 +624,7 @@ function zoomable(img) {
     event.stopPropagation();
     if (!img.src) return;
     photoBrowser?.close();
-    photoBrowser = app.photoBrowser.create({ photos: [img.src], type: "standalone", theme: app.darkMode ? "dark" : "light",
+    photoBrowser = app.photoBrowser.create({ photos: [...(img.closest(".images")?.querySelectorAll("img") || [img])].filter(image => image.src).map(image => image.src), initialSlide: Math.max(0, [...(img.closest(".images")?.querySelectorAll("img") || [img])].filter(image => image.src).indexOf(img)), type: "standalone", theme: app.darkMode ? "dark" : "light",
       on: { closed(browser) {
         if (photoBrowser === browser) photoBrowser = null;
         setTimeout(() => { browser.modal?.destroy(); browser.destroy(); }, 0);
@@ -467,7 +639,13 @@ function imageStrip(numbers) {
   for (const n of numbers) {
     const img = zoomable(el("img"));
     img.alt = "image " + n;
-    imageUrl(n).then((url) => { img.src = url; }, () => img.remove());
+    const load = async () => {
+      try { img.src = await imageUrl(n); retry.remove(); }
+      catch (_) { if (!retry.isConnected) strip.append(retry); }
+    };
+    const retry = el("button", "button button-small", "Retry image");
+    retry.onclick = load;
+    load();
     strip.append(img);
   }
   return strip;
@@ -476,33 +654,79 @@ function imageStrip(numbers) {
 function choiceButtons(agent, container) {
   container.replaceChildren(...agent.choices.map((choice) => {
     const button = el("button");
-    button.append(el("b", "", choice.key), choice.label);
+    button.type = "button";
+    button.textContent = choice.label;
+    button.setAttribute("aria-label", choice.label);
     button.onclick = async (event) => {
       event.stopPropagation();
-      button.disabled = true;
+      if (container.dataset.pending === "true") return;
+      container.dataset.pending = "true";
+      container.querySelectorAll("button").forEach(item => { item.disabled = true; });
+      container.querySelector(".operation-error")?.remove();
       try { await call("POST", "choose", { id: agent.id, key: choice.key }); }
-      catch (error) { toast(error.message); button.disabled = false; }
+      catch (error) {
+        actionFailure(error, button);
+        container.dataset.pending = "false";
+        container.querySelectorAll("button").forEach(item => { item.disabled = false; });
+      }
     };
     return button;
   }));
 }
 
+function personaAvatar(name) {
+  const avatar = el("span", "persona-avatar", Array.from(name || "?")[0].toLocaleUpperCase());
+  let hue = 0;
+  for (const char of name || "") hue = (hue * 31 + char.codePointAt(0)) % 360;
+  avatar.style.setProperty("--avatar-hue", hue);
+  avatar.setAttribute("aria-hidden", "true");
+  return avatar;
+}
+function personaProfile(name, description) {
+  const profile = el("div", "persona-profile");
+  profile.append(personaAvatar(name), el("h2", "", name));
+  if (description) profile.append(el("p", "", description));
+  return profile;
+}
+
 let shownHeader = "";
 let agentControls = {};
 let shownAgent = null;
+const seenRequests = new Map();
 function markSeen() {
-  if (shownAgent?.status !== "done" || shownAgent.id !== current() || document.hidden) return;
-  call("POST", "seen", { id: shownAgent.id }).catch(() => {});
+  const mine = poller;
+  if (!shownAgent || shownAgent.id !== current() || mine?.id !== current()
+      || document.hidden || !atBottom() || mine.loadingHistory || mine.firstNews || !mine.presentedSeq) return;
+  if (mine.nodes && [...mine.nodes.values()].some(node => node.timer)) return;
+  const through = mine.presentedSeq;
+  const key = `${mine.epoch}:${shownAgent.id}`;
+  if ((seenRequests.get(key) || 0) >= through) return;
+  seenRequests.set(key, through);
+  if (seenRequests.size > 256) seenRequests.delete(seenRequests.keys().next().value);
+  call("POST", "seen", { id: shownAgent.id, through, epoch: mine.epoch }).catch(() => {
+    if (seenRequests.get(key) === through) seenRequests.delete(key);
+  });
 }
 
 function renderHeader(agent) {
   shownAgent = agent;
-  markSeen();
   const key = JSON.stringify(agent);
   if (key === shownHeader) return;
   shownHeader = key;
-  $("heading").replaceChildren(el("span", "navigation-title", agent.title || "Conversation"),
-    el("span", "navigation-subtitle", `${agent.agent || "Agent"} · ${statusLabel(agent.status)}`));
+  const title = agent.title || agent.persona || "Conversation";
+  const subtitle = [agent.persona, agent.agent || "Agent", statusLabel(agent.status)].filter(Boolean).join(" · ");
+  const info = document.createElement("button");
+  info.className = "navigation-info";
+  info.type = "button";
+  info.setAttribute("aria-label", `${title}. Conversation information`);
+  info.setAttribute("aria-haspopup", "dialog");
+  info.append(el("span", "navigation-title", title), el("span", "navigation-subtitle", subtitle));
+  info.onclick = () => showConversationInfo(shownAgent);
+  $("heading").replaceChildren(info);
+  $("persona-profile").hidden = !agent.persona;
+  $("persona-profile").replaceChildren(...(agent.persona
+    ? Array.from(personaProfile(agent.persona, agent.description).children) : []));
+  $("text").placeholder = agent.persona ? `Message ${agent.persona}` : "Message";
   $("context").hidden = !Number.isFinite(agent.context);
   $("context").replaceChildren(...(Number.isFinite(agent.context)
     ? [`Context used · ${Math.round(agent.context)}%`] : []));
@@ -510,18 +734,32 @@ function renderHeader(agent) {
   $("steer").hidden = !agentControls.steer;
   const actions = [...(agentControls.steer ? ["steer"] : []), ...(agentControls.actions || [])];
   $("session-menu").hidden = !actions.length;
-  $("session-menu").setAttribute("aria-label", "Session menu");
+  $("session-menu").setAttribute("aria-label", "Conversation actions");
   $("session-menu").onclick = () => {
     if (sessionPending) return;
     const id = current();
-    const labels = { steer: "Steer with current draft", stop: "Stop current task", reload: "Reload", restart: "New conversation", fork: "Fork" };
-    app.actions.create({ buttons: [actions.map((action) => ({ text: htmlText(labels[action] || action),
-      color: action === "stop" || action === "restart" ? "red" : undefined,
+    const labels = { steer: "Steer with current draft", stop: "Stop current task", reload: "Reload session", restart: "New conversation", fork: "Fork conversation", close: "Close agent" };
+    app.actions.create({ buttons: [[{ text: htmlText(title), label: true }], actions.map((action) => ({ text: htmlText(labels[action] || action),
+      color: ["stop", "restart", "close"].includes(action) ? "red" : undefined,
       onClick: () => { if (current() === id) sessionAction(action, $("session-menu")); }
     })), [{ text: "Cancel", color: "gray" }]], destroyOnClose: true }).open();
   };
   renderSlashCommands();
   renderLive(agent);
+}
+
+function showConversationInfo(agent) {
+  if (!agent || agent.id !== current()) return;
+  const container = panelContainer($("heading"), {id: agent.id, title: "Conversation information"});
+  panel.sheet.el.querySelector(".toolbar .title").textContent = "Conversation information";
+  if (agent.persona) container.append(personaProfile(agent.persona, agent.description));
+  else container.append(el("h2", "info-title", agent.title || "Conversation"));
+  const details = el("dl", "conversation-info");
+  for (const [label, value] of [["Conversation", agent.persona ? agent.title : null], ["Provider", agent.agent], ["Status", statusLabel(agent.status)],
+    ["Project", agent.project], ["Folder", agent.folder], ["Context", Number.isFinite(agent.context) ? `${Math.round(agent.context)}% used` : null]]) {
+    if (value) details.append(el("dt", "", label), el("dd", "", value));
+  }
+  container.append(details);
 }
 
 function renderSlashCommands() {
@@ -595,15 +833,188 @@ function resizeCompose() {
     box.style.overflowY = height > limit ? "auto" : "hidden";
   }
 }
+function copyChatText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).catch(() => copyChatTextFallback(text));
+  return copyChatTextFallback(text);
+}
+function copyChatTextFallback(text) {
+  const focused = document.activeElement;
+  const selection = document.getSelection();
+  const ranges = Array.from({length: selection?.rangeCount || 0}, (_, index) => selection.getRangeAt(index).cloneRange());
+  const start = focused?.selectionStart, end = focused?.selectionEnd;
+  const input = el("textarea");
+  input.value = text;
+  input.style.cssText = "position:fixed;left:-10000px;top:0";
+  document.body.append(input);
+  input.select();
+  let copied;
+  try { copied = document.execCommand("copy"); }
+  finally {
+    input.remove();
+    focused?.focus({preventScroll:true});
+    if (typeof start === "number") focused.setSelectionRange(start, end);
+    selection?.removeAllRanges();
+    for (const range of ranges) selection.addRange(range);
+  }
+  return copied ? Promise.resolve() : Promise.reject(new Error("Copy unavailable"));
+}
+
+function attachmentPreview(preview, state, id) {
+  const card = el("div", "attachment");
+  const info = el("div", "attachment-info", preview.file?.name || "Image");
+  info.append(el("span", preview.uploadError ? "error" : "", preview.uploadError || (preview.uploading ? "Uploading…" : "Attached")));
+  card.append(preview, info);
+  if (preview.uploadError) {
+    const retry = el("button", "", "Retry");
+    retry.onclick = () => uploadAttachment(preview, state, id);
+    card.append(retry);
+  }
+  const remove = el("button", "", "Remove");
+  remove.setAttribute("aria-label", "Remove " + (preview.file?.name || "image"));
+  remove.onclick = () => {
+    saveCompose();
+    preview.removed = true;
+    state.previews = state.previews.filter(item => item !== preview);
+    if (preview.attachmentText) {
+      const start = state.text.lastIndexOf(preview.attachmentText);
+      if (start >= 0) state.text = state.text.slice(0, start) + state.text.slice(start + preview.attachmentText.length);
+      state.pendingAttachments = state.pendingAttachments.filter(text => text !== preview.attachmentText);
+    }
+    URL.revokeObjectURL(preview.src);
+    state.revision++;
+    if (composeId === id) syncCompose();
+  };
+  remove.disabled = state.pending;
+  card.append(remove);
+  return card;
+}
+
+function longContent(text) {
+  return (text || "").length > 1800 || (text || "").split("\n").length > 18;
+}
+function foldContent(node, text) {
+  if (!longContent(text)) return;
+  const body = el("div", node.expanded ? "" : "content-preview");
+  body.append(...Array.from(node.childNodes));
+  const actions = el("div", "content-actions");
+  const expand = el("button", "", node.expanded ? "Show less" : "Show full message");
+  expand.setAttribute("aria-expanded", String(!!node.expanded));
+  expand.onclick = () => {
+    node.expanded = !node.expanded;
+    body.classList.toggle("content-preview", !node.expanded);
+    expand.setAttribute("aria-expanded", String(node.expanded));
+    expand.textContent = node.expanded ? "Show less" : "Show full message";
+  };
+  const copy = el("button", "", "Copy full text");
+  copy.onclick = async () => {
+    try { await copyChatText(text); copy.textContent = "Copied"; }
+    catch (_) { copy.textContent = "Select text to copy"; }
+  };
+  actions.append(expand, copy);
+  node.replaceChildren(body, actions);
+}
+function messageTime(node) {
+  if (!node.createdAt) return;
+  const date = new Date(node.createdAt);
+  if (!Number.isFinite(date.getTime())) return;
+  const today = date.toDateString() === new Date().toDateString();
+  const time = el("time", "message-time", (today ? "" : date.toLocaleDateString([], {month:"short", day:"numeric"}) + " · ")
+    + date.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}));
+  time.dateTime = node.createdAt;
+  time.title = date.toLocaleString();
+  node.append(time);
+}
+function enhanceCodeBlocks(node) {
+  node.codeOpen ??= new Set();
+  let codeIndex = 0;
+  for (const pre of node.querySelectorAll("pre")) {
+    const index = codeIndex++;
+    if (pre.parentElement?.classList.contains("code-container")) continue;
+    const box = el("div", "code-container");
+    const copy = el("button", "code-copy", "Copy code");
+    copy.onclick = async () => {
+      try { await copyChatText(pre.textContent); copy.textContent = "Copied"; }
+      catch (_) { copy.textContent = "Select text to copy"; }
+    };
+    pre.replaceWith(box);
+    box.append(copy, pre);
+    if (longContent(pre.textContent)) {
+      const expanded = node.codeOpen.has(index);
+      const expand = el("button", "code-expand", expanded ? "Show less code" : "Show full code");
+      pre.classList.toggle("code-preview", !expanded);
+      expand.setAttribute("aria-expanded", String(expanded));
+      expand.onclick = () => {
+        const open = expand.getAttribute("aria-expanded") !== "true";
+        expand.setAttribute("aria-expanded", String(open));
+        pre.classList.toggle("code-preview", !open);
+        if (open) node.codeOpen.add(index); else node.codeOpen.delete(index);
+        expand.textContent = open ? "Show less code" : "Show full code";
+      };
+      box.append(expand);
+    }
+  }
+}
+
+function groupCompletedTools() {
+  const feed = $("d-feed");
+  const open = new Set([...feed.querySelectorAll(":scope > .tool-group[open]")].map(group => group.firstTool));
+  for (const group of [...feed.querySelectorAll(":scope > .tool-group")]) group.replaceWith(...[...group.children].filter(child => child.tagName !== "SUMMARY"));
+  let run = [];
+  const flush = () => {
+    if (run.length >= 3) {
+      const group = el("details", "tool-group");
+      group.firstTool = run[0];
+      group.open = open.has(run[0]);
+      group.append(el("summary", "", `${run.length} completed actions`));
+      run[0].before(group);
+      group.append(...run);
+    }
+    run = [];
+  };
+  for (const node of [...feed.children]) {
+    if (node.classList.contains("tool") && node.classList.contains("completed")) run.push(node);
+    else flush();
+  }
+  flush();
+}
+
 function syncCompose() {
   if (!composeId) return;
   const state = draft(composeId);
   if (!composing && $("text").value !== state.text) $("text").value = state.text;
-  $("previews").replaceChildren(...state.previews);
+  $("previews").replaceChildren(...state.previews.map(preview => attachmentPreview(preview, state, composeId)));
   resizeCompose();
-  $("send").disabled = $("steer").disabled = state.pending || state.uploading > 0;
+  const empty = !state.text.trim();
+  const failedUpload = state.previews.some(preview => preview.uploadError);
+  $("send").disabled = $("steer").disabled = empty || state.pending || state.uploading > 0 || failedUpload;
+  const agent = typeof shownAgent !== "undefined" && shownAgent?.id === composeId ? shownAgent : null;
+  const busy = agent?.status === "working";
+  $("send").setAttribute("aria-label", busy ? "Queue message" : "Send message");
+  const status = $("compose-status");
+  status.replaceChildren();
+  if (state.sendError) {
+    status.append(el("span", "error", "Not sent · " + state.sendError));
+    const retry = el("button", "", "Retry send");
+    retry.disabled = $("send").disabled;
+    retry.onclick = () => $("send").click();
+    status.append(retry);
+  } else if (state.pending || state.uploading) status.append(el("span", "", state.uploading ? "Uploading attachments…" : "Sending…"));
+  else if (busy) status.append(el("span", "", "Busy · messages will queue"));
+  if (busy && agent.controls?.steer) {
+    const steer = el("button", "", "Adjust now");
+    steer.disabled = $("steer").disabled;
+    steer.onclick = () => sessionAction("steer", steer);
+    status.append(steer);
+  }
+  if (busy && agent.controls?.actions?.includes("stop")) {
+    const stop = el("button", "stop-task", "Stop");
+    stop.disabled = state.pending || state.uploading > 0;
+    stop.onclick = () => sessionAction("stop", stop);
+    status.append(stop);
+  }
   renderSlashCommands();
 }
+
 function appendText(state, text) {
   state.text = (state.text.trim() ? state.text.replace(/\s*$/, " ") : "") + text + " ";
 }
@@ -649,7 +1060,7 @@ async function sessionAction(action, button) {
       result = await call("POST", "session", body);
       if (generation !== viewGeneration) return;
       if (!result.confirm) break;
-      if (!await confirmAction(result.confirm)) return;
+      if (!await confirmAction(result.confirm, {title: "Session action", label: ({stop:"Stop task",reload:"Reload session",restart:"New conversation",fork:"Fork conversation",steer:"Adjust now",close:"Close agent"})[action] || "Continue", danger: ["stop", "restart", "close"].includes(action)})) return;
       if (generation !== viewGeneration) return;
       body.confirmations.push(result.confirm);
       body.confirmationToken = result.confirmationToken;
@@ -661,10 +1072,15 @@ async function sessionAction(action, button) {
       toast("Steer sent");
     } else if (action === "stop") {
       toast("Stop requested");
-    } else if (current() === id) {
+    } else if (result.closed && current() === id) {
+      const search = new URLSearchParams(location.search);
+      search.delete("agent");
+      navigate(search, true, true);
+      toast("Agent closed");
+    } else if (current() === id && result.agent) {
       open(result.agent);
     }
-  } catch (error) { toast(error.message); }
+  } catch (error) { actionFailure(error, button); }
   finally { sessionPending = false; state.pending = false; button.disabled = false; syncCompose(); }
 }
 
@@ -678,38 +1094,95 @@ function postOnClick(button, path, body) {
 
 // What happens now, under the feed: the answers the agent waits for, or
 // that it works, then the prompts queued for it.
+const permissionResponses = new Map();
 function renderLive(agent) {
   const bottom = atBottom();
   const parts = [];
+  const activePermission = agent.choices.length ? JSON.stringify([agent.id, agent.choices]) : null;
+  for (const signature of permissionResponses.keys()) {
+    if (JSON.parse(signature)[0] === agent.id && signature !== activePermission) permissionResponses.delete(signature);
+  }
   if (typeof agent.queueError === "string" && agent.queueError) {
-    const failure = el("div", "item error", "Not sent: " + agent.queueError);
-    const retry = el("button", "", "Retry");
+    const failure = el("div", "item error", "Queued messages paused: " + agent.queueError);
+    const retry = el("button", "", "Retry delivery");
     postOnClick(retry, "retry", { id: agent.id });
     failure.append(retry);
     parts.push(failure);
   }
   if (agent.choices.length) {
+    const card = el("section", "permission-card");
+    card.append(el("h3", "", "Your response is needed"), el("p", "", agent.brief || "The agent is waiting for your decision before it can continue. Review the choices below."));
     const choices = el("div", "choices");
-    choiceButtons(agent, choices);
-    parts.push(choices);
+    const feedback = el("div", "inline-feedback");
+    feedback.setAttribute("role", "status");
+    const signature = JSON.stringify([agent.id, agent.choices]);
+    const previous = permissionResponses.get(signature);
+    if (previous) { feedback.textContent = previous; choices.dataset.pending = "true"; }
+    for (const choice of agent.choices) {
+      const button = el("button", "", choice.label);
+      button.disabled = !!previous;
+      button.onclick = async () => {
+        if (choices.dataset.pending) return;
+        choices.dataset.pending = "true";
+        for (const other of choices.children) other.disabled = true;
+        feedback.textContent = "Sending response…";
+        permissionResponses.set(signature, feedback.textContent);
+        if (permissionResponses.size > 64) permissionResponses.delete(permissionResponses.keys().next().value);
+        try {
+          await call("POST", "choose", { id: agent.id, key: choice.key });
+          feedback.textContent = "Response sent. Waiting for the agent…";
+          permissionResponses.set(signature, feedback.textContent);
+        } catch (error) {
+          feedback.textContent = "Response not sent · " + error.message;
+          permissionResponses.delete(signature);
+          delete choices.dataset.pending;
+          for (const other of choices.children) other.disabled = false;
+        }
+      };
+      choices.append(button);
+    }
+    card.append(choices, feedback);
+    parts.push(card);
   } else if (agent.status === "working") {
     const working = el("div", "working");
     const preloader = el("span", "preloader");
     app.preloader.init(preloader);
-    working.append(preloader);
-    if (agent.brief) working.append(el("span", "", agent.brief));
+    working.append(preloader, el("span", "", agent.brief || "Working…"));
     parts.push(working);
   }
   for (const item of agent.queueItems || agent.queued.map(text => ({text}))) {
     const {text, id: queueId} = item;
     const node = el("div", "item prompt queued");
-    const cancel = el("button", "unqueue", "✕");
-    cancel.title = "Do not send";
-    postOnClick(cancel, "unqueue", { id: agent.id, text, queueId });
-    node.append(el("span", "", text), el("small", "", "queued"), cancel);
+    const actions = el("div", "queued-actions");
+    const feedback = el("div", "inline-feedback");
+    feedback.setAttribute("role", "status");
+    actions.append(el("small", "", "Waiting to send"));
+    const withdraw = async (edit) => {
+      for (const button of actions.querySelectorAll("button")) button.disabled = true;
+      feedback.textContent = edit ? "Moving to draft…" : "Removing…";
+      try {
+        await call("POST", "unqueue", { id: agent.id, text, queueId });
+        if (edit) {
+          saveCompose();
+          const state = draft(agent.id);
+          state.text = (state.text.trim() ? state.text + "\n\n" : "") + text;
+          state.revision++;
+          if (composeId === agent.id) { syncCompose(); $("text").focus(); }
+        }
+        node.remove();
+      } catch (error) {
+        feedback.textContent = "Could not change queue · " + error.message;
+        for (const button of actions.querySelectorAll("button")) button.disabled = false;
+      }
+    };
+    const edit = el("button", "", "Edit"); edit.onclick = () => withdraw(true);
+    const remove = el("button", "", "Remove"); remove.onclick = () => withdraw(false);
+    actions.append(edit, remove);
+    node.append(el("span", "", text), actions, feedback);
     parts.push(node);
   }
   $("d-live").replaceChildren(...parts);
+  if (composeId === agent.id) syncCompose();
   if (bottom) scrollToBottom();
 }
 
@@ -737,11 +1210,14 @@ function renderTool(node, item) {
   if (item.diff) {
     const details = el("details");
     details.open = wasOpen ?? false;
-    details.append(el("summary", "", "diff"), diffPre(item.diff));
+    details.append(el("summary", "", "View changes"), diffPre(item.diff));
     parts.push(details);
   }
   if (item.images.length) parts.push(imageStrip(item.images));
+  if (item.status === "failed") parts.push(el("p", "inline-feedback error", "This action failed. Review the agent’s response before continuing."));
   node.replaceChildren(...parts);
+  enhanceCodeBlocks(node);
+  foldContent(node, [item.title, item.diff].filter(Boolean).join("\n"));
 }
 
 const atBottom = () => {
@@ -751,10 +1227,12 @@ const atBottom = () => {
 function scrollToBottom() {
   $("detail").scrollTop = $("detail").scrollHeight;
   $("latest").hidden = true;
+  markSeen();
 }
 let pinned = true;
 $("detail").addEventListener("scroll", () => {
   pinned = atBottom();
+  if (pinned) markSeen();
   $("latest").hidden = pinned || !current();
   $("latest").style.bottom = ($("compose").getBoundingClientRect().height + 12) + "px";
 }, {passive: true});
@@ -771,7 +1249,10 @@ function renderReply(node) {
   const bottom = atBottom();
   node.drawn = Date.now();
   node.innerHTML = markdown(node.source);
+  enhanceCodeBlocks(node);
   if (node.images.length) node.append(imageStrip(node.images));
+  foldContent(node, node.source);
+  messageTime(node);
   if (bottom) scrollToBottom();
 }
 
@@ -783,6 +1264,8 @@ function renderItem(follow, item) {
     node = el("div");
     follow.nodes.set(item.item, node);
   }
+  node.createdAt = item.createdAt || node.createdAt;
+  node.itemId = item.item;
   switch (item.type) {
     case "prompt": node.className = "item prompt"; node.textContent = item.text; break;
     case "text":
@@ -798,7 +1281,20 @@ function renderItem(follow, item) {
     case "error": node.className = "item error"; node.textContent = item.text; break;
   }
   if (!["tool", "text"].includes(item.type) && item.images.length) node.append(imageStrip(item.images));
-  if (fresh) $("d-feed").append(node);
+  if (item.type !== "text") {
+    if (item.type !== "tool") foldContent(node, item.text);
+    messageTime(node);
+  }
+  if (fresh) {
+    const next = [...follow.nodes.entries()].filter(([id]) => id > item.item).sort((a,b) => a[0] - b[0])[0]?.[1];
+    if (next?.isConnected) next.before(node);
+    else $("d-feed").append(node);
+  }
+  if (item.type === "tool" || fresh) {
+    const bottom = atBottom(), top = $("detail").scrollTop;
+    groupCompletedTools();
+    if (bottom) scrollToBottom(); else $("detail").scrollTop = top;
+  }
   return true;
 }
 
@@ -813,7 +1309,7 @@ function formatDuration(seconds) {
 
 function statusLabel(status) {
   return ({working: "Working", waiting: "Needs attention", failed: "Failed", done: "Completed",
-    idle: "Ready", saved: "Saved", open: "To do"})[status] || status || "";
+    idle: "Ready", saved: "Saved", offline: "Not started", open: "To do"})[status] || status || "";
 }
 
 function nodeActions(box, node) {
@@ -828,11 +1324,116 @@ function nodeActions(box, node) {
   app.actions.create({ buttons: [buttons, [{ text: "Cancel", color: "gray" }]], destroyOnClose: true }).open();
 }
 
+const dashboardDisclosures = new Map();
+const usageDisclosures = new Map();
+function rememberDashboardDisclosure(store, key, value) {
+  if (!store.has(key) && store.size >= 256) store.delete(store.keys().next().value);
+  store.set(key, value);
+}
+function dashboardNodes(nodes, predicate) {
+  const found = new Map();
+  const visit = items => { for (const node of items || []) {
+    if (predicate(node)) found.set(node.agent || node.resourceId || node.id, node);
+    visit(node.children);
+  } };
+  visit(nodes);
+  return [...found.values()];
+}
+function dashboardCounts(node) {
+  const nodes = node.children || [];
+  return {
+    conversations: dashboardNodes(nodes, child => child.kind === "agent" || child.kind === "saved").length,
+    tasks: dashboardNodes(nodes, child => child.kind === "todo").length,
+    files: dashboardNodes(nodes, child => child.kind === "file").length
+  };
+}
+function dashboardUnit(count, unit) { return `${count} ${unit}${count === 1 ? "" : "s"}`; }
+function stableProjectNodes(nodes) {
+  const compare = new Intl.Collator(undefined, {numeric: true, sensitivity: "base"}).compare;
+  const projects = nodes.filter(node => node.kind === "project").sort((a, b) =>
+    compare(nodeTitle(a), nodeTitle(b)) || String(a.id).localeCompare(String(b.id)));
+  let index = 0;
+  return nodes.map(node => node.kind === "project" ? projects[index++] : node);
+}
+function dashboardPersonaSection(section) {
+  return section.children.some(node => node.kind === "persona" || !!node.persona);
+}
+function dashboardSectionRank(section) {
+  if (dashboardNodes([section], node => node.kind === "project").length) return 0;
+  if (dashboardPersonaSection(section)) return 1;
+  if (dashboardNodes([section], node => node.kind === "usage").length) return 3;
+  return 2;
+}
+function dashboardAttention(sections) {
+  const waiting = dashboardNodes(sections, node => !!node.agent &&
+    (node.attention || node.choices?.length || ["waiting", "failed"].includes(node.status)));
+  if (!waiting.length) return null;
+  const section = el("section", "dashboard-section dashboard-attention");
+  const button = el("button", "attention-shortcut");
+  button.type = "button";
+  const label = el("span", "attention-caption", "Needs attention");
+  label.append(el("span", "attention-detail", waiting.length === 1 ? nodeTitle(waiting[0]) : dashboardUnit(waiting.length, "conversation")));
+  button.append(label, el("span", "attention-number", String(waiting.length)));
+  button.setAttribute("aria-expanded", String(!!dashboardDisclosures.get("attention")));
+  const list = dashboardGroup("", waiting, {key: "attention-items"});
+  list.hidden = !dashboardDisclosures.get("attention");
+  button.onclick = () => {
+    list.hidden = !list.hidden;
+    rememberDashboardDisclosure(dashboardDisclosures, "attention", !list.hidden);
+    button.setAttribute("aria-expanded", String(!list.hidden));
+  };
+  section.append(button, list);
+  return section;
+}
+function dashboardOverview(selected, persona = false) {
+  const overview = el("section", "dashboard-overview" + (persona ? " persona-conversations-overview" : ""));
+  const counts = dashboardCounts(selected);
+  const facts = el("div", "overview-facts");
+  const items = persona ? [[counts.conversations, "conversation"]]
+    : [[counts.conversations, "conversation"], [counts.tasks, "task"], [counts.files, "changed file"]];
+  for (const [count, unit] of items) facts.append(el("span", "overview-fact", dashboardUnit(count, unit)));
+  overview.append(facts);
+  const command = selected.commands?.find(item => ["new-agent", "new", "start"].includes(item.name));
+  if (command) {
+    const button = el("button", "button button-fill overview-new", "New conversation");
+    button.type = "button";
+    button.setAttribute("aria-label", `New conversation in ${nodeTitle(selected)}`);
+    button.onclick = () => {
+      if (command.input || command.options) openPanel(overview, selected, {name: command.name});
+      else runCommand(selected, command, {}, button);
+    };
+    overview.append(button);
+  }
+  return overview;
+}
+function dashboardDue(value, now = new Date()) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return {label: "Due " + value, overdue: false};
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (date.getTime() === today.getTime()) return {label: "Due today", overdue: false};
+  if (date < today) return {label: "Overdue · " + value, overdue: true};
+  return {label: "Due " + value, overdue: false};
+}
 function usageInto(container, node) {
-  const heading = el("div", "usage-account");
-  heading.append(icon(node.provider), el("span", "", node.provider[0].toUpperCase() + node.provider.slice(1)));
+  const key = node.resourceId || node.id;
+  const details = el("details", "usage-disclosure");
+  details.open = !!usageDisclosures.get(key);
+  const summary = el("summary", "usage-summary");
+  const heading = el("span", "usage-account");
+  const provider = node.provider || node.title || "Usage";
+  heading.append(icon(provider), el("span", "", provider[0].toUpperCase() + provider.slice(1)));
   if (node.account) heading.append(el("span", "usage-account-name", node.account));
-  container.append(heading);
+  const values = el("span", "usage-summary-values");
+  values.append(el("span", "usage-label", "Used"));
+  for (const item of node.windows || []) {
+    const label = el("span", "usage-summary-value" + (typeof item.value === "number" && item.value >= 80 ? " warning" : ""));
+    label.append(el("span", "usage-label", item.label),
+      el("span", "usage-value", typeof item.value === "number" ? `${Math.floor(item.value)}%` : item.value));
+    values.append(label);
+  }
+  summary.append(heading, values);
+  details.append(summary);
   const windows = el("div", "usage-windows");
   for (const item of node.windows || []) {
     const window = el("div", "usage-window");
@@ -861,17 +1462,63 @@ function usageInto(container, node) {
     }
     windows.append(window);
   }
-  container.append(windows);
+  details.append(windows);
+  if (node.commands?.length) {
+    const actions = el("button", "usage-actions", "Account actions");
+    actions.type = "button";
+    actions.onclick = () => nodeActions(container.closest("li") || container, node);
+    details.append(actions);
+  }
+  details.ontoggle = () => rememberDashboardDisclosure(usageDisclosures, key, details.open);
+  container.append(details);
 }
 
-function renderNode(node) {
+function personaMenu(row, box, node) {
+  let timer, origin, held = false;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  const show = () => { cancel(); held = true; nodeActions(box, node); };
+  row.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    held = false;
+    origin = {x: event.clientX, y: event.clientY};
+    timer = setTimeout(show, 550);
+  });
+  row.addEventListener("pointermove", event => {
+    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 8) cancel();
+  });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) row.addEventListener(type, cancel);
+  row.addEventListener("contextmenu", event => { event.preventDefault(); if (!held) show(); });
+  row.addEventListener("keydown", event => {
+    if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") {
+      event.preventDefault(); show();
+    }
+  });
+  row.addEventListener("click", event => {
+    cancel();
+    if (held) { held = false; event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  row.setAttribute("aria-description", "Touch and hold or press Shift+F10 for actions");
+}
+
+function renderNode(node, options = {}) {
   const box = el("li", "remote-item");
+  box.dataset.nodeId = node.id;
   const usage = node.kind === "usage";
+  if (usage) {
+    box.classList.add("usage-row");
+    usageInto(box, node);
+    return box;
+  }
   const task = node.kind === "todo";
+  const persona = node.kind === "persona" || !!options.personaList && !!node.persona;
   const agent = node.kind === "agent" || node.kind === "saved";
-  const navigates = !!node.agent || node.children.length > 0;
+  const navigates = !!node.agent || node.children.length > 0 || node.kind === "project";
   const actionable = navigates || node.diff || node.commands?.length;
-  const hasMenu = !!node.commands?.length;
+  const hasMenu = !persona && node.kind !== "project" && !!node.commands?.length;
+  const personaConversations = persona ? node.children.filter(child => child.agent) : [];
+  const personaStatus = persona && !node.agent
+    ? ["waiting", "failed", "working", "done"].find(status => personaConversations.some(child => child.status === status))
+      || (personaConversations.length ? "idle" : "offline") : node.status;
   const row = el(actionable ? "button" : "div", "remote-row item-content" +
     ((navigates || node.diff) && !hasMenu ? " item-link" : ""));
   const inner = el("div", "item-inner");
@@ -881,16 +1528,23 @@ function renderNode(node) {
     box.classList.add("usage-row");
     usageInto(text, node);
   } else {
-    const title = el("span", "row-title", nodeTitle(node));
+    const title = el("span", "row-title", persona ? node.persona || nodeTitle(node) : nodeTitle(node));
     text.append(title);
-    if (node.subtitle) text.append(el("span", "row-subtitle", node.subtitle));
-    if (agent) {
+    if (node.subtitle && !persona) text.append(el("span", "row-subtitle", node.subtitle));
+    if (agent || persona) {
       const meta = el("div", "agent-meta");
-      const state = el("span", "agent-state state-" + (node.status || "idle"), statusLabel(node.status));
+      const status = persona ? personaStatus : node.status;
+      const label = persona && status === "idle" ? "Available" : statusLabel(status);
+      const state = el("span", "agent-state state-" + (status || "idle"), label);
       meta.append(state);
-      if (Number.isFinite(node.durationSeconds)) meta.append(el("span", "", formatDuration(node.durationSeconds)));
-      else if (node.duration) meta.append(el("span", "", node.duration));
-      if (Number.isFinite(node.context)) meta.append(el("span", "", `Context ${Math.round(node.context)}%`));
+      const unread = Number(node.unreadCount) || personaConversations.reduce((sum, child) => sum + (Number(child.unreadCount) || 0), 0);
+      if (unread > 0) {
+        const badge = el("span", "unread-badge", unread > 99 ? "99+" : String(unread));
+        badge.setAttribute("aria-label", `${unread} unread messages`);
+        meta.append(badge);
+      }
+      if (personaConversations.length) meta.append(el("span", "persona-count",
+        `${personaConversations.length} ${personaConversations.length === 1 ? "conversation" : "conversations"}`));
       text.append(meta);
     }
     if (node.kind === "repo" && node.branch) text.append(el("span", "row-subtitle", node.branch));
@@ -900,12 +1554,18 @@ function renderNode(node) {
       if (node.removed) counts.append(el("span", "removed", `−${node.removed}`));
       text.append(counts);
     }
-    if (task && node.due) text.append(el("span", "task-due", "Due " + node.due));
+    if (task && node.due) {
+      const due = dashboardDue(node.due);
+      text.append(el("span", "task-due" + (due.overdue ? " overdue" : ""), due.label));
+    }
   }
   line.append(text);
   if (!usage) {
     const media = el("div", "item-media row-icon");
-    if (agent) {
+    if (persona) {
+      box.classList.add("persona-row");
+      media.append(personaAvatar(node.persona || node.title));
+    } else if (agent) {
       box.classList.add("conversation-row");
       media.classList.add("agent-icon");
       media.append(icon(node.provider || "agent"));
@@ -917,7 +1577,12 @@ function renderNode(node) {
         check.type = "button";
         check.setAttribute("aria-label", "Complete: " + nodeTitle(node));
         check.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>';
-        check.onclick = () => runCommand(node, done, {}, check);
+        check.onclick = async () => {
+          check.disabled = true;
+          check.setAttribute("aria-busy", "true");
+          try { await runCommand(node, done, {}, check); }
+          finally { check.removeAttribute("aria-busy"); }
+        };
         // Keep the completion control beside, rather than inside, the row button.
         box.append(check);
       }
@@ -934,11 +1599,19 @@ function renderNode(node) {
       box.classList.add("group-row");
       media.classList.add("group-icon");
       media.innerHTML = '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M3 10V8a2 2 0 0 1 2-2h6l2.5 3H23a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V10Z"/></svg>';
-      const countAgents = nodes => nodes.reduce((sum, child) => sum + (child.agent ? 1 : countAgents(child.children)), 0);
-      const count = countAgents(node.children);
-      if (count) line.append(el("span", "group-count", String(count)));
+      if (node.kind === "project") {
+        const count = dashboardCounts(node).conversations;
+        if (count) text.append(el("span", "project-list-meta", dashboardUnit(count, "conversation")));
+      }
     }
     if (media.childNodes.length) row.append(media);
+  }
+  if (navigates || node.diff) {
+    box.classList.add("dashboard-navigable");
+    const chevron = el("span", "dashboard-chevron");
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.innerHTML = '<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m1 1 6 6-6 6"/></svg>';
+    line.append(chevron);
   }
   inner.append(line);
   row.append(inner);
@@ -946,12 +1619,17 @@ function renderNode(node) {
     row.type = "button";
     row.onclick = () => {
       if (node.agent) open(node.agent);
-      else if (node.children.length) openGroup(node.id);
+      else if (node.children.length || node.kind === "project") openGroup(node.id);
+      else if (persona && node.commands?.some(command => ["start", "new", "open"].includes(command.name))) {
+        const command = node.commands.find(command => ["start", "new", "open"].includes(command.name));
+        runCommand(node, command, {}, row);
+      }
       else if (node.diff) showDiff(box, node);
       else nodeActions(box, node);
     };
   }
   box.append(row);
+  if ((persona || node.kind === "project") && node.commands?.length) personaMenu(row, box, node);
   if (hasMenu) {
     box.classList.add("has-menu");
     const more = el("button", "more", "⋯");
@@ -981,13 +1659,29 @@ function dashboardPath(id, nodes = dashboardSections, parents = []) {
   return null;
 }
 
-function dashboardGroup(title, nodes) {
+function dashboardGroup(title, nodes, options = {}) {
   const section = el("section", "dashboard-section");
   if (title) section.append(el("h2", "block-title", title));
   const list = el("div", "list list-inset list-strong list-dividers");
   const rows = el("ul");
-  rows.append(...nodes.map(renderNode));
+  const limit = options.limit || 6;
+  const expanded = () => !options.key || dashboardDisclosures.get(options.key);
+  const more = el("button", "dashboard-show-more");
+  more.type = "button";
+  const draw = () => {
+    const showingAll = expanded();
+    rows.replaceChildren(...(showingAll ? nodes : nodes.slice(0, limit)).map(node => renderNode(node, {personaList: options.personaList})));
+    more.textContent = showingAll ? "Show less" : `Show all ${nodes.length}`;
+    more.setAttribute("aria-label", `${more.textContent}${title ? " · " + title : ""}`);
+    more.setAttribute("aria-expanded", String(!!showingAll));
+  };
+  more.onclick = () => {
+    rememberDashboardDisclosure(dashboardDisclosures, options.key, !expanded());
+    draw();
+  };
+  draw();
   list.append(rows);
+  if (options.key && nodes.length > limit) list.append(more);
   section.append(list);
   return section;
 }
@@ -995,8 +1689,18 @@ function dashboardGroup(title, nodes) {
 // Keep the dashboard stable while a row's sheet holds input.
 let panel = null;
 let pendingSections = null;
+const formDrafts = new Map();
+function formDraftKey(nodeId, name) { return JSON.stringify([nodeId, name]); }
+function forgetPanelDraft(nodeId, name) { formDrafts.delete(formDraftKey(nodeId, name)); }
+function rememberPanelDraft() {
+  if (!panel?.name) return;
+  const key = formDraftKey(panel.node.id, panel.name);
+  if (formDrafts.size >= 128 && !formDrafts.has(key)) formDrafts.delete(formDrafts.keys().next().value);
+  formDrafts.set(key, {text: panel.text || "", option: panel.option});
+}
 
 function closePanel() {
+  rememberPanelDraft();
   const previous = panel;
   panel = null;
   previous?.sheet.close();
@@ -1015,12 +1719,17 @@ function panelContainer(box, node, state = {}) {
     return container;
   }
   closePanel();
+  const previousFocus = document.activeElement;
   const root = el("div", "sheet-modal remote-sheet");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", node.title || "Actions");
   const inner = el("div", "sheet-modal-inner");
   const toolbar = el("div", "toolbar");
   const bar = el("div", "toolbar-inner");
   const done = el("button", "link", "Done");
   done.onclick = closePanel;
+  done.setAttribute("aria-label", "Close sheet");
   bar.append(el("div", "title", "overlook"), done);
   toolbar.append(bar);
   const content = el("div", "page-content");
@@ -1029,10 +1738,13 @@ function panelContainer(box, node, state = {}) {
   inner.append(toolbar, content);
   root.append(inner);
   const sheet = app.sheet.create({ el: root, backdrop: true, closeByOutsideClick: false,
-    swipeToClose: true, on: { closed() {
-      if (panel?.sheet === sheet) { panel = null; closePanel(); }
+    swipeToClose: true, on: { opened() {
+      if (!root.querySelector("textarea")) done.focus({preventScroll: true});
+    }, closed() {
+      if (panel?.sheet === sheet) { rememberPanelDraft(); panel = null; closePanel(); }
       sheet.destroy();
       root.remove();
+      if (previousFocus?.isConnected) previousFocus.focus({preventScroll: true});
     } } });
   panel = { text: "", option: null, ...state, node, box, sheet };
   sheet.open();
@@ -1040,6 +1752,9 @@ function panelContainer(box, node, state = {}) {
 }
 
 function openPanel(box, node, state = {}) {
+  if (state.name && !("text" in state)) {
+    state = {...formDrafts.get(formDraftKey(node.id, state.name)), ...state};
+  }
   const container = panelContainer(box, node, state);
   const button = (label, className, onclick) => {
     const b = el("button", className, label);
@@ -1065,18 +1780,21 @@ function openPanel(box, node, state = {}) {
       select = el("select");
       for (const option of command.options) select.append(new Option(option, option));
       if (panel.option) select.value = panel.option;
-      select.onchange = () => { panel.option = select.value; };
+      select.setAttribute("aria-label", "Choose " + command.label);
+      select.onchange = () => { panel.option = select.value; rememberPanelDraft(); };
       container.append(select);
     }
     const text = el("textarea");
     text.placeholder = command.input;
     text.value = panel.text;
-    text.oninput = () => { panel.text = text.value; };
-    container.append(text, button("Send", "primary", (b) =>
+    text.setAttribute("aria-label", command.input);
+    text.oninput = () => { panel.text = text.value; rememberPanelDraft(); };
+    container.append(el("label", "form-label", command.input), text, button(command.label, "primary", (b) =>
       runCommand(node, command, { text: text.value, option: select?.value }, b)));
   }
   container.append(button("Cancel", "", closePanel));
-  container.querySelector("textarea")?.focus();
+  panel.sheet.el.setAttribute("aria-label", command?.label || nodeTitle(node));
+  requestAnimationFrame(() => { if (panel?.sheet?.el.contains(container)) container.querySelector("textarea")?.focus(); });
 }
 
 // Diffs share the command sheet.
@@ -1099,6 +1817,7 @@ const commandAttempts = new Map();
 async function runCommand(node, command, args, button) {
   const generation = viewGeneration;
   button.disabled = true;
+  button.closest?.(".commands, .remote-item")?.querySelector(".operation-error")?.remove();
   try {
     const key = JSON.stringify([node.id, command.name, args]);
     if (!commandAttempts.has(key)) {
@@ -1109,7 +1828,7 @@ async function runCommand(node, command, args, button) {
     let result = await call("POST", "command", body);
     if (generation !== viewGeneration) return;
     while (result.confirm) {
-      if (!await confirmAction(result.confirm)) { commandAttempts.delete(key); button.disabled = false; return; }
+      if (!await confirmAction(result.confirm, {title: nodeTitle(node), label: command.label, danger: !!command.confirm})) { commandAttempts.delete(key); button.disabled = false; return; }
       if (generation !== viewGeneration) return;
       body.confirmed = true;
       body.confirmationToken = result.confirmationToken;
@@ -1117,30 +1836,40 @@ async function runCommand(node, command, args, button) {
     }
     if (generation !== viewGeneration) return;
     commandAttempts.delete(key);
+    forgetPanelDraft(node.id, command.name);
+    if (panel?.node.id === node.id && panel.name === command.name) panel.name = null;
     closePanel();
     if (result.draft) appendText(draft(result.agent), result.draft);
     if (result.agent) open(result.agent);
     else toast(command.label + ": done");
   } catch (error) {
-    toast(error.message);
+    actionFailure(error, button);
     button.disabled = false;
   }
 }
 
 function groupContents(selected) {
-  const conversations = [], tasks = [], code = [], resources = [];
+  const conversations = [], saved = [], tasks = [], code = [], resources = [];
   const containsDiff = node => node.diff || node.children.some(containsDiff);
   for (const node of selected.children) {
-    if (node.kind === "agent" || node.kind === "saved") conversations.push(node);
+    if (node.kind === "agent") conversations.push(node);
+    else if (node.kind === "saved") saved.push(node);
     else if (node.kind === "todo" || node.kind === "tasks") tasks.push(node);
     else if (["repo", "folder", "file"].includes(node.kind) || containsDiff(node)) code.push(node);
     else resources.push(node);
   }
+  const persona = selected.kind === "persona";
   const groups = [];
-  for (const [title, nodes] of [["Conversations", conversations], ["To do", tasks], ["Code & changes", code], ["Resources", resources]]) {
-    if (nodes.length) groups.push(dashboardGroup(title, nodes));
+  if (selected.kind === "project" || persona) groups.push(dashboardOverview(selected, persona));
+  const sections = persona
+    ? [["Conversations", conversations], ["Saved conversations", saved], ["To do", tasks], ["Code & changes", code], ["Resources", resources]]
+    : [["Conversations", [...conversations, ...saved]], ["To do", tasks], ["Code & changes", code], ["Resources", resources]];
+  for (const [title, nodes] of sections) {
+    if (nodes.length) groups.push(dashboardGroup(title, stableProjectNodes(nodes), {key: `${selected.id}:${title}`}));
   }
-  return groups.length ? groups : [el("p", "project-empty", "No items to show in this group yet.")];
+  if (!selected.children.length) groups.push(el("p", "project-empty", persona
+    ? "Start a conversation with this persona." : "No items to show in this group yet."));
+  return groups;
 }
 
 function renderDashboard(sections) {
@@ -1162,8 +1891,12 @@ function renderDashboard(sections) {
     container.replaceChildren(el("p", "empty", "This group is no longer available. Go back to your projects."));
     return;
   }
-  const groups = selected ? groupContents(selected)
-    : sections.map((section) => dashboardGroup(nodeTitle(section), section.children.length ? section.children : [section]));
+  const attention = selected ? null : dashboardAttention(sections);
+  const ordered = sections.map((section, index) => ({section, index})).sort((a, b) =>
+    dashboardSectionRank(a.section) - dashboardSectionRank(b.section) || a.index - b.index);
+  const groups = selected ? [...(selected.kind === "persona" ? [personaProfile(selected.title)] : []), ...groupContents(selected)]
+    : [...(attention ? [attention] : []), ...ordered.map(({section}) => dashboardGroup(nodeTitle(section),
+      stableProjectNodes(section.children.length ? section.children : [section]), {personaList: dashboardPersonaSection(section)}))];
   container.replaceChildren(...(groups.length ? groups : [el("p", "empty", "The dashboard is empty.")]));
   if (pendingDashboardScroll !== null) {
     $("dash").scrollTop = pendingDashboardScroll;
@@ -1286,7 +2019,7 @@ function index(nodes, known = new Map()) {
 
 function watchDashboard() {
   if (dashboardSections.length) renderDashboard(dashboardSections);
-  else $("dashboard-content").replaceChildren(el("p", "empty", "Loading projects…"));
+  else renderLoading("dashboard-content", "Loading projects…");
   const mine = { known: "", nodes: new Map() };
   mine.url = () => "dashboard?known=" + mine.known;
   mine.stream = () => "dashboard/stream?known=" + mine.known;
@@ -1306,38 +2039,107 @@ function watchDashboard() {
   poll(mine);
 }
 
+function renderHistoryControls(mine, error = "") {
+  const controls = $("history-controls");
+  controls.replaceChildren();
+  controls.hidden = !mine.history?.hasMore && !error;
+  if (controls.hidden) return;
+  const button = el("button", "", mine.loadingHistory ? "Loading earlier messages…" : "Load earlier messages");
+  button.disabled = mine.loadingHistory;
+  button.onclick = () => loadEarlier(mine);
+  controls.append(button);
+  if (error) controls.append(el("p", "error", error));
+}
+async function loadEarlier(mine) {
+  if (poller !== mine || mine.loadingHistory || !mine.history?.hasMore) return;
+  mine.loadingHistory = true;
+  renderHistoryControls(mine);
+  const detail = $("detail");
+  const height = detail.scrollHeight, top = detail.scrollTop;
+  const revision = mine.historyRevision;
+  try {
+    const page = await call("GET", `history?id=${encodeURIComponent(mine.id)}&before=${mine.history.before}&limit=50&epoch=${encodeURIComponent(mine.epoch)}`);
+    if (poller !== mine || revision !== mine.historyRevision) return;
+    if (page.epoch !== mine.epoch) throw new Error("Earlier messages expired. Reopen this conversation to refresh.");
+    for (const item of page.items) {
+      if (mine.nodes.has(item.item)) continue;
+      if (!renderItem(mine, item)) throw new Error("Could not load earlier messages.");
+    }
+    // Stable item identities also order tools after their later updates.
+    for (const group of [...$("d-feed").querySelectorAll(":scope > .tool-group")]) group.replaceWith(...[...group.children].filter(child => child.tagName !== "SUMMARY"));
+    const ordered = [...mine.nodes.entries()].sort((a,b) => a[0] - b[0]).map(([,node]) => node);
+    $("d-feed").replaceChildren(...ordered);
+    groupCompletedTools();
+    mine.history = {hasMore:page.hasMore, before:page.before};
+    mine.loadingHistory = false;
+    renderHistoryControls(mine);
+    detail.scrollTop = top + detail.scrollHeight - height;
+  } catch (error) {
+    if (poller !== mine || revision !== mine.historyRevision) return;
+    mine.loadingHistory = false;
+    if (error.code === "history_expired") {
+      mine.history = null;
+      renderHistoryControls(mine, "Earlier messages have expired from the server. Reopen this conversation to refresh.");
+      $("history-controls").querySelector("button").remove();
+    } else renderHistoryControls(mine, error.message);
+    detail.scrollTop = top;
+  }
+}
+
 async function followAgent(id) {
-  const mine = { id, after: 0, known: "", epoch: "", nodes: new Map() };
+  const mine = { id, after: 0, known: "", epoch: "", nodes: new Map(), firstNews: true, presentedSeq: 0, history: null, loadingHistory: false, historyRevision: 0 };
   mine.url = () => `events?id=${encodeURIComponent(id)}&after=${mine.after}&known=${mine.known}`
     + `&epoch=${mine.epoch}`;
   mine.news = (news) => {
-    if (news.reset) {
+    const first = mine.firstNews;
+    if (news.reset || first) {
+      mine.historyRevision++;
+      mine.loadingHistory = false;
+      mine.presentedSeq = 0;
       mine.nodes.clear();
       $("d-feed").replaceChildren();
     }
+    $("d-feed").querySelector(".view-state")?.remove();
+    $("d-feed").removeAttribute("aria-busy");
     const bottom = atBottom();
     renderHeader(news.agent);
     mine.epoch = news.epoch;
+    if (news.reset || first) mine.history = news.history || null;
     if (!news.items.every((item) => renderItem(mine, item))) {
       mine.after = 0;
       mine.nodes.clear();
       $("d-feed").replaceChildren();
       throw new Stale();
     }
-    $("d-earlier").hidden = mine.nodes.size > 0;
-    if (bottom && news.items.length) scrollToBottom();
+    $("d-earlier").hidden = mine.nodes.size > 0 || !news.agent.reply;
+    if (!mine.nodes.size && !news.agent.reply) {
+      $("d-feed").replaceChildren(viewState(news.agent.status === "working" ? "Working on your request" : "Start a conversation",
+        news.agent.status === "working" ? "The response will appear here." : "Send a message below to get started."));
+    }
+    const position = conversationPositions.get(id);
+    if (first && position && !position.pinned) {
+      $("detail").scrollTop = position.top;
+      $("detail").dispatchEvent(new Event("scroll"));
+    } else if ((first || bottom) && news.items.length) scrollToBottom();
+    mine.firstNews = false;
+    mine.presentedSeq = Math.max(mine.presentedSeq, ...news.items.map(item => item.seq || item.item || 0));
+    renderHistoryControls(mine);
+    markSeen();
     mine.after = news.seq;
     mine.known = news.known;
   };
   poller = mine;
-  $("d-feed").replaceChildren();
+  renderLoading("d-feed", "Loading conversation…");
   $("d-earlier").hidden = true;
+  $("history-controls").hidden = true;
   try {
     const agent = await call("GET", "agent?id=" + encodeURIComponent(id));
     if (poller !== mine) return;
     connected();
     renderHeader(agent);
-    $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "<p>(none yet)</p>";
+    $("d-reply").innerHTML = agent.reply ? markdown(agent.reply) : "";
+    enhanceCodeBlocks($("d-reply"));
+    foldContent($("d-reply"), agent.reply || "");
     $("d-transcript").textContent = agent.transcript;
   } catch (error) {
     if (poller !== mine) return;
@@ -1352,7 +2154,42 @@ function current() {
 
 let navigationDepth = history.state?.overlookDepth || 0;
 let pageTransition = null;
+const conversationPositions = new Map();
+const navigationFocus = new Map();
+let shownRoute = location.search;
+let restoringFocus = null;
+function rememberNavigation() {
+  if (composeId && !$("detail").hidden) {
+    conversationPositions.set(composeId, {top: $("detail").scrollTop, pinned: atBottom()});
+  }
+  const row = document.activeElement?.closest?.("[data-node-id]");
+  if (row?.dataset.nodeId) navigationFocus.set(shownRoute, row.dataset.nodeId);
+}
+function restoreNavigationFocus(back) {
+  restoringFocus?.();
+  const route = location.search;
+  const nodeId = back && navigationFocus.get(route);
+  const target = () => nodeId
+    ? Array.from(document.querySelectorAll("[data-node-id]")).find(node => node.dataset.nodeId === nodeId)?.querySelector(".remote-row")
+    : current() || new URLSearchParams(route).has("node") ? $("heading") : $("dashboard-intro").querySelector("h1");
+  const focus = () => {
+    const element = target();
+    if (!element || element.closest("[hidden]") || element.closest(".page-snapshot")) return false;
+    if (!element.matches("button, a, input, textarea, select")) element.tabIndex = -1;
+    element.focus({preventScroll: true});
+    return true;
+  };
+  if (focus()) return;
+  const observer = new MutationObserver(() => { if (focus()) cleanup(); });
+  observer.observe($("dashboard-content"), {childList: true, subtree: true});
+  const timer = setTimeout(() => { cleanup(); $("heading").focus({preventScroll: true}); }, 4000);
+  function cleanup() { observer.disconnect(); clearTimeout(timer); restoringFocus = null; }
+  restoringFocus = cleanup;
+}
 function transitionPage(update, back = false) {
+  rememberNavigation();
+  const render = update;
+  update = () => { render(); shownRoute = location.search; requestAnimationFrame(() => restoreNavigationFocus(back)); };
   pageTransition?.();
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { update(); return; }
   const page = document.querySelector(".remote-page");
@@ -1431,6 +2268,7 @@ function show() {
   agentControls = {};
   $("steer").hidden = $("session-menu").hidden = true;
   $("context").hidden = true;
+  $("persona-profile").hidden = true;
   renderSlashCommands();
   pendingSections = null;
   closePanel();
@@ -1438,10 +2276,17 @@ function show() {
   app.dialog.close();
   photoBrowser?.close();
   if (!token) {
-    $("dashboard-content").replaceChildren(el("p", "empty", "Open this page from M-x overlook-remote-url in Emacs."));
+    const target = id ? $("d-feed") : $("dashboard-content");
+    target.replaceChildren(viewState("Open your personal link", "In Emacs, run M-x overlook-remote-url and open the generated link on this device."));
+    $("compose").hidden = true;
+    $("heading").textContent = "Overlook";
     return;
   }
-  if (id) followAgent(id);
+  if (id) {
+    shownAgent = null;
+    $("heading").replaceChildren(el("span", "navigation-title", "Conversation"), el("span", "navigation-subtitle", "Loading…"));
+    followAgent(id);
+  }
   else {
     $("heading").textContent = "Overlook";
     dashboardRoute = new URLSearchParams(location.search).get("node") || "";
@@ -1491,8 +2336,7 @@ $("text").addEventListener("input", (event) => {
     draft(composeId).revision++;
   }
   if (event.isComposing || composing) return;
-  renderSlashCommands();
-  resizeCompose();
+  syncCompose();
 });
 
 const sendable = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -1517,33 +2361,45 @@ function base64(blob) {
   });
 }
 
-async function attach(file) {
-  saveCompose();
-  const id = current();
-  const state = draft(id);
-  if (state.pending) return;
+async function uploadAttachment(preview, state, id) {
+  if (preview.uploading || preview.removed || state.pending) return;
+  preview.uploading = true;
+  preview.uploadError = "";
   state.uploading++;
-  const preview = el("img");
-  preview.src = URL.createObjectURL(file);
-  preview.style.opacity = ".4";
-  state.previews.push(preview);
-  syncCompose();
+  if (composeId === id) syncCompose();
   try {
-    const blob = await prepare(file);
+    const blob = await prepare(preview.file);
+    if (!blob) throw new Error("This image could not be prepared");
     const { text } = await call("POST", "upload", { id, mime: blob.type, data: await base64(blob) });
+    if (!text || typeof text !== "string") throw new Error("No attachment was returned");
+    if (preview.removed) return;
     saveCompose();
+    preview.attachmentText = text;
     if (composing && composeId === id) state.pendingAttachments.push(text);
     else appendText(state, text);
     state.revision++;
-    preview.style.opacity = "1";
   } catch (error) {
-    state.previews = state.previews.filter(node => node !== preview);
-    URL.revokeObjectURL(preview.src);
-    toast(error.message);
+    if (!preview.removed) preview.uploadError = error.message;
   } finally {
+    preview.uploading = false;
     state.uploading--;
     if (composeId === id) syncCompose();
   }
+}
+
+async function attach(file) {
+  saveCompose();
+  const id = current();
+  if (!id) return;
+  const state = draft(id);
+  if (state.pending) return;
+  const preview = el("img");
+  preview.src = URL.createObjectURL(file);
+  preview.alt = file.name || "Attachment";
+  preview.file = file;
+  state.previews.push(preview);
+  state.revision++;
+  await uploadAttachment(preview, state, id);
 }
 
 $("attach").onclick = () => $("files").click();
@@ -1557,18 +2413,20 @@ $("send").onclick = async () => {
   const id = current();
   const state = draft(id);
   const text = state.text.trim();
-  if (!text || composing || state.pending || state.uploading) return;
+  if (!text || composing || state.pending || state.uploading || state.previews.some(preview => preview.uploadError)) return;
   const revision = state.revision;
   state.pending = true;
+  state.sendError = "";
   syncCompose();
   try {
     const { queued } = await call("POST", "prompt", { id, text,
       requestId: requestId(state, "send", text) });
     saveCompose();
     acknowledge(id, state, revision, text);
-    toast(queued ? "Queued; it goes once the agent is free" : "Sent");
+    state.sendError = "";
+    toast(queued ? "Message queued" : "Sent");
   } catch (error) {
-    toast(error.message);
+    state.sendError = error.message;
   } finally {
     state.pending = false;
     if (composeId === id) syncCompose();
