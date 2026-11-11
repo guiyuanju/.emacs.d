@@ -39,6 +39,7 @@
 (declare-function overlook-agent-forget-project "overlook-agent")
 (declare-function overlook-agent-draft-command "overlook-agent")
 (declare-function overlook-agent-reference "overlook-agent")
+(declare-function overlook-courier-hand-off "overlook-courier")
 (declare-function overlook-project-heading "overlook")
 (declare-function overlook-refresh "overlook")
 (declare-function overlook-section-row "overlook")
@@ -84,9 +85,14 @@ the also: list of its front matter."
   :type '(choice (const :tag "All" nil) string)
   :group 'iuiw-workspace)
 
-(defcustom iuiw-workspace-pull-repos '("~/.emacs.d/" "~/workspace/")
-  "Repos pulled by `iuiw-workspace-pull'."
+(defcustom iuiw-workspace-pull-repos '("~/.emacs.d/")
+  "Repos besides the workspaces that `iuiw-workspace-sync' only pulls."
   :type '(repeat directory)
+  :group 'iuiw-workspace)
+
+(defcustom iuiw-workspace-sync-agent "claude"
+  "Agent `iuiw-workspace-sync' starts in a repo it fails to sync."
+  :type 'string
   :group 'iuiw-workspace)
 
 ;;; Cache
@@ -634,9 +640,10 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
     (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
-(defun iuiw-workspace--git-chain (steps done)
+(defun iuiw-workspace--git-chain (steps done fail)
   "Run git STEPS, each (DIR . ARGS), one after another through magit.
-Show DONE when all succeed; stop at the first failure."
+Show DONE when all succeed; at the first failure call FAIL with its DIR
+and ARGS."
   (if (null steps)
       (message "%s" done)
     (let* ((default-directory (file-name-as-directory (expand-file-name (car (car steps)))))
@@ -647,17 +654,8 @@ Show DONE when all succeed; stop at the first failure."
          (magit-process-sentinel proc event)
          (when (memq (process-status proc) '(exit signal))
            (if (zerop (process-exit-status proc))
-               (iuiw-workspace--git-chain (cdr steps) done)
-             (message "git %s failed in %s, see magit process buffer"
-                      (car (cdr (car steps))) (abbreviate-file-name (car (car steps)))))))))))
-
-(defun iuiw-workspace-pull ()
-  "Pull every repo in `iuiw-workspace-pull-repos' through magit."
-  (interactive)
-  (require 'magit-process)
-  (iuiw-workspace--git-chain
-   (mapcar (lambda (dir) (list dir "pull" "--rebase" "--autostash")) iuiw-workspace-pull-repos)
-   (format "Pulled %s" (mapconcat #'abbreviate-file-name iuiw-workspace-pull-repos ", "))))
+               (iuiw-workspace--git-chain (cdr steps) done fail)
+             (funcall fail (car (car steps)) (cdr (car steps))))))))))
 
 (defun iuiw-workspace--git-repos ()
   "The workspace repo and each workspace that is a repo of its own."
@@ -667,27 +665,58 @@ Show DONE when all succeed; stop at the first failure."
                       (mapcar (lambda (name) (file-name-as-directory (expand-file-name name base)))
                               (iuiw-workspace--workspaces))))))
 
-(defun iuiw-workspace-commit-push ()
-  "Commit every change in the workspace repos and push those with a remote.
-Code repos inside projects are ignored by the workspaces' .gitignore."
+(defun iuiw-workspace--rebasing-p (dir)
+  "Non-nil when a rebase or merge is unfinished in repo DIR."
+  (seq-some (lambda (name)
+              (file-exists-p (car (process-lines "git" "-C" dir "rev-parse" "--git-path" name))))
+            '("rebase-merge" "rebase-apply" "MERGE_HEAD")))
+
+(defun iuiw-workspace--sync-steps (dir)
+  "Git steps syncing workspace repo DIR: commit all, pull, push."
+  (let ((files (mapcar (lambda (line) (substring line 3))
+                       (process-lines "git" "-C" dir "status" "--porcelain")))
+        steps)
+    (when files
+      (push (list dir "add" "-A") steps)
+      (push (list dir "commit" "-m"
+                  (truncate-string-to-width
+                   (concat "Update " (string-join files ", ")) 72 nil nil "…"))
+            steps))
+    (when (process-lines "git" "-C" dir "remote")
+      (push (list dir "pull" "--rebase") steps)
+      (push (list dir "push") steps))
+    (nreverse steps)))
+
+(defun iuiw-workspace--sync-failed (dir args)
+  "Start an agent in DIR to finish the sync that failed at git ARGS.
+Its task waits unsent at its prompt."
+  (require 'overlook-courier)
+  (let* ((workspace (not (member dir (mapcar #'expand-file-name iuiw-workspace-pull-repos))))
+         (id (overlook-courier-hand-off
+              iuiw-workspace-sync-agent dir
+              (format "同步这个仓库时 `git %s` 失败了。看 git status 和 git log 找原因；有冲突就解决，两边的改动都保留，拿不准的先问我；完成 rebase%s。"
+                      (string-join args " ")
+                      (if workspace "，然后 push" "，不要 push")))))
+    (message "git %s failed in %s; %s waits at its prompt"
+             (car args) (abbreviate-file-name dir) id)))
+
+(defun iuiw-workspace-sync ()
+  "Sync the workspace repos and pull `iuiw-workspace-pull-repos'.
+A workspace repo has every change committed, then is pulled with rebase
+and pushed when it has a remote; code repos inside projects are left
+out by its .gitignore.  When a step fails, an agent is started in that
+repo with the fix as an unsent task."
   (interactive)
   (require 'magit-process)
-  (let (steps)
-    (dolist (dir (iuiw-workspace--git-repos))
-      (let ((files (mapcar (lambda (line) (substring line 3))
-                           (process-lines "git" "-C" dir "status" "--porcelain"))))
-        (when files
-          (push (list dir "add" "-A") steps)
-          (push (list dir "commit" "-m"
-                      (truncate-string-to-width
-                       (concat "Update " (string-join files ", ")) 72 nil nil "…"))
-                steps))
-        (when (process-lines "git" "-C" dir "remote")
-          (push (list dir "push") steps))))
+  (let* ((pulls (mapcar #'expand-file-name iuiw-workspace-pull-repos))
+         (repos (append (iuiw-workspace--git-repos) pulls)))
+    (when-let* ((stuck (seq-find #'iuiw-workspace--rebasing-p repos)))
+      (user-error "Finish the rebase or merge in %s first" (abbreviate-file-name stuck)))
     (iuiw-workspace--git-chain
-     (nreverse steps)
-     (format "Committed and pushed %s"
-             (mapconcat #'abbreviate-file-name (iuiw-workspace--git-repos) ", ")))))
+     (append (mapcan #'iuiw-workspace--sync-steps (iuiw-workspace--git-repos))
+             (mapcar (lambda (dir) (list dir "pull" "--rebase" "--autostash")) pulls))
+     (format "Synced %s" (mapconcat #'abbreviate-file-name repos ", "))
+     #'iuiw-workspace--sync-failed)))
 
 ;;; Repository commands
 
