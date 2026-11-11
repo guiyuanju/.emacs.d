@@ -104,6 +104,7 @@
 
 (defconst overlook-remote-contract--node-fields
   '((:kind string t) (:title string t)
+    (:persona string) (:description string)
     (:subtitle (nullable string)) (:provider (nullable string))
     (:status (nullable string)) (:context (nullable number))
     (:duration (nullable (or string number))) (:durationSeconds (nullable number))
@@ -125,7 +126,7 @@
 
 (defconst overlook-remote-contract--conversation-fields
   '((:id string t) (:bufferName string) (:agent string t) (:status (enum "idle" "working" "waiting" "done" "failed") t)
-    (:title string t) (:project string) (:folder string) (:brief string)
+    (:title string t) (:persona string) (:description string) (:project string) (:folder string) (:brief string)
     (:context (nullable number)) (:queueError (nullable string))
     (:reply string) (:transcript string)
     (:choices (array (object ((:key string t) (:label string t)))))

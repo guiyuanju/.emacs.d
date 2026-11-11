@@ -84,10 +84,14 @@
 (defun overlook-remote--agent (buffer &optional detail)
   "Agent BUFFER as the page shows it.
 With DETAIL, its last reply and the end of its transcript too."
-  (let ((root (overlook-agent-get buffer 'root)))
+  (let ((root (overlook-agent-get buffer 'root))
+        (data (overlook-data (cons 'agent buffer))))
     (overlook-remote-contract-conversation
      `(:id ,(overlook-remote-service-agent-id buffer)
       :bufferName ,(buffer-name buffer)
+      ,@(when (plist-get data :persona)
+          (list :persona (plist-get data :persona)
+                :description (plist-get data :description)))
       :agent ,(overlook-remote--text (overlook-agent-get buffer 'agent))
       :status ,(symbol-name (buffer-local-value 'overlook-agent-status buffer))
       :context ,(or (buffer-local-value 'overlook-agent-context buffer) :null)

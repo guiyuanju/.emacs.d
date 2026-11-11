@@ -59,3 +59,28 @@
                                          (session . "one") (title . "After"))))))
 
 (provide 'overlook-data-test)
+
+(ert-deftest overlook-data-persona-keeps-identity-separate-from-session-title ()
+  (require 'overlook-agent-courier)
+  (let ((buffer (generate-new-buffer " *persona-data*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-courier-persona)
+                   (lambda (name) (and (equal name "reviewer")
+                                       '(:name "reviewer" :engine "codex" :description "Reviews code"))))
+                  ((symbol-function 'overlook-courier-persona-of)
+                   (lambda (id) (and (equal id "reviewer-2") "reviewer")))
+                  ((symbol-function 'overlook-courier-persona-instances) (lambda (_) nil)))
+          (with-current-buffer buffer
+            (setq-local overlook-agent-courier-id "reviewer-2"
+                        overlook-agent-identity '((agent . "codex")
+                                                  (title . (lambda () "Architecture")))
+                        overlook-agent-status 'idle))
+          (let ((data (overlook-data (cons 'agent buffer))))
+            (should (equal (plist-get data :title) "Architecture"))
+            (should (equal (plist-get data :persona) "reviewer"))
+            (should (equal (plist-get data :description) "Reviews code")))
+          (let ((data (overlook-data '(persona . "reviewer"))))
+            (should (equal (plist-get data :kind) "persona"))
+            (should (equal (plist-get data :status) "offline"))
+            (should (equal (plist-get data :provider) "codex"))))
+      (kill-buffer buffer))))

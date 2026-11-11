@@ -253,6 +253,12 @@
         },
         "diff": {
           "type": "boolean"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
         }
       },
       "required": [
@@ -408,6 +414,12 @@
         },
         "controls": {
           "$ref": "#/$defs/Controls"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
         }
       },
       "required": [

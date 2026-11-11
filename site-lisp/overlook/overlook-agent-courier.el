@@ -43,6 +43,7 @@
 ;;; Code:
 
 (require 'overlook-agent)
+(require 'overlook-data)
 (require 'overlook-courier)
 (require 'overlook-courier-persona)
 
@@ -179,6 +180,28 @@ Its backend's, when that has an icon, else its engine's."
     (if (and backend (alist-get (downcase backend) overlook-agent-icons nil nil #'equal))
         (downcase backend)
       (or (plist-get persona :engine) "?"))))
+
+(defun overlook-agent-courier-data (key)
+  "Semantic persona identity and conversation data for KEY."
+  (let* ((buffer (and (eq (car-safe key) 'agent) (cdr key)))
+         (name (if buffer
+                   (and (buffer-live-p buffer)
+                        (overlook-courier-persona-of
+                         (buffer-local-value 'overlook-agent-courier-id buffer)))
+                 (and (eq (car-safe key) 'persona) (cdr key))))
+         (persona (and name (overlook-courier-persona name))))
+    (when persona
+      (let ((identity (list :persona name
+                            :description (or (plist-get persona :description) ""))))
+        (if buffer
+            (append (overlook-agent-data buffer) identity)
+          (append (list :kind "persona" :title name
+                        :subtitle (or (plist-get persona :description) "")
+                        :provider (overlook-agent-courier--persona-icon-name persona)
+                        :status (if (overlook-courier-persona-instances name) "idle" "offline"))
+                  identity))))))
+
+(add-hook 'overlook-data-functions #'overlook-agent-courier-data)
 
 (defun overlook-agent-courier--instance-row (id persona)
   "The row of the agent of courier ID running PERSONA, by its session title."
