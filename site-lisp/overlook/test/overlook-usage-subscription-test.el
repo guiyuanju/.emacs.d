@@ -79,5 +79,31 @@
             (should (string-match-p "ChatGPT-Account-Id: account" input)))
         (when (buffer-live-p buffer) (kill-buffer buffer))))))
 
+(ert-deftest overlook-subscription-deduplicates-the-local-login-identity ()
+  (let ((overlook-agent-shell-claude-accounts '(("login") ("las" . "test-token")))
+        (overlook-usage-subscription--state (make-hash-table :test #'equal))
+        (overlook-usage-mode t)
+        rows)
+    (cl-letf (((symbol-function 'overlook-usage-claude-login) (lambda () "las"))
+              ((symbol-function 'overlook-usage-subscription--claude-login)
+               (lambda (row)
+                 (push row rows)
+                 (puthash row '(:next 9999999999) overlook-usage-subscription--state)))
+              ((symbol-function 'overlook-usage-subscription--request)
+               (lambda (row &rest _) (push row rows))))
+      (overlook-usage-subscription--poll)
+      (should (equal (sort rows #'string-lessp) '("claude" "codex")))
+      (should (equal (overlook-agent-shell-claude-account-identity "login") "las"))
+      (should-not (overlook-agent-shell--other-account "las")))))
+
+(ert-deftest overlook-subscription-hides-removed-machine-accounts ()
+  (let ((overlook-agent-shell-claude-accounts '(("login")))
+        (overlook-usage-subscription--state (make-hash-table :test #'equal)))
+    (puthash "claude @personal" '(:windows (("5h" 0 200)))
+             overlook-usage-subscription--state)
+    (should (equal (overlook-usage-subscription--merge
+                    '(("claude" ("5h" 10 200)) ("claude @personal" ("5h" 20 200))))
+                   '(("claude" ("5h" 10 200)))))))
+
 (provide 'overlook-usage-subscription-test)
 ;;; overlook-usage-subscription-test.el ends here

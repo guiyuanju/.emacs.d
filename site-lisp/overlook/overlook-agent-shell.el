@@ -58,6 +58,7 @@
 (require 'map)
 (require 'url-util)
 
+(declare-function overlook-usage-claude-login "overlook-usage" ())
 (declare-function overlook-usage-codex-login "overlook-usage" ())
 (declare-function overlook-usage-save-claude "overlook-usage" (usage &optional account))
 
@@ -80,11 +81,12 @@ is non-nil."
   :type '(alist :key-type string :value-type string)
   :group 'overlook)
 
-(defcustom overlook-agent-shell-claude-accounts '(("default"))
+(defcustom overlook-agent-shell-claude-accounts '(("login"))
   "Claude accounts, each (NAME . TOKEN).
 TOKEN is the account's OAuth token from `claude setup-token', or a
 function returning it; nil leaves Claude Code its own login.  The first
-account is the one shown without its name."
+account is the one shown without its name.  Use the actual account
+identity as NAME for token accounts; configure them per machine."
   :type '(alist :key-type string
                 :value-type (choice (const :tag "Claude Code's login" nil)
                                     string function))
@@ -456,10 +458,21 @@ Each image is as `overlook-agent-shell--image' gives it."
   (or (car (assoc overlook-agent-shell-claude-account overlook-agent-shell-claude-accounts))
       (caar overlook-agent-shell-claude-accounts)))
 
+(defun overlook-agent-shell-claude-account-identity (account)
+  "Return the identity behind Claude authentication entry ACCOUNT."
+  (let ((entry (assoc account overlook-agent-shell-claude-accounts)))
+    (if (and entry (not (cdr entry)))
+        (or (and (fboundp 'overlook-usage-claude-login)
+                 (overlook-usage-claude-login))
+            account)
+      account)))
+
 (defun overlook-agent-shell--other-account (account)
-  "ACCOUNT, unless it is the first of `overlook-agent-shell-claude-accounts'."
-  (unless (equal account (caar overlook-agent-shell-claude-accounts))
-    account))
+  "Return ACCOUNT's identity unless it is the default account."
+  (let ((identity (overlook-agent-shell-claude-account-identity account))
+        (default (overlook-agent-shell-claude-account-identity
+                  (caar overlook-agent-shell-claude-accounts))))
+    (unless (equal identity default) identity)))
 
 (defun overlook-agent-shell-claude-switch-account (account)
   "Have Claude agents started or resumed from now on run as ACCOUNT."

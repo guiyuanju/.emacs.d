@@ -30,6 +30,7 @@
 (require 'overlook-usage)
 
 (defvar overlook-agent-shell-claude-accounts)
+(declare-function overlook-agent-shell--other-account "overlook-agent-shell" (account))
 
 (defcustom overlook-usage-subscription-interval 300
   "Seconds between subscription quota requests."
@@ -185,8 +186,10 @@
    (let ((accounts (and (boundp 'overlook-agent-shell-claude-accounts)
                        overlook-agent-shell-claude-accounts)))
     (dolist (entry (or accounts '((nil))))
-      (let ((row (if (eq entry (car accounts)) "claude"
-                   (if (car entry) (concat "claude @" (car entry)) "claude"))))
+      (let* ((identity (if (fboundp 'overlook-agent-shell--other-account)
+                           (overlook-agent-shell--other-account (car entry))
+                         (unless (eq entry (car accounts)) (car entry))))
+             (row (if identity (concat "claude @" identity) "claude")))
         (when (overlook-usage-subscription--due-p row)
           (condition-case nil
               (let ((token (cdr entry)))
@@ -207,9 +210,21 @@
 
 (defun overlook-usage-subscription--merge (rows)
   "Overlay successful server readings on local ROWS."
+  (when (boundp 'overlook-agent-shell-claude-accounts)
+    (setq rows
+          (seq-remove
+           (lambda (row)
+             (and (string-prefix-p "claude @" (car row))
+                  (not (member (substring (car row) 8)
+                               (mapcar #'car overlook-agent-shell-claude-accounts)))))
+           rows)))
   (maphash
    (lambda (name state)
-     (when (and (plist-get state :windows)
+     (when (and (or (not (string-prefix-p "claude @" name))
+                    (member (substring name 8)
+                            (and (boundp 'overlook-agent-shell-claude-accounts)
+                                 (mapcar #'car overlook-agent-shell-claude-accounts))))
+                (plist-get state :windows)
                 (or (not (equal name "codex"))
                     (equal (plist-get state :login) (overlook-usage-codex-login))))
        (let ((row (assoc name rows)))

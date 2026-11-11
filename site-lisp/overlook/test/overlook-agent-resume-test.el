@@ -19,7 +19,7 @@
 (ert-deftest overlook-resume-uses-session-account ()
   (with-temp-buffer
     (let ((overlook-agent-shell--origin '("claude" . "/tmp/"))
-          (overlook-agent-shell-claude-accounts '(("work") ("home")))
+          (overlook-agent-shell-claude-accounts '(("work") ("home" . "test-token")))
           (overlook-agent-shell-claude-account "work")
           (overlook-agent-shell--claude-account "home"))
       (should (equal "claude @home" (overlook-agent-shell--usage-row))))

@@ -8,6 +8,7 @@
 
 (require 'agent-shell)
 
+(declare-function overlook-agent-shell-claude-account-identity "overlook-agent-shell" (account))
 (declare-function overlook-agent-project "overlook-agent")
 (declare-function overlook-agent-show "overlook-agent")
 (declare-function overlook-current-project "overlook")
@@ -53,7 +54,9 @@ candidates: ›, /, │."
   (let* ((id (map-nested-elt (agent-shell--state) '(:agent-config :identifier)))
          (account (if (eq id 'claude-code)
                       (and (fboundp 'overlook-agent-shell-claude-current-account)
-                           (overlook-agent-shell-claude-current-account))
+                           (overlook-agent-shell-claude-account-identity
+                            (or (bound-and-true-p overlook-agent-shell--claude-account)
+                                (overlook-agent-shell-claude-current-account))))
                     (and (boundp 'overlook-usage-accounts)
                          (alist-get (symbol-name id) overlook-usage-accounts
                                     nil nil #'equal)))))

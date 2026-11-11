@@ -433,21 +433,23 @@ it and add it again from the address copied by `overlook-remote-url`.
 - `overlook-agent-shell-configs`: the names agents are shown by, and the
   agent-shell configs overlook starts them with.
 - `overlook-agent-shell-handoff-prompt`: the handoff draft.
-- `overlook-agent-shell-claude-accounts`: Claude accounts, each a name and
-  an OAuth token from `claude setup-token`, or a function returning it.
-  The first may have none, keeping Claude Code's own login.  Agents on
-  another account show `@NAME` after their name, and its plan usage gets
-  a row of its own.  `overlook-account-labels` draws accounts by a short
-  label instead, and `overlook-usage-accounts` names the account behind a
-  usage row that has none:
+- `overlook-agent-shell-claude-accounts`: defaults to `(("login"))`,
+  using this machine's Claude Code login. The login name is resolved from
+  the CLI config for display. Extra accounts belong in each machine's
+  `local.el`, loaded before package configuration. Use their actual account
+  identities as keys; tokens may be strings or functions returning them.
+  An extra entry matching the local login shares its usage row and poll.
+  `overlook-account-labels` can shorten displayed identities without
+  changing which account they identify.
+
+  For example, on a machine needing an extra account:
 
   ```elisp
-  (setopt overlook-agent-shell-claude-accounts
-          `(("work")
-            ("personal" . ,(lambda () (auth-source-pick-first-password
-                                       :host "claude.ai" :user "personal")))))
-  (setopt overlook-account-labels '(("work" . "W") ("personal" . "P"))
-          overlook-usage-accounts '(("claude" . "work") ("codex" . "personal")))
+  (setq overlook-agent-shell-claude-accounts
+        `(("login")
+          ("account-name" . ,(lambda ()
+                               (auth-source-pick-first-password
+                                :host "claude.ai" :user "account-name")))))
   ```
 
 ## Extending
