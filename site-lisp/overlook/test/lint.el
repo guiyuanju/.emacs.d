@@ -13,6 +13,19 @@
   (add-to-list 'load-path root)
   (require 'package-lint)
   (require 'checkdoc)
+  ;; package-lint looks dependencies up in package.el, which knows nothing
+  ;; of OVERLOOK_LOAD_PATH, so describe those found there from their headers.
+  (dolist (req (package-desc-reqs
+                (with-temp-buffer
+                  (insert-file-contents (expand-file-name "overlook.el" root))
+                  (package-buffer-info))))
+    (let ((name (car req)))
+      (unless (or (eq name 'emacs) (assq name package-alist))
+        (when-let* ((file (locate-library (format "%s.el" name) t)))
+          (with-temp-buffer
+            (insert-file-contents file)
+            (when-let* ((desc (ignore-errors (package-buffer-info))))
+              (push (list name desc) package-alist)))))))
   (dolist (file files)
     (let ((package-lint-main-file (expand-file-name "overlook.el" root)))
       (with-current-buffer (find-file-noselect file)
