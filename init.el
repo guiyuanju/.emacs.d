@@ -335,7 +335,15 @@
   :ensure nil
   :after tabspaces
   :demand t
-  :hook (elpaca-after-init . iuiw-tabspaces-restore))
+  :hook (elpaca-after-init . iuiw-tabspaces-restore)
+  :config
+  (add-hook 'tab-bar-tab-post-select-functions #'iuiw-tabspaces--restore-pending)
+  (add-hook 'tab-bar-tab-pre-close-functions #'iuiw-tabspaces--forget-pending)
+  ;; 保存会逐个切换 tab，不能借机打开没恢复的 tab；没恢复的 tab 按上次保存的写回。
+  (dolist (fn '(tabspaces--save-session-smart tabspaces-save-session
+                tabspaces-save-non-project-tabs tabspaces-save-all-project-sessions))
+    (advice-add fn :around #'iuiw-tabspaces--without-restoring))
+  (advice-add 'tabspaces--write-session-file :filter-args #'iuiw-tabspaces--keep-pending))
 
 ;;; Modal editing
 
