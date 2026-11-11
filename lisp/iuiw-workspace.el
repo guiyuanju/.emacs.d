@@ -725,7 +725,18 @@ repo with the fix as an unsent task."
 In a project folder outside its clones, the folder's own Git root is the
 workspace repository, so pick one of the clones or the root mapped in
 `iuiw-workspace-project-roots'; with NOTES, also offer the workspace
-repository.  Elsewhere return `default-directory'."
+repository.  Elsewhere return `default-directory'.  A buffer outside its
+project, such as *scratch* in a project's tab, runs from the project root."
+  (let ((default-directory
+         (if-let* ((project (project-current))
+                   (root (project-root project))
+                   ((not (file-in-directory-p default-directory root))))
+             root
+           default-directory)))
+    (iuiw-workspace--repo-directory notes)))
+
+(defun iuiw-workspace--repo-directory (notes)
+  "Body of `iuiw-workspace-repo-directory', given NOTES."
   (if-let* ((folder (iuiw-workspace-project-root)))
       (let* ((here (file-truename default-directory))
              (clones (seq-filter
