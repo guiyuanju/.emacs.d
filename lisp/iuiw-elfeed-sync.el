@@ -299,9 +299,14 @@ Then call CALLBACK with an error message, or nil on success."
    `(("clone" "-q" ,iuiw-elfeed-sync-remote ,(expand-file-name iuiw-elfeed-sync-directory)))
    (lambda (err)
      (setq iuiw-elfeed-sync--running nil)
-     (if err
-         (message "elfeed sync: %s" err)
-       (iuiw-elfeed-sync)))))
+     (if (not err)
+         (iuiw-elfeed-sync)
+       (let ((callbacks (prog1 iuiw-elfeed-sync--callbacks
+                          (setq iuiw-elfeed-sync--callbacks nil
+                                iuiw-elfeed-sync--again nil))))
+         (unless callbacks
+           (message "elfeed sync: %s" err))
+         (dolist (cb callbacks) (funcall cb err)))))))
 
 (defun iuiw-elfeed-sync-soon ()
   "Sync unless a sync finished within the last minute."
