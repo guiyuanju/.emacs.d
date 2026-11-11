@@ -251,6 +251,10 @@ draw glyphs like … wider than `string-width'."
          (cut (truncate-string-to-width text (/ pixels (max 1 (funcall width "x"))) nil nil "…")))
     (while (and (> (string-width cut) 1) (> (funcall width cut) pixels))
       (setq cut (truncate-string-to-width text (1- (string-width cut)) nil nil "…")))
+    (when (and (not face) (not (equal cut text)) (> (length cut) 1))
+      ;; The ellipsis takes the face of the text it ends.
+      (put-text-property (1- (length cut)) (length cut) 'face
+                         (get-text-property (- (length cut) 2) 'face cut) cut))
     (when (>= pixels (* 4 (frame-char-width)))
       (if face (propertize cut 'face face) cut))))
 
