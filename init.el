@@ -768,6 +768,11 @@
   :ensure nil
   :commands (iuiw-notify-send iuiw-notify-set-key iuiw-notify-set-encryption-key))
 
+(use-package iuiw-notify-overlook
+  :ensure nil
+  :after overlook
+  :demand t)
+
 (use-package totp-auth
   :commands (totp-auth totp-auth-add-secret totp-auth-import-file)
   :config
