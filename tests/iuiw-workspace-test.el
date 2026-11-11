@@ -448,10 +448,10 @@ status: done
       (pcase-let ((`(,id ,status ,todos) project))
         (iuiw-workspace-test--write (format "me/projects/%s/project.md" id)
                                     (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
-    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("active"))))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("active" "later"))))
       (should (equal (mapcar #'iuiw-workspace-overlook-priority
-                             '("active" "active-now" "waiting-now" "later"))
-                     '(0 1 2 2))))
+                             '("active" "later" "active-now" "waiting-now" "done"))
+                     '(0 1 2 2 3))))
     (should (iuiw-workspace-overlook-shown-p "active"))
     (should-not (iuiw-workspace-overlook-shown-p "done"))
     (should-not (iuiw-workspace-overlook-shown-p "dropped"))))

@@ -21,7 +21,7 @@
 ;; #now 项连同子项常显在项目下，排在 agent 和 repo 之后，再按到期日排；其余不显示。
 ;; 每项只占一行，过长的截断，RET 打开 project.md 看全文。
 ;; 没开 tab 的项目灰色，一项一行；没有 #now 时 TAB 直接展开待办。
-;; 项目先列已打开的 active，再列未打开且有 #now 的 active，最后列其他；组内按最近切换时间、名字排序。
+;; 项目先列已打开的（active 在前），再列未打开的（有 #now 的在前）；组内按最近切换时间、名字排序。
 ;; 未打开的 waiting、later、done、dropped 项目按 status 收进各自折叠的「status (n)」行，项目本身也折叠。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、project 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
@@ -915,12 +915,11 @@ project, return the version-control root."
   (plist-get (iuiw-workspace--card name) :workspace))
 
 (defun iuiw-workspace-overlook-priority (name)
-  "Priority of NAME: open active projects, unopened active #now, then others."
+  "Priority of NAME: open projects, active first, then unopened, #now first."
   (let ((card (iuiw-workspace--card name)))
-    (cond ((not (equal (plist-get card :status) "active")) 2)
-          ((member name (overlook-projects)) 0)
-          ((iuiw-workspace--has-now-p card) 1)
-          (t 2))))
+    (if (member name (overlook-projects))
+        (if (equal (plist-get card :status) "active") 0 1)
+      (if (iuiw-workspace--has-now-p card) 2 3))))
 
 (defun iuiw-workspace-overlook-ongoing-p (name)
   "Non-nil when NAME is an ongoing project."
