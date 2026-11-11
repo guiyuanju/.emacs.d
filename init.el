@@ -764,6 +764,10 @@
   (with-eval-after-load 'evil
     (evil-define-key* 'normal iuiw-auth-totp-mode-map "q" #'iuiw-auth-totp-quit)))
 
+(use-package iuiw-notify
+  :ensure nil
+  :commands (iuiw-notify-send iuiw-notify-set-key))
+
 (use-package totp-auth
   :commands (totp-auth totp-auth-add-secret totp-auth-import-file)
   :config
