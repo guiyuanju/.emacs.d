@@ -482,6 +482,7 @@
     "TAB c"   '(iuiw-workspace-clone-repo :which-key "clone repo")
     "TAB r"   '(iuiw-workspace-restore-repos :which-key "restore repos")
     "TAB u"   '(iuiw-workspace-pull :which-key "pull emacs & workspace")
+    "TAB s"   '(iuiw-workspace-commit-push :which-key "commit & push workspace")
     "TAB p"   '(iuiw-workspace-visit-project-md :which-key "project.md")
     "TAB w"   '(iuiw-workspace-cycle-filter :which-key "filter workspace")
     "TAB ["   '(tab-bar-switch-to-prev-tab :which-key "previous")

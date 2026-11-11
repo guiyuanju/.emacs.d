@@ -634,26 +634,60 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
     (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
-(defun iuiw-workspace--pull (dirs)
-  "Pull DIRS one after another, stopping at the first failure."
-  (if (null dirs)
-      (message "Pulled %s" (mapconcat #'abbreviate-file-name iuiw-workspace-pull-repos ", "))
-    (let* ((default-directory (file-name-as-directory (expand-file-name (car dirs))))
-           (process (magit-run-git-async "pull" "--rebase" "--autostash")))
+(defun iuiw-workspace--git-chain (steps done)
+  "Run git STEPS, each (DIR . ARGS), one after another through magit.
+Show DONE when all succeed; stop at the first failure."
+  (if (null steps)
+      (message "%s" done)
+    (let* ((default-directory (file-name-as-directory (expand-file-name (car (car steps)))))
+           (process (apply #'magit-run-git-async (cdr (car steps)))))
       (set-process-sentinel
        process
        (lambda (proc event)
          (magit-process-sentinel proc event)
          (when (memq (process-status proc) '(exit signal))
            (if (zerop (process-exit-status proc))
-               (iuiw-workspace--pull (cdr dirs))
-             (message "Pull failed in %s, see magit process buffer" (car dirs)))))))))
+               (iuiw-workspace--git-chain (cdr steps) done)
+             (message "git %s failed in %s, see magit process buffer"
+                      (car (cdr (car steps))) (abbreviate-file-name (car (car steps)))))))))))
 
 (defun iuiw-workspace-pull ()
   "Pull every repo in `iuiw-workspace-pull-repos' through magit."
   (interactive)
   (require 'magit-process)
-  (iuiw-workspace--pull iuiw-workspace-pull-repos))
+  (iuiw-workspace--git-chain
+   (mapcar (lambda (dir) (list dir "pull" "--rebase" "--autostash")) iuiw-workspace-pull-repos)
+   (format "Pulled %s" (mapconcat #'abbreviate-file-name iuiw-workspace-pull-repos ", "))))
+
+(defun iuiw-workspace--git-repos ()
+  "The workspace repo and each workspace that is a repo of its own."
+  (let ((base (iuiw-workspace--base)))
+    (cons base
+          (seq-filter (lambda (dir) (file-exists-p (expand-file-name ".git" dir)))
+                      (mapcar (lambda (name) (file-name-as-directory (expand-file-name name base)))
+                              (iuiw-workspace--workspaces))))))
+
+(defun iuiw-workspace-commit-push ()
+  "Commit every change in the workspace repos and push those with a remote.
+Code repos inside projects are ignored by the workspaces' .gitignore."
+  (interactive)
+  (require 'magit-process)
+  (let (steps)
+    (dolist (dir (iuiw-workspace--git-repos))
+      (let ((files (mapcar (lambda (line) (substring line 3))
+                           (process-lines "git" "-C" dir "status" "--porcelain"))))
+        (when files
+          (push (list dir "add" "-A") steps)
+          (push (list dir "commit" "-m"
+                      (truncate-string-to-width
+                       (concat "Update " (string-join files ", ")) 72 nil nil "…"))
+                steps))
+        (when (process-lines "git" "-C" dir "remote")
+          (push (list dir "push") steps))))
+    (iuiw-workspace--git-chain
+     (nreverse steps)
+     (format "Committed and pushed %s"
+             (mapconcat #'abbreviate-file-name (iuiw-workspace--git-repos) ", ")))))
 
 ;;; Repository commands
 
