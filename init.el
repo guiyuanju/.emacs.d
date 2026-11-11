@@ -1275,6 +1275,7 @@
   (overlook-show-empty-projects #'iuiw-workspace-overlook-ongoing-p)
   (overlook-orphan-project "main")
   (overlook-section-order '(iuiw-daily-section-elfeed-digest
+                            iuiw-daily-section-work-report
                             overlook-usage--section
                             overlook-agent-courier--personas-section
                             overlook--projects-section
@@ -1417,7 +1418,8 @@
   :after iuiw-sync
   :demand t
   :custom
-  (iuiw-daily-schedule '((elfeed-digest :hour 8)))
+  (iuiw-daily-schedule '((elfeed-digest :hour 8)
+                         (work-report :hour 19 :days (1 2 3 4 5) :hosts ("okj-dev-guiyuan"))))
   :config
   (iuiw-daily-mode 1))
 
@@ -1427,6 +1429,11 @@
   :demand t
   :config
   (iuiw-elfeed-sync-mode 1))
+
+(use-package iuiw-work-report
+  :ensure nil
+  :after (iuiw-elfeed-ai iuiw-daily)
+  :demand t)
 
 (use-package iuiw-log
   :ensure nil
