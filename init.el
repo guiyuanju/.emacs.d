@@ -417,7 +417,10 @@
                   evil-ex-search-next evil-ex-search-previous
                   evil-jump-backward evil-jump-forward))
         pulsar-pulse-region-functions nil
-        pulsar-pulse-on-window-change t)
+        pulsar-pulse-on-window-change t
+        ;; 否则每个 buffer 开启 pulsar-mode 都扫一遍 obarray 找别名。
+        pulsar-resolve-pulse-function-aliases nil)
+  (pulsar-resolve-function-aliases)
   (add-hook 'next-error-hook #'pulsar-pulse-line)
   (add-hook 'imenu-after-jump-hook #'pulsar-recenter-top)
   (with-eval-after-load 'consult
