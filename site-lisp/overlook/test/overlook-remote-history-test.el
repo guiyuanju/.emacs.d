@@ -100,3 +100,24 @@
 
 (provide 'overlook-remote-history-test)
 ;;; overlook-remote-history-test.el ends here
+
+(ert-deftest overlook-history-stream-reuses-dashboard-until-unread-changes ()
+  (overlook-history-test-with-agent
+    (let* ((model (list (overlook-row :id (cons 'agent buffer) :content "Agent")))
+           (builds 0)
+           (node (symbol-function 'overlook-remote--node)))
+      (cl-letf (((symbol-function 'overlook-remote--model) (lambda () model))
+                ((symbol-function 'overlook-remote--node)
+                 (lambda (&rest args) (cl-incf builds) (apply node args))))
+        (overlook-remote--dashboard)
+        (overlook-remote--record buffer '(:type text :text "first"))
+        (overlook-remote--dashboard)
+        (should (= builds 2))
+        (overlook-remote--record buffer '(:type text :text " more"))
+        (overlook-remote--dashboard)
+        (should (= builds 2))
+        (overlook-remote--seen buffer)
+        (overlook-remote--dashboard)
+        (overlook-remote--record buffer '(:type text :text " unread again"))
+        (overlook-remote--dashboard)
+        (should (= builds 4))))))

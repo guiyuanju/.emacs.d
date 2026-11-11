@@ -31,16 +31,17 @@
 (ert-deftest overlook-service-queue-ids-distinguish-identical-prompts ()
   (overlook-service-test-with-agent
     (with-current-buffer buffer
-      (setq overlook-remote--queue '("same" "same")))
+      (setq overlook-remote--queue (mapcar #'overlook-remote--queue-entry '("same" "same"))))
     (cl-letf (((symbol-function 'overlook-remote--wake) #'ignore))
-      (let* ((items (with-current-buffer buffer (copy-sequence (overlook-remote--queue-items))))
+      (let* ((items (with-current-buffer buffer (copy-sequence overlook-remote--queue)))
              (first (plist-get (car items) :id))
              (second (plist-get (cadr items) :id)))
         (should-not (equal first second))
         (overlook-remote--unqueue buffer nil second)
-        (should (equal (with-current-buffer buffer (overlook-remote--queue-items)) (list (car items))))
+        (should (equal (with-current-buffer buffer overlook-remote--queue) (list (car items))))
         (should-error (overlook-remote--unqueue buffer nil second))
-        (should (equal (buffer-local-value 'overlook-remote--queue buffer) '("same")))))))
+        (should (equal (mapcar (lambda (item) (plist-get item :text))
+                               (buffer-local-value 'overlook-remote--queue buffer)) '("same")))))))
 
 (ert-deftest overlook-service-idempotency-replays-and-detects-payload-changes ()
   (let ((overlook-remote-service--receipts (make-hash-table :test #'equal))
@@ -90,7 +91,7 @@
     (puthash "task" row overlook-remote--rows)
     (cl-letf (((symbol-function 'overlook-remote--dashboard) (lambda () (cons [] dashboard)))
               ((symbol-function 'overlook-refresh) #'ignore)
-              ((symbol-function 'overlook-remote--node) (lambda (&rest _) (list :hash state))))
+              ((symbol-function 'overlook-remote--node) (lambda (&rest _) (list :status state))))
       (let* ((first (overlook-remote-service-command body))
              (confirmed (append `((confirmed . t)
                                   (confirmationToken . ,(plist-get first :confirmationToken))) body)))
@@ -190,3 +191,64 @@
 
 (provide 'overlook-remote-service-test)
 ;;; overlook-remote-service-test.el ends here
+
+(ert-deftest overlook-service-confirmed-success-replays-without-confirmation-fields ()
+  (dolist (route '("/api/session" "/api/command"))
+    (let ((overlook-remote-service--receipts (make-hash-table :test #'equal))
+          (calls 0)
+          (body '((requestId . "retry") (id . "target") (action . "close"))))
+      (let ((send (lambda (_) (cl-incf calls) '(:ok t :closed t))))
+        (overlook-remote-service-once
+         route (append '((confirmed . t) (confirmations . ["Close?"])
+                         (confirmationToken . "proof")) body) send)
+        (should (equal (overlook-remote-service-once
+                        route (append '((confirmations . [])) body) send)
+                       '(:ok t :closed t)))
+        (should (= calls 1))
+        (should-error (overlook-remote-service-once
+                       route (cons '(text . "changed") body) send))))))
+
+(ert-deftest overlook-service-running-agent-command-confirms-despite-clock ()
+  (overlook-service-test-with-agent
+    (let* ((now 100.0) (ran 0)
+           (row (overlook-row :id (cons 'agent buffer) :content "Agent"
+                             :commands (list (list :name "kill" :confirm "Kill?"
+                                                   :run (lambda () (cl-incf ran))))))
+           (overlook-remote--rows (make-hash-table :test #'equal))
+           (body '((node . "target") (name . "kill"))))
+      (with-current-buffer buffer
+        (setq overlook-agent-turn '(90.0) overlook-agent-status 'working))
+      (puthash "target" row overlook-remote--rows)
+      (cl-letf (((symbol-function 'float-time) (lambda (&rest _) now))
+                ((symbol-function 'overlook-remote--dashboard) #'ignore)
+                ((symbol-function 'overlook-refresh) #'ignore))
+        (let* ((first (overlook-remote-service-command body))
+               (confirmed (append `((confirmed . t)
+                                    (confirmationToken . ,(plist-get first :confirmationToken))) body)))
+          (setq now 110.0)
+          (should (plist-get (overlook-remote-service-command confirmed) :ok))
+          (should (= ran 1))
+          (with-current-buffer buffer (setq overlook-agent-status 'done))
+          (should (plist-get (overlook-remote-service-command confirmed) :confirm))
+          (should (= ran 1)))))))
+
+(ert-deftest overlook-service-session-confirmation-recovers-after-state-change ()
+  (overlook-service-test-with-agent
+    (let ((state "one") (ran 0))
+      (with-current-buffer buffer
+        (setf (alist-get 'remote-controls overlook-agent-identity)
+              (lambda () '(:actions ("restart")))
+              (alist-get 'remote-action overlook-agent-identity)
+              (lambda (&rest _)
+                (when (y-or-n-p "Busy. Continue?") (cl-incf ran)) buffer)))
+      (cl-letf (((symbol-function 'overlook-remote--state) (lambda (_) (cons nil state))))
+        (let* ((body `((id . ,(overlook-remote-service-agent-id buffer)) (action . "restart")))
+               (first (overlook-remote-service-session body)))
+          (setq state "two")
+          (dotimes (step 3)
+            (setf (alist-get 'confirmations body) (plist-get first :confirmations)
+                  (alist-get 'confirmationToken body) (plist-get first :confirmationToken))
+            (setq first (overlook-remote-service-session body))
+            (if (< step 2) (should (plist-get first :confirm))
+              (should (plist-get first :ok))))
+          (should (= ran 1)))))))

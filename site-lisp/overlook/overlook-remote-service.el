@@ -58,7 +58,10 @@
 Reuse with a different payload fails; confirmations and failures are not cached."
   (overlook-remote-service--prune-receipts)
   (let* ((key (alist-get 'requestId body))
-         (signature (cons route (sort (copy-tree body)
+         (signature (cons route (sort (seq-remove
+                                       (lambda (field)
+                                         (memq (car field) '(confirmed confirmations confirmationToken)))
+                                       (copy-tree body))
                                       (lambda (a b) (string< (symbol-name (car a))
                                                             (symbol-name (car b)))))))
          (receipt (and key (gethash key overlook-remote-service--receipts))))
@@ -98,14 +101,13 @@ Reuse with a different payload fails; confirmations and failures are not cached.
   "Close BUFFER without leaving pending remote prompts deliverable."
   (with-current-buffer buffer
     (let ((queue overlook-remote--queue)
-          (entries overlook-remote--queue-entries)
           (queue-error overlook-remote--queue-error))
-      (setq overlook-remote--queue nil overlook-remote--queue-entries nil
+      (setq overlook-remote--queue nil
             overlook-remote--queue-error nil)
       (unwind-protect
           (overlook-agent-close buffer)
         (when (buffer-live-p buffer)
-          (setq overlook-remote--queue queue overlook-remote--queue-entries entries
+          (setq overlook-remote--queue queue
                 overlook-remote--queue-error queue-error)))))
   'closed)
 
@@ -149,12 +151,20 @@ Reuse with a different payload fails; confirmations and failures are not cached.
                    (overlook-remote-service--close buffer)
                  (with-current-buffer buffer (funcall run action text)))))))
       (if (stringp result)
-          (list :confirm result :confirmationToken
-                (overlook-remote-service--token signature state
-                                               (append confirmed (list result))))
+          (let ((accepted (append confirmed (list result))))
+            (list :confirm result :confirmations (vconcat accepted) :confirmationToken
+                  (overlook-remote-service--token signature state accepted)))
         (if (eq result 'closed)
             (list :ok t :closed t)
           (list :ok t :agent (overlook-remote-service-agent-id result)))))))
+
+(defun overlook-remote-service--confirmation-state (node)
+  "Return NODE's operation state without clocks or derived hashes."
+  (cl-loop for (key value) on node by #'cddr
+           unless (memq key '(:hash :duration :durationSeconds))
+           append (list key (if (eq key :children)
+                                (vconcat (mapcar #'overlook-remote-service--confirmation-state value))
+                              value))))
 
 (defun overlook-remote-service-command (body)
   "Run BODY's current row command, returning data or a bound confirmation."
@@ -170,7 +180,8 @@ Reuse with a different payload fails; confirmations and failures are not cached.
          (confirm (plist-get command :confirm))
          (question (if (functionp confirm) (funcall confirm) confirm))
          (state (let ((overlook-remote--rows nil))
-                  (plist-get (overlook-remote--node row "") :hash)))
+                  (overlook-remote-service--confirmation-state
+                   (overlook-remote--node row ""))))
          (signature (list (overlook-row-key row) (alist-get 'name body) text option))
          (token (overlook-remote-service--token signature state (list question))))
     (when (and (plist-get command :input) (string-empty-p text))

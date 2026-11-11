@@ -609,11 +609,15 @@ Conversation IDs survive buffer renames for the live buffer lifetime; restored
 conversations receive new IDs. Task IDs survive line moves and distinguish
 identical occurrences; editing task text creates a new identity. Source content
 is revalidated before completion. Queued prompts have individual IDs, including
-identical text. Successful prompt/session/resource actions with `requestId` can
+identical text. The queue stores these identified entries once; the legacy
+`queued` text array is derived from them. Successful prompt/session/resource actions with `requestId` can
 be replayed within `overlook-remote-receipt-seconds` and
 `overlook-remote-receipt-limit`; receipts are in memory and expire on restart.
 Confirmations bind the action and target state, and are requested again after
-changes. Refresh an open remote page when updating this protocol.
+changes. Elapsed durations do not invalidate a confirmation. Session confirmation
+responses supply the complete `confirmations` array for the client to return
+with the new token. Confirmation credentials are excluded from successful
+request replay signatures. Refresh an open remote page when updating this protocol.
 
 Activity items expose optional UTC `createdAt` and `updatedAt` timestamps;
 older items recorded before an update can lack them. Conversations expose

@@ -118,11 +118,24 @@ vm.runInContext('composeId = "original";',context);
   assert.equal(elements.get('text').value,'keep draft');
   context.confirm=()=>true;
   let n=0;
-  context.fetch=async(url,opts)=>{const b=JSON.parse(opts.body);n++; if(n===1)return{ok:true,json:async()=>({confirm:'Restart?'})};assert.deepEqual(b.confirmations,['Restart?']);return{ok:true,json:async()=>({ok:true,agent:'forked'})};};
+  context.fetch=async(url,opts)=>{const b=JSON.parse(opts.body);n++; if(n===1)return{ok:true,json:async()=>({confirm:'Restart?',confirmations:['Restart?']})};assert.deepEqual(b.confirmations,['Restart?']);return{ok:true,json:async()=>({ok:true,agent:'forked'})};};
   vm.runInContext('open = (id) => { globalThis.opened = id; }',context);
   await vm.runInContext('sessionAction("fork", $("session-menu"))',context);
   assert.equal(context.opened,'forked');
   assert.equal(n,2);
+  let confirmations = 0;
+  context.fetch=async(url,opts)=>{
+    const body=JSON.parse(opts.body);
+    confirmations++;
+    if(confirmations===1) return {ok:true,json:async()=>({confirm:'Restart?',confirmations:['Restart?'],confirmationToken:'old'})};
+    if(confirmations===2) return {ok:true,json:async()=>({confirm:'Restart?',confirmations:['Restart?'],confirmationToken:'new'})};
+    assert.deepEqual(body.confirmations,['Restart?']);
+    assert.equal(body.confirmationToken,'new');
+    return {ok:true,json:async()=>({ok:true,agent:'forked'})};
+  };
+  await vm.runInContext('sessionAction("restart", $("session-menu"))',context);
+  assert.equal(confirmations,3);
+
   const reloads=[];
   context.fetch=async(url,opts)=>{reloads.push(JSON.parse(opts.body).requestId);return{ok:true,json:async()=>({ok:true,agent:'original'})};};
   await vm.runInContext('sessionAction("reload", $("session-menu"))',context);

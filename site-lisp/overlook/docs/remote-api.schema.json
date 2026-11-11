@@ -673,6 +673,10 @@
         "confirm": {
           "type": "string"
         },
+        "confirmations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "confirmationToken": {
           "type": "string"
         },

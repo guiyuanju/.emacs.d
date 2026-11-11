@@ -59,6 +59,10 @@ confirmation and terminates the live agent; resumable sessions retain a saved
 entry. Pending remote prompts are discarded. Agents without a resumable session
 cannot be restored through that entry.
 
+Session confirmation responses include the complete `confirmations` array bound
+to their token. Clients replace their previous array with this value after
+accepting the question, so a state change can restart the confirmation sequence.
+
 Activity items carry UTC creation and update timestamps. The browser formats
 message times locally. Unread counts come from the backend and count assistant
 reply items still retained by Remote, rather than tokens or tool updates. A

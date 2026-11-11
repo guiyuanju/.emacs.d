@@ -15,7 +15,7 @@
                      (lambda (target)
                        (should-not (buffer-local-value 'overlook-remote--queue target))
                        (cl-incf closed) (kill-buffer target))))
-            (with-current-buffer buffer (setq overlook-remote--queue '("pending")))
+            (with-current-buffer buffer (setq overlook-remote--queue '((:id "pending" :text "pending"))))
             (let* ((body `((id . ,(overlook-remote-service-agent-id buffer)) (action . "close")))
                    (confirmation (overlook-remote-service-session body))
                    (confirmed (append `((confirmationToken . ,(plist-get confirmation :confirmationToken))
@@ -34,13 +34,11 @@
 
 (ert-deftest overlook-remote-close-failure-retains-queued-prompts ()
   (with-temp-buffer
-    (setq overlook-remote--queue '("pending")
-          overlook-remote--queue-entries '((:id "queue" :text "pending"))
+    (setq overlook-remote--queue '((:id "pending" :text "pending"))
           overlook-remote--queue-error "failed")
     (cl-letf (((symbol-function 'overlook-agent-close) (lambda (_) (error "Cannot close"))))
       (should-error (overlook-remote-service--close (current-buffer)))
-      (should (equal overlook-remote--queue '("pending")))
-      (should (equal overlook-remote--queue-entries '((:id "queue" :text "pending"))))
+      (should (equal overlook-remote--queue '((:id "pending" :text "pending"))))
       (should (equal overlook-remote--queue-error "failed")))))
 
 (ert-deftest overlook-agent-close-keeps-resumable-data-and-provider-metadata ()

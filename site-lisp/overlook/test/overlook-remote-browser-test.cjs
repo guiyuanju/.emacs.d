@@ -46,7 +46,7 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
      if(failUpload) { failUpload=false; return route.fulfill({status:503,json:{detail:'Upload interrupted'}}); }
      return json({text:'@uploaded-image'});
     }
-    if(name==='session' && body.action==='close') return json(body.confirmations.length?{ok:true,closed:true}:{confirm:'Close this agent?',confirmationToken:'close-token'});
+    if(name==='session' && body.action==='close') return json(body.confirmations.length?{ok:true,closed:true}:{confirm:'Close this agent?',confirmations:['Close this agent?'],confirmationToken:'close-token'});
     if(name==='command') return json(body.confirmed?{ok:true}:{confirm:'Delete <img src=x onerror=alert(1)>?'});
     return json({ok:true,agent:'a'});
    }
@@ -162,7 +162,7 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
   assert.equal(await page.locator('#d-feed .content-preview').count(),0);
   await page.evaluate(()=>{
     const follow={nodes:new Map()};
-    renderItem(follow,{item:500,type:'text',offset:0,text:'Long response '.repeat(250)+'\n\n```js\n'+'const value = 1;\n'.repeat(30)+'```',images:[]});
+    renderItems(follow,[{item:500,type:'text',offset:0,text:'Long response '.repeat(250)+'\n\n```js\n'+'const value = 1;\n'.repeat(30)+'```',images:[]}]);
     const node=follow.nodes.get(500); node.id='long-response-test';
   });
   const longReply=page.locator('#long-response-test');
@@ -171,6 +171,18 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
   assert.equal(await longReply.locator('.content-preview').count(),0);
   await longReply.getByRole('button',{name:'Show full code',exact:true}).click();
   assert.equal(await longReply.locator('.code-preview').count(),0);
+  const batchCounts = await page.evaluate(()=>{
+    const feed=$('d-feed'), saved=[...feed.childNodes];
+    feed.replaceChildren();
+    const originalGroup=groupCompletedTools;
+    let groups=0;
+    groupCompletedTools=()=>{groups++; originalGroup();};
+    try {
+      renderItems({nodes:new Map()},Array.from({length:50},(_,i)=>({item:i+1,type:'prompt',text:'Question',images:[]})));
+      return {groups,count:feed.children.length};
+    } finally { groupCompletedTools=originalGroup; feed.replaceChildren(...saved); }
+  });
+  assert.deepEqual(batchCounts,{groups:1,count:50},'Batch loading groups the feed once');
   await page.evaluate(()=>{
     const node=document.getElementById('long-response-test');
     node.source+=' Stream continued'; node.drawn=0; renderReply(node);
@@ -184,12 +196,12 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
   await page.getByRole('button',{name:'Copied',exact:true}).waitFor();
   await page.evaluate(()=>{
     const follow={nodes:new Map()}; window.toolTestFollow=follow;
-    for(let item=100;item<103;item++) renderItem(follow,{item,type:'tool',status:'completed',title:'Read a file',images:[]});
+    renderItems(follow,Array.from({length:3},(_,i)=>({item:100+i,type:'tool',status:'completed',title:'Read a file',images:[]})));
   });
   assert.equal(await page.locator('.tool-group summary').innerText(),'3 completed actions');
   await page.locator('.tool-group summary').click();
   assert.equal(await page.locator('.tool-group[open] .tool').count(),3);
-  await page.evaluate(()=>renderItem(window.toolTestFollow,{item:99,type:'tool',status:'completed',title:'An older updated tool',images:[]}));
+  await page.evaluate(()=>renderItems(window.toolTestFollow,[{item:99,type:'tool',status:'completed',title:'An older updated tool',images:[]}]));
   assert.deepEqual(await page.locator('.tool-group .tool').evaluateAll(nodes=>nodes.map(node=>node.itemId)),[99,100,101,102]);
   await page.evaluate(()=>document.querySelector('.tool-group').remove());
 

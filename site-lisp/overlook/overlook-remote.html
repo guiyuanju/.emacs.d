@@ -1062,7 +1062,7 @@ async function sessionAction(action, button) {
       if (!result.confirm) break;
       if (!await confirmAction(result.confirm, {title: "Session action", label: ({stop:"Stop task",reload:"Reload session",restart:"New conversation",fork:"Fork conversation",steer:"Adjust now",close:"Close agent"})[action] || "Continue", danger: ["stop", "restart", "close"].includes(action)})) return;
       if (generation !== viewGeneration) return;
-      body.confirmations.push(result.confirm);
+      body.confirmations = result.confirmations;
       body.confirmationToken = result.confirmationToken;
     }
     state.attempts.clear();
@@ -1240,13 +1240,13 @@ $("latest").onclick = () => { pinned = true; scrollToBottom(); };
 if (window.ResizeObserver) new window.ResizeObserver(() => { if (pinned) scrollToBottom(); }).observe($("detail"));
 
 // A reply's markdown, drawn at most four times a second as it streams.
-function renderReply(node) {
+function renderReply(node, followScroll = true) {
   const wait = node.drawn + 250 - Date.now();
   if (wait > 0) {
     node.timer ??= setTimeout(() => { node.timer = null; renderReply(node); }, wait);
     return;
   }
-  const bottom = atBottom();
+  const bottom = followScroll && atBottom();
   node.drawn = Date.now();
   node.innerHTML = markdown(node.source);
   enhanceCodeBlocks(node);
@@ -1274,7 +1274,7 @@ function renderItem(follow, item) {
       node.source = (node.source ?? "") + item.text;
       node.images = item.images;
       node.drawn ??= 0;
-      renderReply(node);
+      renderReply(node, false);
       break;
     case "tool": renderTool(node, item); break;
     case "end": node.className = "item end"; node.textContent = "End of turn"; break;
@@ -1286,15 +1286,20 @@ function renderItem(follow, item) {
     messageTime(node);
   }
   if (fresh) {
-    const next = [...follow.nodes.entries()].filter(([id]) => id > item.item).sort((a,b) => a[0] - b[0])[0]?.[1];
+    let nextId = Infinity, next;
+    for (const [id, candidate] of follow.nodes) {
+      if (id > item.item && id < nextId) { nextId = id; next = candidate; }
+    }
     if (next?.isConnected) next.before(node);
     else $("d-feed").append(node);
   }
-  if (item.type === "tool" || fresh) {
-    const bottom = atBottom(), top = $("detail").scrollTop;
-    groupCompletedTools();
-    if (bottom) scrollToBottom(); else $("detail").scrollTop = top;
-  }
+  return true;
+}
+
+function renderItems(follow, items) {
+  const regroup = items.some(item => item.type === "tool" || !follow.nodes.has(item.item));
+  if (!items.every(item => renderItem(follow, item))) return false;
+  if (regroup) groupCompletedTools();
   return true;
 }
 
@@ -2061,15 +2066,8 @@ async function loadEarlier(mine) {
     const page = await call("GET", `history?id=${encodeURIComponent(mine.id)}&before=${mine.history.before}&limit=50&epoch=${encodeURIComponent(mine.epoch)}`);
     if (poller !== mine || revision !== mine.historyRevision) return;
     if (page.epoch !== mine.epoch) throw new Error("Earlier messages expired. Reopen this conversation to refresh.");
-    for (const item of page.items) {
-      if (mine.nodes.has(item.item)) continue;
-      if (!renderItem(mine, item)) throw new Error("Could not load earlier messages.");
-    }
-    // Stable item identities also order tools after their later updates.
-    for (const group of [...$("d-feed").querySelectorAll(":scope > .tool-group")]) group.replaceWith(...[...group.children].filter(child => child.tagName !== "SUMMARY"));
-    const ordered = [...mine.nodes.entries()].sort((a,b) => a[0] - b[0]).map(([,node]) => node);
-    $("d-feed").replaceChildren(...ordered);
-    groupCompletedTools();
+    const earlier = page.items.filter(item => !mine.nodes.has(item.item));
+    if (!renderItems(mine, earlier)) throw new Error("Could not load earlier messages.");
     mine.history = {hasMore:page.hasMore, before:page.before};
     mine.loadingHistory = false;
     renderHistoryControls(mine);
@@ -2101,11 +2099,11 @@ async function followAgent(id) {
     }
     $("d-feed").querySelector(".view-state")?.remove();
     $("d-feed").removeAttribute("aria-busy");
-    const bottom = atBottom();
+    const bottom = atBottom(), top = $("detail").scrollTop;
     renderHeader(news.agent);
     mine.epoch = news.epoch;
     if (news.reset || first) mine.history = news.history || null;
-    if (!news.items.every((item) => renderItem(mine, item))) {
+    if (!renderItems(mine, news.items)) {
       mine.after = 0;
       mine.nodes.clear();
       $("d-feed").replaceChildren();
@@ -2121,6 +2119,7 @@ async function followAgent(id) {
       $("detail").scrollTop = position.top;
       $("detail").dispatchEvent(new Event("scroll"));
     } else if ((first || bottom) && news.items.length) scrollToBottom();
+    else $("detail").scrollTop = top;
     mine.firstNews = false;
     mine.presentedSeq = Math.max(mine.presentedSeq, ...news.items.map(item => item.seq || item.item || 0));
     renderHistoryControls(mine);

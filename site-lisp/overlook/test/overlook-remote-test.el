@@ -83,7 +83,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
   (overlook-remote-test-with-agent nil
     (let (steered)
       (with-current-buffer agent
-        (setq overlook-remote--queue '("later"))
+        (setq overlook-remote--queue '((:id "later" :text "later")))
         (setf (alist-get 'remote-controls overlook-agent-identity)
               (lambda () '(:steer t :slash ((:name "compact"))))
               (alist-get 'remote-action overlook-agent-identity)
@@ -95,7 +95,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
         (should (= 200 (car (overlook-remote-test--call "POST" "/api/session" body)))))
       (should (equal steered "change course"))
       (should-not overlook-remote-test--submitted)
-      (should (equal (buffer-local-value 'overlook-remote--queue agent) '("later")))
+      (should (equal (buffer-local-value 'overlook-remote--queue agent) '((:id "later" :text "later"))))
       (should (= 400 (car (overlook-remote-test--call
                            "POST" "/api/session"
                            `((id . ,(buffer-name agent)) (action . "steer") (text . " "))))))
@@ -120,7 +120,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
 
 (ert-deftest overlook-remote-serializes-no-queue-error-as-null ()
   (overlook-remote-test-with-agent nil
-    (with-current-buffer agent (setq overlook-remote--queue '("later")))
+    (with-current-buffer agent (setq overlook-remote--queue '((:id "later" :text "later"))))
     (let* ((response (cdr (overlook-remote-test--call "GET" "/api/agent" nil nil
                                                     `(("id" ,(buffer-name agent))))))
            (error (alist-get 'queueError response)))
@@ -215,10 +215,10 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
       (unwind-protect
           (progn
             (with-current-buffer agent
-              (setq overlook-remote--queue '("keep" "later"))
+              (setq overlook-remote--queue '((:id "keep" :text "keep") (:id "later" :text "later")))
               (setf (alist-get 'submit overlook-agent-identity) (lambda (_) (error "Unavailable"))))
             (overlook-remote--send-queued)
-            (should (equal (buffer-local-value 'overlook-remote--queue agent) '("keep" "later")))
+            (should (equal (buffer-local-value 'overlook-remote--queue agent) '((:id "keep" :text "keep") (:id "later" :text "later"))))
             (should (equal (plist-get (overlook-remote--agent agent) :queueError) "Unavailable"))
             (with-current-buffer agent
               (setf (alist-get 'submit overlook-agent-identity)
@@ -228,7 +228,7 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
             (overlook-remote-test--call "POST" "/api/retry" `((id . ,(buffer-name agent))))
             (overlook-remote--send-queued)
             (should (equal overlook-remote-test--submitted '("keep")))
-            (should (equal (buffer-local-value 'overlook-remote--queue agent) '("later"))))
+            (should (equal (buffer-local-value 'overlook-remote--queue agent) '((:id "later" :text "later")))))
         (when overlook-remote--queue-timer (cancel-timer overlook-remote--queue-timer))))))
 
 (ert-deftest overlook-remote-prompts-a-ready-agent ()
@@ -902,7 +902,9 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
               (overlook--tick)
               (should (= overlook-agent-context 42))
               (should-not (overlook-live-p)))
+          (setq overlook-remote--queue '((:id "pending" :text "pending")))
           (overlook-remote-mode -1)
+          (should-not overlook-remote--queue)
           (should-not overlook--tick-timer))))))
 
 (ert-deftest overlook-remote-turns-off-after-a-while-on-the-network ()

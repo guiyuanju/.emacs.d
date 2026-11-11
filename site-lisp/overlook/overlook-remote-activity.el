@@ -105,8 +105,9 @@ With DETAIL, its last reply and the end of its transcript too."
       :folder ,(if root (file-name-nondirectory (directory-file-name root)) "")
       :brief ,(overlook-remote--text (overlook-agent-brief buffer))
       :choices ,(overlook-remote--choices (overlook-agent-choices buffer))
-      :queued ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
-      :queueItems ,(with-current-buffer buffer (vconcat (overlook-remote--queue-items)))
+      :queued ,(vconcat (mapcar (lambda (item) (plist-get item :text))
+                                (buffer-local-value 'overlook-remote--queue buffer)))
+      :queueItems ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
       :queueError ,(or (buffer-local-value 'overlook-remote--queue-error buffer) :null)
       ,@(when-let* ((controls (overlook-remote--controls buffer)))
           `(:controls (:slash ,(vconcat (plist-get controls :slash))
@@ -117,23 +118,13 @@ With DETAIL, its last reply and the end of its transcript too."
             :transcript ,(overlook-remote--tail buffer)))))))
 
 (defvar-local overlook-remote--queue nil
-  "Prompts from the page waiting for this agent to take one, oldest first.")
+  "Queued prompts as plists with :id and :text, oldest first.")
 
-(defvar-local overlook-remote--queue-entries nil
-  "Queue identities paired with the legacy text queue.")
-
-(put 'overlook-remote--queue-entries 'permanent-local t)
-
-(defun overlook-remote--queue-items ()
-  "Return this buffer's identified queue, importing legacy text entries."
-  (unless (equal overlook-remote--queue
-                 (mapcar (lambda (item) (plist-get item :text)) overlook-remote--queue-entries))
-    (setq overlook-remote--queue-entries
-          (mapcar (lambda (text)
-                    (list :id (concat "queued-" (secure-hash 'sha256
-                                       (format "%s:%s:%s" (float-time) (random) text)))
-                          :text text)) overlook-remote--queue)))
-  overlook-remote--queue-entries)
+(defun overlook-remote--queue-entry (text)
+  "Return a uniquely identified queued prompt for TEXT."
+  (list :id (concat "queued-" (secure-hash 'sha256
+                             (format "%s:%s:%s" (float-time) (random) text)))
+        :text text))
 
 (defvar-local overlook-remote--queue-error nil
   "Last queue submission error; blocks delivery until explicitly retried.")
@@ -149,12 +140,8 @@ Return non-nil when it was queued."
   (with-current-buffer buffer
     (if (and (null overlook-remote--queue) (overlook-agent-ready-p buffer))
         (progn (overlook-agent-submit buffer text) nil)
-      (overlook-remote--queue-items)
-      (let ((item (list :id (concat "queued-" (secure-hash 'sha256
-                                    (format "%s:%s:%s" (float-time) (random) text)))
-                        :text text)))
-        (setq overlook-remote--queue (append overlook-remote--queue (list text))
-              overlook-remote--queue-entries (append overlook-remote--queue-entries (list item))))
+      (setq overlook-remote--queue
+            (append overlook-remote--queue (list (overlook-remote--queue-entry text))))
       (unless overlook-remote--queue-timer
         (setq overlook-remote--queue-timer (run-at-time 1 1 #'overlook-remote--send-queued)))
       (overlook-remote--wake)
@@ -169,13 +156,11 @@ Stop looking once no prompt is queued."
       (when (and (not (buffer-local-value 'overlook-remote--queue-error buffer))
                  (overlook-agent-ready-p buffer))
         (with-current-buffer buffer
-          (overlook-remote--queue-items)
-          (let ((text (car overlook-remote--queue)))
+          (let ((text (plist-get (car overlook-remote--queue) :text)))
             (condition-case err
                 (progn
                   (overlook-agent-submit buffer text)
-                  (pop overlook-remote--queue)
-                  (pop overlook-remote--queue-entries))
+                  (pop overlook-remote--queue))
               (error (setq overlook-remote--queue-error (error-message-string err))))))
         (overlook-remote--wake)))
     (unless (seq-some (lambda (buffer) (buffer-local-value 'overlook-remote--queue buffer)) waiting)
@@ -188,11 +173,9 @@ Stop looking once no prompt is queued."
     (let ((item (seq-find (lambda (item)
                             (if queue-id (equal queue-id (plist-get item :id))
                               (equal text (plist-get item :text))))
-                          (overlook-remote--queue-items))))
+                          overlook-remote--queue)))
       (unless item (user-error "That prompt was sent already"))
-      (setq overlook-remote--queue-entries (delq item overlook-remote--queue-entries)
-            overlook-remote--queue (mapcar (lambda (entry) (plist-get entry :text))
-                                          overlook-remote--queue-entries))))
+      (setq overlook-remote--queue (delq item overlook-remote--queue))))
   (overlook-remote--clear-queue-error buffer))
 
 (defun overlook-remote--clear-queue-error (buffer)
@@ -452,32 +435,34 @@ AFTER comes as the text it lacks, after :offset characters."
 
 (defun overlook-remote--record (buffer event)
   "Add EVENT of agent BUFFER to its items, and wake the calls waiting for news."
-  (with-current-buffer buffer
-    (setq overlook-remote--seq (1+ overlook-remote--seq))
-    (let ((item (pcase (plist-get event :type)
-                  ('text (and (equal (plist-get (car overlook-remote--items) :type) "text")
-                              (car overlook-remote--items)))
-                  ('tool (seq-find (lambda (item)
-                                     (and (equal (plist-get item :type) "tool")
-                                          (equal (plist-get item :id) (plist-get event :id))))
-                                   overlook-remote--items)))))
-      (unless item
-        (setq item (append (list :item overlook-remote--seq :seq 0
-                                 :createdAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
-                           (overlook-remote--new-item event)))
-        (push item overlook-remote--items)
-        (dolist (removed (nthcdr overlook-remote-history overlook-remote--items))
-          (setq overlook-remote--history-floor
-                (max overlook-remote--history-floor
-                     (plist-get removed :seq) (plist-get removed :item))))
-        (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
-      (plist-put item :seq overlook-remote--seq)
-      (plist-put item :updatedAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
-      (overlook-remote--update item event)
-      (when (equal (plist-get item :type) "text")
-        (plist-put item :marks (cons (cons overlook-remote--seq (length (plist-get item :text)))
-                                     (plist-get item :marks))))))
-  (setq overlook-remote--dashboard nil)
+  (let ((unread (overlook-remote--unread-count buffer)))
+    (with-current-buffer buffer
+      (setq overlook-remote--seq (1+ overlook-remote--seq))
+      (let ((item (pcase (plist-get event :type)
+                    ('text (and (equal (plist-get (car overlook-remote--items) :type) "text")
+                                (car overlook-remote--items)))
+                    ('tool (seq-find (lambda (item)
+                                       (and (equal (plist-get item :type) "tool")
+                                            (equal (plist-get item :id) (plist-get event :id))))
+                                     overlook-remote--items)))))
+        (unless item
+          (setq item (append (list :item overlook-remote--seq :seq 0
+                                   :createdAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
+                             (overlook-remote--new-item event)))
+          (push item overlook-remote--items)
+          (dolist (removed (nthcdr overlook-remote-history overlook-remote--items))
+            (setq overlook-remote--history-floor
+                  (max overlook-remote--history-floor
+                       (plist-get removed :seq) (plist-get removed :item))))
+          (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
+        (plist-put item :seq overlook-remote--seq)
+        (plist-put item :updatedAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
+        (overlook-remote--update item event)
+        (when (equal (plist-get item :type) "text")
+          (plist-put item :marks (cons (cons overlook-remote--seq (length (plist-get item :text)))
+                                       (plist-get item :marks))))))
+    (unless (= unread (overlook-remote--unread-count buffer))
+      (setq overlook-remote--dashboard nil)))
   (overlook-remote--wake))
 
 (defun overlook-remote--state (buffer)

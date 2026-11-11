@@ -295,10 +295,6 @@ CALL is (NEWS-P . ANSWER)."
   "Execute SEND for ROUTE and BODY with bounded retry receipts."
   (overlook-remote--json 200 (overlook-remote-service-once route body send)))
 
-(defun overlook-remote--send-prompt (body)
-  "Execute BODY's prompt submission and encode its result."
-  (overlook-remote--json 200 (overlook-remote-service-prompt body)))
-
 (defun overlook-remote--api (method route query request)
   "Answer METHOD on ROUTE with QUERY and REQUEST, as (STATUS MIME BODY).
 A call for news with none yet is answered (:hold CALL), as
@@ -358,19 +354,11 @@ stream (:stream KNOWN)."
     ('("GET" "/api/diff")
      (overlook-remote--json 200 (overlook-remote-service-diff (cadr (assoc "node" query)))))
     ('("POST" "/api/command")
-     (overlook-remote--command (overlook-remote--body request route)))
+     (overlook-remote--once route (overlook-remote--body request route)
+                            #'overlook-remote-service-command))
     ('("POST" "/api/choose")
      (overlook-remote--json 200 (overlook-remote-service-choose (overlook-remote--body request route))))
     (_ (overlook-remote--json 404 (overlook-remote-problem 404 "route_missing" (format "No %s %s" method route))))))
-
-(defun overlook-remote--session (body)
-  "Execute BODY's session action and encode its business result."
-  (overlook-remote--json 200 (overlook-remote-service-session body)))
-
-(defun overlook-remote--command (body)
-  "Execute BODY's resource action and encode its business result."
-  (overlook-remote--json
-   200 (overlook-remote-service-once "/api/command" body #'overlook-remote-service-command)))
 
 (defun overlook-remote--respond (method path query request)
   "Answer METHOD on PATH with QUERY and REQUEST, as (STATUS MIME BODY)."
