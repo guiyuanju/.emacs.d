@@ -33,6 +33,9 @@
 (require 'project)
 (require 'json)
 
+(declare-function magit-get "magit-git")
+(declare-function magit-git-items "magit-git")
+(declare-function magit-gitdir "magit-git")
 (declare-function magit-run-git-async "magit-process")
 (declare-function magit-status "magit-status")
 (declare-function magit-process-sentinel "magit-process")
@@ -630,13 +633,14 @@ Existing paths, branches and working trees are left alone."
 Use this once for projects created before repo manifests were available.
 Mapped external roots such as ~/.emacs.d remain configured separately."
   (interactive)
+  (require 'magit-process)
   (let* ((root (or root (iuiw-workspace--current-card-root)))
          (repos (iuiw-workspace--read-repos root)))
     (dolist (dir (directory-files root t directory-files-no-dot-files-regexp))
       (when-let* (((file-directory-p dir))
                   ((file-exists-p (expand-file-name ".git" dir)))
-                  (url (car (process-lines-ignore-status
-                             "git" "-C" dir "remote" "get-url" "origin"))))
+                  (url (let ((default-directory (file-name-as-directory dir)))
+                         (magit-get "remote.origin.url"))))
         (setq repos (iuiw-workspace--add-repo repos (file-name-nondirectory dir) url))))
     (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
@@ -673,26 +677,22 @@ succeed; otherwise call FAIL with the failures, each (DIR . ARGS)."
 
 (defun iuiw-workspace--rebasing-p (dir)
   "Non-nil when a rebase or merge is unfinished in repo DIR."
-  (seq-some (lambda (name)
-              (file-exists-p
-               (expand-file-name
-                (car (process-lines "git" "-C" dir "rev-parse" "--git-path" name))
-                dir)))
-            '("rebase-merge" "rebase-apply" "MERGE_HEAD")))
+  (let ((gitdir (magit-gitdir dir)))
+    (seq-some (lambda (name) (file-exists-p (expand-file-name name gitdir)))
+              '("rebase-merge" "rebase-apply" "MERGE_HEAD"))))
 
 (defun iuiw-workspace--changed-files (dir)
   "Paths with uncommitted changes in repo DIR, unquoted.
 A rename gives its new path."
-  (with-temp-buffer
-    (call-process "git" nil t nil "-C" dir "status" "--porcelain" "-z")
-    (let ((entries (split-string (buffer-string) "\0" t))
-          files)
-      (while entries
-        (let ((entry (pop entries)))
-          (push (substring entry 3) files)
-          (when (memq (aref entry 0) '(?R ?C))
-            (pop entries))))
-      (nreverse files))))
+  (let ((entries (let ((default-directory dir))
+                   (magit-git-items "status" "--porcelain" "-z")))
+        files)
+    (while entries
+      (let ((entry (pop entries)))
+        (push (substring entry 3) files)
+        (when (memq (aref entry 0) '(?R ?C))
+          (pop entries))))
+    (nreverse files)))
 
 (defun iuiw-workspace--sync-steps (dir)
   "Git steps syncing workspace repo DIR: commit all, pull, push."
@@ -713,21 +713,19 @@ A rename gives its new path."
   "Start an agent per failure, each (DIR . ARGS), to finish DIR's sync.
 Each task waits unsent at its agent's prompt."
   (require 'overlook-courier)
-  (message
-   "%s"
-   (mapconcat
-    (lambda (failure)
-      (let* ((dir (car failure))
-             (args (cdr failure))
-             (workspace (not (member dir (mapcar #'expand-file-name iuiw-workspace-pull-repos))))
-             (id (overlook-courier-hand-off
-                  iuiw-workspace-sync-agent dir
-                  (format "同步这个仓库时 `git %s` 失败了，它后面的同步步骤被跳过。看 git status 和 git log 找原因；有冲突就解决，两边的改动都保留，拿不准的先问我；完成 rebase%s。"
-                          (string-join args " ")
-                          (if workspace "，然后 push" "，不要 push")))))
-        (format "git %s failed in %s; %s waits at its prompt"
-                (car args) (abbreviate-file-name dir) id)))
-    failures "\n")))
+  (let ((pulls (mapcar #'expand-file-name iuiw-workspace-pull-repos)))
+    (message
+     "%s"
+     (mapconcat
+      (pcase-lambda (`(,dir . ,args))
+        (let ((id (overlook-courier-hand-off
+                   iuiw-workspace-sync-agent dir
+                   (format "同步这个仓库时 `git %s` 失败了，它后面的同步步骤被跳过。看 git status 和 git log 找原因；有冲突就解决，两边的改动都保留，拿不准的先问我；完成 rebase%s。"
+                           (string-join args " ")
+                           (if (member dir pulls) "，不要 push" "，然后 push")))))
+          (format "git %s failed in %s; %s waits at its prompt"
+                  (car args) (abbreviate-file-name dir) id)))
+      failures "\n"))))
 
 (defun iuiw-workspace-sync ()
   "Sync the workspace repos and pull `iuiw-workspace-pull-repos'.
