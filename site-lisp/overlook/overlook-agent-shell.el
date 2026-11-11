@@ -486,7 +486,9 @@ Each image is as `overlook-agent-shell--image' gives it."
   "The account new Claude agents run as, unless it is the first."
   (when-let* ((account (overlook-agent-shell--other-account
                         (overlook-agent-shell-claude-current-account))))
-    (concat "claude " (overlook-account-name account))))
+    (propertize (concat (overlook-mode-line-icon "nf-cod-claude" "claude")
+                        " " (overlook-account-name account))
+                'help-echo "Account for new Claude agents")))
 
 (defun overlook-agent-shell--current-usage-p (name)
   "Non-nil when usage row NAME is Claude's for the account new agents run as."

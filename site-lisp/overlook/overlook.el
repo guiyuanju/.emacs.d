@@ -185,12 +185,13 @@ The binding is recorded in `overlook-keys'."
           'hide)))
 
 (defun overlook--mode-line ()
-  "The dashboard's mode line: its name, then `overlook-mode-line-functions'."
+  "The dashboard's name and strings from `overlook-mode-line-functions'."
   (string-replace
    "%" "%%"
-   (string-join (cons (concat " " (propertize "Overlook" 'face 'mode-line-buffer-id))
+   (concat " " (string-join
+                (cons (propertize "Overlook" 'face 'mode-line-buffer-id)
                       (delq nil (mapcar #'funcall overlook-mode-line-functions)))
-                "   ")))
+                "  "))))
 
 (defclass overlook-section (magit-section) ()
   "A section or row of the dashboard.")

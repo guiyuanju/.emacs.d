@@ -284,18 +284,29 @@ PROJECT's worktrees."
                       items))))
 
 (defun overlook-agent--mode-line ()
-  "A count of agents by state, like \"3 agents · 1 working\"."
+  "Agent counts with icons for total, working and needing attention."
   (let* ((statuses (mapcar (lambda (buffer) (buffer-local-value 'overlook-agent-status buffer))
                            (overlook-agent-buffers)))
          (working (seq-count (lambda (status) (eq status 'working)) statuses))
          (attention (seq-count (lambda (status) (memq status '(waiting failed done))) statuses)))
     (when statuses
       (string-join
-       (delq nil (list (format "%d agent%s" (length statuses) (if (cdr statuses) "s" ""))
-                       (and (> working 0) (format "%d working" working))
-                       (and (> attention 0)
-                            (propertize (format "%d need you" attention) 'face 'error))))
-       " · "))))
+       (delq nil
+             (list
+              (propertize
+               (format "%s %d" (overlook-mode-line-icon "nf-cod-hubot" "agents") (length statuses))
+               'help-echo "Total agents")
+              (and (> working 0)
+                   (propertize
+                    (format "%s %d" (overlook-mode-line-icon "nf-cod-play" "working" 'warning) working)
+                    'help-echo "Working agents"))
+              (and (> attention 0)
+                   (propertize
+                    (concat (overlook-mode-line-icon "nf-cod-bell" "attention" 'error)
+                            (propertize (format " %d" attention) 'face 'error))
+                    'help-echo "Agents needing you: waiting, failed or done"))))
+       "  "))))
+
 
 (provide 'overlook-agent-view)
 ;;; overlook-agent-view.el ends here

@@ -154,6 +154,12 @@ A function can return one row, or a list of them."
         (setq start end)))
     (apply #'concat (nreverse parts))))
 
+(defun overlook-mode-line-icon (name fallback &optional face)
+  "Return Codicon NAME, or FALLBACK without Nerd Icons, optionally in FACE."
+  (if (fboundp 'nerd-icons-codicon)
+      (nerd-icons-codicon name :face face :height 0.85)
+    (propertize fallback 'face face)))
+
 (defun overlook-icon (name)
   "NAME's icon from `overlook-agent-icons', else NAME.
 The icon takes NAME's properties, its faces over the icon's own, and

@@ -300,11 +300,12 @@ The page, plain HTML with no build step, shows:
   The session menu offers reload, a fresh conversation and, when supported,
   fork; reload and restart ask for confirmation.
 
-While the mode is on, the dashboard's mode line says `remote`.
+While the mode is on, the dashboard's mode line shows a network icon
+(or `remote` without Nerd Icons). Hover over it to see the serving address.
 
 The page listens on this machine only.  To reach it from a phone on the
 same network, set `overlook-remote-host` to `"0.0.0.0"` before turning the
-mode on; the mode line then shows the address, highlighted, and the mode
+mode on; the mode line then highlights the network indicator, and the mode
 turns itself off after `overlook-remote-network-minutes` (120; nil keeps
 it on).  `M-x overlook-remote-url` copies the address again.  On a
 machine with a Tailscale address that is the address given, so a phone in
@@ -485,6 +486,9 @@ docstring.
   `overlook-usage-add-poller` refreshes their data over the network, at
   most every few minutes while the dashboard is open.
 - `overlook-mode-line-functions`: strings in the dashboard's mode line.
+  Agent counts use robot, play and bell icons for total, working and needing
+  attention; tooltips explain each count. Codicons use 85% size, with text
+  fallbacks when Nerd Icons is unavailable.
 - `overlook-tick-hook`: run every few seconds while the dashboard is live.
 
 Call `overlook-refresh` when something you show changed.

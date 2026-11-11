@@ -915,7 +915,8 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
           (should-not (overlook-live-p))
           (should overlook--tick-timer)
           ;; The dashboard tells it serves the network.
-          (should (string-prefix-p "remote " (overlook-remote--mode-line)))
+          (should (string-prefix-p "Remote: "
+                                   (get-text-property 0 'help-echo (overlook-remote--mode-line))))
           (should (eq (get-text-property 0 'face (overlook-remote--mode-line)) 'warning))
           (should (memq #'overlook-remote--mode-line overlook-mode-line-functions))
           (overlook-start)
@@ -927,7 +928,8 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
           (let ((overlook-remote-host "127.0.0.1"))
             (overlook-remote-mode 1)
             (should-not overlook-remote--off-timer)
-            (should (equal (overlook-remote--mode-line) "remote"))
+            (should (equal (get-text-property 0 'help-echo (overlook-remote--mode-line))
+                           "Remote: this machine only"))
             (kill-buffer overlook-buffer-name)
             (should (equal overlook--update-consumers '(remote)))
             (should (timerp overlook--tick-timer))

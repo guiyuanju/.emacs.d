@@ -565,11 +565,12 @@ over simple-httpd's server, which serves one Emacs at a time."
           (httpd-port overlook-remote-port))
       (httpd-start))
     (setq overlook-remote--mode-line
-          (if (overlook-remote--local-p)
-              (propertize "remote" 'help-echo "overlook-remote serves this machine only")
-            (propertize (concat "remote " (or (overlook-remote--address) overlook-remote-host))
-                        'face 'warning
-                        'help-echo "overlook-remote serves the local network")))
+          (propertize
+           (overlook-mode-line-icon "nf-cod-globe" "remote"
+                                    (unless (overlook-remote--local-p) 'warning))
+           'help-echo (if (overlook-remote--local-p)
+                          "Remote: this machine only"
+                        (concat "Remote: " (or (overlook-remote--address) overlook-remote-host)))))
     (add-hook 'overlook-mode-line-functions #'overlook-remote--mode-line)
     (force-mode-line-update t)
     (overlook-start-updates 'remote)
