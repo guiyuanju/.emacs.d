@@ -16,6 +16,8 @@
 ;; 也给 overlook 提供项目根，并把所有进行中项目（没有待办的也列名字）的待办放进看板的 Projects 段：
 ;; 待办是 Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 项目标题后是 workspace 名。
+;; `iuiw-workspace-sync' 有事可做时（workspace 仓库有未提交、未推送或未拉取的改动，
+;; `iuiw-workspace-pull-repos' 有未拉取的提交），看板的 Projects 后加 *；未拉取的靠定期 fetch 发现。
 ;; #now 项连同子项常显在项目下，排在 agent 和 repo 之后，再按到期日排；其余不显示。
 ;; 每项只占一行，过长的截断，RET 打开 project.md 看全文。
 ;; 没开 tab 的项目灰色，一项一行；没有 #now 时 TAB 直接展开待办。
@@ -91,6 +93,16 @@ the also: list of its front matter."
 (defcustom iuiw-workspace-pull-repos '("~/.emacs.d/")
   "Repos besides the workspaces that `iuiw-workspace-sync' only pulls."
   :type '(repeat directory)
+  :group 'iuiw-workspace)
+
+(defcustom iuiw-workspace-sync-check-interval 30
+  "Seconds between checks of whether `iuiw-workspace-sync' has something to do."
+  :type 'number
+  :group 'iuiw-workspace)
+
+(defcustom iuiw-workspace-fetch-interval 300
+  "Seconds between fetches of the repos `iuiw-workspace-sync' syncs."
+  :type 'number
   :group 'iuiw-workspace)
 
 (defcustom iuiw-workspace-sync-agent "claude"
@@ -650,9 +662,11 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
 A failed step skips the rest of its DIR's steps.  Show DONE when all
 succeed; otherwise call FAIL with the failures, each (DIR . ARGS)."
   (if (null steps)
-      (if failures
-          (funcall fail (nreverse failures))
-        (message "%s" done))
+      (progn
+        (iuiw-workspace-check-sync t)
+        (if failures
+            (funcall fail (nreverse failures))
+          (message "%s" done)))
     (let* ((dir (car (car steps)))
            (default-directory (file-name-as-directory (expand-file-name dir)))
            (process (apply #'magit-run-git-async (cdr (car steps)))))
@@ -746,6 +760,77 @@ repo with the fix as an unsent task."
              (mapcar (lambda (dir) (list dir "pull" "--rebase" "--autostash")) pulls))
      (format "Synced %s" (mapconcat #'abbreviate-file-name repos ", "))
      #'iuiw-workspace--sync-failed)))
+
+;;; Sync check
+
+(defvar iuiw-workspace--unsynced (make-hash-table :test #'equal)
+  "Repo to non-nil when `iuiw-workspace-sync' has something to do there.
+As last checked by `iuiw-workspace-check-sync'.")
+
+(defvar iuiw-workspace--sync-checked 0)
+
+(defvar iuiw-workspace--fetched 0)
+
+(defun iuiw-workspace--sync-repos ()
+  "Repos `iuiw-workspace-sync' syncs, each (DIR . PULL-ONLY)."
+  (append (mapcar #'list (iuiw-workspace--git-repos))
+          (mapcar (lambda (dir) (cons (file-name-as-directory (expand-file-name dir)) t))
+                  iuiw-workspace-pull-repos)))
+
+(defun iuiw-workspace--unsynced-p (status pull-only)
+  "Non-nil when STATUS leaves a sync to do.
+STATUS is from `git status --porcelain --branch'.  With PULL-ONLY only
+commits to pull count."
+  (let ((lines (split-string status "\n" t)))
+    (and (or (string-match-p (if pull-only "\\`##.*\\[.*behind" "\\`##.*\\[\\(?:ahead\\|behind\\)")
+                             (or (car lines) ""))
+             (and (not pull-only) (cdr lines)))
+         t)))
+
+(defun iuiw-workspace--check-repo (dir pull-only fetch)
+  "Note in the background whether repo DIR is unsynced, fetching first when FETCH.
+PULL-ONLY is as for `iuiw-workspace--unsynced-p'.  A change refreshes overlook."
+  (let ((default-directory dir)
+        (process-environment (append '("GIT_TERMINAL_PROMPT=0"
+                                       "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+                                     process-environment))
+        (output (generate-new-buffer " *iuiw-workspace-check*")))
+    (make-process
+     :name "iuiw-workspace-check" :buffer output :noquery t :connection-type 'pipe
+     :command (list "sh" "-c" (concat (if fetch "git fetch --quiet >/dev/null 2>&1; " "")
+                                      "git status --porcelain --branch"))
+     :sentinel
+     (lambda (process _event)
+       (unless (process-live-p process)
+         (let ((unsynced (and (zerop (process-exit-status process))
+                              (iuiw-workspace--unsynced-p
+                               (with-current-buffer output (buffer-string)) pull-only))))
+           (kill-buffer output)
+           (unless (eq unsynced (gethash dir iuiw-workspace--unsynced))
+             (puthash dir unsynced iuiw-workspace--unsynced)
+             (when (fboundp 'overlook-refresh) (overlook-refresh)))))))))
+
+(defun iuiw-workspace-check-sync (&optional now)
+  "Check the repos `iuiw-workspace-sync' syncs when due, or NOW, fetching when due."
+  (let ((time (float-time)))
+    (when (or now (> (- time iuiw-workspace--sync-checked) iuiw-workspace-sync-check-interval))
+      (let ((fetch (> (- time iuiw-workspace--fetched) iuiw-workspace-fetch-interval)))
+        (setq iuiw-workspace--sync-checked time)
+        (when fetch (setq iuiw-workspace--fetched time))
+        (pcase-dolist (`(,dir . ,pull-only) (iuiw-workspace--sync-repos))
+          (when (file-directory-p dir)
+            (iuiw-workspace--check-repo dir pull-only fetch)))))))
+
+(defun iuiw-workspace--check-sync-saved ()
+  "Check the sync soon after a file in the workspaces is saved."
+  (when (and buffer-file-name
+             (string-prefix-p (iuiw-workspace--base) (file-truename buffer-file-name)))
+    (iuiw-workspace-check-sync t)))
+
+(defun iuiw-workspace-overlook-mark ()
+  "\"*\" when `iuiw-workspace-sync' has something to do, as last checked."
+  (when (seq-some #'identity (hash-table-values iuiw-workspace--unsynced))
+    "*"))
 
 ;;; Repository commands
 
