@@ -26,6 +26,44 @@
               (eq (window-dedicated-p window) 'side))
       (ignore-errors (delete-window window)))))
 
+(defun iuiw-tabspaces--window-p (item)
+  "Non-nil if ITEM of a window state is a window, not an attribute."
+  (memq (car-safe item) '(leaf hc vc)))
+
+(defun iuiw-tabspaces--strip-side-windows (tree)
+  "Window state TREE without its side windows, or nil if none is left."
+  (pcase (car-safe tree)
+    ('leaf (unless (alist-get 'window-side (alist-get 'parameters (cdr tree))) tree))
+    ((or 'hc 'vc)
+     (let* ((items (delq nil (mapcar (lambda (item)
+                                       (if (iuiw-tabspaces--window-p item)
+                                           (iuiw-tabspaces--strip-side-windows item)
+                                         item))
+                                     (cdr tree))))
+            (children (seq-filter #'iuiw-tabspaces--window-p items))
+            (last-child (car (last children))))
+       (if (cdr children)
+           ;; `window-state-put' splits off every child not marked last.
+           (cons (car tree)
+                 (mapcar (lambda (item)
+                           (if (not (iuiw-tabspaces--window-p item))
+                               item
+                             (let ((attrs (seq-remove (lambda (a) (eq (car-safe a) 'last))
+                                                      (cdr item))))
+                               (cons (car item)
+                                     (if (eq item last-child) (cons '(last . t) attrs) attrs)))))
+                         items))
+         (car children))))
+    (_ tree)))
+
+(defun iuiw-tabspaces--without-side-windows (entry)
+  "Session ENTRY with the side windows removed from its layout."
+  (pcase-let ((`(,records ,name ,state . ,rest) entry))
+    (cl-list* records name
+              (when-let* ((tree (and state (iuiw-tabspaces--strip-side-windows (cdr state)))))
+                (cons (car state) tree))
+              rest)))
+
 (defun iuiw-tabspaces--most-recent (names)
   "The one of NAMES switched to last, per overlook, or nil."
   (when-let* ((times (bound-and-true-p overlook-project-switch-times)))
@@ -43,8 +81,6 @@
                         ((not (equal name (buffer-name buf)))))
               (push (cons name (buffer-name buf)) subst))))))
     (when (caddr entry)
-      ;; 已有的 side window 和布局里存的会分处两处，之后哪个都删不掉。
-      (iuiw-tabspaces--delete-side-windows)
       (with-demoted-errors "tabspaces: window layout not restored: %S"
         (window-state-put (tabspaces--rewrite-window-state (caddr entry) subst)
                           (window-main-window) 'safe)))
@@ -90,7 +126,8 @@ first visit."
     (tab-bar-rename-tab "main"))
   (when (file-exists-p tabspaces-session-file)
     (tabspaces--load-session-file tabspaces-session-file)
-    (let* ((entries tabspaces--session-list)
+    ;; 看板由 overlook 自己显示；存下的看板会和已有的叠成两个。
+    (let* ((entries (mapcar #'iuiw-tabspaces--without-side-windows tabspaces--session-list))
            (names (mapcar #'cadr entries))
            (target (or (iuiw-tabspaces--most-recent names) (car (last names))))
            ;; 恢复时逐个访问 tab，overlook 会把每次访问记成切换。
