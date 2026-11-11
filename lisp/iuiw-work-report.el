@@ -10,7 +10,8 @@
 
 (require 'cl-lib)
 (require 'iuiw-daily)
-(require 'iuiw-elfeed-ai)
+
+(declare-function iuiw-elfeed-ai--request "iuiw-elfeed-ai")
 
 (defgroup iuiw-work-report nil
   "A daily report of the day's work."
@@ -114,7 +115,9 @@ Then call DONE with an error message, or nil."
          (cond
           (err (funcall done err))
           ((string-empty-p material) (finish "## 要点\n- 没有记录到活动"))
-          (t (iuiw-elfeed-ai--request
+          (t (require 'elfeed)
+             (require 'iuiw-elfeed-ai)
+             (iuiw-elfeed-ai--request
               iuiw-work-report-backend t (format iuiw-work-report--prompt date material)
               (lambda (text err)
                 (if text (finish (string-trim text)) (funcall done err)))))))))))

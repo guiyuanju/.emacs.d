@@ -1362,8 +1362,11 @@
      ("https://sspai.com/feed" :fetch-link t :readable t sspai)
      ("https://claude.dev/rss.xml" claude)
      ("https://t3.at/rss.xml" t3)))
+  :defer t
   :init
   (require 'iuiw-elfeed)
+  ;; 在这里登记：iuiw-elfeed-ai 只在用 elfeed 时加载，没加载的那次退出也要保存它。
+  (add-to-list 'savehist-additional-variables 'iuiw-elfeed-ai-digest-focus)
   (add-hook 'evil-collection-setup-hook #'iuiw-elfeed-evil-keys)
   (advice-add 'elfeed-show-refresh :before #'iuiw-elfeed-show-set-referer))
 
@@ -1414,9 +1417,7 @@
 (use-package iuiw-elfeed-ai
   :ensure nil
   :after elfeed
-  :demand t
-  :config
-  (add-to-list 'savehist-additional-variables 'iuiw-elfeed-ai-digest-focus))
+  :demand t)
 
 (use-package iuiw-sync
   :ensure nil
@@ -1434,6 +1435,11 @@
   :config
   (iuiw-daily-mode 1))
 
+(use-package iuiw-elfeed-digest
+  :ensure nil
+  :after iuiw-daily
+  :demand t)
+
 (use-package iuiw-elfeed-sync
   :ensure nil
   :after (iuiw-elfeed-ai iuiw-daily)
@@ -1443,7 +1449,7 @@
 
 (use-package iuiw-work-report
   :ensure nil
-  :after (iuiw-elfeed-ai iuiw-daily)
+  :after iuiw-daily
   :demand t)
 
 (use-package iuiw-log

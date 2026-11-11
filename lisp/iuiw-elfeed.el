@@ -9,7 +9,7 @@
 (declare-function evil-collection-define-operator-key "evil-collection")
 (declare-function elfeed-entry-link "elfeed-db")
 (declare-function elfeed-show-copy-url-at-point "elfeed-show")
-(declare-function iuiw-elfeed-sync-open-digest "iuiw-elfeed-sync")
+(declare-function iuiw-elfeed-digest-open "iuiw-elfeed-digest")
 (defvar elfeed-search-mode-map)
 (defvar elfeed-show-mode-map)
 (defvar url-current-lastloc)
@@ -31,7 +31,7 @@
       "@" #'elfeed-search-date-filter
       "O" #'elfeed-search-reverse-order
       "A" #'iuiw-elfeed-ai-digest
-      "gd" #'iuiw-elfeed-sync-open-digest
+      "gd" #'iuiw-elfeed-digest-open
       "gA" #'iuiw-elfeed-ai-set-backend)
     (evil-define-key* 'normal elfeed-show-mode-map
       "u" #'elfeed-show-tag-unread

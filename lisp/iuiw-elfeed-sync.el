@@ -4,8 +4,7 @@
 ;; 几台机器各自抓 RSS，只同步对条目做的事：已读、星标和 AI 总结。每次变化追加一行到
 ;; `iuiw-sync' 仓库的 jsonl，同一条目以时间最晚的记录为准。启动、打开 elfeed、更新
 ;; 订阅时同步。
-;; 每日摘要是 `iuiw-daily' 的任务 elfeed-digest，写在同步仓库里，各机器共享；gd 在
-;; 侧边打开最新一份。
+;; 每日摘要的生成在这里，任务的登记和显示在 `iuiw-elfeed-digest'。
 
 ;;; Code:
 
@@ -15,6 +14,7 @@
 (require 'iuiw-elfeed-ai)
 (require 'iuiw-sync)
 (require 'iuiw-daily)
+(require 'iuiw-elfeed-digest)
 
 (defgroup iuiw-elfeed-sync nil
   "Sync elfeed state across machines through git."
@@ -158,15 +158,6 @@ See `iuiw-elfeed-ai-summary-functions' for VALUE."
 
 ;;; Digest
 
-(defun iuiw-elfeed-sync--since ()
-  "Return when the latest digest was written, or a day ago if none was."
-  (or (when-let* ((file (iuiw-daily-latest 'elfeed-digest)))
-        (with-temp-buffer
-          (insert-file-contents file)
-          (when (re-search-forward "^#\\+until: \\([0-9.]+\\)" nil t)
-            (string-to-number (match-string 1)))))
-      (- (float-time) 86400)))
-
 (defun iuiw-elfeed-sync--entries-since (time)
   "Return the newest entries dated after TIME.
 At most `iuiw-elfeed-ai-digest-limit' entries."
@@ -190,7 +181,7 @@ WAITED is the seconds waited so far."
 The digested entries are marked read.  Then call DONE with an error
 message, or nil."
   (let* ((until (float-time))
-         (entries (iuiw-elfeed-sync--entries-since (iuiw-elfeed-sync--since)))
+         (entries (iuiw-elfeed-sync--entries-since (iuiw-elfeed-digest-since)))
          (file (iuiw-daily-file 'elfeed-digest))
          (backend iuiw-elfeed-ai-backend))
     (cl-flet ((finish (body)
@@ -218,51 +209,6 @@ message, or nil."
   "Update the feeds, then write today's digest and call DONE."
   (elfeed-update)
   (iuiw-elfeed-sync--after-update (lambda () (iuiw-elfeed-sync--write-digest done)) 0))
-
-(defun iuiw-elfeed-sync--describe-digest (file)
-  "The notification text for digest FILE."
-  (concat (with-temp-buffer
-            (insert-file-contents file)
-            (when (re-search-forward "^#\\+subtitle: \\(.*\\)" nil t)
-              (match-string 1)))
-          " · 在 elfeed 里按 gd 查看"))
-
-(defun iuiw-elfeed-sync--digest-points (file)
-  "Return the items under \"* 要点\" in digest FILE."
-  (with-temp-buffer
-    (insert-file-contents file)
-    (when (re-search-forward "^\\* 要点[ \t]*$" nil t)
-      (let ((end (save-excursion (if (re-search-forward "^\\* " nil t) (match-beginning 0) (point-max))))
-            points)
-        (while (re-search-forward "^- \\(.+\\)" end t)
-          (push (match-string 1) points))
-        (nreverse points)))))
-
-(defun iuiw-elfeed-sync--show-digest (file)
-  "Show digest FILE in a side window."
-  (let ((buf (get-buffer-create "*elfeed-digest*")))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert-file-contents file)
-        (iuiw-elfeed-ai-digest-mode)))
-    (select-window (display-buffer buf '(display-buffer-in-side-window
-                                         (side . right) (window-width . 0.4))))))
-
-;;;###autoload
-(defun iuiw-elfeed-sync-open-digest ()
-  "Show the latest digest in a side window."
-  (interactive)
-  (iuiw-daily-open 'elfeed-digest))
-
-(iuiw-daily-define 'elfeed-digest
-                   :title "Elfeed 摘要"
-                   :directory (lambda () (iuiw-sync-file "digest"))
-                   :extension "org"
-                   :run #'iuiw-elfeed-sync--run-digest
-                   :describe #'iuiw-elfeed-sync--describe-digest
-                   :points #'iuiw-elfeed-sync--digest-points
-                   :open #'iuiw-elfeed-sync--show-digest)
 
 ;;; Mode
 
