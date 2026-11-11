@@ -176,7 +176,7 @@ turn on.
 
 | Module | Adds |
 |---|---|
-| `overlook-tabspaces` | projects from the tabs of tabspaces |
+| `overlook-tabspaces` | projects from the tabs of tabspaces; a buffer of no file and no project, such as `*scratch*`, uses its tab's project in project.el commands |
 | `overlook-repo` | changed repos and worktrees under each project |
 | `overlook-worktree` | Git worktree operations, independent of agents and courier |
 | `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |

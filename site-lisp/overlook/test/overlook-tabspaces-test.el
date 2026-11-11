@@ -90,3 +90,26 @@ BUFFERS is a list of (VARIABLE NAME), each bound to a new buffer."
     (overlook-switch-project "third")
     (should (equal (overlook-current-project) "third"))
     (should (equal (sort (overlook-tabspaces--names) #'string<) '("main" "other" "third")))))
+
+(ert-deftest overlook-tabspaces-project-current-falls-back-to-tab ()
+  (let* ((root (file-name-as-directory (make-temp-file "overlook-root" t)))
+         (outside (file-name-as-directory (make-temp-file "overlook-outside" t)))
+         (file (expand-file-name "file" outside))
+         (overlook-orphan-project "main")
+         (overlook-project-root-function (lambda (_name) root))
+         (project-find-functions
+          (list (lambda (dir) (and (file-in-directory-p dir root) (cons 'transient root))))))
+    (unwind-protect
+        (overlook-tabspaces-test--with-tabs ((scratch "overlook-tabspaces-scratch"))
+          (with-current-buffer scratch
+            (setq default-directory outside)
+            (should (equal (project-current) (cons 'transient root)))
+            (should-not (project-current nil outside)))
+          (with-current-buffer (find-file-noselect file)
+            (should-not (project-current))
+            (kill-buffer))
+          (tab-bar-switch-to-tab "main")
+          (with-current-buffer scratch
+            (should-not (project-current))))
+      (delete-directory root t)
+      (delete-directory outside t))))

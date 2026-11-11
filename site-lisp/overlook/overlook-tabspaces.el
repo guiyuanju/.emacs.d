@@ -26,7 +26,8 @@
 ;; Makes each tab of the selected frame an overlook project, its
 ;; buffers kept apart by tabspaces.  A hidden tab's buffers are read from
 ;; what `tab-bar' saved of its frame parameters, so listing them does not
-;; switch tabs.
+;; switch tabs.  A buffer of no file and no project, such as *scratch*,
+;; belongs to the project of its tab.
 
 ;;; Code:
 
@@ -53,6 +54,22 @@
 (defun overlook-tabspaces--switch (name)
   "Switch to the tab named NAME, creating it when missing."
   (tabspaces-switch-or-create-workspace name))
+
+;; Buffers such as *scratch* are shared by every tab and sit in no project.
+(defun overlook-tabspaces--project-current (project-current &optional maybe-prompt directory)
+  "Call PROJECT-CURRENT with MAYBE-PROMPT and DIRECTORY, falling back to the tab.
+A buffer visiting no file and in no project belongs to the project of
+its tab, unless that is `overlook-orphan-project'."
+  (or (funcall project-current nil directory)
+      (and (not directory)
+           (not project-current-directory-override)
+           (not (buffer-file-name (buffer-base-buffer)))
+           (not (derived-mode-p 'dired-mode))
+           (when-let* ((name (overlook-tabspaces--current))
+                       ((not (equal name overlook-orphan-project)))
+                       (root (overlook-project-root name)))
+             (funcall project-current nil root)))
+      (and maybe-prompt (funcall project-current maybe-prompt directory))))
 
 ;; The current tab also holds what its windows show, as tabspaces counts
 ;; it, but not a detached buffer.
@@ -128,8 +145,11 @@ Buffers in `tabspaces-include-buffers' are kept.  The sole tab stays."
      (tab-bar-tab-post-open-functions overlook-tabspaces--changed)
      (tab-bar-tab-pre-close-functions overlook-tabspaces--changed)))
   (if overlook-tabspaces-mode
-      (advice-add 'tab-bar-rename-tab :after #'overlook-tabspaces--changed)
-    (advice-remove 'tab-bar-rename-tab #'overlook-tabspaces--changed)))
+      (progn
+        (advice-add 'tab-bar-rename-tab :after #'overlook-tabspaces--changed)
+        (advice-add 'project-current :around #'overlook-tabspaces--project-current))
+    (advice-remove 'tab-bar-rename-tab #'overlook-tabspaces--changed)
+    (advice-remove 'project-current #'overlook-tabspaces--project-current)))
 
 (provide 'overlook-tabspaces)
 ;;; overlook-tabspaces.el ends here
