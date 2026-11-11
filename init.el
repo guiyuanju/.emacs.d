@@ -1265,6 +1265,13 @@
   (overlook-remote-host "0.0.0.0")
   (overlook-remote-network-minutes nil))
 
+(use-package iuiw-sleep
+  :ensure nil
+  :demand t
+  :config
+  (with-eval-after-load 'overlook
+    (add-hook 'overlook-mode-line-functions #'iuiw-sleep-mode-line)))
+
 (use-package iuiw-remote
   :ensure nil
   :after overlook-remote
