@@ -593,6 +593,7 @@ FORWARD picks the direction; WHAT names those lines when there is none."
   (display-buffer-in-side-window
    (get-buffer overlook-buffer-name)
    `((side . ,overlook-side) (slot . -1) (window-width . ,(overlook-columns))
+     (preserve-size . (t . nil))
      (window-parameters (no-delete-other-windows . t)))))
 
 (defun overlook--follow ()
