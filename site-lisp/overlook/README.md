@@ -343,6 +343,9 @@ it and add it again from the address copied by `overlook-remote-url`.
 - `overlook-repo-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-repo-folders`, as a `*` after its
   project's heading while it has changes, instead of listing them.
+- `overlook-repo-ignored`: repos inside a project, such as a clone of
+  data, to leave off the dashboard and out of the check before closing
+  it.
 - `overlook-repo-count-limit`: the largest untracked file, in bytes,
   whose lines are counted.
 - `overlook-agent-root-function`: the root of an agent its frontend did

@@ -1189,6 +1189,15 @@ Agents are listed; usage and repos are not."
                       "commit" "-q" "-m" "x"))
       (should-not (overlook-repo--close-blocker "p")))))
 
+(ert-deftest overlook-repo-leaves-out-ignored-repos ()
+  (overlook-test-with-marked-project root
+    (let ((overlook-project-root (lambda (_) root))
+          (overlook-repo-folders #'ignore)
+          (overlook-worktrees-functions nil)
+          (overlook-repo-ignored (list (expand-file-name "api" root))))
+      (should (equal (overlook-repo--dirs "p") (list (expand-file-name "web/" root))))
+      (should (equal (overlook-repo--close-blocker "p") "uncommitted changes in web")))))
+
 (ert-deftest overlook-repo-link-into-marked-folder-belongs-to-it ()
   (overlook-test-with-marked-project root
     (let ((link (make-temp-name (expand-file-name "overlook-link" temporary-file-directory))))

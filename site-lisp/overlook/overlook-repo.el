@@ -86,6 +86,12 @@ folder that is a repo itself is listed as one."
   :type 'function
   :group 'overlook)
 
+(defcustom overlook-repo-ignored nil
+  "Repos left off the dashboard, such as a data clone inside a project.
+They do not keep their project from closing either."
+  :type '(repeat directory)
+  :group 'overlook)
+
 (defcustom overlook-repo-folder-display 'rows
   "How changes of a folder inside a larger repo show.
 `rows' lists them under the project like a repo's; `mark' puts a
@@ -582,7 +588,10 @@ Neither shows while the project has no worktrees."
 (defun overlook-repo--dirs (project)
   "The repos of PROJECT's root and its folders lying in a repo."
   (let* ((root (overlook-project-root project))
-         (dirs (and root (overlook-project-repos root))))
+         (ignored (mapcar (lambda (dir) (file-name-as-directory (expand-file-name dir)))
+                          overlook-repo-ignored))
+         (dirs (seq-remove (lambda (dir) (member dir ignored))
+                           (and root (overlook-project-repos root)))))
     (dolist (dir (funcall overlook-repo-folders project))
       (let ((dir (file-name-as-directory (expand-file-name dir))))
         (when (and (overlook-repo--top dir) (not (member dir dirs)))
