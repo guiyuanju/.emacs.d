@@ -43,6 +43,8 @@
                         ((not (equal name (buffer-name buf)))))
               (push (cons name (buffer-name buf)) subst))))))
     (when (caddr entry)
+      ;; 已有的 side window 和布局里存的会分处两处，之后哪个都删不掉。
+      (iuiw-tabspaces--delete-side-windows)
       (with-demoted-errors "tabspaces: window layout not restored: %S"
         (window-state-put (tabspaces--rewrite-window-state (caddr entry) subst)
                           (window-main-window) 'safe)))
