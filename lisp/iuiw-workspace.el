@@ -641,13 +641,16 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
     (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
-(defun iuiw-workspace--git-chain (steps done fail)
+(defun iuiw-workspace--git-chain (steps done fail &optional failures)
   "Run git STEPS, each (DIR . ARGS), one after another through magit.
-Show DONE when all succeed; at the first failure call FAIL with its DIR
-and ARGS."
+A failed step skips the rest of its DIR's steps.  Show DONE when all
+succeed; otherwise call FAIL with the failures, each (DIR . ARGS)."
   (if (null steps)
-      (message "%s" done)
-    (let* ((default-directory (file-name-as-directory (expand-file-name (car (car steps)))))
+      (if failures
+          (funcall fail (nreverse failures))
+        (message "%s" done))
+    (let* ((dir (car (car steps)))
+           (default-directory (file-name-as-directory (expand-file-name dir)))
            (process (apply #'magit-run-git-async (cdr (car steps)))))
       (set-process-sentinel
        process
@@ -655,8 +658,10 @@ and ARGS."
          (magit-process-sentinel proc event)
          (when (memq (process-status proc) '(exit signal))
            (if (zerop (process-exit-status proc))
-               (iuiw-workspace--git-chain (cdr steps) done fail)
-             (funcall fail (car (car steps)) (cdr (car steps))))))))))
+               (iuiw-workspace--git-chain (cdr steps) done fail failures)
+             (iuiw-workspace--git-chain
+              (seq-remove (lambda (step) (equal (car step) dir)) (cdr steps))
+              done fail (cons (car steps) failures)))))))))
 
 (defun iuiw-workspace--git-repos ()
   "The workspace repo and each workspace that is a repo of its own."
@@ -669,13 +674,29 @@ and ARGS."
 (defun iuiw-workspace--rebasing-p (dir)
   "Non-nil when a rebase or merge is unfinished in repo DIR."
   (seq-some (lambda (name)
-              (file-exists-p (car (process-lines "git" "-C" dir "rev-parse" "--git-path" name))))
+              (file-exists-p
+               (expand-file-name
+                (car (process-lines "git" "-C" dir "rev-parse" "--git-path" name))
+                dir)))
             '("rebase-merge" "rebase-apply" "MERGE_HEAD")))
+
+(defun iuiw-workspace--changed-files (dir)
+  "Paths with uncommitted changes in repo DIR, unquoted.
+A rename gives its new path."
+  (with-temp-buffer
+    (call-process "git" nil t nil "-C" dir "status" "--porcelain" "-z")
+    (let ((entries (split-string (buffer-string) "\0" t))
+          files)
+      (while entries
+        (let ((entry (pop entries)))
+          (push (substring entry 3) files)
+          (when (memq (aref entry 0) '(?R ?C))
+            (pop entries))))
+      (nreverse files))))
 
 (defun iuiw-workspace--sync-steps (dir)
   "Git steps syncing workspace repo DIR: commit all, pull, push."
-  (let ((files (mapcar (lambda (line) (substring line 3))
-                       (process-lines "git" "-C" dir "status" "--porcelain")))
+  (let ((files (iuiw-workspace--changed-files dir))
         steps)
     (when files
       (push (list dir "add" "-A") steps)
@@ -688,33 +709,42 @@ and ARGS."
       (push (list dir "push") steps))
     (nreverse steps)))
 
-(defun iuiw-workspace--sync-failed (dir args)
-  "Start an agent in DIR to finish the sync that failed at git ARGS.
-Its task waits unsent at its prompt."
+(defun iuiw-workspace--sync-failed (failures)
+  "Start an agent per failure, each (DIR . ARGS), to finish DIR's sync.
+Each task waits unsent at its agent's prompt."
   (require 'overlook-courier)
-  (let* ((workspace (not (member dir (mapcar #'expand-file-name iuiw-workspace-pull-repos))))
-         (id (overlook-courier-hand-off
-              iuiw-workspace-sync-agent dir
-              (format "同步这个仓库时 `git %s` 失败了。看 git status 和 git log 找原因；有冲突就解决，两边的改动都保留，拿不准的先问我；完成 rebase%s。"
-                      (string-join args " ")
-                      (if workspace "，然后 push" "，不要 push")))))
-    (message "git %s failed in %s; %s waits at its prompt"
-             (car args) (abbreviate-file-name dir) id)))
+  (message
+   "%s"
+   (mapconcat
+    (lambda (failure)
+      (let* ((dir (car failure))
+             (args (cdr failure))
+             (workspace (not (member dir (mapcar #'expand-file-name iuiw-workspace-pull-repos))))
+             (id (overlook-courier-hand-off
+                  iuiw-workspace-sync-agent dir
+                  (format "同步这个仓库时 `git %s` 失败了，它后面的同步步骤被跳过。看 git status 和 git log 找原因；有冲突就解决，两边的改动都保留，拿不准的先问我；完成 rebase%s。"
+                          (string-join args " ")
+                          (if workspace "，然后 push" "，不要 push")))))
+        (format "git %s failed in %s; %s waits at its prompt"
+                (car args) (abbreviate-file-name dir) id)))
+    failures "\n")))
 
 (defun iuiw-workspace-sync ()
   "Sync the workspace repos and pull `iuiw-workspace-pull-repos'.
 A workspace repo has every change committed, then is pulled with rebase
 and pushed when it has a remote; code repos inside projects are left
-out by its .gitignore.  When a step fails, an agent is started in that
+out by its .gitignore.  When a step fails, the rest of that repo's steps
+are skipped, the other repos still sync, and an agent is started in that
 repo with the fix as an unsent task."
   (interactive)
   (require 'magit-process)
   (let* ((pulls (mapcar #'expand-file-name iuiw-workspace-pull-repos))
-         (repos (append (iuiw-workspace--git-repos) pulls)))
+         (workspace-repos (iuiw-workspace--git-repos))
+         (repos (append workspace-repos pulls)))
     (when-let* ((stuck (seq-find #'iuiw-workspace--rebasing-p repos)))
       (user-error "Finish the rebase or merge in %s first" (abbreviate-file-name stuck)))
     (iuiw-workspace--git-chain
-     (append (mapcan #'iuiw-workspace--sync-steps (iuiw-workspace--git-repos))
+     (append (mapcan #'iuiw-workspace--sync-steps workspace-repos)
              (mapcar (lambda (dir) (list dir "pull" "--rebase" "--autostash")) pulls))
      (format "Synced %s" (mapconcat #'abbreviate-file-name repos ", "))
      #'iuiw-workspace--sync-failed)))
