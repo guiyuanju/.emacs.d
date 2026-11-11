@@ -1162,6 +1162,18 @@ Agents are listed; usage and repos are not."
                          #'string<)
                    '(".overlook" "api/.gitignore" "api/a.el" "notes/n.md" "web/b.el")))))
 
+(ert-deftest overlook-repo-blocks-closing-a-project-with-uncommitted-changes ()
+  (overlook-test-with-marked-project root
+    (let ((overlook-project-root (lambda (_) root))
+          (overlook-worktrees-functions nil))
+      (delete-file (expand-file-name "web/b.el" root))
+      (should (equal (overlook-repo--close-blocker "p") "uncommitted changes in api"))
+      (let ((default-directory (expand-file-name "api/" root)))
+        (call-process "git" nil nil nil "add" "-A")
+        (call-process "git" nil nil nil "-c" "user.name=t" "-c" "user.email=t@t"
+                      "commit" "-q" "-m" "x"))
+      (should-not (overlook-repo--close-blocker "p")))))
+
 (ert-deftest overlook-repo-link-into-marked-folder-belongs-to-it ()
   (overlook-test-with-marked-project root
     (let ((link (make-temp-name (expand-file-name "overlook-link" temporary-file-directory))))

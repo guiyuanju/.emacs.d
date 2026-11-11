@@ -57,6 +57,13 @@
                     (seq-filter (lambda (saved) (funcall in (alist-get 'root saved)))
                                 overlook-agent-saved)))))
 
+(defun overlook-agent--in-project (name)
+  "The agents running in project NAME, with functions killing them."
+  (mapcar (lambda (buffer)
+            (cons (format "agent %s" (buffer-name buffer))
+                  (lambda () (overlook-agent-kill buffer))))
+          (overlook-agent-buffers (lambda (buffer) (equal (overlook-agent-project buffer) name)))))
+
 (defun overlook-agent--annotate (name)
   "Status and project of the agent buffer NAME, for completion."
   (let ((buffer (get-buffer name)))
@@ -154,6 +161,7 @@ nil when there is neither.  The prompt is left unsent, as \\[overlook-agent-send
    '((overlook-worktree-functions overlook-agent--rows)
      (overlook-delete-functions overlook-agent--delete)
      (overlook-folder-contents-functions overlook-agent--in-folder)
+     (overlook-project-contents-functions overlook-agent--in-project)
      (overlook-mode-line-functions overlook-agent--mode-line)
      (overlook-tick-hook overlook-agent--tick)
      (window-selection-change-functions overlook-agent--acknowledge)

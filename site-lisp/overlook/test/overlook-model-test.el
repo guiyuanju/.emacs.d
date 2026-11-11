@@ -1,6 +1,7 @@
 ;;; overlook-model-test.el --- Model boundaries and update lifecycle -*- lexical-binding: t; -*-
 
 (require 'ert)
+(require 'cl-lib)
 (require 'overlook-model)
 
 (ert-deftest overlook-model-and-agent-state-load-without-the-emacs-view ()
@@ -55,3 +56,19 @@
               (overlook--tick)
               (should (= ticks 2))))
         (when (timerp overlook--tick-timer) (cancel-timer overlook--tick-timer))))))
+
+(ert-deftest overlook-delete-project-refuses-then-closes-with-its-contents ()
+  (let* ((closed nil)
+         (killed nil)
+         (overlook-close-project-function (lambda (name) (push name closed)))
+         (overlook-project-close-blockers (list (lambda (_) "uncommitted changes in api")))
+         (overlook-project-contents-functions
+          (list (lambda (name) (list (cons "agent a" (lambda () (push name killed))))))))
+    (should-error (overlook-delete-project "p") :type 'user-error)
+    (should-not (or killed closed))
+    (setq overlook-project-close-blockers nil)
+    (cl-letf (((symbol-function 'yes-or-no-p)
+               (lambda (question) (equal question "Close project p and agent a? "))))
+      (should (overlook--delete-project '(project . "p"))))
+    (should (equal killed '("p")))
+    (should (equal closed '("p")))))

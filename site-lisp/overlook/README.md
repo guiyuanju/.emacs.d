@@ -144,7 +144,7 @@ returning updates it. New projects append and closed projects disappear.
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous heading |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
-| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch) |
+| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a project with its agents unless it has uncommitted changes |
 | `H` | hand the agent's task off to another agent |
 | `e` | edit a persona |
 | `g` | redraw |
@@ -441,7 +441,9 @@ docstring.
   `overlook-worktree-of` tells which worktree holds a folder.
 - `overlook-delete-functions`: what `d d` does, given the row's id.
   `overlook-folder-contents-functions`: what lies in a folder about to
-  go, each with a function letting it go.
+  go, each with a function letting it go;
+  `overlook-project-contents-functions` the same for a project about to
+  close, and `overlook-project-close-blockers` why it cannot.
 - `overlook-usage-functions`: rows in the usage section;
   `overlook-usage-add-poller` refreshes their data over the network, at
   most every few minutes while the dashboard is open.

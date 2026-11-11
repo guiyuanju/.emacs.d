@@ -382,6 +382,38 @@ thing, like \"agent claude\", and DELETE a function letting it go.")
 Each deletes what the row stands for.
 Each returns non-nil when it handled the item.")
 
+(defvar overlook-project-contents-functions nil
+  "Functions of a project NAME returning what goes when it closes.
+Each returns a list of (LABEL . DELETE), DELETE a function letting it go.")
+
+(defvar overlook-project-close-blockers nil
+  "Functions of a project NAME returning why it cannot close, or nil.")
+
+(defun overlook-delete-project (name)
+  "Close project NAME with what lies in it, such as its agents, once confirmed.
+Refused while `overlook-project-close-blockers' give a reason."
+  (when-let* ((reasons (delq nil (mapcar (lambda (blocker) (funcall blocker name))
+                                         overlook-project-close-blockers))))
+    (user-error "Cannot close project %s: %s" name (string-join reasons "; ")))
+  (let ((contents (seq-mapcat (lambda (function) (funcall function name))
+                              overlook-project-contents-functions)))
+    (when (yes-or-no-p (format "Close project %s%s? " name
+                               (if contents
+                                   (format " and %s" (mapconcat #'car contents ", "))
+                                 "")))
+      (pcase-dolist (`(,_ . ,delete) contents) (funcall delete))
+      (overlook-close-project name)
+      (message "Closed project %s" name))))
+
+(defun overlook--delete-project (item)
+  "Close the project ITEM stands for, if it is an open one."
+  (pcase item
+    (`(project . ,name)
+     (overlook-delete-project name)
+     t)))
+
+(add-hook 'overlook-delete-functions #'overlook--delete-project)
+
 (defvar overlook-project-command-functions nil
   "Functions of a project NAME returning commands for its heading.
 Each returns a list of commands, as `overlook-row' describes.")

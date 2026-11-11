@@ -579,15 +579,20 @@ Neither shows while the project has no worktrees."
                                                     root project))
                   trees))))
 
-(defun overlook-repo--changed (project)
-  "The repos and folders of PROJECT with changes to show."
+(defun overlook-repo--dirs (project)
+  "The repos of PROJECT's root and its folders lying in a repo."
   (let* ((root (overlook-project-root project))
-         (dirs (and root (overlook-project-repos root)))
-         (folders (overlook-repo--folders project)))
+         (dirs (and root (overlook-project-repos root))))
     (dolist (dir (funcall overlook-repo-folders project))
       (let ((dir (file-name-as-directory (expand-file-name dir))))
         (when (and (overlook-repo--top dir) (not (member dir dirs)))
           (setq dirs (append dirs (list dir))))))
+    dirs))
+
+(defun overlook-repo--changed (project)
+  "The repos and folders of PROJECT with changes to show."
+  (let ((dirs (overlook-repo--dirs project))
+        (folders (overlook-repo--folders project)))
     ;; A clean one stays off the dashboard but is still read on each tick.
     (dolist (dir dirs)
       (cl-pushnew dir overlook-repo--shown :test #'equal))
@@ -608,12 +613,23 @@ Under a main checkout that is a repo, its own files are on its row."
          (overlook-repo--changed project))
        project))))
 
+(defun overlook-repo--dirty-p (dir)
+  "Non-nil when repo or folder DIR has uncommitted changes."
+  (not (string-empty-p
+        (or (ignore-errors (overlook-worktree-git dir "status" "--porcelain" "--" ".")) ""))))
+
 (defun overlook-repo--uncommitted (tree)
   "The repos of worktree TREE with uncommitted changes."
-  (seq-filter (lambda (dir)
-                (not (string-empty-p
-                      (or (ignore-errors (overlook-worktree-git dir "status" "--porcelain")) ""))))
-              (overlook-worktree-repos tree)))
+  (seq-filter #'overlook-repo--dirty-p (overlook-worktree-repos tree)))
+
+(defun overlook-repo--close-blocker (project)
+  "Why PROJECT cannot close: uncommitted changes in its repos, or nil.
+Its folders and worktrees count too."
+  (when-let* ((changed (seq-filter #'overlook-repo--dirty-p
+                                   (append (overlook-repo--dirs project)
+                                           (mapcan #'overlook-worktree-repos
+                                                   (overlook-worktrees project))))))
+    (format "uncommitted changes in %s" (mapconcat #'overlook-repo--label changed ", "))))
 
 (defun overlook-repo--delete-question (tree)
   "The question confirming that worktree TREE, and what lies in it, is to go."
@@ -728,6 +744,7 @@ Its branch stays."
      (overlook-worktree-functions overlook-repo--changed-rows 50)
      (overlook-heading-mark-functions overlook-repo--heading-mark)
      (overlook-delete-functions overlook-repo--delete)
+     (overlook-project-close-blockers overlook-repo--close-blocker)
      (overlook-before-render-hook overlook-repo--forget)
      (overlook-tick-hook overlook-repo--tick)
      (after-save-hook overlook-repo--saved)))
