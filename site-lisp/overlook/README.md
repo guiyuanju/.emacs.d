@@ -125,7 +125,9 @@ returning updates it. New projects append and closed projects disappear.
 - **A repo**: its branch and the lines changed since its last commit, then
   each changed file with its line counts, an untracked one counted as all
   added.  Files are grouped by folder, and a file leaves blank the
-  leading folders it shares with the one above.  These come from Git, so
+  leading folders it shares with the one above. Every folder is abbreviated
+  to its initial; filenames stay complete, and the tooltip shows the full
+  path. These come from Git, so
   they show every change in the working tree, whoever made it.
 - **Worktrees**: while a project has some, its rows are grouped by
   checkout.  The main checkout comes first, with the agents in no worktree

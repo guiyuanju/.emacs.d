@@ -374,18 +374,29 @@ Their common folders are left out, and the name when only folders changed."
 
 (defun overlook-repo--file-label (file &optional prefix shared)
   "FILE's folder below PREFIX, its name, then its line counts or state.
-The first SHARED characters of the folder show as blanks."
+Abbreviate every folder to its initial.
+The first SHARED characters of the original folder show as blanks."
   (pcase-let* ((`(,path ,code ,added ,removed ,from) file)
                (dir (or (overlook-repo--file-dir file prefix) ""))
                (shared (or shared 0))
-               (state (cond (from (concat " ← " (overlook-repo--old-path from path)))
-                            ((string-search "D" code) " deleted")
-                            ((overlook-repo--new-p code) " new"))))
-    (concat (make-string (string-width (substring dir 0 shared)) ?\s)
-            (propertize (substring dir shared) 'face 'shadow)
-            (propertize (file-name-nondirectory path) 'face 'overlook-repo-file)
-            (overlook-repo--counts added removed)
-            (if state (propertize state 'face 'shadow) ""))))
+               (folders (split-string dir "/" t))
+               (offset 0)
+               (label ""))
+    (dolist (folder folders)
+      (let ((part (substring folder 0 1)))
+        (setq label
+              (concat label
+                      (if (< offset shared)
+                          (make-string (1+ (string-width part)) ?\s)
+                        (concat part "/")))))
+      (setq offset (+ offset (length folder) 1)))
+    (let ((state (cond (from (concat " ← " (overlook-repo--old-path from path)))
+                      ((string-search "D" code) " deleted")
+                      ((overlook-repo--new-p code) " new"))))
+      (concat (propertize label 'face 'shadow)
+              (propertize (file-name-nondirectory path) 'face 'overlook-repo-file)
+              (overlook-repo--counts added removed)
+              (if state (propertize state 'face 'shadow) "")))))
 
 (defun overlook-repo--file-row (dir file project &optional shared)
   "The row of FILE changed in repo DIR, under its row in PROJECT.

@@ -1039,7 +1039,7 @@ Agents are listed; usage and repos are not."
                     '(("a/x.el" " M" 1 0) ("a/b/y.el" " M" 1 0) ("a/z.el" " M" 1 0) ("r.el" " M" 1 0)
                       ("ab/w.el" " M" 1 0))
                     "p")
-                   '("r.el +1" "a/x.el +1" "  z.el +1" "  b/y.el +1" "ab/w.el +1")))))
+                   '("r.el +1" "a/x.el +1" "  z.el +1" "  b/y.el +1" "a/w.el +1")))))
 
 (ert-deftest overlook-repo-treats-added-files-as-new ()
   (should (string-search " new" (overlook-repo--file-label '("a" " A" 2 0))))
@@ -1261,7 +1261,7 @@ Agents are listed; usage and repos are not."
               (search-forward "a.el")
               (should (equal (overlook-item-at-point)
                              (list 'repo-file (expand-file-name "api/" root) "src/a.el")))
-              (should (string-match-p "\\`   src/a\\.el \\+3 −1\\'"
+              (should (string-match-p "\\`   s/a\\.el \\+3 −1\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
               (should (< (overlook-test--line-of "b.el new") (overlook-test--line-of "frontend")))
@@ -1593,7 +1593,7 @@ Agents are listed; usage and repos are not."
                                              (buffer-substring-no-properties
                                               (line-beginning-position) (line-end-position)))))
               (search-forward "n.md")
-              (should (string-match-p "notes/n\\.md \\+2\\'"
+              (should (string-match-p "n/n\\.md \\+2\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
               (puthash card (list (float-time) "main") overlook-repo--status)
