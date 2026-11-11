@@ -22,7 +22,7 @@
 ;; 每项只占一行，过长的截断，RET 打开 project.md 看全文。
 ;; 没开 tab 的项目灰色，一项一行；没有 #now 时 TAB 直接展开待办。
 ;; 项目先列已打开的 active，再列未打开且有 #now 的 active，最后列其他；组内按最近切换时间、名字排序。
-;; done 和 dropped 默认隐藏。
+;; 未打开的 waiting、later、done、dropped 项目按 status 收进各自折叠的「status (n)」行，项目本身也折叠。
 ;; `iuiw-workspace-filter' 只显示一个 workspace 的项目、project 和 inbox；front matter 的
 ;; also: [okj] 让项目也算进列出的其他 workspace。
 ;; status 改成 done 或 dropped 的项目，切换 project（tabspaces 的 tab）或存 project.md 时关掉（当前的除外），连同保存的 agent；
@@ -977,12 +977,6 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
   "Non-nil when CARD's status is that of an ongoing project."
   (member (plist-get card :status) '("active" "waiting" "later")))
 
-(defun iuiw-workspace--todo-cards ()
-  "Return parsed ongoing cards shown by `iuiw-workspace-filter'."
-  (seq-filter (lambda (card) (and (iuiw-workspace--ongoing-p card)
-                                  (iuiw-workspace--shown-p card)))
-              (iuiw-workspace--cards)))
-
 (defun iuiw-workspace--todo-rank (text)
   "0 for a #now todo TEXT, 1 for #waiting, 2 for the rest.
 Tags inside `code' do not count."
@@ -1176,11 +1170,12 @@ each after the text of its parent todo, if any."
   "Non-nil when CARD has an outermost #now todo."
   (car (plist-get card :split)))
 
-(defun iuiw-workspace--closed-row (card)
+(defun iuiw-workspace--closed-row (card &optional folded)
   "The heading of CARD, whose project is not open, over its todos.
-With #now todos they show; otherwise the heading folds all the todos."
+With #now todos they show unless FOLDED; otherwise the heading folds all
+the todos."
   (let ((id (plist-get card :id))
-        (now (iuiw-workspace--has-now-p card)))
+        (now (and (not folded) (iuiw-workspace--has-now-p card))))
     (overlook-project-heading
      id 'overlook-heading nil
      :id (list 'closed-project id)
@@ -1190,12 +1185,38 @@ With #now todos they show; otherwise the heading folds all the todos."
                   card (iuiw-workspace--todo-sort (plist-get card :todos))))
      :folded (not now))))
 
+(defconst iuiw-workspace--folded-statuses '("waiting" "later" "done" "dropped")
+  "Statuses whose unopened projects fold under a line of their own.")
+
 (defun iuiw-workspace--closed-rows ()
-  "Rows of unopened ongoing projects; the Projects section sorts them."
-  (let ((open (overlook-projects)))
-    (mapcar #'iuiw-workspace--closed-row
-            (seq-remove (lambda (card) (member (plist-get card :id) open))
-                        (iuiw-workspace--todo-cards)))))
+  "Rows of unopened projects.
+Active ones are for the Projects section to sort; then, for each of
+`iuiw-workspace--folded-statuses', a folded \"STATUS (N)\" line over
+its projects, each folded too."
+  (let* ((open (overlook-projects))
+         (cards (seq-filter (lambda (card) (and (not (member (plist-get card :id) open))
+                                                (iuiw-workspace--shown-p card)))
+                            (iuiw-workspace--cards)))
+         (of (lambda (status)
+               (seq-filter (lambda (card) (equal (plist-get card :status) status)) cards))))
+    (append
+     (mapcar #'iuiw-workspace--closed-row (funcall of "active"))
+     (seq-keep (lambda (status)
+                 (when-let* ((group (funcall of status)))
+                   (overlook-row
+                    :id (list 'project-status status)
+                    :content (propertize (format "%s (%d)" status (length group)) 'face 'shadow)
+                    :heading t
+                    :nest t
+                    :folded t
+                    :children (mapcar (lambda (id)
+                                        (iuiw-workspace--closed-row
+                                         (seq-find (lambda (card) (equal (plist-get card :id) id))
+                                                   group)
+                                         t))
+                                      (overlook-sort-projects
+                                       (mapcar (lambda (card) (plist-get card :id)) group))))))
+               iuiw-workspace--folded-statuses))))
 
 ;;; Dashboard inbox
 

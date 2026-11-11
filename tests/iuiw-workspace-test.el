@@ -55,8 +55,7 @@ status: done
       (should (equal (plist-get card :id) "demo"))
       (should (equal (plist-get card :status) "active"))
       (should (equal (plist-get card :todos)
-                     '(("first" 7 0) ("child" 8 2) ("after fence" 14 0) ("ask ops #waiting" 19 0))))
-      (should (equal (mapcar (lambda (c) (plist-get c :id)) (iuiw-workspace--todo-cards)) '("demo"))))))
+                     '(("first" 7 0) ("child" 8 2) ("after fence" 14 0) ("ask ops #waiting" 19 0)))))))
 
 (ert-deftest iuiw-workspace-todo-parse-without-front-matter ()
   (iuiw-workspace-test--with-workspace
@@ -143,13 +142,17 @@ status: done
                        ("b" "later" "- [ ] b1 #now\n")
                        ("c" "later" "- [ ] c1\n")
                        ("d" "done" "")
-                       ("e" "active" "- [ ] e1\n")))
+                       ("e" "active" "- [ ] e1\n")
+                       ("f" "later" "")))
       (pcase-let ((`(,id ,status ,todos) project))
         (iuiw-workspace-test--write (format "me/projects/%s/project.md" id)
                                     (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
-    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("e"))))
-      (should (equal (iuiw-workspace-test--text (iuiw-workspace--closed-rows))
-                     "a me\nb me\n☐ b1\nc me\n")))))
+    (cl-letf (((symbol-function 'overlook-projects) (lambda () '("e" "f"))))
+      (let ((rows (iuiw-workspace--closed-rows)))
+        (should (equal (iuiw-workspace-test--text rows) "a me\nlater (2)\ndone (1)\n"))
+        (setf (overlook-row-folded (nth 1 rows)) nil)
+        (should (equal (iuiw-workspace-test--text rows)
+                       "a me\nlater (2)\n   b me\n   c me\ndone (1)\n"))))))
 
 (ert-deftest iuiw-workspace-project-root ()
   (iuiw-workspace-test--with-workspace
