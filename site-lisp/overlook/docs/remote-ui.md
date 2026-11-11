@@ -10,6 +10,9 @@ Projects and personas appear before usage. Project siblings use a stable name
 order; other domain ordering is preserved. An attention shortcut collects real
 waiting/failed/attention conversations without moving the surrounding lists.
 
+Project rows summarize the counts of working, waiting, failed and done agents,
+including nested agents and counting each conversation once.
+
 Project rows open details; touch-and-hold, right-click and Shift+F10 offer their
 commands. The detail navigation bar exposes the same commands. Project pages
 show counts and a new-conversation action when the server advertises one.

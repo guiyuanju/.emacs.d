@@ -64,6 +64,15 @@ vm.runInContext('composeId = "original";',context);
   assert.equal(vm.runInContext('dashboardDue("2026-11-11",new Date(2026,10,12)).overdue',context),true);
   const sorted=vm.runInContext('stableProjectNodes([{id:"z",title:"Zulu",kind:"project"},{id:"r",title:"Resource",kind:"text"},{id:"a",title:"Alpha",kind:"project"}]).map(node=>node.id).join(",")',context);
   assert.equal(sorted,'a,r,z');
+  const projectStates = vm.runInContext(`projectAgentSummary({children:[
+    {kind:"agent",agent:"a",status:"working"},
+    {kind:"group",children:[{kind:"agent",agent:"b",status:"working"},
+      {kind:"agent",agent:"a",status:"working"},
+      {kind:"agent",agent:"c",status:"waiting"}]},
+    {kind:"saved",status:"working"}, {kind:"agent",agent:"d",status:"idle"}
+  ]}).children.map(item=>item.textContent).join(",")`,context);
+  assert.equal(projectStates,'2 Working,1 Needs attention');
+  assert.equal(vm.runInContext('projectAgentSummary({children:[]}).children.length',context),0);
 
 
   vm.runInContext('agentControls = {steer:true, actions:["fork","reload","restart"], slash:[{name:"compact",description:"Compact context"},{name:"help",description:"Help"}]}',context);
