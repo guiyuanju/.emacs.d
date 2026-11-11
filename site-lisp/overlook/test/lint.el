@@ -20,6 +20,8 @@
           (setq failed t)
           (message "%s:%d:%d: %s: %s" (file-name-nondirectory file)
                    (nth 0 issue) (nth 1 issue) (nth 2 issue) (nth 3 issue))))))
+  ;; Off by default from Emacs 31.
+  (setq checkdoc-verb-check-experimental-flag nil)
   ;; checkdoc reports each problem through `checkdoc-error'.
   (advice-add 'checkdoc-error :before (lambda (&rest _) (setq failed t)))
   (dolist (file files) (checkdoc-file file))
