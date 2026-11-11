@@ -176,11 +176,17 @@ It also sets `iuiw-agent-shell-antigravity-config-options'."
             #'iuiw-agent-shell--add-apple-mcp)
 
 (defun iuiw-agent-shell-dot-subdir (subdir)
-  "Return SUBDIR of this project's agent-shell data, kept out of the repository."
-  (expand-file-name
-   subdir
-   (expand-file-name (file-name-nondirectory (directory-file-name (agent-shell-cwd)))
-                     (locate-user-emacs-file "agent-shell/"))))
+  "Return SUBDIR of this project's agent-shell data, kept out of the repository.
+The data directory is named after the project's base name and a hash of
+its full path; one named after the base name alone is moved into it."
+  (let* ((cwd (directory-file-name (expand-file-name (agent-shell-cwd))))
+         (name (file-name-nondirectory cwd))
+         (parent (locate-user-emacs-file "agent-shell/"))
+         (dir (expand-file-name (format "%s-%s" name (substring (sha1 cwd) 0 8)) parent))
+         (legacy (expand-file-name name parent)))
+    (when (and (not (file-exists-p dir)) (file-directory-p legacy))
+      (rename-file legacy dir))
+    (expand-file-name subdir dir)))
 
 (provide 'iuiw-agent-shell)
 ;;; iuiw-agent-shell.el ends here
