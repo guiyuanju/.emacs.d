@@ -70,6 +70,11 @@ Nil keeps it on."
 
 (defconst overlook-remote--files
   '(("" "overlook-remote.html" "text/html")
+    ("/icon.svg" "remote-icon.svg" "image/svg+xml")
+    ("/apple-touch-icon.png" "remote-icon-180.png" "image/png")
+    ("/icon-192.png" "remote-icon-192.png" "image/png")
+    ("/icon-512.png" "remote-icon-512.png" "image/png")
+    ("/manifest.webmanifest" "remote.webmanifest" "application/manifest+json")
     ("/vendor/marked.js" "vendor/marked.js" "text/javascript")
     ("/vendor/purify.js" "vendor/purify.js" "text/javascript")
     ("/vendor/framework7.js" "vendor/framework7.js" "text/javascript")
@@ -368,7 +373,8 @@ stream (:stream KNOWN)."
       (pcase-let ((`(,_ ,file ,mime) (assoc route overlook-remote--files)))
         (list 200 mime (with-temp-buffer
                          (let ((file (expand-file-name file overlook-remote--directory)))
-                           (if (string-prefix-p "font/" mime)
+                           (if (or (string-prefix-p "font/" mime)
+                                   (equal mime "image/png"))
                                (progn (set-buffer-multibyte nil)
                                       (insert-file-contents-literally file))
                              (insert-file-contents file)))

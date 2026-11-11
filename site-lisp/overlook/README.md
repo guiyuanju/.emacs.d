@@ -369,8 +369,10 @@ over plain HTTP, which anyone watching the network can read: serve only a
 network you trust, or reach it over a VPN such as Tailscale.  `M-x
 overlook-remote-new-token` shuts out every page opened before.
 
-On iOS, open that address in Safari, then add it to the Home Screen.  The
-page keeps `#token` in its address so the Home Screen app can authenticate
+On iOS, open that address in Safari, then add it to the Home Screen. The
+page provides a touch icon and a web app manifest for standalone display.
+The manifest omits a fixed launch URL so the installing address retains
+its authentication fragment. The page keeps `#token` in its address so the Home Screen app can authenticate
 with its own storage.  If an older shortcut opens without a token, delete
 it and add it again from the address copied by `overlook-remote-url`.
 

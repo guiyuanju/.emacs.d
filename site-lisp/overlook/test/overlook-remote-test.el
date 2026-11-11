@@ -165,6 +165,23 @@ QUERY is the parsed query.  Return (STATUS . DATA) with DATA parsed."
                401))
     (should (= (car (overlook-remote-test--call "GET" "/overlook/api/agents" nil "wrong")) 401))))
 
+(ert-deftest overlook-remote-install-assets-need-no-token ()
+  (dolist (size '(180 192 512))
+    (pcase-let* ((route (if (= size 180) "/apple-touch-icon.png"
+                         (format "/icon-%s.png" size)))
+                 (`(,status ,mime ,body)
+                  (overlook-remote--respond "GET" (concat "/overlook" route) nil nil)))
+      (should (= status 200))
+      (should (equal mime "image/png"))
+      (should-not (multibyte-string-p body))
+      (should (equal (substring body 0 8) (unibyte-string 137 80 78 71 13 10 26 10)))))
+  (pcase-let ((`(,status ,mime ,body)
+               (overlook-remote--respond "GET" "/overlook/manifest.webmanifest" nil nil)))
+    (should (= status 200))
+    (should (equal mime "application/manifest+json"))
+    ;; Keep the installing page's credential-bearing URL as the launch URL.
+    (should-not (assq 'start_url (json-parse-string body :object-type 'alist)))))
+
 (ert-deftest overlook-remote-lists-agents-with-their-choices ()
   (overlook-remote-test-with-agent t
     (pcase-let* ((`(,status . ,data) (overlook-remote-test--call "GET" "/overlook/api/agents"))
