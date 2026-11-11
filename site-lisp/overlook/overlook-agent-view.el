@@ -40,6 +40,9 @@
   :type 'natnum
   :group 'overlook)
 
+(defvar overlook-agent-command-functions nil
+  "Functions of an agent buffer returning additional row commands.")
+
 (defvar overlook-agent-row-marks nil
   "Functions of an agent buffer returning a mark after its name, or nil.")
 
@@ -166,9 +169,11 @@ line of their own under it."
      :wrap (overlook-agent--wrap-prefix depth)
      :choices (overlook-agent-choices buffer)
      :choose (lambda (key) (overlook-agent-choose buffer key))
-     :commands (list (list :name "kill" :label "Kill"
+     :commands (append (seq-mapcat (lambda (fn) (funcall fn buffer))
+                                    overlook-agent-command-functions)
+                       (list (list :name "kill" :label "Kill"
                            :confirm (lambda () (overlook-agent-kill-question buffer))
-                           :run (lambda () (overlook-agent-kill buffer))))
+                           :run (lambda () (overlook-agent-kill buffer)))))
      :children children)))
 
 (defun overlook-agent--saved-row (saved project &optional depth children)

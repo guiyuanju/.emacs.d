@@ -521,6 +521,7 @@
     "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
     "al" '(overlook-agent-switch :which-key "list agents")
     "ad" '(overlook :which-key "dashboard")
+    "ar" '(overlook-agent-resume-toggle :which-key "continue after quota reset")
     "ae" '(overlook-agent-send :which-key "send to agent")
     "ag" '(iuiw-assistant-chat :which-key "assistant chat")
     "aq" '(iuiw-assistant-ask :which-key "ask assistant")
@@ -1277,7 +1278,7 @@
   :load-path "site-lisp/overlook"
   ;; 点击 agent 通知时回到 Emacs 并跳到该 agent。
   :ensure-system-package (terminal-notifier . "brew install terminal-notifier")
-  :commands (overlook overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
+  :commands (overlook overlook-agent-resume-toggle overlook-agent-switch overlook-agent-send overlook-agent-shell-handoff
              overlook-close-project
              overlook-agent-project-root overlook-project-guess-root
              overlook-agent-shell-claude-switch-account)
@@ -1327,6 +1328,7 @@
   (require 'overlook-agent-shell)
   (require 'overlook-usage)
   (require 'overlook-agent-courier)
+  (require 'overlook-agent-resume)
   (overlook-tabspaces-mode 1)
   (overlook-repo-mode 1)
   ;; SPC TAB s 有事可做时 Projects 后加 *。

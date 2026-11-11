@@ -58,6 +58,7 @@
 (require 'map)
 (require 'url-util)
 
+(declare-function overlook-usage-codex-login "overlook-usage" ())
 (declare-function overlook-usage-save-claude "overlook-usage" (usage &optional account))
 
 (defcustom overlook-agent-shell-configs
@@ -254,6 +255,21 @@ other form is answered in the shell."
   (and (overlook-agent-shell--session)
        (not (shell-maker-busy))
        (string-empty-p (string-trim (or (agent-shell--prompt-input) "")))))
+
+(defvar-local overlook-agent-shell--codex-login nil
+  "Codex account recorded when this shell was registered.")
+
+(defun overlook-agent-shell--usage-row ()
+  "Return the subscription usage row for this shell, when known."
+  (pcase (car (overlook-agent-shell--origin))
+    ("claude"
+     (let ((account (overlook-agent-shell--other-account
+                     overlook-agent-shell--claude-account)))
+       (if account (concat "claude @" account) "claude")))
+    ("codex"
+     (when (and overlook-agent-shell--codex-login
+                (equal overlook-agent-shell--codex-login (overlook-usage-codex-login)))
+       "codex"))))
 
 (defun overlook-agent-shell--submit (text)
   "Submit TEXT as this shell's next prompt."
@@ -579,6 +595,9 @@ Nil until they are gathered, so that an empty environment is gathered once.")
                    (funcall overlook-agent-shell-ignore-function)))
     (let ((origin (overlook-agent-shell--origin))
           (buffer (current-buffer)))
+      (when (and (equal (car origin) "codex")
+                 (fboundp 'overlook-usage-codex-login))
+        (setq overlook-agent-shell--codex-login (overlook-usage-codex-login)))
       (setq overlook-agent-identity
             `((agent . ,(car origin)) (root . ,(cdr origin))
               (environment . ,(car overlook-agent-shell--environment))
@@ -589,6 +608,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (choices . overlook-agent-shell--choices)
               (session . overlook-agent-shell--session)
               (forked-from . overlook-agent-shell--forked-from)
+              (usage-row . overlook-agent-shell--usage-row)
               (submit . overlook-agent-shell--submit)
               (remote-controls . overlook-agent-shell--controls)
               (remote-action . overlook-agent-shell--remote-action)

@@ -298,6 +298,23 @@ stays, so the row and its reset countdown remain visible."
             windows))))
 
 
+(defun overlook-usage-next-reset (name &optional now)
+  "Return the next usable reset time for usage row NAME after NOW.
+When several windows are exhausted, wait for all of them to reset."
+  (let* ((now (or now (float-time)))
+         (rows (append (overlook-usage-claude)
+                       (when-let* ((row (overlook-usage-codex))) (list row))))
+         (windows (cdr (assoc name rows)))
+         (exhausted (seq-filter (lambda (window) (>= (nth 1 window) 100)) windows))
+         (selected (or exhausted windows)))
+    (when (and selected
+               (seq-every-p (lambda (window) (numberp (nth 2 window))) selected))
+      (let ((times (mapcar (lambda (window) (nth 2 window)) selected)))
+        (if exhausted
+            (max now (apply #'max times))
+          (when-let* ((future (seq-filter (lambda (time) (> time now)) times)))
+            (apply #'min future)))))))
+
 (defface overlook-usage-bar
   '((t :inherit font-lock-keyword-face))
   "Face of the used part of a plan usage bar."

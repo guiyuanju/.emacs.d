@@ -216,6 +216,32 @@ repo; use the repo rows on the dashboard instead.
 
 `RET` on a usage row opens the provider's usage page.
 
+### Continue after a quota reset
+
+```elisp
+(require 'overlook-agent-resume)
+```
+
+Run `M-x overlook-agent-resume-toggle` in an idle agent buffer or on its
+agent row to schedule one `continue` prompt, or run it again to cancel.
+The dashboard shows the subscription account and scheduled time; the web
+agent row also offers scheduling and cancellation commands. Claude uses
+the account bound to that session. Codex records its login when the shell
+is registered and refuses scheduling after that login changes.
+
+Exhausted windows must all reset before continuation; otherwise the next
+window reset is used. `overlook-agent-resume-delay` adds five minutes by
+default. Missing reset data or an unknown account prevents scheduling.
+A manual turn, session/account change or closed buffer cancels the job.
+If the prompt is occupied or the agent is busy at the scheduled time, the
+job is cancelled. There are no automatic retries, and appointments do not
+survive an Emacs restart.
+
+On macOS, appointments share a `caffeinate -i` process, keeping the system
+awake while allowing the display to sleep. It is released after the last
+appointment is cancelled or its continued turn finishes, fails or needs
+user attention. Closing the laptop lid can still suspend execution.
+
 ### Agents working together: courier
 
 ```elisp

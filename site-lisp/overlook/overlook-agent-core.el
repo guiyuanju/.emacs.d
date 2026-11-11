@@ -99,7 +99,8 @@ The dashboard draws an agent's icon in the face; completion shows the glyph."
 
 (defvar-local overlook-agent-identity nil
   "Alist describing the agent in this buffer, set by its frontend.
-Keys: `agent' its name; `root' its directory; `insert' a function
+Keys: `usage-row' a function returning its subscription usage row name;
+`agent' its name; `root' its directory; `insert' a function
 inserting a string into its input; `context' a function returning its
 context usage percentage or nil; `brief' a function returning a line on
 what it is doing, or nil; `title' a function returning its session's
