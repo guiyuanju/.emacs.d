@@ -986,6 +986,18 @@ Agents are listed; usage and repos are not."
                  '("main" ("a" "??"))))
   (should (equal (overlook-repo--parse "## HEAD (no branch)\0") '("detached"))))
 
+(ert-deftest overlook-repo-counts-untracked-files-as-added ()
+  (let ((top (make-temp-file "overlook-repo" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "a" top) (insert "1\n2\n3"))
+          (with-temp-file (expand-file-name "bin" top) (insert "x\0y\n"))
+          (make-directory (expand-file-name "dir" top))
+          (should (equal (overlook-repo--count-new
+                          top '(("a" "??") ("bin" "??") ("dir/" "??") ("b" " M" 1 2)))
+                         '(("a" "??" 3 0) ("bin" "??") ("dir/" "??") ("b" " M" 1 2)))))
+      (delete-directory top t))))
+
 (ert-deftest overlook-repo-folds-a-rename-into-its-new-path ()
   (should (equal (overlook-repo--parse
                   "## HEAD (no branch)\0D  old/a.el\0 A new/a.el\0 M b.el\0"
@@ -1517,12 +1529,12 @@ Agents are listed; usage and repos are not."
           (let ((default-directory top))
             (call-process "git" nil nil nil "init" "-q")
             (write-region "" nil "other.md")
-            (write-region "" nil "projects/one/notes/n.md"))
+            (write-region "a\nb\n" nil "projects/one/notes/n.md"))
           (overlook-repo--read card)
           (with-timeout (5 (ert-fail "git status timed out"))
             (while (gethash card overlook-repo--reading) (accept-process-output nil 0.05)))
-          (should (equal (mapcar #'car (cddr (gethash card overlook-repo--status)))
-                         '("projects/one/")))
+          (should (equal (cddr (gethash card overlook-repo--status))
+                         '(("projects/one/notes/n.md" "??" 2 0))))
           (puthash card (list (float-time) "main" '("projects/one/notes/n.md" " M" 2 0))
                    overlook-repo--status)
           (overlook-test-with-dashboard '(("one")) "one"

@@ -67,6 +67,11 @@
   :type 'natnum
   :group 'overlook)
 
+(defcustom overlook-repo-count-limit 1000000
+  "Most bytes of an untracked file whose lines are counted."
+  :type 'natnum
+  :group 'overlook)
+
 (defcustom overlook-repo-touch-delay 0.5
   "Seconds a save or Magit refresh waits before its repos are read again.
 The saves and refreshes within that time share one read."
@@ -144,7 +149,7 @@ Each is (PATH ADDED REMOVED), with the old path after them for a rename."
 
 (defun overlook-repo--parse (status &optional numstat)
   "Branch and changed files from STATUS and NUMSTAT outputs.
-STATUS is from `git status --porcelain --branch --no-renames -z', NUMSTAT
+STATUS is from `git status --porcelain --branch --no-renames -uall -z', NUMSTAT
 from `git diff HEAD --numstat -M -z'.  A rename NUMSTAT finds folds the
 old path's deletion into the new path's entry."
   (let* ((entries (split-string status "\0" t))
@@ -172,6 +177,30 @@ old path's deletion into the new path's entry."
                                    (cons path (cons (string-replace "A" "R" code) count)))
                                   (t (cons path (cons code count))))))
                         (cdr entries))))))
+
+(defun overlook-repo--file-lines (file)
+  "Lines in FILE as git counts them, or nil for a binary or big one."
+  (when-let* ((attributes (file-attributes file))
+              ((eq (file-attribute-type attributes) nil))
+              ((<= (file-attribute-size attributes) overlook-repo-count-limit)))
+    (with-temp-buffer
+      (set-buffer-multibyte nil)
+      (insert-file-contents-literally file)
+      (goto-char (point-min))
+      (unless (search-forward "\0" nil t)
+        (count-lines (point-min) (point-max))))))
+
+(defun overlook-repo--count-new (top files)
+  "FILES of repo TOP, a new one git gave no line counts for counted as all added."
+  (mapcar (lambda (file)
+            (pcase-let ((`(,path ,code ,added) file))
+              (if-let* (((not added))
+                        ((overlook-repo--new-p code))
+                        ((not (string-search "D" code)))
+                        (lines (overlook-repo--file-lines (expand-file-name path top))))
+                  (list path code lines 0)
+                file)))
+          files))
 
 (defun overlook-repo-root-folder (name)
   "Project NAME's root."
@@ -219,7 +248,7 @@ Does nothing while `overlook-repo-parallel-reads' repos are being read."
           (paths (when-let* ((prefix (overlook-repo--prefix dir)))
                    (list "--" (concat ":(literal)" prefix)))))
       (overlook-repo--git
-       top `("status" "--porcelain" "--branch" "--no-renames" "-z" ,@paths)
+       top `("status" "--porcelain" "--branch" "--no-renames" "-uall" "-z" ,@paths)
        (lambda (status)
          (if (null status)
              (progn
@@ -231,7 +260,9 @@ Does nothing while `overlook-repo-parallel-reads' repos are being read."
             top `("diff" "HEAD" "--numstat" "-M" "-z" ,@paths)
             (lambda (numstat)
               (let ((old (cdr (gethash dir overlook-repo--status)))
-                    (new (overlook-repo--parse status numstat)))
+                    (new (let ((parsed (overlook-repo--parse status numstat)))
+                           (cons (car parsed)
+                                 (overlook-repo--count-new top (cdr parsed))))))
                 (puthash dir (cons (float-time) new) overlook-repo--status)
                 (overlook-repo--done dir)
                 (unless (equal old new) (overlook-refresh)))))))))))
