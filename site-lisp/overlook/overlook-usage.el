@@ -485,18 +485,51 @@ a started request."
 
 ;;; Scan
 
+(defvar overlook-usage-state-change-hook nil
+  "Functions called with row NAME and STATE, either exhausted or available.
+Recovery includes expiry of all exhausted windows, even without new readings.")
+
+(defvar overlook-usage--states (make-hash-table :test #'equal)
+  "Last known availability per subscription row.")
+
+(defun overlook-usage-state (name)
+  "Return NAME's current quota state, or nil when readings are unknown."
+  (let ((windows (overlook-usage-windows
+                  (cdr (assoc name overlook-usage--rows)))))
+    (cond
+     ((seq-some (lambda (w) (and (numberp (nth 1 w)) (>= (nth 1 w) 100)))
+                windows)
+      'exhausted)
+     ((and windows (seq-every-p (lambda (w) (numberp (nth 1 w))) windows))
+      'available))))
+
+(defun overlook-usage--publish ()
+  "Publish known availability transitions once per row."
+  (dolist (row overlook-usage--rows)
+    (let* ((name (substring-no-properties (car row)))
+           (state (overlook-usage-state name)))
+      (when (and state (not (eq state (gethash name overlook-usage--states))))
+        (puthash name state overlook-usage--states)
+        (run-hook-with-args 'overlook-usage-state-change-hook name state)))))
+
+(defvar overlook-usage-filter-functions nil
+  "Functions transforming collected usage rows before publishing.")
+
 (defun overlook-usage-scan ()
   "Refresh plan usage and redraw the dashboard when it changed."
   (let ((usage (mapcan (lambda (function)
                          (let ((rows (ignore-errors (funcall function))))
                            (if (stringp (car rows)) (list rows) (copy-sequence rows))))
                        overlook-usage-functions)))
+    (dolist (function overlook-usage-filter-functions)
+      (setq usage (funcall function usage)))
     (unless (and (equal usage overlook-usage--rows)
                  (or (null usage) (equal overlook-usage--minute
                                          (floor (float-time) 60))))
       (setq overlook-usage--rows usage
             overlook-usage--minute (floor (float-time) 60))
-      (overlook-refresh))))
+      (overlook-refresh))
+    (overlook-usage--publish)))
 
 (defun overlook-usage--section ()
   "The Usage section of the dashboard."
@@ -507,6 +540,10 @@ a started request."
   "Show agents' plan usage at the top of the dashboard."
   :global t
   :group 'overlook
+  (when overlook-usage-mode (require 'overlook-usage-subscription))
+  (if overlook-usage-mode
+      (overlook-start-updates 'usage)
+    (overlook-stop-updates 'usage))
   (overlook-toggle-hooks
    overlook-usage-mode
    '((overlook-sections overlook-usage--section -50)

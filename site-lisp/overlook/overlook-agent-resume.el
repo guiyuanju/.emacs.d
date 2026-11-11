@@ -108,6 +108,36 @@
               ((memq (plist-get (cdr entry) :phase) '(submitted running))))
     (overlook-agent-resume-cancel (current-buffer))))
 
+(defun overlook-agent-resume--stopped ()
+  "Automatically await quota recovery when an exhausted agent stops."
+  (overlook-agent-resume--ended)
+  (overlook-usage-scan)
+  (let* ((buffer (current-buffer))
+         (row (overlook-agent-call buffer 'usage-row))
+         (session (overlook-agent-session buffer)))
+    (when (and session row
+               (eq (overlook-usage-state row) 'exhausted)
+               (overlook-agent-get buffer 'submit)
+               (overlook-agent-get buffer 'ready)
+               (not (assq buffer overlook-agent-resume--jobs)))
+      (push (cons buffer (list :session session :row row :phase 'quota))
+            overlook-agent-resume--jobs)
+      (add-hook 'kill-buffer-hook #'overlook-agent-resume--killed nil t)
+      (overlook-agent-resume--sync)
+      (overlook-agent-changed))))
+
+(defun overlook-agent-resume--usage (row state)
+  "Continue appointments for ROW after its quota STATE recovers."
+  (when (eq state 'available)
+    (dolist (entry overlook-agent-resume--jobs)
+      (when (and (equal row (plist-get (cdr entry) :row))
+                 (eq (plist-get (cdr entry) :phase) 'quota))
+        (setf (plist-get (cdr entry) :phase) 'waiting
+              (plist-get (cdr entry) :at)
+              (+ (float-time) overlook-agent-resume-delay))))
+    (overlook-agent-resume--sync)
+    (overlook-agent-changed)))
+
 (defun overlook-agent-resume--tick ()
   "Check session identity and send due continuations once."
   (dolist (entry (copy-sequence overlook-agent-resume--jobs))
@@ -162,7 +192,9 @@ Interactively use the agent at point, or the current agent buffer."
         (unless session (user-error "Agent has no active session"))
         (unless reset (user-error "No reliable subscription reset time for this agent"))
         (let ((at (+ reset overlook-agent-resume-delay)))
-          (push (cons buffer (list :session session :row row :at at :phase 'waiting))
+          (push (cons buffer (list :session session :row row :at at
+                                   :phase (if (eq (overlook-usage-state row) 'exhausted)
+                                              'quota 'waiting)))
                 overlook-agent-resume--jobs)
           (with-current-buffer buffer
             (add-hook 'kill-buffer-hook #'overlook-agent-resume--killed nil t))
@@ -175,10 +207,12 @@ Interactively use the agent at point, or the current agent buffer."
   "Return the appointment mark for agent BUFFER."
   (when-let* ((job (cdr (assq buffer overlook-agent-resume--jobs))))
     (propertize
-     (if (eq (plist-get job :phase) 'waiting)
+     (if (eq (plist-get job :phase) 'quota)
+         (format " awaiting %s quota" (plist-get job :row))
+       (if (eq (plist-get job :phase) 'waiting)
          (format " continue %s %s" (plist-get job :row)
                  (format-time-string "%m-%d %H:%M" (plist-get job :at)))
-       " auto-continued")
+       " auto-continued"))
      'face 'warning)))
 
 (defun overlook-agent-resume--commands (buffer)
@@ -190,7 +224,8 @@ Interactively use the agent at point, or the current agent buffer."
                 :run (lambda () (overlook-agent-resume-toggle buffer))))))
 
 (add-hook 'overlook-agent-turn-start-hook #'overlook-agent-resume--started)
-(add-hook 'overlook-agent-turn-end-hook #'overlook-agent-resume--ended)
+(add-hook 'overlook-agent-turn-end-hook #'overlook-agent-resume--stopped)
+(add-hook 'overlook-usage-state-change-hook #'overlook-agent-resume--usage)
 (add-hook 'overlook-agent-attention-hook #'overlook-agent-resume--ended)
 (add-hook 'overlook-agent-row-marks #'overlook-agent-resume--mark)
 (add-hook 'overlook-agent-command-functions #'overlook-agent-resume--commands)

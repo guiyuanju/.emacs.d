@@ -224,6 +224,25 @@ repo; use the repo rows on the dashboard instead.
 (require 'overlook-agent-resume)
 ```
 
+With `overlook-usage-mode` enabled, Claude and Codex subscription quotas
+are queried asynchronously every five minutes, even with no dashboard open.
+`overlook-usage-subscription-interval` controls the interval. Claude uses
+the configured account tokens or its CLI credential file/macOS Keychain;
+Codex uses `CODEX_HOME/auth.json` (default `~/.codex/auth.json`).
+These are read-only, undocumented service endpoints. Login credentials
+are never refreshed here. Errors retain the last reading and back off
+up to one hour; expired credentials must be renewed through the client.
+Successful server readings override unchanged local session readings and publish
+availability transitions without requiring an agent turn. New local readings
+take precedence over an older server cache.
+
+When an agent ends a turn while its subscription quota is exhausted,
+continuation is scheduled automatically. Usage publishes per-account
+availability transitions via `overlook-usage-state-change-hook`;
+auto continue subscribes to recovery and waits `overlook-agent-resume-delay`
+before sending. Expired quota windows count as recovered; unknown readings
+do not publish recovery.
+
 Run `M-x overlook-agent-resume-toggle` in an idle agent buffer or on its
 agent row to schedule one `continue` prompt, or run it again to cancel.
 The dashboard shows the subscription account and scheduled time; the web
@@ -580,6 +599,9 @@ The public entry points remain `overlook`, `overlook-agent` and
 | `overlook-agent-session` | saved sessions, resume and fork persistence | agent core |
 | `overlook-agent-view` | live and saved rows, fork trees and labels | agent core, sessions |
 | `overlook-agent` | interactive commands and tracking mode | Emacs view, agent layers |
+| `overlook-usage` | local quota readings, availability publisher and usage rows | data, Emacs view |
+| `overlook-usage-subscription` | asynchronous subscription queries, credential reads and backoff | usage |
+| `overlook-agent-resume` | session-bound continuation on quota recovery | agent, usage |
 | `overlook-data` | shared business queries and resource identities | agent core |
 | `overlook-remote-contract` | typed DTOs, request validation, protocol version and problem details | none |
 | `overlook-remote-model` | semantic JSON serialization, subtree hashes and deltas | data, contract |
