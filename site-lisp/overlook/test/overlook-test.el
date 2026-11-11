@@ -1592,6 +1592,17 @@ Agents are listed; usage and repos are not."
               (should-not (string-search "one*" (buffer-string))))))
       (delete-directory top t))))
 
+;; The Projects title carries what its mark functions return.
+(ert-deftest overlook-projects-mark-follows-its-functions ()
+  (let* ((dirty t)
+         (overlook-projects-mark-functions (list (lambda () (and dirty "*")))))
+    (overlook-test-with-dashboard '(("one")) "one"
+      (overlook--render)
+      (should (string-search "Projects*" (buffer-string)))
+      (setq dirty nil)
+      (overlook--render)
+      (should-not (string-search "Projects*" (buffer-string))))))
+
 (ert-deftest overlook-agent-courier-persona-icon-follows-its-backend ()
   (let ((overlook-agent-icons '(("claude" . "C") ("deepseek" . "D"))))
     (should (equal (overlook-agent-courier--persona-icon-name '(:engine "claude")) "claude"))

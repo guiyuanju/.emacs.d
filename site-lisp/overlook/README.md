@@ -428,6 +428,8 @@ docstring.
   what lies in its checkout at depth 0.
 - `overlook-closed-projects-functions`: rows after the projects'
   headings, for projects that are not open.
+- `overlook-projects-mark-functions`: marks after the Projects
+  section's title, such as a "*" when something needs syncing.
 - `overlook-project-command-functions`: commands on a project's
   heading, such as starting an agent there.  A command that needs the
   project first calls `overlook-ensure-project`, as rows made with

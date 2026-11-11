@@ -390,6 +390,10 @@ Each returns a list of commands, as `overlook-row' describes.")
   "Functions of a project NAME returning a mark put right after its heading.
 Each returns a string, such as \"*\", or nil.")
 
+(defvar overlook-projects-mark-functions nil
+  "Functions returning a mark put right after the Projects section's title.
+Each returns a string, such as \"*\", or nil.")
+
 (defvar overlook-mode-line-functions nil
   "Functions returning strings joined into the dashboard's mode line.")
 
@@ -524,7 +528,11 @@ needing attention.  UNORDERED leaves sorting to the containing section."
     (let ((final (car (last all))))
       (dolist (row all)
         (setf (overlook-row-gap row) (not (eq row final)))))
-    (overlook-section-row "Projects" all)))
+    (overlook-section-row
+     (concat "Projects"
+             (mapconcat (lambda (function) (or (funcall function) ""))
+                        overlook-projects-mark-functions))
+     all)))
 
 (add-hook 'overlook-sections #'overlook--projects-section)
 
