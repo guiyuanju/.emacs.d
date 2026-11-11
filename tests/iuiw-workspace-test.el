@@ -3,6 +3,8 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'iuiw-workspace)
+(require 'overlook)
+(require 'overlook-agent)
 
 (defmacro iuiw-workspace-test--with-workspace (&rest body)
   "Run BODY with `iuiw-workspace-directory' bound to a fresh temporary folder."
@@ -84,25 +86,23 @@ status: done
     (cl-letf (((symbol-function 'overlook-projects) (lambda () '("main")))
               ((symbol-function 'overlook-current-project) (lambda () "main")))
       (let ((rows (iuiw-workspace--closed-rows)))
-        (should (equal (iuiw-workspace-test--text rows) "demo me ◷1 3\nempty me\n"))
+        (should (equal (iuiw-workspace-test--text rows) "demo me\nempty me\n"))
         (setf (overlook-row-folded (car rows)) nil)
         (should (equal (iuiw-workspace-test--text rows)
-                       (concat "demo me ◷1 3\n  ◷ ask ops\n  ☐ first\n    ☐ child\n"
-                               "  ☐ after fence\nempty me\n"))))
+                       (concat "demo me\n◷ ask ops\n☐ first\n  ☐ child\n"
+                               "☐ after fence\nempty me\n"))))
       (should (equal (iuiw-workspace-test--text (list (iuiw-workspace--inbox-section)))
                      "Inbox\nme\n☐ call\n\n")))))
 
-(ert-deftest iuiw-workspace-open-project-shows-now-and-folds-the-rest ()
+(ert-deftest iuiw-workspace-open-project-shows-only-now ()
   (iuiw-workspace-test--with-workspace
     (iuiw-workspace-test--write
      "me/projects/one/project.md"
      "---\nstatus: active\n---\n## Todo\n- [ ] x #now\n- [ ] y\n  - [ ] y1 #now [due:: 2026-10-30]\n- [ ] z\n")
     (let ((rows (iuiw-workspace--project-todo-rows "one")))
       (should (equal (iuiw-workspace-test--text rows)
-                     "☐ y › y1 2026-10-30\n☐ x\ntodo (2)\n"))
-      (setf (overlook-row-folded (car (last rows))) nil)
-      (should (string-suffix-p "todo (2)\n  ☐ y\n  ☐ z\n" (iuiw-workspace-test--text rows))))
-    (should (equal (iuiw-workspace-overlook-annotation "one") "me ☐2 3"))
+                     "☐ y › y1 2026-10-30\n☐ x\n")))
+    (should (equal (iuiw-workspace-overlook-annotation "one") "me"))
     (should-not (iuiw-workspace--project-todo-rows "other"))))
 
 (ert-deftest iuiw-workspace-todo-sort ()
@@ -149,7 +149,7 @@ status: done
                                     (format "---\nstatus: %s\n---\n## Todo\n%s" status todos))))
     (cl-letf (((symbol-function 'overlook-projects) (lambda () '("e"))))
       (should (equal (iuiw-workspace-test--text (iuiw-workspace--closed-rows))
-                     "a me 1\nb me ☐1 1\n  ☐ b1\nc me 1\n")))))
+                     "a me\nb me\n☐ b1\nc me\n")))))
 
 (ert-deftest iuiw-workspace-project-root ()
   (iuiw-workspace-test--with-workspace

@@ -66,11 +66,14 @@ public interface FooMapper {
     (when-let* ((target (if (derived-mode-p 'nxml-mode)
                             (iuiw-mybatis--xml-target)
                           (iuiw-mybatis--java-target))))
-      (with-temp-buffer
-        (insert-file-contents (car target))
-        (goto-char (cdr target))
-        (cons (file-relative-name (car target) root)
-              (string-trim (buffer-substring (point) (line-end-position))))))))
+      (let ((file (xref-location-group target)))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (goto-char (point-min))
+          (forward-line (1- (xref-location-line target)))
+          (move-to-column (xref-file-location-column target))
+          (cons (file-relative-name file root)
+                (string-trim (buffer-substring (point) (line-end-position)))))))))
 
 (ert-deftest iuiw-mybatis-java-to-xml ()
   (iuiw-mybatis-test--with-repo
