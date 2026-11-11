@@ -123,8 +123,10 @@ returning updates it. New projects append and closed projects disappear.
   after `└`, when both are under the same project; otherwise marked
   `fork`.  `overlook-agent-forks-file` keeps the tree across restarts.
 - **A repo**: its branch and the lines changed since its last commit, then
-  each changed file with its line counts.  These come from Git, so they
-  show every change in the working tree, whoever made it.
+  each changed file with its line counts, an untracked one counted as all
+  added.  Files are grouped by folder, and a file leaves blank the
+  leading folders it shares with the one above.  These come from Git, so
+  they show every change in the working tree, whoever made it.
 - **Worktrees**: while a project has some, its rows are grouped by
   checkout.  The main checkout comes first, with the agents in no worktree
   and the changed repos; then each worktree, with the agents working in

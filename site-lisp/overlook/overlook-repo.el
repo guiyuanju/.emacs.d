@@ -352,28 +352,61 @@ Their common folders are left out, and the name when only folders changed."
       (concat (string-join (butlast old) "/") "/")
       (string-join old "/"))))
 
-(defun overlook-repo--file-label (file &optional prefix)
-  "FILE's name, its line counts or state, then its directory below PREFIX."
+(defun overlook-repo--file-dir (file prefix)
+  "The folder of FILE's path below PREFIX, or nil at PREFIX itself."
+  (let ((path (car file)))
+    (file-name-directory (if prefix (file-relative-name path prefix) path))))
+
+(defun overlook-repo--shared-folders (dir other)
+  "Length of the leading folders folder DIR shares with folder OTHER."
+  (let ((shared 0) (i 0))
+    (while (and (< i (min (length dir) (length other)))
+                (eq (aref dir i) (aref other i)))
+      (when (eq (aref dir i) ?/) (setq shared (1+ i)))
+      (setq i (1+ i)))
+    shared))
+
+(defun overlook-repo--file-label (file &optional prefix shared)
+  "FILE's folder below PREFIX, its name, then its line counts or state.
+The first SHARED characters of the folder show as blanks."
   (pcase-let* ((`(,path ,code ,added ,removed ,from) file)
-               (dir (file-name-directory (if prefix (file-relative-name path prefix) path)))
+               (dir (or (overlook-repo--file-dir file prefix) ""))
+               (shared (or shared 0))
                (state (cond (from (concat " ← " (overlook-repo--old-path from path)))
                             ((string-search "D" code) " deleted")
                             ((overlook-repo--new-p code) " new"))))
-    (concat (propertize (file-name-nondirectory path) 'face 'overlook-repo-file)
+    (concat (make-string (string-width (substring dir 0 shared)) ?\s)
+            (propertize (substring dir shared) 'face 'shadow)
+            (propertize (file-name-nondirectory path) 'face 'overlook-repo-file)
             (overlook-repo--counts added removed)
-            (if state (propertize state 'face 'shadow) "")
-            (if dir (propertize (concat " " dir) 'face 'shadow) ""))))
+            (if state (propertize state 'face 'shadow) ""))))
 
-(defun overlook-repo--file-row (dir file project)
-  "The row of FILE changed in repo DIR, under its row in PROJECT."
+(defun overlook-repo--file-row (dir file project &optional shared)
+  "The row of FILE changed in repo DIR, under its row in PROJECT.
+SHARED is as for `overlook-repo--file-label'."
   (overlook-row :id (list 'repo-file dir (car file))
-                :content (overlook-repo--file-label file (overlook-repo--prefix dir))
+                :content (overlook-repo--file-label file (overlook-repo--prefix dir) shared)
                 :action (lambda ()
                           (overlook-show-elsewhere
                            project (lambda () (overlook-repo-open-file dir file))))
                 :help (car file)
                 :wrap ""
                 :diff (lambda () (overlook-repo-file-diff dir file))))
+
+(defun overlook-repo--file-rows (dir files project)
+  "Rows of FILES changed in repo DIR, under its row in PROJECT.
+They go grouped by folder, each blanking the leading folders it shares
+with the row above."
+  (let* ((prefix (overlook-repo--prefix dir))
+         (folder (lambda (file) (or (overlook-repo--file-dir file prefix) "")))
+         (last ""))
+    (mapcar (lambda (file)
+              (let ((this (funcall folder file)))
+                (prog1 (overlook-repo--file-row
+                        dir file project (overlook-repo--shared-folders this last))
+                  (setq last this))))
+            (sort (copy-sequence files)
+                  (lambda (a b) (string< (funcall folder a) (funcall folder b)))))))
 
 (defun overlook-repo--worktrees (root)
   "Worktrees in project ROOT, each as (DIR . NAME)."
@@ -422,9 +455,7 @@ its branch.  A branch named as the row is left out."
      (overlook-repo--total files)
      (cons 'repo dir)
      (lambda () (overlook-show-elsewhere project (lambda () (overlook-repo-open dir))))
-     (append before
-             (mapcar (lambda (file) (overlook-repo--file-row dir file project))
-                     files)))))
+     (append before (overlook-repo--file-rows dir files project)))))
 
 (defun overlook-repo--group-row (tree name project dirs before &optional marks)
   "The row of folder TREE of PROJECT by NAME, holding repos DIRS.
