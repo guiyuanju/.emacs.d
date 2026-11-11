@@ -1274,7 +1274,7 @@
   (overlook-project-priority-function #'iuiw-workspace-overlook-priority)
   (overlook-show-empty-projects #'iuiw-workspace-overlook-ongoing-p)
   (overlook-orphan-project "main")
-  (overlook-section-order '(iuiw-elfeed-sync--digest-section
+  (overlook-section-order '(iuiw-daily-section-elfeed-digest
                             overlook-usage--section
                             overlook-agent-courier--personas-section
                             overlook--projects-section
@@ -1406,14 +1406,27 @@
   :config
   (add-to-list 'savehist-additional-variables 'iuiw-elfeed-ai-digest-focus))
 
-(use-package iuiw-elfeed-sync
+(use-package iuiw-sync
   :ensure nil
-  :after iuiw-elfeed-ai
   :demand t
   :config
-  (iuiw-elfeed-sync-mode 1)
-  (with-eval-after-load 'overlook
-    (add-hook 'overlook-sections #'iuiw-elfeed-sync--digest-section 70)))
+  (iuiw-sync-mode 1))
+
+(use-package iuiw-daily
+  :ensure nil
+  :after iuiw-sync
+  :demand t
+  :custom
+  (iuiw-daily-schedule '((elfeed-digest :hour 8)))
+  :config
+  (iuiw-daily-mode 1))
+
+(use-package iuiw-elfeed-sync
+  :ensure nil
+  :after (iuiw-elfeed-ai iuiw-daily)
+  :demand t
+  :config
+  (iuiw-elfeed-sync-mode 1))
 
 (use-package iuiw-log
   :ensure nil
