@@ -138,20 +138,45 @@ same name is left alone.  Returns the links made."
 
 ;;; Agents
 
-(cl-defstruct (overlook-courier-agent (:constructor overlook-courier-agent--make) (:copier nil))
-  "An agent registered with courier."
-  id buffer deliver ready reply insert
-  (draft nil :documentation "Text to leave unsent at its prompt once it is ready, or nil.")
-  (mailbox nil :documentation "Messages not delivered yet, oldest first.")
-  (monitors nil :documentation "Ids of agents to tell when this one next stops.")
-  (hops 0 :documentation "Hops of the messages this agent's turn handles.")
-  (delivered nil :documentation "Time of a delivery that has not started a turn yet, or nil.")
-  (askers nil :documentation "Senders of the messages this agent's turn handles.")
-  (told nil :documentation "Agents this one sent to in its current turn.")
-  (blocked nil :documentation "Non-nil once its parent heard it waits for the user this turn.")
-  (owes nil :documentation "Non-nil while it has not reported on a message from its parent.")
-  (notes nil :documentation "Notes for its next prompt, oldest first; they wake nobody.")
-  transcript parent)
+(defmacro overlook-courier--agent-fields (&rest fields)
+  "Define `overlook-courier-agent-FIELD', settable with `setf', for FIELDS.
+Each of FIELDS is (FIELD DEFAULT DOC).  Agents are hash tables of field to
+value, so a reload adding fields leaves the live agents working."
+  (macroexp-progn
+   (mapcan (lambda (field)
+             (pcase-let ((`(,name ,default ,doc) field)
+                         (accessor (intern (format "overlook-courier-agent-%s" (car field)))))
+               `((defun ,accessor (agent) ,doc (gethash ',name agent ,default))
+                 (gv-define-setter ,accessor (value agent)
+                   (list 'puthash '',name value agent)))))
+           fields)))
+
+(overlook-courier--agent-fields
+ (id nil "Id of the agent.")
+ (buffer nil "Buffer of the agent.")
+ (deliver nil "Function of TEXT sending it as a prompt to the agent.")
+ (ready nil "Function returning non-nil while the agent can take a prompt.")
+ (reply nil "Function returning the agent's latest reply.")
+ (insert nil "Function of TEXT leaving it unsent at the agent's prompt, or nil.")
+ (draft nil "Text to leave unsent at its prompt once it is ready, or nil.")
+ (mailbox nil "Messages not delivered yet, oldest first.")
+ (monitors nil "Ids of agents to tell when this one next stops.")
+ (hops 0 "Hops of the messages this agent's turn handles.")
+ (delivered nil "Time of a delivery that has not started a turn yet, or nil.")
+ (askers nil "Senders of the messages this agent's turn handles.")
+ (told nil "Agents this one sent to in its current turn.")
+ (blocked nil "Non-nil once its parent heard it waits for the user this turn.")
+ (owes nil "Non-nil while it has not reported on a message from its parent.")
+ (notes nil "Notes for its next prompt, oldest first; they wake nobody.")
+ (transcript nil "Function returning the file of the agent's whole session, or nil.")
+ (parent nil "Id of the agent that spawned it, or nil."))
+
+(defun overlook-courier-agent--make (&rest fields)
+  "An agent with FIELDS, a plist of keywords like :id to values."
+  (let ((agent (make-hash-table :test #'eq)))
+    (while fields
+      (puthash (intern (substring (symbol-name (pop fields)) 1)) (pop fields) agent))
+    agent))
 
 (defvar overlook-courier--agents (make-hash-table :test #'equal)
   "Registered agents by id.")
