@@ -150,10 +150,10 @@ Stop looking once no prompt is queued."
   "Extensions of the images the page shows, with their types.")
 
 (defconst overlook-remote--image-path-regexp
-  (rx (or (seq "@\"" (group (+ (not (any "\"\n"))) "." (or "png" "jpg" "jpeg" "gif" "webp"))
+  (rx (or (seq "@\"" (group (+ (not (in "\"\n"))) "." (or "png" "jpg" "jpeg" "gif" "webp"))
                "\"")
           (seq (? (or "@" "file://"))
-               (group (+ (not (any "][ \t\n\"'`()<>|,;" nonascii)))
+               (group (+ (not (in "][ \t\n\"'`()<>|,;" nonascii)))
                       "." (or "png" "jpg" "jpeg" "gif" "webp"))
                symbol-end)))
   "A path to an image in text: plain, file://, or an @ mention, maybe quoted.

@@ -559,7 +559,8 @@ over simple-httpd's server, which serves one Emacs at a time."
     (add-hook 'overlook-agent-changed-hook #'overlook-remote--wake)
     (add-hook 'overlook-refresh-hook #'overlook-remote--refreshed)
     (add-hook 'overlook-after-model-hook #'overlook-remote--redrawn)
-    (defalias 'httpd/overlook #'overlook-remote--servlet)
+    ;; simple-httpd serves /overlook with the function of this name.
+    (defalias (intern "httpd/overlook") #'overlook-remote--servlet)
     (let ((httpd-host overlook-remote-host)
           (httpd-port overlook-remote-port))
       (httpd-start))

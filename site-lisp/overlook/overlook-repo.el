@@ -645,6 +645,15 @@ Its branch stays."
   "Read the repo Magit just refreshed soon."
   (overlook-repo--touch default-directory))
 
+(defvar overlook-repo-mode)
+
+(defun overlook-repo--watch-magit (&rest _)
+  "Refresh after Magit does, once Magit has defined its hook."
+  (when (featurep 'magit-mode)
+    (remove-hook 'after-load-functions #'overlook-repo--watch-magit)
+    (when overlook-repo-mode
+      (add-hook 'magit-post-refresh-hook #'overlook-repo--magit-refreshed))))
+
 ;;;###autoload
 (define-minor-mode overlook-repo-mode
   "List the repos of each project on the dashboard."
@@ -662,9 +671,10 @@ Its branch stays."
      (after-save-hook overlook-repo--saved)))
   ;; Adding to the hook before Magit defines it would drop Magit's own functions.
   (if overlook-repo-mode
-      (with-eval-after-load 'magit-mode
-        (when overlook-repo-mode
-          (add-hook 'magit-post-refresh-hook #'overlook-repo--magit-refreshed)))
+      (progn
+        (add-hook 'after-load-functions #'overlook-repo--watch-magit)
+        (overlook-repo--watch-magit))
+    (remove-hook 'after-load-functions #'overlook-repo--watch-magit)
     (remove-hook 'magit-post-refresh-hook #'overlook-repo--magit-refreshed))
   (overlook-refresh))
 

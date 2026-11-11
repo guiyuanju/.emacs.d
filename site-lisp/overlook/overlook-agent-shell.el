@@ -388,7 +388,7 @@ Each image is as `overlook-agent-shell--image' gives it."
     (agent-shell--file-mention file)))
 
 (defun overlook-agent-shell--forward (event)
-  "Send agent-shell EVENT on to `overlook-agent-event', in its terms."
+  "Send `agent-shell' EVENT on to `overlook-agent-event', in its terms."
   (let ((data (map-elt event :data)))
     (pcase (map-elt event :event)
       ('input-submitted
