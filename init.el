@@ -527,6 +527,7 @@
     "cD" '(xref-find-references :which-key "references")
     "cb" '(iuiw-xref-history :which-key "xref back stack")
     "cf" '(apheleia-format-buffer :which-key "format")
+    "cg" '(iuiw-sqlmesh-lineage :which-key "sqlmesh lineage")
     "ci" '(eglot-find-implementation :which-key "implementation")
     "ck" '(eldoc-doc-buffer :which-key "documentation")
     "cK" '(devdocs-lookup :which-key "devdocs")
@@ -1070,6 +1071,13 @@
 (use-package sql
   :ensure nil
   :hook (sql-mode . iuiw-sqlmesh-setup))
+
+(use-package dag-draw
+  :defer t)
+
+(use-package iuiw-sqlmesh
+  :ensure nil
+  :commands iuiw-sqlmesh-lineage)
 
 (use-package csv-mode
   :mode "\\.[ct]sv\\'")
