@@ -11,13 +11,17 @@
 
 ;; 恢复的布局里，看板的 side window 还在，显示的却是别的 buffer。
 (defun iuiw-tabspaces--delete-side-windows ()
-  "Delete the side windows of every tab."
-  (dolist (name (tabspaces--list-tabspaces))
-    (tab-bar-select-tab-by-name name)
-    (dolist (window (window-list nil 'nomini))
-      (when (or (window-parameter window 'window-side)
-                (eq (window-dedicated-p window) 'side))
-        (ignore-errors (delete-window window))))))
+  "Delete the side windows of every tab, then reselect the current one.
+Visiting the tabs does not count as switching to them."
+  (let ((current (alist-get 'name (tab-bar--current-tab)))
+        (tab-bar-tab-post-select-functions nil))
+    (dolist (name (tabspaces--list-tabspaces))
+      (tab-bar-select-tab-by-name name)
+      (dolist (window (window-list nil 'nomini))
+        (when (or (window-parameter window 'window-side)
+                  (eq (window-dedicated-p window) 'side))
+          (ignore-errors (delete-window window)))))
+    (tab-bar-select-tab-by-name current)))
 
 (defun iuiw-tabspaces--most-recent ()
   "Name of the tab switched to last, per overlook, or nil."
