@@ -16,8 +16,7 @@
 ;; 也给 overlook 提供项目根，并把所有进行中项目（没有待办的也列名字）的待办放进看板的 Projects 段：
 ;; 待办是 Todo 段的未完成项（含缩进的子项），加上任意段落里带 #waiting 的未完成项。
 ;; 项目标题后是 workspace 名。
-;; `iuiw-workspace-sync' 有事可做时（workspace 仓库有未提交、未推送或未拉取的改动，
-;; `iuiw-workspace-pull-repos' 有未拉取的提交），看板的 Projects 后加 *；未拉取的靠定期 fetch 发现。
+;; 用 `iuiw-workspace-sync' 手动同步 workspace 和额外仓库，不自动检查或 fetch。
 ;; #now 项连同子项常显在项目下，排在 agent 和 repo 之后，再按到期日排；其余不显示。
 ;; 每项只占一行，过长的截断，RET 打开 project.md 看全文。
 ;; 没开 tab 的项目灰色，一项一行；没有 #now 时 TAB 直接展开待办。

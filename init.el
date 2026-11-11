@@ -1347,10 +1347,6 @@
   (require 'overlook-agent-resume)
   (overlook-tabspaces-mode 1)
   (overlook-repo-mode 1)
-  ;; SPC TAB s 有事可做时 Projects 后加 *。
-  (add-hook 'overlook-projects-mark-functions #'iuiw-workspace-overlook-mark)
-  (add-hook 'overlook-tick-hook #'iuiw-workspace-check-sync)
-  (add-hook 'after-save-hook #'iuiw-workspace--check-sync-saved)
   (overlook-agent-mode 1)
   (overlook-agent-shell-mode 1)
   (overlook-usage-mode 1)
