@@ -313,6 +313,13 @@ stream (:stream KNOWN)."
      (overlook-remote--json
       200 (overlook-remote--agent
            (overlook-remote--agent-buffer (cadr (assoc "id" query))) t)))
+    ('("GET" "/api/history")
+     (overlook-remote--json
+      200 (overlook-remote--history-data
+           (overlook-remote--agent-buffer (cadr (assoc "id" query)))
+           (when-let* ((value (cadr (assoc "before" query)))) (string-to-number value))
+           (when-let* ((value (cadr (assoc "limit" query)))) (string-to-number value))
+           (cadr (assoc "epoch" query)))))
     ('("GET" "/api/events")
      (let* ((buffer (overlook-remote--agent-buffer (cadr (assoc "id" query))))
             (epoch (cadr (assoc "epoch" query)))

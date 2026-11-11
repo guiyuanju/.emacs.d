@@ -66,22 +66,44 @@ and `title' and `active', the time of its last turn, when known.")
   "Functions of a saved alist called before it is resumed.
 One may refuse by signaling an error.")
 
+(defun overlook-agent--saved-entry (buffer)
+  "Return BUFFER's resumable session data, or nil without a session."
+  (when-let* ((session (overlook-agent-session buffer)))
+    `((agent . ,(overlook-agent-get buffer 'agent))
+      (root . ,(overlook-agent-get buffer 'root))
+      (session . ,session)
+      (project . ,(overlook-agent-project buffer))
+      (title . ,(overlook-agent-title buffer))
+      (active . ,(when-let* ((turn (buffer-local-value 'overlook-agent-turn buffer)))
+                   (or (cdr turn) (car turn))))
+      ,@(seq-mapcat (lambda (fn) (funcall fn buffer)) overlook-agent-save-functions))))
+
 (defun overlook-agent--to-save ()
   "Running agents with a session, then the saved ones not resumed."
-  (append (delq nil (mapcar (lambda (buffer)
-                              (when-let* ((session (overlook-agent-session buffer)))
-                                `((agent . ,(overlook-agent-get buffer 'agent))
-                                  (root . ,(overlook-agent-get buffer 'root))
-                                  (session . ,session)
-                                  (project . ,(overlook-agent-project buffer))
-                                  (title . ,(overlook-agent-title buffer))
-                                  (active . ,(when-let* ((turn (buffer-local-value
-                                                                'overlook-agent-turn buffer)))
-                                               (or (cdr turn) (car turn))))
-                                  ,@(seq-mapcat (lambda (fn) (funcall fn buffer))
-                                                overlook-agent-save-functions))))
-                            (overlook-agent-buffers)))
+  (append (delq nil (mapcar #'overlook-agent--saved-entry (overlook-agent-buffers)))
           overlook-agent-saved))
+
+(defun overlook-agent-close (buffer)
+  "Close BUFFER while preserving its resumable session when available."
+  (overlook-agent-load-saved)
+  (let ((saved (overlook-agent--saved-entry buffer)))
+    (when saved
+      (let ((agents (overlook-agent--to-save)))
+        (overlook-agent--write overlook-agent-saved-file agents)
+        (setq overlook-agent--saved-written agents)))
+    (overlook-agent-kill buffer)
+    (when (buffer-live-p buffer)
+      (user-error "The agent could not be closed"))
+    (when saved
+      (setq overlook-agent-saved
+            (cons saved (seq-remove (lambda (entry)
+                                      (equal (alist-get 'session entry)
+                                             (alist-get 'session saved)))
+                                    overlook-agent-saved))))
+    (with-demoted-errors "overlook: closed agent notification: %S"
+      (overlook-agent-save)
+      (overlook-agent-changed))
+    t))
 
 (defun overlook-agent--forked-from (buffer)
   "Session id agent BUFFER's session was forked from, as its frontend says, or nil."

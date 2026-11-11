@@ -21,6 +21,9 @@
     },
     {
       "$ref": "#/$defs/Result"
+    },
+    {
+      "$ref": "#/$defs/History"
     }
   ],
   "$defs": {
@@ -259,6 +262,10 @@
         },
         "description": {
           "type": "string"
+        },
+        "unreadCount": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -420,6 +427,18 @@
         },
         "description": {
           "type": "string"
+        },
+        "unreadCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readThrough": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latestSeq": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -515,6 +534,14 @@
           "items": {
             "type": "integer"
           }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
         }
       },
       "required": [
@@ -552,6 +579,26 @@
           "items": {
             "$ref": "#/$defs/ActivityItem"
           }
+        },
+        "history": {
+          "type": "object",
+          "properties": {
+            "hasMore": {
+              "type": "boolean"
+            },
+            "before": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          "required": [
+            "hasMore",
+            "before"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -611,6 +658,9 @@
         "ok": {
           "type": "boolean"
         },
+        "closed": {
+          "type": "boolean"
+        },
         "queued": {
           "type": "boolean"
         },
@@ -631,6 +681,14 @@
         },
         "diff": {
           "type": "string"
+        },
+        "readThrough": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unreadCount": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -724,6 +782,65 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "protocolVersion": {
+          "const": 2
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "History": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 2
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActivityItem"
+          }
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "before": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "items",
+        "hasMore",
+        "before",
+        "epoch"
+      ],
+      "additionalProperties": false
+    },
+    "SeenRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "through": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "string",
+          "minLength": 1
         },
         "protocolVersion": {
           "const": 2

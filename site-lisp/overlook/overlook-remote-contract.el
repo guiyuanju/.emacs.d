@@ -126,6 +126,7 @@
 
 (defconst overlook-remote-contract--conversation-fields
   '((:id string t) (:bufferName string) (:agent string t) (:status (enum "idle" "working" "waiting" "done" "failed") t)
+    (:unreadCount integer) (:readThrough integer) (:latestSeq integer)
     (:title string t) (:persona string) (:description string) (:project string) (:folder string) (:brief string)
     (:context (nullable number)) (:queueError (nullable string))
     (:reply string) (:transcript string)
@@ -149,7 +150,7 @@
     ("/api/session" (id nonempty t) (action nonempty t) (text string)
      (confirmations strings) (confirmationToken nonempty))
     ("/api/unqueue" (id nonempty t) (text string) (queueId nonempty))
-    ("/api/seen" (id nonempty t))
+    ("/api/seen" (id nonempty t) (through integer) (epoch nonempty))
     ("/api/retry" (id nonempty t))
     ("/api/choose" (id nonempty t) (key nonempty t))
     ("/api/command" (node nonempty t) (name nonempty t) (text string)
@@ -183,16 +184,19 @@
 (defun overlook-remote-contract-query (route query)
   "Validate parsed QUERY for ROUTE and return it."
   (dolist (key (pcase route
-                ((or "/api/agent" "/api/events") '("id"))
+                ((or "/api/agent" "/api/events" "/api/history") '("id"))
                 ("/api/diff" '("node"))
                 ("/api/image" '("n"))))
     (let ((value (cadr (assoc key query))))
       (unless (and (stringp value) (not (string-empty-p value)))
         (overlook-remote-contract-error 400 "invalid_query" (concat "Missing query: " key)))))
-  (dolist (key '("after" "n" "protocolVersion"))
+  (dolist (key '("after" "n" "protocolVersion" "before" "limit"))
     (when-let* ((pair (assoc key query)))
       (unless (and (stringp (cadr pair)) (string-match-p "\\`[0-9]+\\'" (cadr pair)))
         (overlook-remote-contract-error 400 "invalid_query" (concat "Invalid integer query: " key)))))
+  (when-let* ((limit (cadr (assoc "limit" query))))
+    (unless (<= 1 (string-to-number limit) 100)
+      (overlook-remote-contract-error 400 "invalid_query" "Page limit must be between 1 and 100")))
   (when-let* ((version (cadr (assoc "protocolVersion" query))))
     (unless (= (string-to-number version) overlook-remote-protocol-version)
       (overlook-remote-contract-error 409 "protocol_mismatch" "Refresh the page to update the API client")))

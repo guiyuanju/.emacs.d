@@ -29,6 +29,7 @@
 
 (require 'overlook-remote-activity)
 (require 'overlook-remote-contract)
+(require 'overlook-agent-session)
 
 (defcustom overlook-remote-receipt-limit 512
   "Maximum successful idempotent requests remembered in this Emacs."
@@ -93,13 +94,27 @@ Reuse with a different payload fails; confirmations and failures are not cached.
           (if (overlook-remote--prompt
                (overlook-remote-service-agent-buffer (alist-get 'id body)) text) t :false))))
 
+(defun overlook-remote-service--close (buffer)
+  "Close BUFFER without leaving pending remote prompts deliverable."
+  (with-current-buffer buffer
+    (let ((queue overlook-remote--queue)
+          (entries overlook-remote--queue-entries)
+          (queue-error overlook-remote--queue-error))
+      (setq overlook-remote--queue nil overlook-remote--queue-entries nil
+            overlook-remote--queue-error nil)
+      (unwind-protect
+          (overlook-agent-close buffer)
+        (when (buffer-live-p buffer)
+          (setq overlook-remote--queue queue overlook-remote--queue-entries entries
+                overlook-remote--queue-error queue-error)))))
+  'closed)
+
 (defun overlook-remote-service-session (body)
   "Run BODY's allowlisted session operation, returning data or a confirmation."
   (let* ((buffer (overlook-remote-service-agent-buffer (alist-get 'id body)))
          (action (alist-get 'action body))
          (text (string-trim (or (alist-get 'text body) "")))
-         (run (or (overlook-agent-get buffer 'remote-action)
-                  (overlook-remote-contract-error 400 "unsupported_action" "This agent has no session controls")))
+         (run (overlook-agent-get buffer 'remote-action))
          (controls (overlook-remote--controls buffer))
          (signature (list (overlook-remote-service-agent-id buffer) action text))
          (state (cdr (overlook-remote--state buffer)))
@@ -108,12 +123,19 @@ Reuse with a different payload fails; confirmations and failures are not cached.
                                 (overlook-remote-service--token signature state questions))
                          questions))
          (question (pcase action
+                     ("close" (format "Close agent %s?%s Queued prompts will be discarded. %s"
+                                      (or (overlook-agent-title buffer) (buffer-name buffer))
+                                      (if (overlook-agent-ready-p buffer) "" " Its current work will stop.")
+                                      (if (overlook-agent-session buffer)
+                                          "This conversation will remain saved for resuming."
+                                        "This agent has no resumable session and cannot be restored.")))
                      ("reload" "Reload this session? Unsent prompts may be lost.")
                      ("restart" "Start a fresh conversation? Unsent prompts may be lost.")))
          (ask (lambda (prompt &rest _)
                 (unless (member prompt confirmed) (throw 'confirm prompt)) t)))
-    (unless (or (and (equal action "steer") (plist-get controls :steer))
-                (member action (plist-get controls :actions)))
+    (unless (or (equal action "close")
+                (and run (or (and (equal action "steer") (plist-get controls :steer))
+                             (member action (plist-get controls :actions)))))
       (overlook-remote-contract-error 400 "unsupported_action"
                                        (format "This agent does not support %s" action)))
     (when (and (equal action "steer") (string-empty-p text))
@@ -123,12 +145,16 @@ Reuse with a different payload fails; confirmations and failures are not cached.
              (when question (funcall ask question))
              (cl-letf (((symbol-function 'y-or-n-p) ask)
                        ((symbol-function 'yes-or-no-p) ask))
-               (with-current-buffer buffer (funcall run action text))))))
+               (if (equal action "close")
+                   (overlook-remote-service--close buffer)
+                 (with-current-buffer buffer (funcall run action text)))))))
       (if (stringp result)
           (list :confirm result :confirmationToken
                 (overlook-remote-service--token signature state
                                                (append confirmed (list result))))
-        (list :ok t :agent (overlook-remote-service-agent-id result))))))
+        (if (eq result 'closed)
+            (list :ok t :closed t)
+          (list :ok t :agent (overlook-remote-service-agent-id result)))))))
 
 (defun overlook-remote-service-command (body)
   "Run BODY's current row command, returning data or a bound confirmation."
@@ -173,8 +199,8 @@ Reuse with a different payload fails; confirmations and failures are not cached.
 
 (defun overlook-remote-service-seen (body)
   "Acknowledge attention for BODY's conversation."
-  (overlook-agent-seen (overlook-remote-service-agent-buffer (alist-get 'id body)))
-  '(:ok t))
+  (overlook-remote--seen (overlook-remote-service-agent-buffer (alist-get 'id body))
+                         (alist-get 'through body) (alist-get 'epoch body)))
 
 (defun overlook-remote-service-retry (body)
   "Allow BODY's conversation to retry delivery after a queue error."

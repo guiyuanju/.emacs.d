@@ -31,6 +31,8 @@
 (require 'overlook-data)
 (require 'overlook-remote-contract)
 
+(declare-function overlook-remote--unread-count "overlook-remote-activity" (buffer))
+
 (defun overlook-remote--text (text)
   "TEXT without properties, or an empty string for nil."
   (if text (substring-no-properties text) ""))
@@ -89,6 +91,8 @@ changes whenever the node or any under it does."
                  ,@(and (overlook-row-attention row) '(:attention t))
                  ,@(and (overlook-agent-p agent)
                         `(:agent ,(overlook-data-agent-id agent)
+                          :unreadCount ,(if (fboundp 'overlook-remote--unread-count)
+                                            (overlook-remote--unread-count agent) 0)
                           :choices ,(overlook-remote--choices (overlook-row-choices row))))
                  ,@(and (overlook-row-commands row)
                         `(:commands ,(overlook-remote--commands (overlook-row-commands row))))

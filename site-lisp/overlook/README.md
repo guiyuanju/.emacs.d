@@ -582,8 +582,9 @@ fonts, colors, progress bars, task controls and navigation.
 The version 2 wire contract is in [remote-api.schema.json](docs/remote-api.schema.json).
 Nullable fields, booleans and arrays have explicit encoders; malformed input is
 rejected before service execution. Errors use `application/problem+json` with a
-stable `code`. HTTP and SSE carry the same `protocolVersion`; expired cursors
-receive snapshots. Disconnected clients release their subscriptions and timers.
+stable `code`. HTTP and SSE carry the same `protocolVersion`; expired live
+update cursors receive snapshots. Disconnected clients release their
+subscriptions and timers.
 
 Conversation IDs survive buffer renames for the live buffer lifetime; restored
 conversations receive new IDs. Task IDs survive line moves and distinguish
@@ -594,6 +595,21 @@ be replayed within `overlook-remote-receipt-seconds` and
 `overlook-remote-receipt-limit`; receipts are in memory and expire on restart.
 Confirmations bind the action and target state, and are requested again after
 changes. Refresh an open remote page when updating this protocol.
+
+Activity items expose optional UTC `createdAt` and `updatedAt` timestamps;
+older items recorded before an update can lack them. Conversations expose
+`unreadCount`, `readThrough` and `latestSeq`. Unread counts include retained
+assistant reply items updated beyond the shared read sequence. `POST /api/seen`
+accepts `through` and `epoch` to acknowledge only received changes, without
+clearing a newer streaming update.
+
+Initial event snapshots contain at most `overlook-remote-page-size` items
+(50 by default) and `history: {hasMore, before}`. `GET /api/history` takes `id`,
+an exclusive `before` item identity, optional `limit` (1–100), and `epoch`;
+it returns chronological `items`, `hasMore`, `before` and `epoch`. Item identities
+order history; change sequences order live updates. Expired history cursors
+return `409 history_expired`. History and read positions remain in memory;
+retention is bounded by `overlook-remote-history` (300 items by default).
 
 Rows, model collection and agent state load without Magit or a dashboard
 buffer.  Interactive visit operations delegate to the Emacs view when

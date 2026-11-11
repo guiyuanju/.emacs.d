@@ -90,6 +90,8 @@
     (should (overlook-remote-contract-test--valid conversation "Conversation"))))
 
 (ert-deftest overlook-remote-contract-schemas-cover-full-and-delta-responses ()
+  (should (overlook-remote-contract-test--valid
+           (overlook-remote-contract-response '(:ok t :closed t)) "Result"))
   (let* ((node (append '(:id "n1" :hash "h1" :children [])
                        (overlook-remote-contract-node
                         '(:kind "todo" :title "Task" :subtitle nil :due nil)))))

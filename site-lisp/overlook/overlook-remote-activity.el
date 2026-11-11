@@ -79,7 +79,9 @@
 
 (defun overlook-remote--controls (buffer)
   "What agent BUFFER's `remote-controls' offers, or nil."
-  (overlook-agent-call buffer 'remote-controls))
+  (let ((controls (copy-tree (overlook-agent-call buffer 'remote-controls))))
+    (plist-put controls :actions
+               (delete-dups (append (plist-get controls :actions) '("close"))))))
 
 (defun overlook-remote--agent (buffer &optional detail)
   "Agent BUFFER as the page shows it.
@@ -89,6 +91,9 @@ With DETAIL, its last reply and the end of its transcript too."
     (overlook-remote-contract-conversation
      `(:id ,(overlook-remote-service-agent-id buffer)
       :bufferName ,(buffer-name buffer)
+      :unreadCount ,(overlook-remote--unread-count buffer)
+      :readThrough ,(buffer-local-value 'overlook-remote--read-through buffer)
+      :latestSeq ,(overlook-remote--latest-seq buffer)
       ,@(when (plist-get data :persona)
           (list :persona (plist-get data :persona)
                 :description (plist-get data :description)))
@@ -312,6 +317,64 @@ touched it, :type and the entries of the event that made it.  Pieces of
 one reply make one item, and so do the updates of one tool call; a reply
 keeps in :marks its text's length at each change, newest first.")
 
+(defcustom overlook-remote-page-size 50
+  "Number of activity items sent in the initial snapshot and history pages."
+  :type 'natnum :group 'overlook)
+
+(defvar-local overlook-remote--read-through 0
+  "Latest activity change acknowledged by a reader of this conversation.")
+
+(put 'overlook-remote--read-through 'permanent-local t)
+
+(defun overlook-remote--latest-seq (buffer)
+  "Latest retained activity change belonging to BUFFER."
+  (seq-reduce (lambda (latest item) (max latest (plist-get item :seq)))
+              (buffer-local-value 'overlook-remote--items buffer) 0))
+
+(defun overlook-remote--unread-count (buffer)
+  "Number of retained assistant text items newer than BUFFER's read position."
+  (let ((through (buffer-local-value 'overlook-remote--read-through buffer)))
+    (seq-count (lambda (item)
+                 (and (equal (plist-get item :type) "text")
+                      (> (plist-get item :seq) through)))
+               (buffer-local-value 'overlook-remote--items buffer))))
+
+(defun overlook-remote--seen (buffer &optional through epoch)
+  "Acknowledge BUFFER's activity through change THROUGH without racing new text.
+Missing THROUGH supports clients that predate explicit read positions.
+EPOCH rejects a read position from a previous Emacs process."
+  (when (and epoch (not (equal epoch overlook-remote--epoch)))
+    (overlook-remote-contract-error 409 "history_expired" "Read position belongs to an earlier Emacs session"))
+  (with-current-buffer buffer
+    (setq overlook-remote--read-through
+          (max overlook-remote--read-through
+               (min (or through (overlook-remote--latest-seq buffer))
+                    (overlook-remote--latest-seq buffer))))
+    (when (zerop (overlook-remote--unread-count buffer))
+      (overlook-agent-seen buffer))
+    (setq overlook-remote--dashboard nil)
+    (overlook-remote--wake)
+    (list :ok t :readThrough overlook-remote--read-through
+          :unreadCount (overlook-remote--unread-count buffer))))
+
+(defun overlook-remote--history-data (buffer &optional before limit epoch)
+  "Return BUFFER's retained activity page before item BEFORE, at most LIMIT.
+EPOCH prevents mixing item cursors from different Emacs processes."
+  (when (and epoch (not (equal epoch overlook-remote--epoch)))
+    (overlook-remote-contract-error 409 "history_expired" "History belongs to an earlier Emacs session"))
+  (with-current-buffer buffer
+    (when (and before (> overlook-remote--history-floor 0)
+               (<= before (or (plist-get (car (last overlook-remote--items)) :item) 0)))
+      (overlook-remote-contract-error 409 "history_expired" "Older activity is no longer retained"))
+    (let* ((eligible (seq-filter (lambda (item) (or (null before) (< (plist-get item :item) before)))
+                                 overlook-remote--items))
+           (page (seq-take eligible (min 100 (max 1 (or limit overlook-remote-page-size)))))
+           (root (or (overlook-agent-get buffer 'root) default-directory)))
+      (list :items (vconcat (mapcar (lambda (item) (overlook-remote--present item root nil)) (reverse page)))
+            :hasMore (if (> (length eligible) (length page)) t :false)
+            :before (or (plist-get (car (last page)) :item) :null)
+            :epoch overlook-remote--epoch))))
+
 (defun overlook-remote--unified (file old new)
   "Unified diff of FILE from OLD to NEW text."
   (let ((coding-system-for-write 'utf-8)
@@ -399,7 +462,8 @@ AFTER comes as the text it lacks, after :offset characters."
                                           (equal (plist-get item :id) (plist-get event :id))))
                                    overlook-remote--items)))))
       (unless item
-        (setq item (append (list :item overlook-remote--seq :seq 0)
+        (setq item (append (list :item overlook-remote--seq :seq 0
+                                 :createdAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
                            (overlook-remote--new-item event)))
         (push item overlook-remote--items)
         (dolist (removed (nthcdr overlook-remote-history overlook-remote--items))
@@ -408,10 +472,12 @@ AFTER comes as the text it lacks, after :offset characters."
                      (plist-get removed :seq) (plist-get removed :item))))
         (setq overlook-remote--items (seq-take overlook-remote--items overlook-remote-history)))
       (plist-put item :seq overlook-remote--seq)
+      (plist-put item :updatedAt (format-time-string "%Y-%m-%dT%H:%M:%S.%3NZ" nil t))
       (overlook-remote--update item event)
       (when (equal (plist-get item :type) "text")
         (plist-put item :marks (cons (cons overlook-remote--seq (length (plist-get item :text)))
                                      (plist-get item :marks))))))
+  (setq overlook-remote--dashboard nil)
   (overlook-remote--wake))
 
 (defun overlook-remote--state (buffer)
@@ -441,18 +507,20 @@ Nil AFTER is a change of another Emacs session."
 
 (defun overlook-remote--news-data (buffer after)
   "Agent BUFFER's state and activity changed after AFTER, as browser data."
-  (let ((reset (overlook-remote--reset-p after buffer))
-        (state (overlook-remote--state buffer)))
+  (let* ((reset (overlook-remote--reset-p after buffer))
+         (state (overlook-remote--state buffer))
+         (initial (or reset (zerop (or after 0))))
+         (page (and initial (overlook-remote--history-data buffer))))
     `(:agent ,(car state) :known ,(cdr state) :seq ,overlook-remote--seq
       :epoch ,overlook-remote--epoch :reset ,(if reset t :false)
-      :items ,(let ((root (or (overlook-agent-get buffer 'root) default-directory)))
-                (vconcat
-                 (mapcar (lambda (item)
-                           (overlook-remote--present item root (and (not reset) after)))
-                         (seq-filter (lambda (item)
-                                       (or reset (> (plist-get item :seq) after)))
-                                     (reverse (buffer-local-value 'overlook-remote--items
-                                                                  buffer)))))))))
+      ,@(when page
+          `(:history (:hasMore ,(plist-get page :hasMore) :before ,(plist-get page :before))))
+      :items ,(if initial (plist-get page :items)
+                (let ((root (or (overlook-agent-get buffer 'root) default-directory)))
+                  (vconcat
+                   (mapcar (lambda (item) (overlook-remote--present item root after))
+                           (seq-filter (lambda (item) (> (plist-get item :seq) after))
+                                       (reverse (buffer-local-value 'overlook-remote--items buffer))))))))))
 
 (provide 'overlook-remote-activity)
 ;;; overlook-remote-activity.el ends here
