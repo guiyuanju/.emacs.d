@@ -1263,6 +1263,7 @@
   (overlook-remote-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory))
   ;; "127.0.0.1" 只有本机能开；"0.0.0.0" 同一 Wi-Fi 的手机也能开（明文 HTTP，只在信任的网络用）。
   (overlook-remote-host "0.0.0.0")
+  (overlook-remote-port 8766)
   (overlook-remote-network-minutes nil))
 
 (use-package iuiw-sleep
