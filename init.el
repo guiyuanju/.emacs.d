@@ -1289,6 +1289,7 @@
   (overlook-project-root #'iuiw-workspace-overlook-root)
   (overlook-repo-folders #'iuiw-workspace-overlook-folders)
   (overlook-repo-folder-display 'mark)
+  (overlook-repo-ignored (list (locate-user-emacs-file "sync/")))
   (overlook-project-annotation #'iuiw-workspace-overlook-annotation)
   (overlook-project-filter #'iuiw-workspace-overlook-shown-p)
   (overlook-project-priority-function #'iuiw-workspace-overlook-priority)
