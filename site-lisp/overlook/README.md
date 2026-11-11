@@ -239,8 +239,12 @@ If the prompt is occupied or the agent is busy at the scheduled time, the
 job is cancelled. There are no automatic retries, and appointments do not
 survive an Emacs restart.
 
-On macOS, appointments share a `caffeinate -i` process, keeping the system
-awake while allowing the display to sleep. It is released after the last
+Appointments use a one-shot timer for the next deadline, with a separate
+120-second timeout if the submitted continuation does not start. Running
+turns are tracked by events rather than polling.
+
+On Emacs 31+, appointments share a built-in `system-sleep` token, keeping
+the system awake while allowing the display to sleep. It is released after the last
 appointment is cancelled or its continued turn finishes, fails or needs
 user attention. Closing the laptop lid can still suspend execution.
 

@@ -29,6 +29,10 @@
 
 (require 'overlook-agent)
 (require 'overlook-usage)
+(require 'system-sleep nil t)
+
+(declare-function system-sleep-block-sleep "system-sleep")
+(declare-function system-sleep-unblock-sleep "system-sleep")
 
 (defcustom overlook-agent-resume-delay 300
   "Seconds to wait after the subscription quota resets."
@@ -38,33 +42,43 @@
 (defvar overlook-agent-resume--jobs nil
   "Alist of agent buffers to appointment plists.")
 (defvar overlook-agent-resume--timer nil
-  "Timer checking continuation appointments.")
+  "One-shot timer for the next appointment deadline.")
 (defvar overlook-agent-resume--awake nil
-  "Process preventing idle sleep while appointments are active.")
+  "Sleep token held while appointments are active.")
 (defvar overlook-agent-resume--sending nil
   "Buffer currently receiving the scheduled continuation.")
 
 (defun overlook-agent-resume--sync ()
   "Maintain the appointment timer and idle sleep assertion."
+  (when (timerp overlook-agent-resume--timer)
+    (cancel-timer overlook-agent-resume--timer))
+  (setq overlook-agent-resume--timer nil)
+  (let ((deadlines
+         (delq nil
+               (mapcar (lambda (entry)
+                         (let ((job (cdr entry)))
+                           (pcase (plist-get job :phase)
+                             ('waiting (plist-get job :at))
+                             ('submitted (+ (plist-get job :sent) 120)))))
+                       overlook-agent-resume--jobs))))
+    (when deadlines
+      (setq overlook-agent-resume--timer
+            (run-at-time (max 0 (- (apply #'min deadlines) (float-time)))
+                         nil #'overlook-agent-resume--tick))))
   (if overlook-agent-resume--jobs
       (progn
-        (unless (timerp overlook-agent-resume--timer)
-          (setq overlook-agent-resume--timer
-                (run-at-time 5 5 #'overlook-agent-resume--tick)))
-        (when (and (eq system-type 'darwin)
-                   (not (process-live-p overlook-agent-resume--awake)))
+        (when (and (fboundp 'system-sleep-block-sleep)
+                   (not overlook-agent-resume--awake))
           (condition-case err
               (setq overlook-agent-resume--awake
-                    (make-process :name "overlook-resume-awake"
-                                  :command (list "/usr/bin/caffeinate" "-i" "-w"
-                                                 (number-to-string (emacs-pid)))
-                                  :connection-type 'pipe :noquery t))
+                    (system-sleep-block-sleep "Overlook continuation" t))
             (error (message "Cannot prevent sleep: %s" (error-message-string err))))))
     (when (timerp overlook-agent-resume--timer)
       (cancel-timer overlook-agent-resume--timer))
     (setq overlook-agent-resume--timer nil)
-    (when (process-live-p overlook-agent-resume--awake)
-      (delete-process overlook-agent-resume--awake))
+    (when (and overlook-agent-resume--awake
+               (fboundp 'system-sleep-unblock-sleep))
+      (system-sleep-unblock-sleep overlook-agent-resume--awake))
     (setq overlook-agent-resume--awake nil)))
 
 (defun overlook-agent-resume-cancel (buffer)
@@ -84,6 +98,7 @@
     (if (or (eq overlook-agent-resume--sending (current-buffer))
             (eq (plist-get (cdr entry) :phase) 'submitted))
         (progn (setf (plist-get (cdr entry) :phase) 'running)
+               (overlook-agent-resume--sync)
                (overlook-agent-changed))
       (overlook-agent-resume-cancel (current-buffer)))))
 
@@ -105,7 +120,7 @@
                             (overlook-agent-call buffer 'usage-row))))
             (overlook-agent-resume-cancel buffer))
            ((and (eq (plist-get job :phase) 'submitted)
-                 (> now (+ (plist-get job :sent) 120)))
+                 (>= now (+ (plist-get job :sent) 120)))
             (overlook-agent-resume-cancel buffer)
             (message "Continuation did not start in %s" (buffer-name buffer)))
            ((and (eq (plist-get job :phase) 'waiting)
@@ -122,7 +137,8 @@
               (overlook-agent-changed))))
         (error
          (overlook-agent-resume-cancel buffer)
-         (message "Continuation failed: %s" (error-message-string err)))))))
+         (message "Continuation failed: %s" (error-message-string err))))))
+  (overlook-agent-resume--sync))
 
 ;;;###autoload
 (defun overlook-agent-resume-toggle (&optional buffer)

@@ -106,20 +106,21 @@
     (should (equal sent '("continue")))
     (should-not overlook-agent-resume--jobs)))
 
-(ert-deftest overlook-resume-shares-and-releases-caffeinate ()
+(ert-deftest overlook-resume-shares-and-releases-sleep-token ()
   (let ((system-type 'darwin)
         (overlook-agent-resume--jobs '((one) (two)))
         (overlook-agent-resume--timer nil)
         (overlook-agent-resume--awake nil)
         (made 0) (killed 0) (live nil))
-    (cl-letf (((symbol-function 'make-process)
-               (lambda (&rest args)
-                 (should (equal (plist-get args :command)
-                                (list "/usr/bin/caffeinate" "-i" "-w"
-                                      (number-to-string (emacs-pid)))))
+    (cl-letf (((symbol-function 'system-sleep-block-sleep)
+               (lambda (why display)
+                 (should (equal why "Overlook continuation"))
+                 (should display)
                  (cl-incf made) (setq live t) 'awake))
-              ((symbol-function 'process-live-p) (lambda (process) (and process live)))
-              ((symbol-function 'delete-process) (lambda (_) (cl-incf killed) (setq live nil))))
+              ((symbol-function 'system-sleep-unblock-sleep)
+               (lambda (token)
+                 (should (eq token 'awake))
+                 (cl-incf killed) (setq live nil))))
       (unwind-protect
           (progn
             (overlook-agent-resume--sync)
@@ -137,3 +138,26 @@
 
 (provide 'overlook-agent-resume-test)
 ;;; overlook-agent-resume-test.el ends here
+
+(ert-deftest overlook-resume-arms-only-next-deadline ()
+  (let ((overlook-agent-resume--jobs
+         '((one :phase waiting :at 500) (two :phase waiting :at 700)))
+        (overlook-agent-resume--timer nil)
+        (overlook-agent-resume--awake 'held)
+        calls)
+    (cl-letf (((symbol-function 'float-time) (lambda (&rest _) 100))
+              ((symbol-function 'run-at-time)
+               (lambda (delay repeat fn)
+                 (push (list delay repeat fn) calls) nil)))
+      (overlook-agent-resume--sync)
+      (should (equal (car calls) '(400 nil overlook-agent-resume--tick)))
+      (setf (plist-get (cdar overlook-agent-resume--jobs) :phase) 'submitted
+            (plist-get (cdar overlook-agent-resume--jobs) :sent) 110)
+      (overlook-agent-resume--sync)
+      (should (equal (car calls) '(130 nil overlook-agent-resume--tick)))
+      (setf (plist-get (cdar overlook-agent-resume--jobs) :phase) 'running)
+      (overlook-agent-resume--sync)
+      (should (equal (car calls) '(600 nil overlook-agent-resume--tick)))
+      (setq overlook-agent-resume--jobs (list (car overlook-agent-resume--jobs)) calls nil)
+      (overlook-agent-resume--sync)
+      (should-not calls))))
