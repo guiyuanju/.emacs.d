@@ -155,7 +155,9 @@
             (message "Continuation did not start in %s" (buffer-name buffer)))
            ((and (eq (plist-get job :phase) 'waiting)
                  (>= now (plist-get job :at)))
-            (if (not (overlook-agent-call buffer 'ready))
+            (if (not (overlook-agent-call
+                      buffer (if (overlook-agent-get buffer 'resume-ready)
+                                 'resume-ready 'ready)))
                 (progn
                   (overlook-agent-resume-cancel buffer)
                   (message "Continuation cancelled: %s is busy or has draft input"
@@ -163,7 +165,10 @@
               (setf (plist-get (cdr entry) :phase) 'submitted
                     (plist-get (cdr entry) :sent) now)
               (let ((overlook-agent-resume--sending buffer))
-                (overlook-agent-call buffer 'submit "continue"))
+                (overlook-agent-call buffer
+                                     (if (overlook-agent-get buffer 'resume-submit)
+                                         'resume-submit 'submit)
+                                     "continue"))
               (overlook-agent-changed))))
         (error
          (overlook-agent-resume-cancel buffer)
@@ -184,8 +189,9 @@ Interactively use the agent at point, or the current agent buffer."
                (message "Continuation cancelled"))
       (unless (and (overlook-agent-get buffer 'submit)
                    (overlook-agent-get buffer 'ready)
-                   (overlook-agent-call buffer 'ready))
-        (user-error "Agent must be idle with an empty prompt"))
+                   (overlook-agent-call buffer (if (overlook-agent-get buffer 'resume-ready)
+                                               'resume-ready 'ready)))
+        (user-error "Agent must be ready to continue"))
       (let* ((session (overlook-agent-session buffer))
              (row (overlook-agent-call buffer 'usage-row))
              (reset (and row (overlook-usage-next-reset row))))

@@ -191,3 +191,14 @@
       (setq now 400)
       (overlook-agent-resume--tick)
       (should (equal sent '("continue"))))))
+
+(ert-deftest overlook-resume-uses-draft-aware-capabilities ()
+  (overlook-resume-test--agent
+    (push (cons 'resume-ready (lambda () t)) overlook-agent-identity)
+    (push (cons 'resume-submit (lambda (text) (push (concat text " queued") sent)))
+          overlook-agent-identity)
+    (setq ready nil)
+    (overlook-agent-resume-toggle (current-buffer))
+    (setq now 500.0)
+    (overlook-agent-resume--tick)
+    (should (equal sent '("continue queued")))))

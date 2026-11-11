@@ -442,3 +442,27 @@ each environment gathered says how many were gathered so far."
                    '(("reasoning_effort" . "low"))))))
 
 ;;; overlook-agent-shell-test.el ends here
+
+(ert-deftest overlook-agent-shell-resume-submits-before-queueing-draft ()
+  (with-temp-buffer
+    (let ((draft "my draft\nsecond line") events)
+      (cl-letf (((symbol-function 'agent-shell--take-prompt-input)
+                 (lambda () (prog1 draft (setq draft nil))))
+                ((symbol-function 'overlook-agent-shell--submit)
+                 (lambda (text)
+                   (should-not draft)
+                   (push (list 'submit text) events)))
+                ((symbol-function 'agent-shell--prompt-queue-enqueue)
+                 (lambda (&rest args) (push (list 'queue (plist-get args :prompt)) events))))
+        (overlook-agent-shell--resume-submit "continue")
+        (should (equal (nreverse events)
+                       '((submit "continue") (queue "my draft\nsecond line"))))))))
+
+(ert-deftest overlook-agent-shell-resume-preserves-draft-on-submit-error ()
+  (let (queued)
+    (cl-letf (((symbol-function 'agent-shell--take-prompt-input) (lambda () "draft"))
+              ((symbol-function 'overlook-agent-shell--submit) (lambda (_) (error "Failed")))
+              ((symbol-function 'agent-shell--prompt-queue-enqueue)
+               (lambda (&rest args) (setq queued (plist-get args :prompt)))))
+      (should-error (overlook-agent-shell--resume-submit "continue"))
+      (should (equal queued "draft")))))

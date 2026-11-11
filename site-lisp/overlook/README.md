@@ -254,8 +254,11 @@ Exhausted windows must all reset before continuation; otherwise the next
 window reset is used. `overlook-agent-resume-delay` adds five minutes by
 default. Missing reset data or an unknown account prevents scheduling.
 A manual turn, session/account change or closed buffer cancels the job.
-If the prompt is occupied or the agent is busy at the scheduled time, the
-job is cancelled. There are no automatic retries, and appointments do not
+If an agent-shell prompt contains a draft at the scheduled time, the draft
+is removed, `continue` is sent, and the draft is appended to the native prompt
+queue for the following turn. A failed submission also preserves the draft
+in that queue. A busy agent cancels the job; other frontends still require
+an empty prompt. There are no automatic retries, and appointments do not
 survive an Emacs restart.
 
 Appointments use a one-shot timer for the next deadline, with a separate

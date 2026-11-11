@@ -277,6 +277,18 @@ other form is answered in the shell."
   "Submit TEXT as this shell's next prompt."
   (agent-shell-insert :text text :submit t :no-focus t :shell-buffer (current-buffer)))
 
+(defun overlook-agent-shell--resume-ready ()
+  "Non-nil when this shell can continue, even with draft input."
+  (and (overlook-agent-shell--session) (not (shell-maker-busy))))
+
+(defun overlook-agent-shell--resume-submit (text)
+  "Submit TEXT, then queue any draft removed from the prompt."
+  (let ((draft (agent-shell--take-prompt-input)))
+    (unwind-protect
+        (overlook-agent-shell--submit text)
+      (when (and draft (not (string-empty-p (string-trim draft))))
+        (agent-shell--prompt-queue-enqueue :prompt draft)))))
+
 (defun overlook-agent-shell--controls ()
   "Controls available for this shell's remote client."
   (list :slash (mapcar (lambda (command)
@@ -625,6 +637,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (forked-from . overlook-agent-shell--forked-from)
               (usage-row . overlook-agent-shell--usage-row)
               (submit . overlook-agent-shell--submit)
+              (resume-ready . overlook-agent-shell--resume-ready)
+              (resume-submit . overlook-agent-shell--resume-submit)
               (remote-controls . overlook-agent-shell--controls)
               (remote-action . overlook-agent-shell--remote-action)
               (ready . overlook-agent-shell--ready)
