@@ -179,12 +179,26 @@ The name is cut to `overlook-account-width' characters."
 (defvar overlook--roots-cache nil
   "Project roots looked up during one render, keyed by name, each in a list.")
 
+(defvar overlook--generation 0
+  "Count of calls to `overlook-refresh', telling when a model is stale.")
+
+(defvar overlook--roots (cons nil (make-hash-table :test #'equal))
+  "((GENERATION . FUNCTION) . TABLE) of the roots FUNCTION found since a refresh.
+FUNCTION is `overlook-project-root-function'.")
+
+;; A missing root may be guessed once the project visits a file, which
+;; does not refresh, so only a render remembers that there is none.
 (defun overlook-project-root (name)
   "Project root of project NAME, or nil."
-  (if overlook--roots-cache
-      (car (with-memoization (gethash name overlook--roots-cache)
-             (list (funcall overlook-project-root-function name))))
-    (funcall overlook-project-root-function name)))
+  (let ((key (cons overlook--generation overlook-project-root-function)))
+    (unless (equal (car overlook--roots) key)
+      (setq overlook--roots (cons key (make-hash-table :test #'equal)))))
+  (or (gethash name (cdr overlook--roots))
+      (when-let* ((root (if overlook--roots-cache
+                            (car (with-memoization (gethash name overlook--roots-cache)
+                                   (list (funcall overlook-project-root-function name))))
+                          (funcall overlook-project-root-function name))))
+        (puthash name root (cdr overlook--roots)))))
 
 (defun overlook-project-guess-root (name)
   "Root of the project of the first file or Dired buffer in project NAME."
@@ -404,9 +418,6 @@ Each of HOOKS is (HOOK FUNCTION) or (HOOK FUNCTION DEPTH)."
 (defvar overlook-refresh-hook nil
   "Hook run by `overlook-refresh', whether or not the dashboard is live.
 For other views of the dashboard; see `overlook-latest-model'.")
-
-(defvar overlook--generation 0
-  "Count of calls to `overlook-refresh', telling when a model is stale.")
 
 (defun overlook-refresh ()
   "Invalidate the shared model and notify its views."

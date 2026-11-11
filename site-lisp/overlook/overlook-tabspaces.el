@@ -56,19 +56,6 @@
   (tabspaces-switch-or-create-workspace name))
 
 ;; Buffers such as *scratch* are shared by every tab and sit in no project.
-(defvar overlook-tabspaces--roots (make-hash-table :test #'equal)
-  "Project roots of tabs by name, cleared when tabs are switched or changed.")
-
-(defun overlook-tabspaces--root (name)
-  "Project root of the tab named NAME, or nil."
-  (or (gethash name overlook-tabspaces--roots)
-      (when-let* ((root (overlook-project-root name)))
-        (puthash name root overlook-tabspaces--roots))))
-
-(defun overlook-tabspaces--forget-roots (&rest _)
-  "Forget the cached project roots of tabs."
-  (clrhash overlook-tabspaces--roots))
-
 (defun overlook-tabspaces--project-current (project-current &optional maybe-prompt directory)
   "Call PROJECT-CURRENT with MAYBE-PROMPT and DIRECTORY, falling back to the tab.
 A buffer visiting no file and in no project belongs to the project of
@@ -80,7 +67,7 @@ its tab, unless that is `overlook-orphan-project'."
            (not (derived-mode-p 'dired-mode))
            (when-let* ((name (overlook-tabspaces--current))
                        ((not (equal name overlook-orphan-project)))
-                       (root (overlook-tabspaces--root name)))
+                       (root (overlook-project-root name)))
              (funcall project-current nil root)))
       (and maybe-prompt (funcall project-current maybe-prompt directory))))
 
@@ -136,7 +123,6 @@ Buffers in `tabspaces-include-buffers' are kept.  The sole tab stays."
 
 (defun overlook-tabspaces--changed (&rest _)
   "Redraw the dashboard after a tab is opened, closed or renamed."
-  (overlook-tabspaces--forget-roots)
   (overlook-refresh))
 
 ;;;###autoload
@@ -155,8 +141,7 @@ Buffers in `tabspaces-include-buffers' are kept.  The sole tab stays."
     (set variable (if overlook-tabspaces-mode function #'ignore)))
   (overlook-toggle-hooks
    overlook-tabspaces-mode
-   '((tab-bar-tab-post-select-functions overlook-tabspaces--forget-roots)
-     (tab-bar-tab-post-select-functions overlook-project-switched)
+   '((tab-bar-tab-post-select-functions overlook-project-switched)
      (tab-bar-tab-post-open-functions overlook-tabspaces--changed)
      (tab-bar-tab-pre-close-functions overlook-tabspaces--changed)))
   (if overlook-tabspaces-mode
