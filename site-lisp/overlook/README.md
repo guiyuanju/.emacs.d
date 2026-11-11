@@ -47,7 +47,7 @@ you see at a glance where you are needed.
 
 ## Install
 
-Requires Emacs 29.1 or later.  overlook is not on MELPA yet; install it
+Requires Emacs 30.1 or later.  overlook is not on MELPA yet; install it
 from GitHub.  It pulls in magit-section, tabspaces, agent-shell and
 simple-httpd (for the phone page).  agent-shell
 needs the ACP adapters of the agents you use; see its README.
