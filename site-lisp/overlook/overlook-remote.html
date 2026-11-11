@@ -2296,6 +2296,7 @@ function show() {
     target.replaceChildren(viewState("Open your personal link", "In Emacs, run M-x overlook-remote-url and open the generated link on this device."));
     $("compose").hidden = true;
     $("heading").textContent = "Overlook";
+    connectionFailure({status: 401});
     return;
   }
   if (id) {
