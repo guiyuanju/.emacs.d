@@ -500,3 +500,53 @@ status: done
          (lambda ()
            (should (equal (plist-get (iuiw-workspace--card "demo") :status) "waiting"))))
         (should (= reads 4))))))
+
+(ert-deftest iuiw-workspace-sync-reminder-partitions-changes ()
+  (let ((prefixes '("me/projects/demo/")))
+    (dolist (record '(" M me/knowledge/a.md" "?? inbox.md" " D CLAUDE.md"
+                      "?? me/projects/demo-extra/a.md"))
+      (should (iuiw-workspace--unsynced-p (concat "## main\0" record "\0") prefixes)))
+    (dolist (record '(" M me/projects/demo/project.md"
+                      "?? me/projects/demo/new note.md"))
+      (should-not (iuiw-workspace--unsynced-p (concat "## main\0" record "\0") prefixes)))
+    (should (iuiw-workspace--unsynced-p "## main...origin/main [ahead 1]\0" prefixes))
+    (should-not (iuiw-workspace--unsynced-p "## main...origin/main [behind 1]\0" prefixes))
+    (should (iuiw-workspace--unsynced-p
+             "## main\0R  me/projects/demo/new.md\0me/knowledge/old.md\0" prefixes))
+    (should (iuiw-workspace--unsynced-p
+             "## main\0R  me/knowledge/new.md\0me/projects/demo/old.md\0" prefixes))))
+
+(ert-deftest iuiw-workspace-sync-reminder-real-local-git ()
+  (iuiw-workspace-test--with-workspace
+    (let ((default-directory iuiw-workspace-directory)
+          (iuiw-workspace--unsynced (make-hash-table :test #'equal))
+          (iuiw-workspace--sync-checks (make-hash-table :test #'equal)))
+      (should (zerop (process-file "git" nil nil nil "init" "-q")))
+      (iuiw-workspace-test--write "me/projects/demo/project.md" iuiw-workspace-test--card)
+      (cl-letf (((symbol-function 'overlook-refresh) #'ignore))
+        (iuiw-workspace-check-sync)
+        (while (> (hash-table-count iuiw-workspace--sync-checks) 0)
+          (accept-process-output nil 0.05))
+        (should-not (iuiw-workspace-overlook-mark))
+        (let ((buffer-file-name (iuiw-workspace-test--write "me/knowledge/new.md" "notes")))
+          (iuiw-workspace--check-sync-saved)
+          (while (> (hash-table-count iuiw-workspace--sync-checks) 0)
+            (accept-process-output nil 0.05))
+          (should (equal "*" (iuiw-workspace-overlook-mark)))
+          (delete-file buffer-file-name)
+          (iuiw-workspace-check-sync)
+          (while (> (hash-table-count iuiw-workspace--sync-checks) 0)
+            (accept-process-output nil 0.05))
+          (should-not (iuiw-workspace-overlook-mark)))))))
+
+(ert-deftest iuiw-workspace-sync-save-excludes-code-repos ()
+  (iuiw-workspace-test--with-workspace
+    (let ((default-directory iuiw-workspace-directory) checked)
+      (should (zerop (process-file "git" nil nil nil "init" "-q")))
+      (let* ((buffer-file-name (iuiw-workspace-test--write "me/projects/demo/code/a.el" "code"))
+             (default-directory (file-name-directory buffer-file-name)))
+        (should (zerop (process-file "git" nil nil nil "init" "-q")))
+        (cl-letf (((symbol-function 'iuiw-workspace--check-repo)
+                   (lambda (repo) (push repo checked))))
+          (iuiw-workspace--check-sync-saved)
+          (should-not checked))))))
