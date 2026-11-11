@@ -633,10 +633,11 @@ Mapped external roots such as ~/.emacs.d remain configured separately."
   (let* ((root (or root (iuiw-workspace--current-card-root)))
          (repos (iuiw-workspace--read-repos root)))
     (dolist (dir (directory-files root t directory-files-no-dot-files-regexp))
-      (when (and (file-directory-p dir) (file-exists-p (expand-file-name ".git" dir)))
-        (setq repos (iuiw-workspace--add-repo
-                     repos (file-name-nondirectory dir)
-                     (car (process-lines "git" "-C" dir "remote" "get-url" "origin"))))))
+      (when-let* (((file-directory-p dir))
+                  ((file-exists-p (expand-file-name ".git" dir)))
+                  (url (car (process-lines-ignore-status
+                             "git" "-C" dir "remote" "get-url" "origin"))))
+        (setq repos (iuiw-workspace--add-repo repos (file-name-nondirectory dir) url))))
     (iuiw-workspace--write-repos root repos)
     (message "Registered %d repositories" (length repos))))
 
