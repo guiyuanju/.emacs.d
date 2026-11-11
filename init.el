@@ -345,6 +345,14 @@
     (advice-add fn :around #'iuiw-tabspaces--without-restoring))
   (advice-add 'tabspaces--write-session-file :filter-args #'iuiw-tabspaces--keep-pending))
 
+;; 关掉 4 小时没显示过的 buffer，tab 里不积攒文件，下次启动恢复得少。
+(use-package buffer-terminator
+  :custom
+  (buffer-terminator-inactivity-timeout (* 4 60 60))
+  (buffer-terminator-verbose 'inhibit-message)
+  :config
+  (buffer-terminator-mode 1))
+
 ;;; Modal editing
 
 (use-package evil
