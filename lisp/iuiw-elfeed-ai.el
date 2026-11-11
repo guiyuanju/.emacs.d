@@ -573,10 +573,12 @@ With EDIT-FOCUS, change the focus first."
 
 (add-hook 'elfeed-show-update-hook #'iuiw-elfeed-ai-insert-summary)
 (setq elfeed-search-print-entry-function #'iuiw-elfeed-ai-print-entry)
-(add-hook 'elfeed-search-mode-hook
-          (lambda ()
-            (add-hook 'eldoc-documentation-functions #'iuiw-elfeed-ai-oneline-eldoc nil t)
-            (eldoc-mode 1)))
+(defun iuiw-elfeed-ai--search-eldoc ()
+  "Show the one-line summary of the entry at point with eldoc."
+  (add-hook 'eldoc-documentation-functions #'iuiw-elfeed-ai-oneline-eldoc nil t)
+  (eldoc-mode 1))
+
+(add-hook 'elfeed-search-mode-hook #'iuiw-elfeed-ai--search-eldoc)
 
 (provide 'iuiw-elfeed-ai)
 ;;; iuiw-elfeed-ai.el ends here
