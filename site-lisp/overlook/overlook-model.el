@@ -389,8 +389,12 @@ Each returns a list of (LABEL . DELETE), DELETE a function letting it go.")
 (defvar overlook-project-close-blockers nil
   "Functions of a project NAME returning why it cannot close, or nil.")
 
+(defvar overlook-fold-once nil
+  "Ids of rows views draw folded when next shown, whatever they kept.")
+
 (defun overlook-delete-project (name)
   "Close project NAME with what lies in it, such as its agents, once confirmed.
+Its row as a project not open, `(closed-project NAME)', starts folded.
 Refused while `overlook-project-close-blockers' give a reason."
   (when-let* ((reasons (delq nil (mapcar (lambda (blocker) (funcall blocker name))
                                          overlook-project-close-blockers))))
@@ -402,6 +406,7 @@ Refused while `overlook-project-close-blockers' give a reason."
                                    (format " and %s" (mapconcat #'car contents ", "))
                                  "")))
       (pcase-dolist (`(,_ . ,delete) contents) (funcall delete))
+      (push (list 'closed-project name) overlook-fold-once)
       (overlook-close-project name)
       (message "Closed project %s" name))))
 

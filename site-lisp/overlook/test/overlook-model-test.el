@@ -61,6 +61,7 @@
   (let* ((closed nil)
          (killed nil)
          (overlook-close-project-function (lambda (name) (push name closed)))
+         (overlook-fold-once nil)
          (overlook-project-close-blockers (list (lambda (_) "uncommitted changes in api")))
          (overlook-project-contents-functions
           (list (lambda (name) (list (cons "agent a" (lambda () (push name killed))))))))
@@ -71,4 +72,5 @@
                (lambda (question) (equal question "Close project p and agent a? "))))
       (should (overlook--delete-project '(project . "p"))))
     (should (equal killed '("p")))
-    (should (equal closed '("p")))))
+    (should (equal closed '("p")))
+    (should (equal overlook-fold-once '((closed-project "p"))))))

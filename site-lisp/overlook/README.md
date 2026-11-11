@@ -427,7 +427,9 @@ docstring.
   rows that belong to no project.  A project without worktrees lists
   what lies in its checkout at depth 0.
 - `overlook-closed-projects-functions`: rows after the projects'
-  headings, for projects that are not open.
+  headings, for projects that are not open.  Give such a project's row
+  the id `(closed-project NAME)`: open and closed projects then sort
+  together, and the row starts folded once `d d` closes the project.
 - `overlook-projects-mark-functions`: marks after the Projects
   section's title, such as a "*" when something needs syncing.
 - `overlook-project-command-functions`: commands on a project's

@@ -169,11 +169,20 @@ The binding is recorded in `overlook-keys'."
   ;; Rows fit themselves to the window, so redraw when it resizes.
   (add-hook 'window-size-change-functions (lambda (_) (overlook-refresh)) nil t)
   (add-hook 'post-command-hook #'overlook--remember-point nil t)
+  (add-hook 'magit-section-set-visibility-hook #'overlook--fold-once -10 t)
   (advice-add 'set-window-configuration :after #'overlook--restore-points)
   (advice-add 'magit-section-maybe-update-visibility-indicator :after #'overlook--color-ellipses)
   (advice-add 'magit-section-maybe-paint-visibility-ellipses :after #'overlook--color-ellipses)
   (add-hook 'kill-buffer-hook #'overlook--dashboard-killed nil t)
   (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
+
+(defun overlook--fold-once (section)
+  "Hide SECTION, and keep it hidden, when its row is in `overlook-fold-once'."
+  (when (member (oref section value) overlook-fold-once)
+    (setq overlook-fold-once (delete (oref section value) overlook-fold-once))
+    (setf (alist-get (magit-section-ident section) magit-section-visibility-cache
+                     nil nil #'equal)
+          'hide)))
 
 (defun overlook--mode-line ()
   "The dashboard's mode line: its name, then `overlook-mode-line-functions'."

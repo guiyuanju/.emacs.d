@@ -976,6 +976,21 @@ Agents are listed; usage and repos are not."
       (mapc #'kill-buffer (list router worker))
       (delete-directory root t))))
 
+(ert-deftest overlook-fold-once-hides-a-row-and-keeps-it-hidden ()
+  (with-temp-buffer
+    (magit-section-mode)
+    (add-hook 'magit-section-set-visibility-hook #'overlook--fold-once -10 t)
+    (let ((overlook-fold-once (list '(closed-project "p"))))
+      (dotimes (_ 2)
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (magit-insert-section (overlook-section 'root)
+            (overlook-insert-rows
+             (list (overlook-row :id '(closed-project "p") :content "p"
+                                 :children (list (overlook-row :content "todo")))))))
+        (should (oref (car (oref magit-root-section children)) hidden)))
+      (should-not overlook-fold-once))))
+
 (ert-deftest overlook-repo-parses-git-status ()
   (should (equal (overlook-repo--parse
                   "## main...origin/main [ahead 1]\0 M src/a.el\0?? b\0"
