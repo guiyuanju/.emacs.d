@@ -668,8 +668,11 @@ succeed; otherwise call FAIL with the failures, each (DIR . ARGS)."
             (funcall fail (nreverse failures))
           (message "%s" done)))
     (let* ((dir (car (car steps)))
-           (default-directory (file-name-as-directory (expand-file-name dir)))
-           (process (apply #'magit-run-git-async (cdr (car steps)))))
+           ;; magit refreshes in the buffer that started git, which fails
+           ;; outside a repo; a temp buffer makes it refresh in DIR instead.
+           (process (with-temp-buffer
+                      (setq default-directory (file-name-as-directory (expand-file-name dir)))
+                      (apply #'magit-run-git-async (cdr (car steps))))))
       (set-process-sentinel
        process
        (lambda (proc event)
