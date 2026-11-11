@@ -300,7 +300,8 @@ Lines below start where the first piece did, and leave a column at the end."
     (`(:wrap ,pieces . ,_)
      (overlook--wrap pieces (make-string (or (plist-get segment :gap) 1) ?\s) head))
     (`(:cell ,glyph)
-     (let ((pad (- (* 3 (frame-char-width)) (overlook-pixel-width glyph))))
+     (let ((pad (- (* overlook-cell-columns (frame-char-width))
+                    (overlook-pixel-width glyph))))
        (concat glyph (propertize " " 'display `(space :width (,(max 1 pad)))))))
     (`(:fit ,text . ,_)
      (let* ((before (or (plist-get segment :before) ""))
@@ -395,7 +396,9 @@ Like Magit's, it highlights and folds with SECTION."
   "Insert ROW after INDENT, with the rows under it, and return its section."
   (pcase-let* ((`(,text . ,id) (overlook--row-lines row indent))
                (children (overlook-row-children row))
-               (inner (if (overlook-row-nest row) (concat indent "  ") indent))
+               (inner (if (overlook-row-nest row)
+                          (concat indent (make-string overlook-cell-columns ?\s))
+                        indent))
                (section
                 (magit-insert-section (overlook-section id (overlook-row-folded row))
                   (insert text)

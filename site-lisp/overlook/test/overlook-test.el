@@ -389,8 +389,8 @@ Agents are listed; usage and repos are not."
       (search-forward "child")
       ;; Nested a step more, and continued under that indent.
       (should (equal (buffer-substring-no-properties (line-beginning-position) (point))
-                     "   child"))
-      (should (equal (get-text-property (point) 'wrap-prefix) "   "))
+                     "    child"))
+      (should (equal (get-text-property (point) 'wrap-prefix) "    "))
       (search-forward "faced")
       (should (equal (get-text-property (1- (point)) 'face) '(shadow error)))
       (should-not (get-text-property (line-beginning-position) 'face))
@@ -1225,7 +1225,7 @@ Agents are listed; usage and repos are not."
               (search-forward "a.el")
               (should (equal (overlook-item-at-point)
                              (list 'repo-file (expand-file-name "api/" root) "src/a.el")))
-              (should (string-match-p "\\`  src/a\\.el \\+3 −1\\'"
+              (should (string-match-p "\\`   src/a\\.el \\+3 −1\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
               (should (< (overlook-test--line-of "b.el new") (overlook-test--line-of "frontend")))
@@ -1354,7 +1354,7 @@ Agents are listed; usage and repos are not."
                    (overlook-project-functions overlook-repo--checkout-rows -50)))
               (overlook--render)
               (let ((text (buffer-substring-no-properties (point-min) (point-max))))
-                (should (string-match-p "^⎇ fix ↑2 ↓1 \\+1\n  .*alpha.*\n  w\\.el" text))
+                (should (string-match-p "^⎇ fix ↑2 ↓1 \\+1\n   .*alpha.*\n   w\\.el" text))
                 (should (string-match-p "^⎇ old merged$" text)))
               (goto-char (point-min))
               (search-forward "⎇ old")

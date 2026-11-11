@@ -397,7 +397,7 @@ their look, and parts each view lays out for itself:
 | Segment | |
 |---|---|
 | `(:right TEXT :columns N)` | aligned to the right edge; `overlook-align-right` makes it |
-| `(:cell GLYPH)` | a glyph padded to three columns; `overlook-glyph-cell` |
+| `(:cell GLYPH)` | a glyph padded to `overlook-cell-columns`; `overlook-glyph-cell` |
 | `(:fit TEXT :face F :before GAP :reserve N)` | cut with an ellipsis to fit the line |
 | `(:pad TEXT :like TEXTS)` | padded as wide as the widest of TEXTS, so rows line up however each view measures icons |
 | `(:wrap PIECES :gap N)` | pieces going to lines of their own, under the first, when the line is too narrow |
@@ -406,10 +406,11 @@ Rows in the `overlook-tabular` face line up in columns, so the page draws
 them in a fixed-pitch font.  `overlook-icon` gives a name's icon from
 `overlook-agent-icons`, carrying the name for views without icon fonts.
 
-A row also takes `:heading`, `:nest` (indent its children), `:gap` (a
-blank line after it), `:dim`, `:face`, `:help`, `:wrap`, `:keymap`,
-children as a function called once they show, `:choices` it offers with
-`:choose` giving an answer, and `:commands`.  A command may ask for
+A row also takes `:heading`, `:nest` (indent its children under the
+name after its cell), `:gap` (a blank line after it), `:dim`, `:face`,
+`:help`, `:wrap`, `:keymap`, children as a function called once they
+show, `:choices` it offers with `:choose` giving an answer, and
+`:commands`.  A command may ask for
 `:input` text or one of `:options`, and must not ask in the minibuffer;
 `:run` returning an agent's buffer shows that agent, and `(BUFFER . TEXT)`
 also leaves TEXT in its prompt, unsent.  See `overlook-row`'s

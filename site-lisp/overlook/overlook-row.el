@@ -56,7 +56,7 @@ lists and nils allowed.  A segment is
   a string, its text properties giving its look, like `face';
   (:right TEXT :columns N), TEXT ending N columns before the right
           edge, as `overlook-align-right' makes;
-  (:cell GLYPH), GLYPH padded to three columns, as
+  (:cell GLYPH), GLYPH padded to `overlook-cell-columns', as
           `overlook-glyph-cell' makes;
   (:fit TEXT :face FACE :before GAP :reserve N), TEXT in FACE, or in
           its own faces without one, after GAP, cut with an ellipsis
@@ -174,8 +174,12 @@ carries NAME as its `overlook-alt'."
   "A segment of TEXT aligned to end COLUMNS before the window's right edge."
   (list :right text :columns columns))
 
+(defconst overlook-cell-columns 3
+  "Columns of a glyph cell, and the indent of a `:nest' row's children.
+Those then start under the name after the row's cell.")
+
 (defun overlook-glyph-cell (glyph)
-  "A segment of GLYPH padded to three columns, so the names after it line up.
+  "A segment of GLYPH padded to `overlook-cell-columns', lining up names after it.
 Fonts draw glyphs like ◐ two columns wide but ⚠ or ⎇ one."
   (list :cell glyph))
 
