@@ -9,6 +9,8 @@
 (require 'subr-x)
 (require 'nerd-icons)
 
+(declare-function overlook-mode-line-icon "overlook-row" (name fallback &optional face))
+
 (defvar iuiw-sleep--token nil "Manual sleep block token.")
 
 (define-minor-mode iuiw-sleep-mode
@@ -58,10 +60,8 @@
   (when (eq system-type 'darwin)
     (let* ((owners (iuiw-sleep--owners))
            (active (and owners t)))
-      (propertize (concat (nerd-icons-codicon "nf-cod-coffee" :face (if active 'warning 'shadow)) " "
-                          (propertize
-                           (if active "on" "off")
-                           'face (if active 'warning 'shadow)))
+      (propertize (overlook-mode-line-icon "nf-cod-coffee" "awake"
+                                           (if active 'warning 'shadow))
                   'help-echo (if active
                                  (concat "Emacs awake: " (string-join owners ", "))
                                "Emacs is not preventing sleep.")))))

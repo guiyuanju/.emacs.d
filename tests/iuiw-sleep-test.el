@@ -1,6 +1,7 @@
 ;;; iuiw-sleep-test.el --- Sleep integration tests -*- lexical-binding: t; -*-
 (require 'ert)
 (require 'cl-lib)
+(require 'overlook-row)
 (require 'iuiw-sleep)
 (require 'iuiw-remote)
 
@@ -27,9 +28,13 @@
   (let ((system-type 'darwin)
         (system-sleep--sleep-block-tokens nil))
     (cl-letf (((symbol-function 'process-live-p) #'ignore))
-      (should (string-suffix-p " off" (iuiw-sleep-mode-line)))
+      (should (equal (iuiw-sleep-mode-line)
+                     (propertize (overlook-mode-line-icon "nf-cod-coffee" "awake" 'shadow)
+                                 'help-echo "Emacs is not preventing sleep.")))
       (setq system-sleep--sleep-block-tokens
             '((:why "agent-shell (agent busy)") (:why "Overlook Remote")))
-      (should (string-suffix-p " on" (iuiw-sleep-mode-line)))
+      (should (equal (substring-no-properties (iuiw-sleep-mode-line))
+                     (substring-no-properties
+                      (overlook-mode-line-icon "nf-cod-coffee" "awake" 'warning))))
       (should (equal (get-text-property 0 'help-echo (iuiw-sleep-mode-line))
                      "Emacs awake: Agent, Remote")))))
