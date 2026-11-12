@@ -52,7 +52,7 @@ BUFFERS is a list of (VARIABLE NAME), each bound to a new buffer."
     (tab-bar-switch-to-tab "main")
     (should (memq buffer (frame-parameter nil 'buffer-list)))))
 
-(ert-deftest overlook-tabspaces-detached-buffer-stays-out-when-shown ()
+(ert-deftest overlook-tabspaces-detached-buffer-is-every-tab-s-but-no-project-s ()
   (overlook-tabspaces-test--with-tabs ((buffer "overlook-tabspaces-detached"))
     (switch-to-buffer buffer)
     (switch-to-buffer "*scratch*")
@@ -60,11 +60,14 @@ BUFFERS is a list of (VARIABLE NAME), each bound to a new buffer."
     (switch-to-buffer buffer)
     (overlook-detach buffer)
     (should-not (memq buffer (overlook-tabspaces--buffers "other")))
-    (should-not (memq buffer (frame-parameter nil 'buffer-list)))
-    ;; Shown in a window, but detached.
     (should-not (memq buffer (overlook-tabspaces--buffers "main")))
-    (should (memq #'overlook--detach-shown
-                  (buffer-local-value 'window-buffer-change-functions buffer)))))
+    ;; Still the tab's last buffer, so switching back reaches it.
+    (switch-to-buffer "*scratch*")
+    (should (eq (other-buffer) buffer))
+    (should (memq buffer (tabspaces-local-buffer-list)))
+    (tab-bar-switch-to-tab "other")
+    (should (tabspaces--local-buffer-p buffer))
+    (should (memq buffer (tabspaces-local-buffer-list)))))
 
 (ert-deftest overlook-tabspaces-close-kills-own-buffers ()
   (overlook-tabspaces-test--with-tabs ((own "overlook-tabspaces-own")

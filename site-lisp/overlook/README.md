@@ -574,7 +574,9 @@ docstring.
 
 Call `overlook-refresh` when something you show changed.
 `overlook-detach` keeps a buffer out of every project, even once
-shown, as courier does with the agents running a persona.
+shown, as courier does with the agents running a persona.  With
+`overlook-tabspaces-mode` such a buffer still belongs to every tab, like
+`tabspaces-include-buffers`, so buffer switching reaches it anywhere.
 
 **Worktrees**: `overlook-worktree` creates, lists and removes project
 checkouts, including folders of several repos.  It has no dashboard or

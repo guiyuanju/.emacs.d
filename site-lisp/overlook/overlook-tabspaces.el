@@ -72,17 +72,34 @@ its tab, unless that is `overlook-orphan-project'."
       (and maybe-prompt (funcall project-current maybe-prompt directory))))
 
 ;; The current tab also holds what its windows show, as tabspaces counts
-;; it, but not a detached buffer.
+;; it.  A detached buffer stays in the tabs it was shown in, so switching
+;; back to it works, but no project counts it.
 (defun overlook-tabspaces--buffers (name)
   "Buffers of the tab named NAME."
   (when-let* ((tab (overlook-tabspaces--tab name)))
-    (delete-dups
-     (if (eq (car tab) 'current-tab)
-         (append (frame-parameter nil 'buffer-list)
-                 (frame-parameter nil 'buried-buffer-list)
-                 (seq-remove (lambda (buffer) (buffer-local-value 'overlook-detached buffer))
-                             (mapcar #'window-buffer (window-list nil 'nomini))))
-       (append (alist-get 'wc-bl tab) (alist-get 'wc-bbl tab))))))
+    (seq-remove #'overlook-tabspaces--detached-p
+                (delete-dups
+                 (if (eq (car tab) 'current-tab)
+                     (append (frame-parameter nil 'buffer-list)
+                             (frame-parameter nil 'buried-buffer-list)
+                             (mapcar #'window-buffer (window-list nil 'nomini)))
+                   (append (alist-get 'wc-bl tab) (alist-get 'wc-bbl tab)))))))
+
+(defun overlook-tabspaces--detached-p (buffer)
+  "Non-nil when BUFFER is detached from the projects."
+  (buffer-local-value 'overlook-detached buffer))
+
+;; Detached buffers belong to every tab, like `tabspaces-include-buffers'.
+(defun overlook-tabspaces--local-or-detached-p (local-p buffer)
+  "Non-nil when LOCAL-P says BUFFER is the tab's, or BUFFER is detached."
+  (or (funcall local-p buffer) (overlook-tabspaces--detached-p buffer)))
+
+(defun overlook-tabspaces--with-detached (buffers)
+  "BUFFERS, then the detached buffers missing from them."
+  (append buffers (seq-filter (lambda (buffer)
+                                (and (overlook-tabspaces--detached-p buffer)
+                                     (not (memq buffer buffers))))
+                              (buffer-list))))
 
 (defun overlook-tabspaces--add-buffer (name buffer)
   "Add BUFFER to the tab named NAME, last in its buffer list."
@@ -94,19 +111,6 @@ its tab, unless that is `overlook-orphan-project'."
       (unless (memq buffer (alist-get 'wc-bl tab))
         (setf (alist-get 'wc-bl (cdr tab))
               (append (alist-get 'wc-bl tab) (list buffer)))))))
-
-;; Showing a buffer adds it to the tab, so a detached one is taken out
-;; each time it is shown.
-(defun overlook-tabspaces--detach (buffer)
-  "Remove BUFFER from every tab of every frame, without switching."
-  (dolist (frame (frame-list))
-    (dolist (parameter '(buffer-list buried-buffer-list))
-      (when (memq buffer (frame-parameter frame parameter))
-        (set-frame-parameter frame parameter (remq buffer (frame-parameter frame parameter)))))
-    (dolist (tab (overlook-tabspaces--tabs frame))
-      (dolist (key '(wc-bl wc-bbl))
-        (when (memq buffer (alist-get key tab))
-          (setf (alist-get key (cdr tab)) (remq buffer (alist-get key tab))))))))
 
 (defun overlook-tabspaces--close (name)
   "Close the tab named NAME and kill the buffers no other tab holds.
@@ -136,7 +140,6 @@ Buffers in `tabspaces-include-buffers' are kept.  The sole tab stays."
                    (overlook-switch-project-function . overlook-tabspaces--switch)
                    (overlook-project-buffers-function . overlook-tabspaces--buffers)
                    (overlook-add-to-project-function . overlook-tabspaces--add-buffer)
-                   (overlook-detach-function . overlook-tabspaces--detach)
                    (overlook-close-project-function . overlook-tabspaces--close)))
     (set variable (if overlook-tabspaces-mode function #'ignore)))
   (overlook-toggle-hooks
@@ -147,9 +150,13 @@ Buffers in `tabspaces-include-buffers' are kept.  The sole tab stays."
   (if overlook-tabspaces-mode
       (progn
         (advice-add 'tab-bar-rename-tab :after #'overlook-tabspaces--changed)
-        (advice-add 'project-current :around #'overlook-tabspaces--project-current))
+        (advice-add 'project-current :around #'overlook-tabspaces--project-current)
+        (advice-add 'tabspaces--local-buffer-p :around #'overlook-tabspaces--local-or-detached-p)
+        (advice-add 'tabspaces-local-buffer-list :filter-return #'overlook-tabspaces--with-detached))
     (advice-remove 'tab-bar-rename-tab #'overlook-tabspaces--changed)
-    (advice-remove 'project-current #'overlook-tabspaces--project-current)))
+    (advice-remove 'project-current #'overlook-tabspaces--project-current)
+    (advice-remove 'tabspaces--local-buffer-p #'overlook-tabspaces--local-or-detached-p)
+    (advice-remove 'tabspaces-local-buffer-list #'overlook-tabspaces--with-detached)))
 
 (provide 'overlook-tabspaces)
 ;;; overlook-tabspaces.el ends here
