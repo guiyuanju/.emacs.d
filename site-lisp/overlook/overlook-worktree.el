@@ -319,26 +319,37 @@ CHECKOUTS is a list of (REPO . CHECKOUT); a file the checkout has is kept."
               (copy-directory from to t)
             (copy-file from to nil t nil t)))))))
 
+(defun overlook-worktree--remove (path force delete-branch)
+  "Remove worktree PATH; return the labels of the repos keeping its branch.
+FORCE and DELETE-BRANCH are as for `overlook-worktree-remove'."
+  (let ((kept nil))
+    (dolist (checkout (overlook-worktree-repos path))
+      (let* ((main (and delete-branch (overlook-worktree-main checkout)))
+             (name (and main (overlook-worktree-branch checkout)))
+             (base (and name (overlook-worktree-base checkout))))
+        (apply #'overlook-worktree-git checkout "worktree" "remove"
+               (append (and force '("--force")) (list (directory-file-name checkout))))
+        (when name
+          (unless (and base
+                       (ignore-errors
+                         (overlook-worktree-git main "merge-base" "--is-ancestor" name base)
+                         (overlook-worktree-git main "branch" "-D" name)
+                         t))
+            (push (overlook-worktree--label main) kept)))))
+    (when (file-directory-p path) (delete-directory path t))
+    (nreverse kept)))
+
 (defun overlook-worktree-remove (dir branch &optional force delete-branch)
   "Remove the worktree of project DIR for BRANCH and return its path.
 Git refuses while a checkout has changes, unless FORCE is non-nil.  With
 DELETE-BRANCH non-nil the branch goes too in each repo where it is merged
-into the checked out branch; an error names the repos keeping it."
-  (let ((path (overlook-worktree-path dir branch))
-        (kept nil))
+into its base, as `overlook-worktree-base' gives it; an error names the
+repos keeping it."
+  (let ((path (overlook-worktree-path dir branch)))
     (unless (file-directory-p path) (user-error "No worktree %s" (abbreviate-file-name path)))
-    (dolist (checkout (overlook-worktree-repos path))
-      (let ((main (and delete-branch (overlook-worktree-main checkout)))
-            (name (and delete-branch (overlook-worktree-branch checkout))))
-        (apply #'overlook-worktree-git checkout "worktree" "remove"
-               (append (and force '("--force")) (list (directory-file-name checkout))))
-        (when (and main name
-                   (not (ignore-errors (overlook-worktree-git main "branch" "-d" name) t)))
-          (push (overlook-worktree--label main) kept))))
-    (when (file-directory-p path) (delete-directory path t))
-    (when kept
+    (when-let* ((kept (overlook-worktree--remove path force delete-branch)))
       (user-error "Removed %s; its branch is kept, unmerged, in %s"
-                  (abbreviate-file-name path) (string-join (nreverse kept) ", ")))
+                  (abbreviate-file-name path) (string-join kept ", ")))
     path))
 
 (defun overlook-worktree-prune (dir)

@@ -152,7 +152,7 @@ returning updates it. New projects append and closed projects disappear.
 | `C-h` / `C-l` | up to the parent row / on into the next row, the first child of an unfolded one, as Magit's `^` / `n` do |
 | `C-S-j` / `C-S-k` | next / previous agent |
 | `] a` / `[ a` | next / previous agent needing you |
-| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a project with its agents unless it has uncommitted changes |
+| `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents and, where merged into its base, its branch, close a project with its agents unless it has uncommitted changes |
 | `H` | hand the agent's task off to another agent |
 | `w` | start an agent in a new worktree of the row's project, as `overlook-agent-worktree` does; on a task row a function of `overlook-agent-worktree-task-functions` knows, offer its branch name and leave the task unsent at the agent's prompt |
 | `a` | start another agent in the row's worktree, else in its project's root |
@@ -597,7 +597,7 @@ unsent, and what to do once the agent started.
   another branch (`a/b` and `a-b` share one) is an error.
 - `overlook-worktree-remove DIR BRANCH &optional FORCE DELETE-BRANCH`,
   `overlook-worktree-prune DIR`: remove one, optionally with its branch
-  where merged; clear those whose folders were deleted by hand.
+  where merged into its base; clear those whose folders were deleted by hand.
 - `overlook-worktree-list`, `-path`, `-at`, `-repos`, `-branch`,
   `-main`: names, locations and checkouts.
 - `overlook-worktree-dirty-p`, `-uncommitted`, `-base`,

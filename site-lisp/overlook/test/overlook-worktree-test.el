@@ -157,6 +157,20 @@ REPOS nil makes the project itself one repo."
       (should (overlook-worktree--output (expand-file-name "web" root)
                                          "rev-parse" "--verify" "--quiet" "refs/heads/f")))))
 
+(ert-deftest overlook-worktree-remove-counts-merged-against-the-base ()
+  (overlook-worktree-test--with-project nil
+    (overlook-worktree-git root "branch" "develop")
+    (let ((path (overlook-worktree-add root "f" "develop")))
+      (overlook-worktree-test--commit path "f")
+      (overlook-worktree-git root "merge" "-q" "--ff-only" "f")
+      (should-error (overlook-worktree-remove root "f" nil t) :type 'user-error)
+      (should (overlook-worktree--output root "rev-parse" "--verify" "--quiet" "refs/heads/f"))
+      (setq path (overlook-worktree-add root "f"))
+      (overlook-worktree-git root "branch" "-f" "develop" "f")
+      (overlook-worktree-remove root "f" nil t)
+      (should-not (overlook-worktree--output root "rev-parse" "--verify" "--quiet"
+                                             "refs/heads/f")))))
+
 (ert-deftest overlook-worktree-uncommitted-names-dirty-checkouts ()
   (overlook-worktree-test--with-project '("api" "web")
     (let ((path (overlook-worktree-add root "f")))

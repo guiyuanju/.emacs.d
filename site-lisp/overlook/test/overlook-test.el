@@ -1498,7 +1498,7 @@ Agents are listed; usage and repos are not."
             (should-not (buffer-live-p agent))
             (should-not (memq saved overlook-agent-saved))
             (should-not (file-exists-p tree))
-            (should (string-search "fix" (shell-command-to-string "git branch")))))
+            (should-not (string-search "fix" (shell-command-to-string "git branch")))))
       (delete-directory root t))))
 
 ;; dd forgets a saved agent; its row shows its title and how long ago it last worked.

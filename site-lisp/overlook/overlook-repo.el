@@ -693,34 +693,38 @@ Its folders and worktrees count too."
                                      (> (or (nth 2 (gethash dir overlook-repo--diverged)) 0) 0))
                                    (overlook-worktree-repos tree))))
     (concat (format "Delete worktree %s" name)
+            (if unmerged "" " with its branch")
             (if contents (format " and %s" (mapconcat #'car contents ", ")) "")
             (if changed
                 (format "; uncommitted changes in %s are lost"
                         (mapconcat #'overlook-repo--label changed ", "))
               "")
-            (if unmerged "; its branch keeps commits not merged" "")
+            (if unmerged "; its branch keeps commits not merged and stays" "")
             "? ")))
 
 (defun overlook-repo--delete-worktree (tree)
   "Delete worktree TREE with what lies in it, such as its agents.
-Its branch stays."
-  (pcase-let ((`(,root . ,name) (or (overlook-worktree-at tree)
-                                    (user-error "Not a worktree: %s" tree))))
+Its branch goes where it is merged into its base."
+  (pcase-let ((`(,_ . ,name) (or (overlook-worktree-at tree)
+                                 (user-error "Not a worktree: %s" tree))))
     (pcase-dolist (`(,_ . ,delete) (overlook-folder-contents tree)) (funcall delete))
     (let ((kill-buffer-query-functions nil))
       (dolist (buffer (buffer-list))
         (when (file-in-directory-p (buffer-local-value 'default-directory buffer) tree)
           (with-current-buffer buffer (set-buffer-modified-p nil))
           (kill-buffer buffer))))
-    (overlook-worktree-remove root name t)
-    (dolist (checkout (hash-table-keys overlook-repo--bases))
-      (when (string-prefix-p tree checkout) (remhash checkout overlook-repo--bases)))
-    (overlook-refresh)
-    (message "Deleted worktree %s" name)))
+    (let ((kept (overlook-worktree--remove tree t t)))
+      (dolist (checkout (hash-table-keys overlook-repo--bases))
+        (when (string-prefix-p tree checkout) (remhash checkout overlook-repo--bases)))
+      (overlook-refresh)
+      (if kept
+          (message "Deleted worktree %s; its branch, not merged, stays in %s"
+                   name (string-join kept ", "))
+        (message "Deleted worktree %s and its branch" name)))))
 
 (defun overlook-repo-delete-worktree (tree)
   "Delete worktree TREE with what lies in it, such as its agents, once confirmed.
-Its branch stays."
+Its branch goes where it is merged into its base."
   (when (yes-or-no-p (overlook-repo--delete-question tree))
     (overlook-repo--delete-worktree tree)))
 
