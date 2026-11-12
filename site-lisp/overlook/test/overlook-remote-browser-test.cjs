@@ -5,6 +5,8 @@ const output=require('os').tmpdir();
 const scenarios=process.env.OVERLOOK_BROWSER_DEVICE
  ? [[process.env.OVERLOOK_BROWSER_DEVICE,process.env.OVERLOOK_BROWSER_THEME || 'light']]
  : [['iPhone 13','light'],['iPhone 13','dark'],['iPhone SE','light'],['Pixel 5','dark']];
+// Mirrors the asset routes in overlook-remote.el.
+const assets={'icon.svg':'remote-icon.svg','apple-touch-icon.png':'remote-icon-180.png','icon-192.png':'remote-icon-192.png','icon-512.png':'remote-icon-512.png','manifest.webmanifest':'remote.webmanifest'};
 const node=(id,title,extra={})=>({id,hash:id,title,kind:'text',children:[],commands:[],choices:[],...extra});
 const section=node('projects','Projects',{kind:'group',heading:true,children:[node('project','Emacs',{kind:'project',heading:true,commands:[{name:'new',label:'New agent',input:'Task',options:['Claude','Codex']},{name:'delete',label:'Delete',confirm:true}],children:[
  node('agent','Review the Framework7 migration',{kind:'agent',agent:'a',provider:'claude',status:'working',subtitle:'Checking the mobile layout '.repeat(50),unreadCount:3,context:24,commands:[{name:'kill',label:'Kill',confirm:true}]}),
@@ -51,8 +53,8 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
     return json({ok:true,agent:'a'});
    }
    const file=!rel && process.env.OVERLOOK_BROWSER_HTML
-    ? process.env.OVERLOOK_BROWSER_HTML : path.join(root,rel||'overlook-remote.html');
-   return route.fulfill({path:file,contentType: file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':'text/html'});
+    ? process.env.OVERLOOK_BROWSER_HTML : path.join(root,assets[rel]||rel||'overlook-remote.html');
+   return route.fulfill({path:file,contentType: file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':file.endsWith('.webmanifest')?'application/manifest+json':'text/html'});
   });
   await page.goto('http://overlook.test/overlook/#test');
   await group().waitFor();
