@@ -118,7 +118,7 @@ its own engine.
 
 ```markdown
 ---
-engine: claude          # the agent to run it, required
+engine: claude, codex   # the agents to run it, required; see below
 effort: medium          # its reasoning effort
 directory: ~/src/shop   # where it starts, else the folder above the personas
 description: Reviews diffs; never edits
@@ -133,6 +133,14 @@ Its role, its rules, and any background story.
 
 A `#` after a space starts a comment.  Names are lowercase letters,
 digits, `-` and `_`.
+
+Listing several engines lets a persona go on when one plan runs low:
+started without an explicit engine, it runs on the first one every
+function of `overlook-courier-persona-engine-available-functions` lets
+start it, else on the first.  `overlook-agent-courier-mode` adds one
+saying no to an engine whose plan, as overlook-usage reads it for the
+account in use, has a window at `overlook-usage-warning` (80%) or more.
+`--engine`, or `overlook-persona-converse-on`, picks one instead.
 
 Starting, the agent is told the body, the personality and tone, and the
 index of its memory, `memory/MEMORY.md` (up to

@@ -534,6 +534,7 @@
     "ar" '(iuiw-assistant-run :which-key "assistant task")
     "aj" '(overlook-courier-gptel-ask :which-key "ask jp")
     "ah" '(overlook-persona-converse :which-key "chat")
+    "aH" '(overlook-persona-converse-on :which-key "chat on engine")
 
     "b"  '(:ignore t :which-key "buffer")
     "bb" '(consult-buffer :which-key "switch")
@@ -1356,6 +1357,7 @@
   (add-hook 'overlook-agent-worktree-task-functions #'iuiw-workspace-worktree-task)
   (overlook-add-hint "SPC a w" "agent in a new worktree of this project")
   (overlook-add-hint "SPC a c/x/i" "Claude / Codex / Pi in a new worktree of this project")
+  (overlook-add-hint "SPC a h/H" "new chat conversation / on an engine you pick")
   (overlook-tabspaces-mode 1)
   (overlook-repo-mode 1)
   (add-hook 'overlook-projects-mark-functions #'iuiw-workspace-overlook-mark)

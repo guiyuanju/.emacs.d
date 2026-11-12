@@ -48,6 +48,7 @@
 (require 'overlook-courier-persona)
 
 (defvar overlook-agent-shell-configs)
+(declare-function overlook-usage-near-limit-p "overlook-usage" (agent))
 
 (defvar-local overlook-agent-courier-id nil
   "This agent's courier id.")
@@ -179,7 +180,30 @@ Its backend's, when that has an icon, else its engine's."
   (let ((backend (plist-get persona :backend)))
     (if (and backend (alist-get (downcase backend) overlook-agent-icons nil nil #'equal))
         (downcase backend)
-      (or (plist-get persona :engine) "?"))))
+      (or (car (overlook-courier-persona-engine-names persona)) "?"))))
+
+(defun overlook-agent-courier--engine-available-p (engine)
+  "Non-nil unless ENGINE's plan is near its limit, as overlook-usage knows it."
+  (not (and (fboundp 'overlook-usage-near-limit-p)
+            (overlook-usage-near-limit-p engine))))
+
+(defun overlook-agent-courier--engine-command (name label)
+  "Row command LABEL starting persona NAME on an engine picked from its list.
+Nil unless NAME lists several engines."
+  (let ((engines (overlook-courier-persona-engine-names (overlook-courier-persona name))))
+    (when (cdr engines)
+      (list :name "engine" :label label :options engines
+            :run (lambda (engine)
+                   (overlook-courier-agent-buffer
+                    (overlook-courier-agent (overlook-courier-persona-start name :engine engine))))))))
+
+(defun overlook-agent-courier--read-engine (name)
+  "Ask for an engine to start persona NAME on, its own engines first."
+  (let ((engines (overlook-courier-persona-engine-names (overlook-courier-persona name))))
+    (completing-read "Engine: "
+                     (seq-uniq (append engines (and (boundp 'overlook-agent-shell-configs)
+                                                    (mapcar #'car overlook-agent-shell-configs))))
+                     nil nil nil nil (car engines))))
 
 (defun overlook-agent-courier-data (key)
   "Semantic persona identity and conversation data for KEY."
@@ -217,7 +241,8 @@ Its backend's, when that has an icon, else its engine's."
     (overlook-row :id (cons 'agent buffer)
                   :content (list "  "
                                  (overlook-icon
-                                  (propertize (overlook-agent-courier--persona-icon-name persona)
+                                  (propertize (or (overlook-agent-get buffer 'agent)
+                                                  (overlook-agent-courier--persona-icon-name persona))
                                               'face (overlook-agent-status-face status)))
                                  " " (or (overlook-agent-title buffer)
                                          (propertize "New conversation" 'face 'shadow))
@@ -245,29 +270,42 @@ Its agents are listed under it."
                                               'face 'shadow)
                                   1))
                   :action (lambda () (overlook-persona-converse name))
-                  :commands (list (list :name "new" :label "New conversation"
-                                        :run (lambda ()
-                                               (overlook-courier-agent-buffer
-                                                (overlook-courier-agent
-                                                 (overlook-courier-persona-start name))))))
+                  :commands (delq nil
+                                  (list (list :name "new" :label "New conversation"
+                                              :run (lambda ()
+                                                     (overlook-courier-agent-buffer
+                                                      (overlook-courier-agent
+                                                       (overlook-courier-persona-start name)))))
+                                        (overlook-agent-courier--engine-command
+                                         name "New conversation on…")))
                   :help (concat (if-let* ((description (plist-get persona :description)))
                                     (concat description "\n")
                                   "")
                                 "RET: start a conversation; e: edit it")
                   :children (mapcar (lambda (id) (overlook-agent-courier--instance-row id persona)) ids))))
 
-(defun overlook-persona-converse (name)
+(defun overlook-agent-courier--read-multiple ()
+  "Ask for a persona that may run several times; the only one is not asked for."
+  (let ((names (seq-filter (lambda (name)
+                             (overlook-courier-persona-multiple-p (overlook-courier-persona name)))
+                           (overlook-courier-persona-names))))
+    (cond ((null names) (user-error "No persona has multiple on"))
+          ((null (cdr names)) (car names))
+          (t (completing-read "Converse with: " names nil t)))))
+
+(defun overlook-persona-converse (name &optional engine)
   "Start a conversation with persona NAME and show it in another window.
-NAME is one of the personas that may run several times."
-  (interactive
-   (let ((names (seq-filter (lambda (name)
-                              (overlook-courier-persona-multiple-p (overlook-courier-persona name)))
-                            (overlook-courier-persona-names))))
-     (list (cond ((null names) (user-error "No persona has multiple on"))
-                 ((null (cdr names)) (car names))
-                 (t (completing-read "Converse with: " names nil t))))))
+NAME is one of the personas that may run several times.  It runs on
+ENGINE, else on the first of its engines whose plan is not near its limit."
+  (interactive (list (overlook-agent-courier--read-multiple)))
   (pop-to-buffer (overlook-courier-agent-buffer
-                  (overlook-courier-agent (overlook-courier-persona-start name)))))
+                  (overlook-courier-agent (overlook-courier-persona-start name :engine engine)))))
+
+(defun overlook-persona-converse-on (name engine)
+  "Start a conversation with persona NAME on ENGINE, asked for."
+  (interactive (let ((name (overlook-agent-courier--read-multiple)))
+                 (list name (overlook-agent-courier--read-engine name))))
+  (overlook-persona-converse name engine))
 
 (defun overlook-agent-courier--persona-row (name)
   "The row of persona NAME: its model's icon, colored by its status, and its name.
@@ -296,11 +334,14 @@ While it runs in an agent buffer, the row stands for that agent."
                     :commands (if running
                                   (list (list :name "open" :label "Open" :run (lambda () buffer))
                                         (overlook-agent-courier--kill-command buffer))
-                                (list (list :name "start" :label "Start"
-                                            :run (lambda ()
-                                                   (overlook-courier-agent-buffer
-                                                    (overlook-courier-agent
-                                                     (overlook-courier-persona-start name)))))))
+                                (delq nil
+                                      (list (list :name "start" :label "Start"
+                                                  :run (lambda ()
+                                                         (overlook-courier-agent-buffer
+                                                          (overlook-courier-agent
+                                                           (overlook-courier-persona-start name)))))
+                                            (overlook-agent-courier--engine-command
+                                             name "Start on…"))))
                     :help (concat (if-let* ((description (plist-get persona :description)))
                                       (concat description "\n")
                                     "")
@@ -327,10 +368,7 @@ With a prefix argument, ask for the DIRECTORY, ENGINE and reasoning EFFORT."
            (when current-prefix-arg
              (let ((persona (overlook-courier-persona name)))
                (list (read-directory-name "In directory: " (overlook-courier-persona-directory persona))
-                     (completing-read "Engine: "
-                                      (and (boundp 'overlook-agent-shell-configs)
-                                           (mapcar #'car overlook-agent-shell-configs))
-                                      nil nil (plist-get persona :engine))
+                     (overlook-agent-courier--read-engine name)
                      (let ((effort (read-string "Effort (empty for its own): ")))
                        (and (not (string-empty-p effort)) effort))))))))
   (overlook-courier-persona-start name :directory directory :engine engine :effort effort)
@@ -403,7 +441,9 @@ Turning it on links courier's skills where agents find them; see
      (overlook-sections overlook-agent-courier--personas-section -9)
      (overlook-agent-save-functions overlook-agent-courier--saved)
      (overlook-agent-resume-functions overlook-agent-courier--check-resume)
-     (overlook-courier-changed-hook overlook-refresh)))
+     (overlook-courier-changed-hook overlook-refresh)
+     (overlook-courier-persona-engine-available-functions
+      overlook-agent-courier--engine-available-p)))
   (setq overlook-courier-spawn-function (and overlook-agent-courier-mode #'overlook-agent-courier--spawn))
   (when overlook-agent-courier-mode
     (overlook-agent-courier--sync)

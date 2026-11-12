@@ -1522,6 +1522,13 @@ function dashboardOverview(selected, persona = false) {
     };
     overview.append(button);
   }
+  const engine = selected.commands?.find(item => item.name === "engine");
+  if (engine) {
+    const button = el("button", "button overview-new", engine.label);
+    button.type = "button";
+    button.onclick = () => openPanel(overview, selected, {name: engine.name});
+    overview.append(button);
+  }
   return overview;
 }
 function dashboardDue(value, now = new Date()) {

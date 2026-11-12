@@ -36,7 +36,8 @@
 ;; a space starts a comment:
 ;;
 ;;   ---
-;;   engine: claude          the agent to run it, required
+;;   engine: claude, codex   the agents to run it, required; the first
+;;                           whose plan is not near its limit starts it
 ;;   effort: medium          its reasoning effort
 ;;   directory: ~/src/shop   where it starts, else the folder above the personas
 ;;   description: one line shown in lists
@@ -82,6 +83,12 @@ The function takes the persona, a plist from `overlook-courier-persona',
 the task or nil, and the id of the agent starting it or nil; it
 registers the persona with courier under its name.")
 
+(defvar overlook-courier-persona-engine-available-functions nil
+  "Functions telling whether an engine may start a persona now.
+Each is called with the engine's name; one returning nil, such as for an
+engine whose plan is near its limit, makes a persona listing several
+engines start on its next.")
+
 (defun overlook-courier-persona-name-p (name)
   "Non-nil when NAME may name a persona."
   (string-match-p "\\`[a-z0-9][a-z0-9_-]*\\'" name))
@@ -125,6 +132,29 @@ registers the persona with courier under its name.")
              (with-temp-buffer
                (insert-file-contents (expand-file-name "persona.md" folder))
                (buffer-string))))))
+
+(defun overlook-courier-persona-engine-names (persona)
+  "Engines PERSONA's front matter lists, first preferred."
+  (split-string (or (plist-get persona :engine) "") "[ \t]*,[ \t]*" t))
+
+(defun overlook-courier-persona-engine (persona)
+  "The engine to start PERSONA on: the first of its engines free to start it.
+When none is, the first, saying so."
+  (let* ((engines (or (overlook-courier-persona-engine-names persona)
+                      (user-error "Persona %s names no engine" (plist-get persona :name))))
+         (engine (seq-find (lambda (engine)
+                             (run-hook-with-args-until-failure
+                              'overlook-courier-persona-engine-available-functions engine))
+                           engines)))
+    (cond ((null (cdr engines)) (car engines))
+          ((null engine)
+           (message "Persona %s: every engine is near its limit; starting %s"
+                    (plist-get persona :name) (car engines))
+           (car engines))
+          (t (unless (equal engine (car engines))
+               (message "Persona %s: %s is near its limit; starting %s"
+                        (plist-get persona :name) (car engines) engine))
+             engine))))
 
 (defun overlook-courier-persona-memory (persona)
   "Folder of PERSONA's memory."
@@ -224,13 +254,13 @@ about the code or the domain goes to the project's own notes instead.  %s"
 (cl-defun overlook-courier-persona-start (name &key directory task from engine effort wait)
   "Start persona NAME and return its id, NAME or NAME-N for a further instance.
 It starts in DIRECTORY, else the persona's own, run by ENGINE at
-reasoning EFFORT, else the persona's.  FROM is the agent starting it, its
+reasoning EFFORT, else by the engine `overlook-courier-persona-engine'
+picks at the persona's effort.  FROM is the agent starting it, its
 parent.  It works on TASK if non-nil.  With WAIT non-nil it idles, and
 learns who it is with the first message it gets; otherwise it says it
 is ready."
   (let* ((persona (or (overlook-courier-persona name) (user-error "No persona %s" name)))
-         (engine (or engine (plist-get persona :engine)
-                     (user-error "Persona %s names no engine" name)))
+         (engine (or engine (overlook-courier-persona-engine persona)))
          (start (cdr (assoc engine overlook-courier-persona-engines)))
          (id (if (and (not start) (overlook-courier-persona-multiple-p persona))
                  (overlook-courier-persona--free-id name)

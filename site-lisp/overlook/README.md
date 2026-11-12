@@ -302,7 +302,8 @@ see [courier](docs/courier.md).  On the dashboard:
   to check and send.
 - **Personas**: folders in `overlook-courier-persona-directories` give an
   agent a lasting id, role and memory.  A Personas section lists them;
-  messaging one nobody runs starts it.
+  messaging one nobody runs starts it.  A persona listing several engines
+  starts on the first whose plan is not near its limit.
 
 ### From your phone: overlook-remote
 
@@ -333,6 +334,8 @@ and styles are served locally, with no CDN dependency or build step. It shows:
   Touch and hold a running Persona to choose **Kill**, with confirmation; this
   ends its live conversation and leaves its definition available to Start again.
   For Personas with multiple conversations, each conversation has its own Kill action.
+  A persona listing several engines also offers **Start on…** (or **New
+  conversation on…**) to pick one; tapping it picks as Emacs would.
   Persona descriptions appear in the conversation, while their overview rows
   show identity and status. Command sheets retain unfinished input until a
   successful submission or the page is reloaded.

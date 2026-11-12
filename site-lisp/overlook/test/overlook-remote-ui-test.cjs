@@ -359,5 +359,7 @@ assert.deepEqual(navigation.calls.pop(), [true, false]);
   assert.deepEqual(branchOf({kind:'repo',title:'api',branch:'fix'}, 'fix'), null);
   assert.deepEqual(branchOf({kind:'repo',title:'web',branch:'hotfix'}, 'fix'), 'hotfix');
   assert.deepEqual(branchOf({kind:'repo',title:'api',branch:'dev'}), 'dev');
+  const overview = vm.runInContext(`dashboardOverview({id:'chat',title:'chat',kind:'persona',children:[],commands:[{name:'new',label:'New conversation'},{name:'engine',label:'New conversation on…',options:['claude','codex']}]}, true)`, context);
+  assert.deepEqual(overview.children.filter(child => child.tagName === 'BUTTON').map(button => button.textContent), ['New conversation', 'New conversation on…']);
   console.log('Draft isolation, concurrent typing, stable retry IDs; JS syntax, slash filtering/selection, steer routing, cancellation draft retention, confirmation retry, fork navigation, repo branches and Cmd/Ctrl+Enter sending passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -503,6 +503,22 @@ Recovery includes expiry of all exhausted windows, even without new readings.")
      ((and windows (seq-every-p (lambda (w) (numberp (nth 1 w))) windows))
       'available))))
 
+(defun overlook-usage-near-limit-p (agent)
+  "Non-nil when the plan new AGENT agents run on is near its limit.
+That is a window of its row at `overlook-usage-warning' or more; of
+several rows of AGENT's, the account in use's.  Unknown usage is not."
+  (let* ((rows (seq-filter (lambda (row) (equal (overlook-usage--agent (car row)) agent))
+                           overlook-usage--rows))
+         (row (if (cdr rows)
+                  (seq-find (lambda (row)
+                              (run-hook-with-args-until-success
+                               'overlook-usage-current-functions (substring-no-properties (car row))))
+                            rows)
+                (car rows))))
+    (seq-some (lambda (window)
+                (and (numberp (nth 1 window)) (>= (nth 1 window) overlook-usage-warning)))
+              (overlook-usage-windows (cdr row)))))
+
 (defun overlook-usage--publish ()
   "Publish known availability transitions once per row."
   (dolist (row overlook-usage--rows)

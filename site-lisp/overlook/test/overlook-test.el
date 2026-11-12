@@ -1691,7 +1691,8 @@ Agents are listed; usage and repos are not."
     (should (equal (overlook-agent-courier--persona-icon-name '(:engine "gptel" :backend "DeepSeek"))
                    "deepseek"))
     (should (equal (overlook-agent-courier--persona-icon-name '(:engine "gptel" :backend "Gemini"))
-                   "gptel"))))
+                   "gptel"))
+    (should (equal (overlook-agent-courier--persona-icon-name '(:engine "claude, codex")) "claude"))))
 
 (ert-deftest overlook-truncate-colors-the-ellipsis-like-the-text ()
   (let ((cut (overlook-truncate (propertize "a long title" 'face 'shadow) 6)))
