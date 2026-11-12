@@ -1826,3 +1826,19 @@ Agents are listed; usage and repos are not."
           (should-not (overlook-worktree-list root)))
       (when agent (kill-buffer agent))
       (delete-directory root t))))
+
+(ert-deftest overlook-agent-worktree-command-starts-its-agent ()
+  (let* ((root (overlook-test--git-project))
+         (default-directory root)
+         (started nil) (agent nil)
+         (overlook-agent-start-function
+          (lambda (name dir &rest _)
+            (setq started (list name dir) agent (overlook-test--agent "c")))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-current-project) #'ignore)
+                  ((symbol-function 'overlook-show-elsewhere) #'ignore)
+                  ((symbol-function 'completing-read) (lambda (&rest _) "main")))
+          (call-interactively (overlook-agent-worktree-command "codex"))
+          (should (equal started (list "codex" root))))
+      (when agent (kill-buffer agent))
+      (delete-directory root t))))

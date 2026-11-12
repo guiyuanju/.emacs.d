@@ -93,6 +93,13 @@ prompt.  Shows the agent and returns its buffer."
   (pcase-let ((`(,project . ,dir) (overlook-agent-worktree--current)))
     (overlook-agent-worktree-start project dir branch name)))
 
+(defun overlook-agent-worktree-command (name)
+  "A command like `overlook-agent-worktree' that always starts agent NAME."
+  (lambda (branch)
+    (interactive
+     (list (overlook-agent-worktree-read-branch (cdr (overlook-agent-worktree--current)))))
+    (overlook-agent-worktree name branch)))
+
 (defun overlook-agent-worktree--items ()
   "Ids of the dashboard row at point and the rows it lies under, nearest first."
   (let ((section (magit-current-section)) items)
