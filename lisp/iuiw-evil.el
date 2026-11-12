@@ -1,9 +1,11 @@
 ;;; iuiw-evil.el --- Evil tweaks for keys and terminals -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; C-[ 与 ESC、C-i 与 TAB 分开解码，以及 evil-ghostel 光标定位的修正。
+;; C-[ 与 ESC、C-i 与 TAB 分开解码，evil-ghostel 光标定位的修正，以及跨过折叠的 j。
 
 ;;; Code:
+
+(require 'evil)
 
 (declare-function ghostel-cursor-point "ghostel")
 (declare-function ghostel--viewport-row-at "ghostel")
@@ -39,6 +41,14 @@ column and miscounts after wide prompt glyphs such as ➜."
       (unless (and (zerop dx) (zerop dy)) (evil-ghostel--sync-render))
       (goto-char pos)
       t)))
+
+;; 按逻辑行移动会停在折叠的隐藏文本里，光标显示在标题行末。
+(evil-define-motion iuiw-evil-next-line (count)
+  "Move COUNT lines down like `evil-next-line', past folded text."
+  :type line
+  (evil-next-line count)
+  (while (and (not (eobp)) (invisible-p (point)))
+    (goto-char (next-single-char-property-change (point) 'invisible))))
 
 (provide 'iuiw-evil)
 ;;; iuiw-evil.el ends here

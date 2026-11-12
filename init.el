@@ -1375,13 +1375,13 @@
               ("deepseek" . ,(nerd-icons-mdicon "nf-md-dolphin")))))
   (require 'overlook-usage-deepseek)
   (require 'overlook-usage-antigravity)
-  ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新；一行折成多行时 j/k 仍按整行走。
+  ;; 看板的键在 evil normal state 里同样可用，另加 gr 刷新；一行折成多行时 j/k 仍按整行走，j 跨过折叠的行。
   (with-eval-after-load 'evil
     (pcase-dolist (`(,key . ,command) overlook-keys)
       (evil-define-key* 'normal overlook-mode-map (key-parse key) command))
     (evil-define-key* 'normal overlook-mode-map
       (kbd "gr") #'revert-buffer
-      "j" #'evil-next-line
+      "j" #'iuiw-evil-next-line
       "k" #'evil-previous-line)))
 
 ;;; Tools
