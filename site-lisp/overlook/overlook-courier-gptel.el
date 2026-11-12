@@ -37,16 +37,18 @@
 ;;   memory: off
 ;;   ---
 ;;
-;; Every exchange is appended to NAME.md in
-;; `overlook-courier-gptel-history-directory', which is also the
-;; persona's buffer while it runs; it is kept for reading and never sent
-;; back.  `overlook-courier-gptel-ask' asks a persona from anywhere, and
-;; courier delivers messages to it like to any agent.  With overlook-agent
+;; The persona's buffer is a comint buffer: type at its prompt to ask it;
+;; the header line says no earlier question is sent.  Every exchange is
+;; also appended to NAME.md in `overlook-courier-gptel-history-directory',
+;; kept for reading and never sent back; each start moves it to archive/.
+;; `overlook-courier-gptel-ask' asks a persona from anywhere, and courier
+;; delivers messages to it like to any agent.  With overlook-agent
 ;; loaded the buffer is an agent too, so views that follow agents, like
 ;; overlook-remote, list it, prompt it and show its replies.
 
 ;;; Code:
 
+(require 'comint)
 (require 'overlook-courier)
 (require 'overlook-courier-persona)
 
@@ -57,6 +59,7 @@
 (declare-function gptel-make-fsm "gptel-request")
 (declare-function gptel-fsm-info "gptel-request")
 (declare-function gptel-abort "gptel")
+(declare-function markdown-overlays-put "markdown-overlays")
 (declare-function overlook-agent-event "overlook-agent")
 (declare-function overlook-agent-p "overlook-agent")
 (declare-function overlook-agent-register "overlook-agent")
@@ -94,6 +97,12 @@
 (defvar-local overlook-courier-gptel--reply nil
   "Text of the last reply, without the tool calls.")
 
+(defvar-local overlook-courier-gptel--entry ""
+  "The exchange in progress, as it goes to the history file.")
+
+(defvar-local overlook-courier-gptel--reply-start nil
+  "Marker where the reply in progress starts.")
+
 (defvar-local overlook-courier-gptel--own-turns nil
   "Non-nil when this persona tells courier of its turns itself.
 Otherwise it is an overlook agent courier learned of, and whose turns
@@ -101,16 +110,25 @@ reach courier through overlook's turn hooks.")
 
 (defvar overlook-courier-gptel-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-c") #'overlook-courier-gptel-ask)
+    (define-key map [remap comint-send-input] #'overlook-courier-gptel-submit)
+    (define-key map [remap comint-interrupt-subjob] #'overlook-courier-gptel-abort)
     (define-key map (kbd "C-c C-k") #'overlook-courier-gptel-abort)
     map)
   "Keymap of `overlook-courier-gptel-mode'.")
 
-(define-minor-mode overlook-courier-gptel-mode
-  "A gptel persona's history.
-\\<overlook-courier-gptel-mode-map>\\[overlook-courier-gptel-ask] asks it, \
+(define-derived-mode overlook-courier-gptel-mode comint-mode "Persona"
+  "A gptel persona's buffer, asked at its prompt.
+\\<overlook-courier-gptel-mode-map>\\[overlook-courier-gptel-submit] asks it, \
 \\[overlook-courier-gptel-abort] stops the request."
-  :lighter " persona")
+  (setq-local comint-input-sender #'overlook-courier-gptel--input-sender)
+  (setq-local comint-prompt-read-only t)
+  (setq-local comint-process-echoes nil)
+  (setq-local mode-line-process '(overlook-courier-gptel--busy ":answering"))
+  (setq-local header-line-format
+              '(:eval (propertize (format " %s answers each question alone; it sees none of the earlier ones"
+                                          overlook-courier-gptel--name)
+                                  'face 'shadow)))
+  (visual-line-mode 1))
 
 (defun overlook-courier-gptel-names ()
   "Names of the personas whose engine is gptel."
@@ -132,24 +150,48 @@ reach courier through overlook's turn hooks.")
   (mapcar #'gptel-get-tool
           (split-string (or (plist-get persona :tools) "") "[, \t]+" t)))
 
-(defun overlook-courier-gptel--append (buffer text)
-  "Append TEXT to BUFFER, keeping windows at its end following it."
+(defun overlook-courier-gptel--file (name)
+  "The history file of persona NAME."
+  (expand-file-name (concat name ".md") overlook-courier-gptel-history-directory))
+
+(defun overlook-courier-gptel--archive (name)
+  "Move persona NAME's history to archive/NAME-TIME.md, if it has any."
+  (let ((file (overlook-courier-gptel--file name)))
+    (when (and (file-exists-p file) (> (file-attribute-size (file-attributes file)) 0))
+      (let ((archive (expand-file-name "archive/" overlook-courier-gptel-history-directory)))
+        (make-directory archive t)
+        (rename-file file (expand-file-name (format-time-string (concat name "-%Y%m%d-%H%M%S.md"))
+                                            archive))))))
+
+(defun overlook-courier-gptel--show (text &optional face)
+  "Show TEXT with FACE before the input at the current buffer's prompt."
+  (comint-output-filter (get-buffer-process (current-buffer))
+                        (if face (propertize text 'font-lock-face face) text)))
+
+(defun overlook-courier-gptel--prompt ()
+  "Show the current buffer's prompt."
+  (overlook-courier-gptel--show (format "%s> " overlook-courier-gptel--name)))
+
+(defun overlook-courier-gptel--render (start end)
+  "Format the Markdown between START and END, when markdown-overlays is around."
+  (when (require 'markdown-overlays nil t)
+    (save-excursion
+      (save-restriction
+        (narrow-to-region start end)
+        (let ((inhibit-read-only t)) (markdown-overlays-put))))))
+
+(defun overlook-courier-gptel--append (buffer text &optional face)
+  "Add TEXT to the exchange in persona BUFFER, shown with FACE."
   (with-current-buffer buffer
-    (let ((inhibit-read-only t)
-          (following (seq-filter (lambda (window) (= (window-point window) (point-max)))
-                                 (get-buffer-window-list buffer nil t))))
-      (save-excursion
-        (goto-char (point-max))
-        (insert text))
-      (dolist (window following)
-        (set-window-point window (point-max))))))
+    (setq overlook-courier-gptel--entry (concat overlook-courier-gptel--entry text))
+    (overlook-courier-gptel--show text face)))
 
 (defun overlook-courier-gptel--paragraph (buffer)
-  "End BUFFER with a blank line, unless it does already."
+  "End the exchange in BUFFER with a blank line, unless it does already."
   (with-current-buffer buffer
-    (let ((tail (buffer-substring-no-properties (max (point-min) (- (point-max) 2)) (point-max))))
-      (unless (equal tail "\n\n")
-        (overlook-courier-gptel--append buffer (if (string-suffix-p "\n" tail) "\n" "\n\n"))))))
+    (let ((entry overlook-courier-gptel--entry))
+      (unless (string-suffix-p "\n\n" entry)
+        (overlook-courier-gptel--append buffer (if (string-suffix-p "\n" entry) "\n" "\n\n"))))))
 
 (defun overlook-courier-gptel--agent-p (buffer)
   "Non-nil when persona BUFFER is an overlook agent."
@@ -211,11 +253,18 @@ and the dashboard lists it with the personas, not in a project."
                     ('ABRT "Aborted")
                     (_ (string-trim (format "%s %s" (or (plist-get info :status) "")
                                             (or (plist-get info :error) "")))))))
+      (overlook-courier-gptel--append buffer (if error (format "\n> Failed: %s\n" error) "\n")
+                                      (and error 'error))
       (with-current-buffer buffer
-        (setq overlook-courier-gptel--busy nil))
-      (overlook-courier-gptel--append buffer (if error (format "\n> Failed: %s\n" error) "\n"))
-      (with-current-buffer buffer
-        (let ((save-silently t)) (save-buffer)))
+        (let ((file (overlook-courier-gptel--file overlook-courier-gptel--name))
+              (coding-system-for-write 'utf-8))
+          (make-directory (file-name-directory file) t)
+          (write-region overlook-courier-gptel--entry nil file t 'silent))
+        (overlook-courier-gptel--render overlook-courier-gptel--reply-start
+                                        (process-mark (get-buffer-process buffer)))
+        (setq overlook-courier-gptel--busy nil)
+        (overlook-courier-gptel--show "\n")
+        (overlook-courier-gptel--prompt))
       (overlook-courier-gptel--event buffer (if error 'error 'end) :text error)
       (overlook-courier-gptel--turn-finished buffer error))))
 
@@ -229,8 +278,9 @@ and the dashboard lists it with the personas, not in a project."
               entry))
           gptel-request--handlers))
 
-(defun overlook-courier-gptel--send (buffer prompt &optional from)
-  "Send PROMPT to the persona of BUFFER, from agent FROM or the user."
+(defun overlook-courier-gptel--send (buffer prompt &optional from typed)
+  "Send PROMPT to the persona of BUFFER, from agent FROM or the user.
+TYPED means it was typed at the buffer's prompt, so it shows there already."
   (require 'gptel)
   (with-current-buffer buffer
     (when overlook-courier-gptel--busy
@@ -240,11 +290,15 @@ and the dashboard lists it with the personas, not in a project."
            (backend (or (plist-get persona :backend) (user-error "Persona %s names no backend" name)))
            (tools (overlook-courier-gptel--tools persona)))
       (setq overlook-courier-gptel--busy t
-            overlook-courier-gptel--reply "")
+            overlook-courier-gptel--reply ""
+            overlook-courier-gptel--entry
+            (format "\n## %s%s\n\n%s\n\n" (format-time-string "%F %R")
+                    (if from (concat " · " from) "") (string-trim prompt)))
+      (unless typed
+        (overlook-courier-gptel--show (concat (string-trim prompt) "\n") 'comint-highlight-input))
+      (overlook-courier-gptel--show "\n")
+      (setq overlook-courier-gptel--reply-start (copy-marker (process-mark (get-buffer-process buffer))))
       (overlook-courier-gptel--turn-started buffer)
-      (overlook-courier-gptel--append
-       buffer (format "\n## %s%s\n\n%s\n\n" (format-time-string "%F %R")
-                      (if from (concat " · " from) "") (string-trim prompt)))
       (overlook-courier-gptel--event buffer 'prompt :text prompt)
       (condition-case err
           (let ((gptel-backend (gptel-get-backend backend))
@@ -271,7 +325,7 @@ and the dashboard lists it with the personas, not in a project."
                    (overlook-courier-gptel--paragraph buffer)
                    (pcase-dolist (`(,tool ,args ,result) results)
                      (overlook-courier-gptel--append
-                      buffer (overlook-courier-gptel--tool-line tool args result))
+                      buffer (overlook-courier-gptel--tool-line tool args result) 'shadow)
                      (overlook-courier-gptel--event
                       buffer 'tool :id (format "%s-%s" (gptel-tool-name tool) (float-time))
                       :title (format "%s %s" (gptel-tool-name tool)
@@ -279,6 +333,21 @@ and the dashboard lists it with the personas, not in a project."
                       :status "completed" :kind "other" :output (format "%s" result)))
                    (overlook-courier-gptel--append buffer "\n"))))))
         (error (overlook-courier-gptel--finish buffer 'ERRS (list :error (error-message-string err))))))))
+
+(defun overlook-courier-gptel--input-sender (_process input)
+  "Ask this buffer's persona INPUT, typed at its prompt."
+  (overlook-courier-gptel--send (current-buffer) input nil t))
+
+(defun overlook-courier-gptel-submit ()
+  "Ask this buffer's persona the input at its prompt."
+  (interactive)
+  (let ((mark (process-mark (get-buffer-process (current-buffer)))))
+    (when (>= (point) mark)
+      (when overlook-courier-gptel--busy
+        (user-error "%s is still answering" overlook-courier-gptel--name))
+      (when (string-blank-p (buffer-substring-no-properties mark (point-max)))
+        (user-error "Nothing to ask"))))
+  (comint-send-input))
 
 (defun overlook-courier-gptel--buffer (name)
   "The buffer of running gptel persona NAME, or nil."
@@ -290,17 +359,18 @@ and the dashboard lists it with the personas, not in a project."
 
 (defun overlook-courier-gptel-start (persona task from)
   "Run PERSONA, a plist from `overlook-courier-persona', for agent FROM.
-It answers TASK at once if non-nil."
+It answers TASK at once if non-nil.  Its earlier history goes to the archive."
   (let* ((name (plist-get persona :name))
-         (file (expand-file-name (concat name ".md") overlook-courier-gptel-history-directory))
-         (buffer (progn (make-directory overlook-courier-gptel-history-directory t)
-                        (find-file-noselect file))))
+         (buffer (generate-new-buffer (format "*%s*" name))))
+    (overlook-courier-gptel--archive name)
     (with-current-buffer buffer
-      (rename-buffer (format "*%s*" name) t)
-      (setq overlook-courier-gptel--name name
-            buffer-read-only t)
+      (overlook-courier-gptel-mode)
+      (setq overlook-courier-gptel--name name)
       (setq-local overlook-detached t)
-      (overlook-courier-gptel-mode 1))
+      (set-marker (process-mark (make-pipe-process :name (format "persona-%s" name)
+                                                   :buffer buffer :noquery t))
+                  (point-max))
+      (overlook-courier-gptel--prompt))
     (overlook-courier-gptel--make-agent buffer persona)
     (if-let* ((agent (overlook-courier-agent name)))
         (setf (overlook-courier-agent-parent agent) from)
@@ -335,8 +405,7 @@ elsewhere, with several gptel personas, a prefix argument picks one."
   (let ((buffer (or (overlook-courier-gptel--buffer name)
                     (progn (overlook-courier-persona-start name :wait t)
                            (overlook-courier-gptel--buffer name)))))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t)) (goto-char (point-max))))
+    (with-current-buffer buffer (goto-char (point-max)))
     (display-buffer buffer)
     (dolist (window (get-buffer-window-list buffer nil t))
       (set-window-point window (with-current-buffer buffer (point-max))))
@@ -353,15 +422,8 @@ elsewhere, with several gptel personas, a prefix argument picks one."
 The history goes to archive/NAME-TIME.md in
 `overlook-courier-gptel-history-directory'.  Return the new buffer."
   (interactive)
-  (let ((name (or overlook-courier-gptel--name (user-error "Not a gptel persona's buffer")))
-        (file buffer-file-name))
+  (let ((name (or overlook-courier-gptel--name (user-error "Not a gptel persona's buffer"))))
     (when overlook-courier-gptel--busy (user-error "%s is still answering" name))
-    (when (and file (file-exists-p file) (> (file-attribute-size (file-attributes file)) 0))
-      (let ((archive (expand-file-name "archive/" overlook-courier-gptel-history-directory)))
-        (make-directory archive t)
-        (rename-file file (expand-file-name (format-time-string (concat name "-%Y%m%d-%H%M%S.md"))
-                                            archive))))
-    (set-buffer-modified-p nil)
     (let ((kill-buffer-query-functions nil)) (kill-buffer))
     (overlook-courier-persona-start name :wait t)
     (let ((buffer (overlook-courier-gptel--buffer name)))

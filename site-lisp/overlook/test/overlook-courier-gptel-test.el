@@ -66,7 +66,8 @@ RESULTS are tool results (TOOL ARGS RESULT) given after the chunks."
     (should (equal (overlook-courier-persona-start "jp") "jp"))
     (let ((buffer (overlook-courier-agent-buffer (overlook-courier-agent "jp"))))
       (should (equal (buffer-name buffer) "*jp*"))
-      (should (buffer-local-value 'overlook-courier-gptel-mode buffer)))
+      (should (with-current-buffer buffer (derived-mode-p 'overlook-courier-gptel-mode)))
+      (should (string-suffix-p "jp> " (with-current-buffer buffer (buffer-string)))))
     (should-not overlook-courier-gptel-test--requests)
     (should-error (overlook-courier-persona-start "jp"))))
 
@@ -91,6 +92,38 @@ RESULTS are tool results (TOOL ARGS RESULT) given after the chunks."
     (save-window-excursion (overlook-courier-gptel-ask "jp" "飲む"))
     (should (equal (caar overlook-courier-gptel-test--requests) "飲む"))
     (should (= (length overlook-courier-gptel-test--requests) 2))))
+
+(ert-deftest overlook-courier-gptel-asks-what-is-typed-at-its-prompt ()
+  (overlook-courier-gptel-test-with-persona
+    (overlook-courier-persona-start "jp")
+    (with-current-buffer "*jp*"
+      (should-error (overlook-courier-gptel-submit))
+      (goto-char (point-max))
+      (insert "猫")
+      (overlook-courier-gptel-submit)
+      (should (equal (caar overlook-courier-gptel-test--requests) "猫"))
+      (insert "犬")
+      (should-error (overlook-courier-gptel-submit))
+      (overlook-courier-gptel-test--reply '("cat"))
+      ;; The draft typed while it answered waits at the new prompt.
+      (should (string-suffix-p "jp> 猫\n\ncat\n\njp> 犬" (buffer-string))))
+    (should (string-search "猫\n\ncat"
+                           (with-temp-buffer
+                             (insert-file-contents
+                              (expand-file-name "jp.md" overlook-courier-gptel-history-directory))
+                             (buffer-string))))))
+
+(ert-deftest overlook-courier-gptel-archives-its-history-when-it-starts ()
+  (overlook-courier-gptel-test-with-persona
+    (make-directory overlook-courier-gptel-history-directory t)
+    (with-temp-file (expand-file-name "jp.md" overlook-courier-gptel-history-directory)
+      (insert "\n## 2026-01-01 00:00\n\n猫\n\ncat\n"))
+    (overlook-courier-persona-start "jp")
+    (should (equal (overlook-courier-gptel-test--history) "jp> "))
+    (should-not (file-exists-p (expand-file-name "jp.md" overlook-courier-gptel-history-directory)))
+    (should (= (length (directory-files (expand-file-name "archive/" overlook-courier-gptel-history-directory)
+                                        nil "\\`jp-.*\\.md\\'"))
+               1))))
 
 (ert-deftest overlook-courier-gptel-reports-a-failed-request ()
   (overlook-courier-gptel-test-with-persona
@@ -186,7 +219,7 @@ RESULTS are tool results (TOOL ARGS RESULT) given after the chunks."
         (should-not (buffer-live-p old))
         (should (equal (buffer-name new) "*jp*"))
         (should (overlook-agent-p new))
-        (should (equal (with-current-buffer new (buffer-string)) ""))
+        (should (equal (with-current-buffer new (buffer-string)) "jp> "))
         (should (eq (overlook-courier-agent-buffer (overlook-courier-agent "jp")) new))
         (let ((archived (directory-files (expand-file-name "archive/" overlook-courier-gptel-history-directory)
                                          t "\\`jp-.*\\.md\\'")))

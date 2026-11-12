@@ -177,11 +177,13 @@ memory: off
 ---
 ```
 
-Its buffer, `*NAME*`, visits `NAME.md` in
-`overlook-courier-gptel-history-directory`, every exchange appended and
-never sent back.  `M-x overlook-courier-gptel-ask` asks it about the region
-or typed text, starting it if needed; `C-c C-c` in its buffer asks, `C-c
-C-k` stops the request.  Courier delivers messages to it like to any agent,
+Its buffer, `*NAME*`, is a comint buffer: type at the `NAME> ` prompt and
+press `RET` to ask; the header line says no earlier question is sent.  `C-c C-c` or `C-c C-k` stops the
+request.  Every exchange is also appended to `NAME.md` in
+`overlook-courier-gptel-history-directory`, never sent back; each start
+of the persona moves the last one to `archive/` there.  `M-x
+overlook-courier-gptel-ask` asks it about the region or typed text from
+anywhere, starting it if needed.  Courier delivers messages to it like to any agent,
 though it cannot `courier send` back.  Other engines that are no agent
 program register a start function in `overlook-courier-persona-engines`.
 
