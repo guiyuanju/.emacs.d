@@ -418,6 +418,8 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook-agent-shell-handoff` | draft a handoff of an agent's task to another agent, from its transcript |
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
 | `overlook-persona-start`, `overlook-persona-new` | start a persona, or make one |
+| `overlook-persona-converse-toggle` | hide the conversation shown here, else show the latest one, else start one |
+| `overlook-persona-converse` | start a new conversation with a persona that may run several times; with `C-u`, pick its engine |
 | `overlook-remote-mode`, `overlook-remote-url` | serve the phone page; copy its address |
 | `overlook-agent-worktree` | pick an agent in agent-shell's picker (`overlook-agent-preferred-names` first, the first preselected) and a branch, and start it in that worktree of the current project, made from the remote's default branch if missing; the branch of the main checkout starts it there instead. agent-shell then offers a past session there, as `agent-shell-session-strategy` says |
 | `(overlook-agent-worktree-command NAME)` | returns a command that does the same for agent NAME, asking only for the branch; bind it to start a given agent this way |

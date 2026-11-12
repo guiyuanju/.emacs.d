@@ -310,10 +310,35 @@ Its agents are listed under it."
 (defun overlook-persona-converse (name &optional engine)
   "Start a conversation with persona NAME in the selected window.
 NAME is one of the personas that may run several times.  It runs on
-ENGINE, else on the first of its engines whose plan is not near its limit."
-  (interactive (list (overlook-agent-courier--read-multiple)))
+ENGINE, else on the first of its engines whose plan is not near its limit.
+Interactively, a prefix argument asks for ENGINE."
+  (interactive (let ((name (overlook-agent-courier--read-multiple)))
+                 (list name (and current-prefix-arg
+                                 (overlook-agent-courier--read-engine name)))))
   (pop-to-buffer-same-window (overlook-courier-agent-buffer
                   (overlook-courier-agent (overlook-courier-persona-start name :engine engine)))))
+
+(defun overlook-agent-courier--conversations ()
+  "Live buffers of the personas that may run several times, most recent first."
+  (let ((buffers (seq-keep (lambda (agent)
+                             (let ((buffer (overlook-courier-agent-buffer agent)))
+                               (and (buffer-live-p buffer)
+                                    (when-let* ((name (overlook-courier-persona-of
+                                                       (overlook-courier-agent-id agent))))
+                                      (overlook-courier-persona-multiple-p
+                                       (overlook-courier-persona name)))
+                                    buffer)))
+                           (overlook-courier-agents))))
+    (seq-filter (lambda (buffer) (memq buffer buffers)) (buffer-list))))
+
+(defun overlook-persona-converse-toggle ()
+  "Hide the conversation shown here, else show the most recent one.
+Without any conversation, start one as `overlook-persona-converse' does."
+  (interactive)
+  (let ((buffers (overlook-agent-courier--conversations)))
+    (cond ((memq (current-buffer) buffers) (quit-window))
+          (buffers (pop-to-buffer-same-window (car buffers)))
+          (t (call-interactively #'overlook-persona-converse)))))
 
 (defun overlook-persona-converse-on (name engine)
   "Start a conversation with persona NAME on ENGINE, asked for."
