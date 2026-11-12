@@ -346,9 +346,13 @@ Each returns a list of folders, each ending in a slash.")
 Each is called with the project's NAME and the worktree's folder
 DIR, or nil for what lies in none of its worktrees, and returns a list
 of rows.  Agents sit at depth 0 and changed repos at 50.  With DIR nil
-they go right under the project's heading while it lists no
-worktrees, else under the row of its main checkout, which a function of
-`overlook-project-functions' gives with those of its worktrees.")
+they go right under the project's heading unless it lists worktrees or
+`overlook-main-checkout-functions' says it has a row of its main
+checkout; that row, given by a function of `overlook-project-functions',
+holds them then.")
+
+(defvar overlook-main-checkout-functions nil
+  "Functions of a project NAME, any non-nil when it has a main checkout row.")
 
 (defvar overlook--worktrees-cache nil
   "Worktrees looked up during one render, keyed by project name.")
@@ -501,9 +505,14 @@ SLOTS are further keyword arguments of `overlook-row'."
                                overlook-project-command-functions)
          slots))
 
+(defun overlook-main-checkout-p (name)
+  "Non-nil when project NAME has a row of its main checkout."
+  (or (overlook-worktrees name)
+      (run-hook-with-args-until-success 'overlook-main-checkout-functions name)))
+
 (defun overlook--checkout-rows (name)
-  "The rows of what lies in project NAME's only checkout, if it lists no worktrees."
-  (unless (overlook-worktrees name)
+  "The rows of what lies in project NAME's only checkout, if it has no row."
+  (unless (overlook-main-checkout-p name)
     (overlook-rows 'overlook-worktree-functions name nil)))
 
 (add-hook 'overlook-project-functions #'overlook--checkout-rows)

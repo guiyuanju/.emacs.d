@@ -131,11 +131,14 @@ returning updates it. New projects append and closed projects disappear.
   folders cut to their initials.  RET on a folder shows its diff.  The
   tooltip shows a file's full path.  These come from Git, so they show
   every change in the working tree, whoever made it.
-- **Worktrees**: while a project has some, its rows are grouped by
-  checkout.  The main checkout comes first, with the agents in no worktree
-  and the changed repos; then each worktree, with the agents working in
-  it and its changed files.  A checkout shows by the branch its repos are
-  on, or by its folder when they are on several; a repo under it names
+- **Checkouts**: while a project has worktrees, or its repos are on a
+  branch, its rows are grouped by checkout.  The main checkout comes
+  first, with the agents in no worktree and the changed repos; then each
+  worktree, with the agents working in it and its changed files.  A
+  checkout shows by the branch its repos are on.  When they are on
+  several, it shows by the one off `overlook-repo-trunk-branches`, else
+  a worktree by its folder and the main checkout by the commonest
+  branch and how many more, as `feature/x +1`.  A repo under it names
   its branch only where it differs, on the phone page too.  A worktree shows its
   commits ahead of (`↑N`) and behind (`↓N`) the main checkout's branch, or
   `merged`, and is dimmed when merged with nothing in it.
@@ -458,6 +461,9 @@ it and add it again from the address copied by `overlook-remote-url`.
 - `overlook-repo-ignored`: repos inside a project, such as a clone of
   data, to leave off the dashboard and out of the check before closing
   it.
+- `overlook-repo-trunk-branches`: branches, `main` and `develop` among
+  them, a checkout is not named after while one of its repos is on
+  another.
 - `overlook-repo-count-limit`: the largest untracked file, in bytes,
   whose lines are counted.
 - `overlook-agent-root-function`: the root of an agent its frontend did
@@ -557,6 +563,8 @@ docstring.
   project.  `overlook-worktree-functions`: rows of what lies in a
   checkout, called with the project and the worktree's folder, or nil
   for none; agents at depth 0, changed repos at 50.
+  `overlook-main-checkout-functions`: any non-nil for a project with a
+  row of its main checkout, which then holds those of none.
   `overlook-worktree-of` tells which worktree holds a folder.
 - `overlook-delete-functions`: what `d d` does, given the row's id.
   `overlook-folder-contents-functions`: what lies in a folder about to

@@ -1368,6 +1368,44 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha)
       (delete-directory root t))))
 
+;; A main checkout without worktrees shows while its repos are on a branch, holding the agents.
+;; Repos on several branches show by the one off the trunk, else by the commonest and a count.
+(ert-deftest overlook-repo-main-checkout-shows-its-branch ()
+  (let ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
+        (alpha (overlook-test--agent "alpha"))
+        (overlook-repo--status (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (dolist (dir '("api/.git" "web/.git" "docs/.git"))
+            (make-directory (expand-file-name dir root) t))
+          (dolist (repo '(("api/" "feature/x") ("web/" "develop") ("docs/" "develop")))
+            (puthash (expand-file-name (car repo) root)
+                     (cons (float-time) (cdr repo)) overlook-repo--status))
+          (should (equal (overlook-repo--branch-title (overlook-worktree-repos root)) "feature/x"))
+          (puthash (expand-file-name "docs/" root) (list (float-time) "fix") overlook-repo--status)
+          (should (equal (overlook-repo--branch-title (overlook-worktree-repos root)) "feature/x +1"))
+          (puthash (expand-file-name "api/" root) (list (float-time) "main") overlook-repo--status)
+          (puthash (expand-file-name "docs/" root) (list (float-time) "develop") overlook-repo--status)
+          (should (equal (overlook-repo--branch-title (overlook-worktree-repos root)) "develop +1"))
+          (puthash (expand-file-name "api/" root) (list (float-time) "feature/x") overlook-repo--status)
+          (overlook-test-with-dashboard `(("one" ,alpha)) "one"
+            (let ((overlook-project-root-function (lambda (_) root))
+                  (overlook-project-functions
+                   (list #'overlook-repo--checkout-rows #'overlook--checkout-rows))
+                  (overlook-main-checkout-functions (list #'overlook-repo--on-branch-p))
+                  (overlook-worktree-functions (list #'overlook-agent--rows))
+                  (overlook-worktrees-functions nil))
+              (overlook--render)
+              (should (string-match-p "^⎇ feature/x$" (buffer-substring-no-properties
+                                                       (point-min) (point-max))))
+              (goto-char (point-min))
+              (search-forward "alpha")
+              (should (equal (oref (oref (magit-current-section) parent) value)
+                             (cons 'worktree root)))
+              (should (= (count-matches "alpha" (point-min) (point-max)) 1)))))
+      (kill-buffer alpha)
+      (delete-directory root t))))
+
 ;; Under a project come its main checkout, holding the agents in no worktree with those of no
 ;; project and then the changed repos, then its worktrees, each holding the agents working in
 ;; it and then its changed files.  Each shows by its branch, not its folder.
