@@ -127,6 +127,9 @@ A rename's CODE has R in place of the A of its new path.")
   "Worktree checkout to (TIME BASE AHEAD . BEHIND), as last read.
 AHEAD counts its commits not on branch BASE, BEHIND those of BASE not on it.")
 
+(defvar overlook-repo--bases (make-hash-table :test #'equal)
+  "Worktree checkout to (BASE), BASE the one recorded for its branch or nil.")
+
 (defvar overlook-repo--touched nil
   "Directories saved in or refreshed by Magit since the last touch read.")
 
@@ -510,9 +513,12 @@ MARKS, a function of a DIR, returns the marks after its branch."
             dirs)))
 
 (defun overlook-repo--base (checkout tree root)
-  "Branch of the main checkout that CHECKOUT, in worktree TREE of ROOT, came from."
-  (car (overlook-repo--status
-        (file-name-as-directory (expand-file-name (file-relative-name checkout tree) root)))))
+  "What CHECKOUT, in worktree TREE of ROOT, is counted against.
+That is the base recorded for its branch, else the branch of its main checkout."
+  (or (car (with-memoization (gethash checkout overlook-repo--bases)
+             (list (overlook-worktree-recorded-base checkout))))
+      (car (overlook-repo--status
+            (file-name-as-directory (expand-file-name (file-relative-name checkout tree) root))))))
 
 (defun overlook-repo--divergence (checkout base)
   "(AHEAD . BEHIND) of CHECKOUT against branch BASE as last read, or nil.
@@ -524,11 +530,10 @@ Reads it again in the background when stale, redrawing when it changed."
                    (> (- (float-time) (car entry)) overlook-repo-status-interval)))
       (puthash checkout (cons (float-time) (cdr entry)) overlook-repo--diverged)
       (overlook-repo--git
-       checkout (list "rev-list" "--left-right" "--count" (concat "HEAD..." base))
+       checkout (overlook-worktree-divergence-args base)
        (lambda (output)
-         (when-let* ((counts (and output (split-string output)))
-                     (new (cons base (cons (string-to-number (car counts))
-                                           (string-to-number (cadr counts)))))
+         (when-let* ((counts (overlook-worktree-parse-divergence output))
+                     (new (cons base counts))
                      ((not (equal new (cdr (gethash checkout overlook-repo--diverged))))))
            (puthash checkout (cons (float-time) new) overlook-repo--diverged)
            (overlook-refresh)))))
@@ -635,19 +640,10 @@ Under a main checkout that is a repo, its own files are on its row."
          (overlook-repo--changed project))
        project))))
 
-(defun overlook-repo--dirty-p (dir)
-  "Non-nil when repo or folder DIR has uncommitted changes."
-  (not (string-empty-p
-        (or (ignore-errors (overlook-worktree-git dir "status" "--porcelain" "--" ".")) ""))))
-
-(defun overlook-repo--uncommitted (tree)
-  "The repos of worktree TREE with uncommitted changes."
-  (seq-filter #'overlook-repo--dirty-p (overlook-worktree-repos tree)))
-
 (defun overlook-repo--close-blocker (project)
   "Why PROJECT cannot close: uncommitted changes in its repos, or nil.
 Its folders and worktrees count too."
-  (when-let* ((changed (seq-filter #'overlook-repo--dirty-p
+  (when-let* ((changed (seq-filter #'overlook-worktree-dirty-p
                                    (append (overlook-repo--dirs project)
                                            (mapcan #'overlook-worktree-repos
                                                    (overlook-worktrees project))))))
@@ -658,7 +654,7 @@ Its folders and worktrees count too."
   (pcase-let* ((`(,_ . ,name) (or (overlook-worktree-at tree)
                                   (user-error "Not a worktree: %s" tree)))
                (contents (overlook-folder-contents tree))
-               (changed (overlook-repo--uncommitted tree))
+               (changed (overlook-worktree-uncommitted tree))
                ;; From the last read; reading again would outlive the worktree.
                (unmerged (seq-some (lambda (dir)
                                      (> (or (nth 2 (gethash dir overlook-repo--diverged)) 0) 0))
@@ -684,6 +680,8 @@ Its branch stays."
           (with-current-buffer buffer (set-buffer-modified-p nil))
           (kill-buffer buffer))))
     (overlook-worktree-remove root name t)
+    (dolist (checkout (hash-table-keys overlook-repo--bases))
+      (when (string-prefix-p tree checkout) (remhash checkout overlook-repo--bases)))
     (overlook-refresh)
     (message "Deleted worktree %s" name)))
 

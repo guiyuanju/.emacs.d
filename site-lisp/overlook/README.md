@@ -401,6 +401,8 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
 | `overlook-persona-start`, `overlook-persona-new` | start a persona, or make one |
 | `overlook-remote-mode`, `overlook-remote-url` | serve the phone page; copy its address |
+| `overlook-worktree-create` | make a worktree of this project, branching from a ref (empty: the remote's default branch); with `C-u`, pick the project and which of its repos |
+| `overlook-worktree-delete` | remove a worktree of this project and its buffers; with `C-u`, its branch too where merged |
 
 ## Customization
 
@@ -425,6 +427,11 @@ it and add it again from the address copied by `overlook-remote-url`.
   sit under the current one.
 - `overlook-markers`: the files marking a folder of several repos as one
   project.
+- `overlook-worktree-copied-files`: untracked files, such as `.env`,
+  copied from each repo into its new worktree checkouts;
+  `overlook-worktree-setup-functions` runs more setup on them.
+- `overlook-worktree-fetch`: fetch the remote before branching from one
+  of its branches.
 - `overlook-repo-folder-display`: `mark` to show a folder inside a
   larger repo, from `overlook-repo-folders`, as a `*` after its
   project's heading while it has changes, instead of listing them.
@@ -554,6 +561,22 @@ checkouts, including folders of several repos.  It has no dashboard or
 courier dependency.  `overlook-worktree-directory` and
 `overlook-worktree-marker` configure their location and project marker.
 `overlook-courier-worktree` starts agents in them.
+
+- `overlook-worktree-add DIR BRANCH &optional START REPOS`: make or
+  extend the worktree and return its path.  A new branch starts at
+  START, or `default` for `overlook-worktree-default-start` (the
+  remote's default branch), or the checked out commit; a START is kept
+  in Git config as the branch's base.  REPOS picks some repos of a
+  folder; adding again with others adds them.  A folder already holding
+  another branch (`a/b` and `a-b` share one) is an error.
+- `overlook-worktree-remove DIR BRANCH &optional FORCE DELETE-BRANCH`,
+  `overlook-worktree-prune DIR`: remove one, optionally with its branch
+  where merged; clear those whose folders were deleted by hand.
+- `overlook-worktree-list`, `-path`, `-at`, `-repos`, `-branch`,
+  `-main`: names, locations and checkouts.
+- `overlook-worktree-dirty-p`, `-uncommitted`, `-base`,
+  `-divergence`: changes and commits ahead of and behind the base,
+  read synchronously.
 
 **Other views** draw the same model: `overlook-model` gathers it,
 `overlook-latest-model` gives the one the dashboard last drew while
