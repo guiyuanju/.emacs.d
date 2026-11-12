@@ -500,12 +500,10 @@ function connectionFailure(error) {
   $("reconnect").hidden = auth || missing;
   $("reconnect").textContent = incompatible ? "Refresh" : "Retry";
   $("reconnect").onclick = incompatible ? () => location.reload() : () => show();
-  if (connectionBlocked) {
-    const target = current() ? $("d-feed") : $("dashboard-content");
-    target.querySelector(".view-state.loading")?.replaceWith(viewState(
-      auth ? "Open your personal link" : incompatible ? "Update available" : "Conversation ended", message));
-    target.removeAttribute("aria-busy");
-  }
+  const target = current() ? $("d-feed") : $("dashboard-content");
+  target.querySelector(".view-state.loading")?.replaceWith(viewState(
+    auth ? "Open your personal link" : incompatible ? "Update available" : missing ? "Conversation ended" : "Unable to load", message));
+  target.removeAttribute("aria-busy");
   return connectionBlocked;
 }
 

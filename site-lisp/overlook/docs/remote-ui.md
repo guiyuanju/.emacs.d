@@ -102,7 +102,9 @@ including options with the same permission kind.
 Connection problems appear in a compact banner while loaded content remains
 available. Missing conversations, expired credentials and incompatible protocol
 versions offer distinct explanations. Loading and empty conversations have
-explicit states. Resource command errors appear beside their controls.
+explicit states. A failed initial request replaces the loading state with a
+reconnection explanation while automatic retries continue. Resource command
+errors appear beside their controls.
 
 Action sheets offer simple commands, sheets hold forms, and confirmation
 buttons name the action. Unfinished form input is retained until successful

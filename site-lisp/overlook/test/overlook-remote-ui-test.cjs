@@ -221,6 +221,16 @@ vm.runInContext('composeId = "original";',context);
   await vm.runInContext('sessionAction("stop", $("session-menu"))', context);
   assert.equal(stopBody.action, 'stop');
   assert.equal(context.opened, null);
+  // A failed first request must leave loading, while allowing the poller to retry.
+  vm.runInContext('renderLoading("d-feed", "Loading conversation…")', context);
+  let replacement;
+  const feed = elements.get('d-feed');
+  feed.querySelector = selector => selector === '.view-state.loading' ? {replaceWith: state => { replacement = state; }} : null;
+  assert.equal(vm.runInContext('connectionFailure({status:500, code:"internal_error"})', context), false);
+  assert.equal(replacement.children[0].textContent, 'Unable to load');
+  assert.match(replacement.children[1].textContent, /Reconnecting/);
+  assert.equal(feed['aria-busy'], undefined);
+  feed.querySelector = () => null;
   assert.equal(elements.get('text').value, 'A draft @image ');
   let attempts = 0;
   context.fetch = async () => {
