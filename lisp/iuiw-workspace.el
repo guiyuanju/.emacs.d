@@ -947,10 +947,10 @@ project, return the version-control root."
 ;;; Dashboard todos
 
 (defun iuiw-workspace--todo-parse (file)
-  "Parse card FILE into a plist of :id :workspace :status :also :file :todos.
+  "Parse card FILE into a plist of :id :workspace :status :also :jira :file :todos.
 :split is what `iuiw-workspace--todo-take-now' gives of the todos.
-The id is the folder name; the status and the also: list of workspace
-names come from the front matter.
+The id is the folder name; the status, the also: list of workspace
+names and the jira: list of ticket keys come from the front matter.
 Each todo is (TEXT LINE DEPTH) for an open checkbox under the Todo heading,
 or anywhere when tagged #waiting; DEPTH is its indent in columns."
   (with-temp-buffer
@@ -958,7 +958,7 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
     (goto-char (point-min))
     (let ((front (looking-at-p "---[ \t]*$"))
           (number 1)
-          status also todos in-todo in-fence)
+          status also jira todos in-todo in-fence)
       (when front (forward-line 1) (setq number 2))
       (while (not (eobp))
         (let ((line (buffer-substring-no-properties (point) (line-end-position))))
@@ -968,7 +968,9 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
                   ((string-match "\\`status: *\\([a-z]+\\)" line)
                    (setq status (match-string 1 line)))
                   ((string-match "\\`also: *\\[\\([^]]*\\)\\]" line)
-                   (setq also (split-string (match-string 1 line) "[ \t,\"']+" t)))))
+                   (setq also (split-string (match-string 1 line) "[ \t,\"']+" t)))
+                  ((string-match "\\`jira: *\\[\\([^]]*\\)\\]" line)
+                   (setq jira (split-string (match-string 1 line) "[ \t,\"']+" t)))))
            ((string-match-p "\\`[ \t]*```" line) (setq in-fence (not in-fence)))
            (in-fence)
            ((string-prefix-p "## " line) (setq in-todo (string= (string-trim-right line) "## Todo")))
@@ -979,7 +981,7 @@ or anywhere when tagged #waiting; DEPTH is its indent in columns."
         (cl-incf number))
       (setq todos (nreverse todos))
       (list :id (iuiw-workspace--file-id file) :workspace (iuiw-workspace--file-workspace file)
-            :status status :also also :file file :todos todos
+            :status status :also also :jira jira :file file :todos todos
             :split (iuiw-workspace--todo-take-now todos)))))
 
 (defun iuiw-workspace--cards ()
