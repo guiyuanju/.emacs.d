@@ -352,6 +352,9 @@ and styles are served locally, with no CDN dependency or build step. It shows:
   The session menu offers reload, a fresh conversation and, when supported,
   fork; reload and restart ask for confirmation. Close Agent ends the live
   session after confirmation and keeps a resumable entry when supported.
+  For gptel personas, **Model** selects from the configured backend’s models
+  for subsequent prompts in this conversation; a fresh conversation restores
+  the persona default.
   Long messages have expandable previews. Message times, unread counts and
   paged earlier activity come from the backend.
 

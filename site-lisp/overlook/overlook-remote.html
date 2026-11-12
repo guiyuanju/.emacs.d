@@ -753,10 +753,17 @@ function renderHeader(agent) {
   $("session-menu").onclick = () => {
     if (sessionPending) return;
     const id = current();
-    const labels = { steer: "Steer with current draft", stop: "Stop current task", reload: "Reload session", restart: "New conversation", fork: "Fork conversation", close: "Close agent" };
+    const labels = { model: `Model · ${agentControls.model || "Select"}`, steer: "Steer with current draft", stop: "Stop current task", reload: "Reload session", restart: "New conversation", fork: "Fork conversation", close: "Close agent" };
     app.actions.create({ buttons: [[{ text: htmlText(title), label: true }], actions.map((action) => ({ text: htmlText(labels[action] || action),
       color: ["stop", "restart", "close"].includes(action) ? "red" : undefined,
-      onClick: () => { if (current() === id) sessionAction(action, $("session-menu")); }
+      onClick: () => { if (current() !== id) return;
+        if (action === "model") {
+          app.actions.create({buttons: [[{text: "Choose model", label: true}],
+            (agentControls.models || []).map((model) => ({
+              text: htmlText((model === agentControls.model ? "✓ " : "") + model),
+              onClick: () => { if (current() === id) sessionAction("model", $("session-menu"), model); }
+            })), [{text: "Cancel", color: "gray"}]], destroyOnClose: true}).open();
+        } else sessionAction(action, $("session-menu")); }
     })), [{ text: "Cancel", color: "gray" }]], destroyOnClose: true }).open();
   };
   renderSlashCommands();
@@ -1053,7 +1060,7 @@ function acknowledge(id, state, revision, text) {
   if (composeId === id) syncCompose();
 }
 let sessionPending = false;
-async function sessionAction(action, button) {
+async function sessionAction(action, button, value = "") {
   if (sessionPending) return;
   const generation = viewGeneration;
   saveCompose();
@@ -1061,7 +1068,7 @@ async function sessionAction(action, button) {
   const state = draft(id);
   if (state.pending || state.uploading) return;
   const revision = state.revision;
-  const text = action === "steer" ? state.text.trim() : "";
+  const text = action === "steer" ? state.text.trim() : value;
   if (action === "steer" && (!text || composing)) return;
   sessionPending = true;
   state.pending = true;

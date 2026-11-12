@@ -434,6 +434,15 @@
           "items": {
             "type": "string"
           }
+        },
+        "model": {
+          "type": "string"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [],

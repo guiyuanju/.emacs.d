@@ -111,7 +111,9 @@ With DETAIL, its last reply and the end of its transcript too."
       :queueItems ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))
       :queueError ,(or (buffer-local-value 'overlook-remote--queue-error buffer) :null)
       ,@(when-let* ((controls (overlook-remote--controls buffer)))
-          `(:controls (:slash ,(vconcat (plist-get controls :slash))
+          `(:controls (:model ,(or (plist-get controls :model) "")
+                       :models ,(vconcat (plist-get controls :models))
+                       :slash ,(vconcat (plist-get controls :slash))
                        :steer ,(if (plist-get controls :steer) t :false)
                        :actions ,(vconcat (plist-get controls :actions)))))
       ,@(when detail

@@ -231,5 +231,21 @@ RESULTS are tool results (TOOL ARGS RESULT) given after the chunks."
           (should (string-search "猫\n\ncat" (with-temp-buffer (insert-file-contents (car archived))
                                                                (buffer-string)))))))))
 
+(ert-deftest overlook-courier-gptel-switches-model-for-next-request ()
+  (overlook-courier-gptel-test-with-persona
+    (gptel-make-openai "Fake" :key "none" :models '(fake-model other-model))
+    (save-window-excursion (overlook-courier-gptel-start (overlook-courier-persona "jp") nil nil))
+    (with-current-buffer "*jp*"
+      (should (equal (plist-get (overlook-courier-gptel--controls) :models)
+                     '("fake-model" "other-model")))
+      (should-error (overlook-courier-gptel--remote-action "model" "unknown"))
+      (overlook-courier-gptel--remote-action "model" "other-model")
+      (should (equal (plist-get (overlook-courier-gptel--controls) :model) "other-model"))
+      (let (sent-model)
+        (cl-letf (((symbol-function 'gptel-request)
+                   (lambda (&rest _) (setq sent-model gptel-model))))
+          (overlook-courier-gptel--send (current-buffer) "cat"))
+        (should (eq sent-model 'other-model))))))
+
 (provide 'overlook-courier-gptel-test)
 ;;; overlook-courier-gptel-test.el ends here

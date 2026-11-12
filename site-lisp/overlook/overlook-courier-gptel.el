@@ -53,6 +53,7 @@
 (require 'overlook-courier-persona)
 
 (declare-function gptel-request "gptel-request")
+(declare-function gptel-backend-models "gptel-request")
 (declare-function gptel-get-backend "gptel-request")
 (declare-function gptel-get-tool "gptel-request")
 (declare-function gptel-tool-name "gptel-request")
@@ -90,6 +91,9 @@
 
 (defvar-local overlook-courier-gptel--name nil
   "The persona this buffer runs.")
+
+(defvar-local overlook-courier-gptel--model nil
+  "Model override for this conversation, or nil for the persona default.")
 
 (defvar-local overlook-courier-gptel--busy nil
   "Non-nil while a request is out.")
@@ -267,7 +271,7 @@ and the dashboard lists it with the personas, not in a project."
                       (submit . ,(lambda (text) (overlook-courier-gptel--send buffer text)))
                       (ready . ,(lambda () (not overlook-courier-gptel--busy)))
                       (reply . ,(lambda () overlook-courier-gptel--reply))
-                      (remote-controls . ,(lambda () '(:actions ("stop" "restart"))))
+                      (remote-controls . overlook-courier-gptel--controls)
                       (remote-action . overlook-courier-gptel--remote-action))))
       (overlook-agent-register buffer name))))
 
@@ -337,7 +341,8 @@ TYPED means it was typed at the buffer's prompt, so it shows there already."
       (overlook-courier-gptel--event buffer 'prompt :text prompt)
       (condition-case err
           (let ((gptel-backend (gptel-get-backend backend))
-                (gptel-model (if-let* ((model (plist-get persona :model))) (intern model) gptel-model))
+                (gptel-model (or overlook-courier-gptel--model
+                                 (if-let* ((model (plist-get persona :model))) (intern model) gptel-model)))
                 (gptel-tools tools)
                 (gptel-use-tools (and tools t))
                 (gptel-confirm-tool-calls nil)
@@ -465,9 +470,25 @@ The history goes to archive/NAME-TIME.md in
       (when (called-interactively-p 'any) (pop-to-buffer-same-window buffer))
       buffer)))
 
-(defun overlook-courier-gptel--remote-action (action _text)
-  "Run session ACTION from a remote view; return the persona's buffer."
+(defun overlook-courier-gptel--controls ()
+  "Remote controls and backend models for this persona."
+  (require 'gptel)
+  (let* ((persona (overlook-courier-persona overlook-courier-gptel--name))
+         (backend (gptel-get-backend (plist-get persona :backend))))
+    (list :actions '("stop" "restart" "model")
+          :model (symbol-name (or overlook-courier-gptel--model
+                                  (if-let* ((model (plist-get persona :model)))
+                                      (intern model) gptel-model)))
+          :models (mapcar #'symbol-name (gptel-backend-models backend)))))
+
+(defun overlook-courier-gptel--remote-action (action text)
+  "Run session ACTION with TEXT from a remote view; return the persona's buffer."
   (pcase action
+    ("model"
+     (unless (member text (plist-get (overlook-courier-gptel--controls) :models))
+       (user-error "Unknown model: %s" text))
+     (setq overlook-courier-gptel--model (intern text))
+     (current-buffer))
     ("stop" (overlook-courier-gptel-abort) (current-buffer))
     ("restart" (overlook-courier-gptel-restart))
     (_ (user-error "Unknown session action: %s" action))))

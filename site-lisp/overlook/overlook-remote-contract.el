@@ -144,7 +144,8 @@
                                        t)))))
     (:queued (array string))
     (:queueItems (array (object ((:id string t) (:text string t)))))
-    (:controls (object ((:slash (array (object ((:name string t) (:description string)))))
+    (:controls (object ((:model string) (:models (array string))
+                        (:slash (array (object ((:name string t) (:description string)))))
                         (:steer boolean) (:actions (array string))))))
   "Conversation fields and their wire types.")
 
