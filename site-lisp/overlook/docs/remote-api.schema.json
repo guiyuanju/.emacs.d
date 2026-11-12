@@ -70,6 +70,99 @@
       ],
       "additionalProperties": false
     },
+    "QuestionOption": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionField": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi",
+            "text",
+            "boolean",
+            "number",
+            "integer",
+            "unsupported"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuestionOption"
+          }
+        },
+        "other": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "type",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionForm": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "answerable": {
+          "type": "boolean"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuestionField"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "message",
+        "answerable",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
     "Action": {
       "type": "object",
       "properties": {
@@ -407,6 +500,16 @@
             "$ref": "#/$defs/Choice"
           }
         },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuestionForm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "queued": {
           "type": "array",
           "items": {
@@ -675,7 +778,9 @@
         },
         "confirmations": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "confirmationToken": {
           "type": "string"

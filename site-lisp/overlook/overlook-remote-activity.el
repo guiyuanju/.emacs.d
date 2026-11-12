@@ -105,6 +105,7 @@ With DETAIL, its last reply and the end of its transcript too."
       :folder ,(if root (file-name-nondirectory (directory-file-name root)) "")
       :brief ,(overlook-remote--text (overlook-agent-brief buffer))
       :choices ,(overlook-remote--choices (overlook-agent-choices buffer))
+      :form ,(or (overlook-remote--form (overlook-agent-form buffer)) :null)
       :queued ,(vconcat (mapcar (lambda (item) (plist-get item :text))
                                 (buffer-local-value 'overlook-remote--queue buffer)))
       :queueItems ,(vconcat (buffer-local-value 'overlook-remote--queue buffer))

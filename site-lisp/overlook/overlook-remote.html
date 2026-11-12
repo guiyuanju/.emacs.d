@@ -205,6 +205,15 @@
   .permission-card .choices { margin-bottom: 0; }
   .permission-card button { border-radius: 10px; background: var(--card); padding: 10px 14px; }
   .inline-feedback { font-size: 13px; line-height: 1.5; }
+  .question-form fieldset { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+  .question-form legend { padding: 0; font-weight: 600; font-size: 15px; }
+  .question-form .question-description { margin: 4px 0 8px; font-size: 15px; color: var(--fg); }
+  .question-form label.option { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 6px 0; border-radius: 10px; background: var(--card); font-size: 15px; line-height: 1.4; }
+  .question-form label.option input { margin-top: 3px; flex: none; width: 18px; height: 18px; }
+  .question-form label.option small { display: block; color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .question-form input[type=text], .question-form input[type=number], .question-form textarea { box-sizing: border-box; width: 100%; padding: 10px 12px; margin-top: 6px; border: .5px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; font-size: 16px; }
+  .question-form .form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .question-form .form-actions > button { width: auto; flex: 1 1 120px; }
   .attachment { position: relative; display: flex; align-items: center; gap: 8px; border: .5px solid var(--line); background: var(--bg); padding: 6px; border-radius: 12px; max-width: 100%; }
   .attachment img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
   .attachment-info { flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
@@ -1100,6 +1109,95 @@ function postOnClick(button, path, body) {
   };
 }
 
+// A question form keeps its card while it is asked, so a re-render keeps
+// what was picked or typed and where the focus is.
+const questionCards = new Map();
+function questionForm(agent) {
+  const signature = JSON.stringify([agent.id, agent.form]);
+  for (const key of questionCards.keys()) {
+    if (JSON.parse(key)[0] === agent.id && key !== signature) questionCards.delete(key);
+  }
+  if (questionCards.has(signature)) return questionCards.get(signature);
+  const form = agent.form;
+  const card = el("section", "permission-card question-form");
+  card.append(el("h3", "", "Your response is needed"));
+  if (form.message) card.append(el("p", "question-description", form.message));
+  const read = [];
+  form.fields.forEach((field, index) => {
+    const set = el("fieldset");
+    const name = `q-${index}-${field.key}`;
+    set.append(el("legend", "", field.title + (field.required ? " *" : "")));
+    if (field.description) set.append(el("p", "question-description", field.description));
+    if (field.type === "single" || field.type === "multi") {
+      const inputs = field.options.map((option) => {
+        const label = el("label", "option");
+        const input = el("input");
+        input.type = field.type === "single" ? "radio" : "checkbox";
+        input.name = name;
+        input.value = option.value;
+        const text = el("span", "", option.title);
+        if (option.description) text.append(el("small", "", option.description));
+        label.append(input, text);
+        set.append(label);
+        return input;
+      });
+      read.push((values) => {
+        const picked = inputs.filter(input => input.checked).map(input => input.value);
+        values[field.key] = field.type === "single" ? (picked[0] || "") : picked;
+      });
+    } else if (field.type === "boolean") {
+      const label = el("label", "option");
+      const input = el("input");
+      input.type = "checkbox";
+      label.append(input, el("span", "", field.title));
+      set.append(label);
+      read.push((values) => { values[field.key] = input.checked; });
+    } else {
+      const input = el(field.type === "text" ? "textarea" : "input");
+      if (field.type !== "text") { input.type = "number"; if (field.type === "integer") input.step = "1"; }
+      input.rows = 2;
+      set.append(input);
+      read.push((values) => {
+        if (field.type === "text") values[field.key] = input.value;
+        else if (input.value.trim() !== "") values[field.key] = Number(input.value);
+      });
+    }
+    if (field.other) {
+      const other = el("textarea");
+      other.rows = 1;
+      other.placeholder = field.type === "multi" ? "Other (added to your picks)" : "Other, or a note on your pick";
+      set.append(other);
+      read.push((values) => { values[field.other] = other.value; });
+    }
+    card.append(set);
+  });
+  const actions = el("div", "form-actions");
+  const submit = el("button", "primary", "Submit");
+  const decline = el("button", "", "Decline");
+  const feedback = el("div", "inline-feedback");
+  feedback.setAttribute("role", "status");
+  const send = async (action) => {
+    const values = {};
+    if (action === "accept") read.forEach(fn => fn(values));
+    submit.disabled = decline.disabled = true;
+    feedback.textContent = "Sending response…";
+    try {
+      await call("POST", "answer", { id: agent.id, form: form.id, action, values });
+      feedback.textContent = "Response sent. Waiting for the agent…";
+    } catch (error) {
+      feedback.textContent = "Response not sent · " + error.message;
+      submit.disabled = decline.disabled = false;
+    }
+  };
+  submit.onclick = () => send("accept");
+  decline.onclick = () => send("decline");
+  actions.append(submit, decline);
+  card.append(actions, feedback);
+  questionCards.set(signature, card);
+  if (questionCards.size > 16) questionCards.delete(questionCards.keys().next().value);
+  return card;
+}
+
 // What happens now, under the feed: the answers the agent waits for, or
 // that it works, then the prompts queued for it.
 const permissionResponses = new Map();
@@ -1117,7 +1215,10 @@ function renderLive(agent) {
     failure.append(retry);
     parts.push(failure);
   }
-  if (agent.choices.length) {
+  const form = agent.form && agent.form.answerable ? questionForm(agent) : null;
+  if (form) {
+    parts.push(form);
+  } else if (agent.choices.length) {
     const card = el("section", "permission-card");
     card.append(el("h3", "", "Your response is needed"), el("p", "", agent.brief || "The agent is waiting for your decision before it can continue. Review the choices below."));
     const choices = el("div", "choices");
@@ -1150,6 +1251,12 @@ function renderLive(agent) {
       choices.append(button);
     }
     card.append(choices, feedback);
+    parts.push(card);
+  } else if (agent.form || agent.status === "waiting") {
+    const card = el("section", "permission-card");
+    card.append(el("h3", "", agent.form ? "Answer in Emacs" : "Your attention is needed"),
+                el("p", "", (agent.form?.message || agent.brief || "The agent is waiting for you.")
+                  + (agent.form ? " · This question can only be answered in Emacs." : "")));
     parts.push(card);
   } else if (agent.status === "working") {
     const working = el("div", "working");

@@ -363,6 +363,8 @@ stream (:stream KNOWN)."
                             #'overlook-remote-service-command))
     ('("POST" "/api/choose")
      (overlook-remote--json 200 (overlook-remote-service-choose (overlook-remote--body request route))))
+    ('("POST" "/api/answer")
+     (overlook-remote--json 200 (overlook-remote-service-answer (overlook-remote--body request route))))
     (_ (overlook-remote--json 404 (overlook-remote-problem 404 "route_missing" (format "No %s %s" method route))))))
 
 (defun overlook-remote--respond (method path query request)

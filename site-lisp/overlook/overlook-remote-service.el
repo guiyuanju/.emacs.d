@@ -225,6 +225,13 @@ Reuse with a different payload fails; confirmations and failures are not cached.
                          (alist-get 'key body))
   '(:ok t))
 
+(defun overlook-remote-service-answer (body)
+  "Answer BODY's question form with its action and field values."
+  (overlook-agent-answer (overlook-remote-service-agent-buffer (alist-get 'id body))
+                         (alist-get 'form body) (alist-get 'action body)
+                         (alist-get 'values body))
+  '(:ok t))
+
 (defun overlook-remote-service-upload (body)
   "Attach BODY's validated image to its conversation and return input text."
   (let* ((buffer (overlook-remote-service-agent-buffer (alist-get 'id body)))

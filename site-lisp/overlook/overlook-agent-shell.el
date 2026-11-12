@@ -172,8 +172,9 @@ Turns the agent begins on its own have no prompt to reset it.")
 
 (defun overlook-agent-shell--permission-choices (id)
   "Answers to the permission tool call ID waits for, as `choices' entries.
-Rejecting once interrupts the turn as well, as agent-shell's own button
-does, since the agent would otherwise go on without knowing why."
+An option of a kind already offered takes the next free digit.  Rejecting
+once interrupts the turn as well, as agent-shell's own button does, since
+the agent would otherwise go on without knowing why."
   (let* ((state agent-shell--state)
          (tool-call (map-nested-elt state (list :tool-calls id)))
          (request (map-elt tool-call :permission-request-id))
@@ -185,15 +186,18 @@ does, since the agent would otherwise go on without knowing why."
                        :option-id (map-elt action :option-id) :state state :tool-call-id id)
                       (when (equal (map-elt action :kind) "reject_once")
                         (agent-shell-interrupt t)))))
+         (digit 0)
          seen)
     (when request
       (append
        (seq-keep (lambda (action)
-                   (when-let* ((key (cdr (assoc (map-elt action :kind)
-                                                overlook-agent-shell--permission-keys)))
-                               ((not (member key seen))))
-                     (push key seen)
-                     (list key (map-elt action :option) (funcall respond action))))
+                   (when-let* ((kind-key (cdr (assoc (map-elt action :kind)
+                                                     overlook-agent-shell--permission-keys))))
+                     (let ((key (if (member kind-key seen)
+                                    (number-to-string (setq digit (1+ digit)))
+                                  kind-key)))
+                       (push key seen)
+                       (list key (map-elt action :option) (funcall respond action)))))
                  actions)
        (when-let* ((diffs (map-elt tool-call :diffs)))
          (list (list "v" "Diff"
@@ -201,16 +205,47 @@ does, since the agent would otherwise go on without knowing why."
                       :diffs diffs :actions actions :client (map-elt state :client)
                       :request-id request :state state :tool-call-id id))))))))
 
+(defun overlook-agent-shell--questions-in (fields)
+  "FIELDS as questions, each (FIELD . OTHER), OTHER its free-text field or nil.
+An \"Other\" field the bridge did not mark, keyed after its select with
+\"_custom\", is folded in as agent-shell folds a marked one."
+  (let* ((fields (agent-shell-elicitation--answerable fields))
+         (selects (seq-filter (lambda (field)
+                                (memq (map-elt field :type) '(single-select multi-select)))
+                              fields))
+         (others (mapcar (lambda (field)
+                           (or (map-elt field :custom-key)
+                               (let ((key (concat (map-elt field :key) "_custom")))
+                                 (when (seq-find (lambda (other)
+                                                   (and (equal (map-elt other :key) key)
+                                                        (eq (map-elt other :type) 'string)))
+                                                 fields)
+                                   key))))
+                         selects)))
+    (seq-keep (lambda (field)
+                (unless (member (map-elt field :key) others)
+                  (cons field (when-let* ((index (seq-position selects field #'eq)))
+                                (nth index others)))))
+              fields)))
+
+(defun overlook-agent-shell--pending-question ()
+  "The oldest pending elicitation as (ID . ELICITATION), or nil."
+  (when-let* ((id (caar overlook-agent-shell--questions))
+              (elicitation (agent-shell-elicitation--get agent-shell--state id))
+              ((eq (map-elt elicitation :status) 'pending)))
+    (cons id elicitation)))
+
 (defun overlook-agent-shell--question-choices (id)
   "Answers to the elicitation ID, as `choices' entries.
-Only a question picking one option is answered from the dashboard; any
-other form is answered in the shell."
+Only a form asking one question picking one option is answered with a
+key; any other form is answered through `form' or in the shell."
   (let* ((state agent-shell--state)
          (elicitation (agent-shell-elicitation--get state id))
-         (fields (agent-shell-elicitation--answerable (map-elt elicitation :fields)))
-         (field (car fields)))
+         (questions (overlook-agent-shell--questions-in (map-elt elicitation :fields)))
+         (field (caar questions))
+         (other (cdar questions)))
     (when (and (eq (map-elt elicitation :status) 'pending)
-               (not (cdr fields))
+               (not (cdr questions))
                (eq (map-elt field :type) 'single-select))
       (seq-map-indexed
        (lambda (option index)
@@ -219,8 +254,7 @@ other form is answered in the shell."
                (lambda ()
                  (agent-shell-elicitation--set-values
                   state id (delq nil (list (cons (map-elt field :key) (map-elt option :value))
-                                           (when-let* ((custom (map-elt field :custom-key)))
-                                             (cons custom nil)))))
+                                           (when other (cons other nil)))))
                  (agent-shell-elicitation--submit :state state :id id))))
        (seq-take (map-elt field :options) 9)))))
 
@@ -230,6 +264,85 @@ other form is answered in the shell."
          (overlook-agent-shell--permission-choices (caar overlook-agent-shell--asking)))
         (overlook-agent-shell--questions
          (overlook-agent-shell--question-choices (caar overlook-agent-shell--questions)))))
+
+(defconst overlook-agent-shell--form-types
+  '((single-select . "single") (multi-select . "multi") (string . "text")
+    (boolean . "boolean") (number . "number") (integer . "integer"))
+  "Wire name of each elicitation field type a form can answer.")
+
+(defun overlook-agent-shell--form ()
+  "The oldest pending question form, for the `form' identity, or nil.
+A plist of :id, :message, :answerable, and :fields, each a plist of :key,
+:type, :title, :description, :required, :options and :other."
+  (when-let* ((pending (overlook-agent-shell--pending-question)))
+    (let* ((elicitation (cdr pending))
+           (questions (overlook-agent-shell--questions-in (map-elt elicitation :fields))))
+      (list :id (format "%s" (car pending))
+            :message (or (cdar overlook-agent-shell--questions) "")
+            :answerable (if (seq-every-p
+                             (lambda (question)
+                               (assq (map-elt (car question) :type) overlook-agent-shell--form-types))
+                             questions)
+                            t :false)
+            :fields
+            (mapcar
+             (pcase-lambda (`(,field . ,other))
+               `(:key ,(map-elt field :key)
+                 :type ,(or (alist-get (map-elt field :type) overlook-agent-shell--form-types)
+                            "unsupported")
+                 :title ,(format "%s" (or (map-elt field :title) (map-elt field :key)))
+                 :description ,(format "%s" (or (map-elt field :description) ""))
+                 :required ,(if (map-elt field :required) t :false)
+                 :options ,(mapcar (lambda (option)
+                                     (list :value (format "%s" (map-elt option :value))
+                                           :title (format "%s" (or (map-elt option :title)
+                                                                   (map-elt option :value)))
+                                           :description (format "%s" (or (map-elt option :description) ""))))
+                                   (map-elt field :options))
+                 :other ,(or other :null)))
+             questions)))))
+
+(defun overlook-agent-shell--form-value (field value)
+  "VALUE given on the wire for FIELD, as the elicitation stores it, or nil."
+  (let ((option (lambda (text)
+                  (map-elt (or (seq-find (lambda (option)
+                                           (equal (format "%s" (map-elt option :value)) text))
+                                         (map-elt field :options))
+                               (user-error "No option %s for %s" text (map-elt field :key)))
+                           :value))))
+    (pcase (map-elt field :type)
+      ('single-select (when (and (stringp value) (not (string-empty-p value)))
+                        (funcall option value)))
+      ('multi-select (mapcar option (append value nil)))
+      ('boolean (eq value t))
+      ((or 'number 'integer) (and (numberp value) value))
+      (_ (and (stringp value) (not (string-empty-p (string-trim value))) value)))))
+
+(defun overlook-agent-shell--answer (id action values)
+  "Answer the question form ID with ACTION, \"accept\" or \"decline\".
+VALUES maps field keys, symbols or strings, to their wire values; fields
+it leaves out are cleared, so the answer is exactly what VALUES says."
+  (let* ((pending (overlook-agent-shell--pending-question))
+         (state agent-shell--state))
+    (unless (and pending (equal (format "%s" (car pending)) id))
+      (user-error "%s no longer asks that" (buffer-name)))
+    (pcase action
+      ("decline" (agent-shell-elicitation--respond :state state :id (car pending) :action 'decline))
+      ("accept"
+       (let ((value (lambda (key)
+                      (cdr (or (assoc key values) (assq (intern key) values))))))
+         (agent-shell-elicitation--set-values
+          state (car pending)
+          (mapcan (pcase-lambda (`(,field . ,other))
+                    (cons (cons (map-elt field :key)
+                                (overlook-agent-shell--form-value
+                                 field (funcall value (map-elt field :key))))
+                          (when other
+                            (list (cons other (overlook-agent-shell--form-value
+                                               '((:type . string)) (funcall value other)))))))
+                  (overlook-agent-shell--questions-in (map-elt (cdr pending) :fields)))))
+       (agent-shell-elicitation--submit :state state :id (car pending)))
+      (_ (user-error "Unknown answer: %s" action)))))
 
 (defun overlook-agent-shell--update-plan (entries)
   "Remember the plan entry in progress among ENTRIES."
@@ -633,6 +746,8 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (brief . overlook-agent-shell--brief)
               (title . overlook-agent-shell--title)
               (choices . overlook-agent-shell--choices)
+              (form . overlook-agent-shell--form)
+              (answer . overlook-agent-shell--answer)
               (session . overlook-agent-shell--session)
               (forked-from . overlook-agent-shell--forked-from)
               (usage-row . overlook-agent-shell--usage-row)

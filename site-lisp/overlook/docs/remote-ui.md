@@ -90,6 +90,12 @@ multiple images. Attachments still use the server's existing returned-text
 protocol. Removing an in-flight preview ignores its response; it cannot cancel
 the server upload or delete an already uploaded server file.
 
+Pending agent questions appear as forms supporting single or multiple choices,
+free text, booleans and numbers, including an Other response. Submit or decline
+the whole form; input stays intact across live updates. Unsupported question
+types direct you to Emacs. Permission requests retain every offered option,
+including options with the same permission kind.
+
 ## Feedback and state
 
 Connection problems appear in a compact banner while loaded content remains

@@ -605,6 +605,10 @@ for prompt delivery.  `overlook-agent-call` invokes an optional identity
 capability in the agent's buffer, returning nil when absent and letting
 errors propagate.  `overlook-agent-title`, `overlook-agent-brief`,
 `overlook-agent-reply` and `overlook-agent-choices` provide display values.
+`overlook-agent-form` exposes a pending structured question;
+`overlook-agent-answer` submits or declines it by form ID with field values.
+Remote exposes this through `POST /api/answer` with `id`, `form`, `action`
+(`accept` or `decline`) and a `values` object keyed by field name.
 Readiness and submission are shared; courier mailboxes and remote prompt
 queues retain their own delivery and retry policies.
 

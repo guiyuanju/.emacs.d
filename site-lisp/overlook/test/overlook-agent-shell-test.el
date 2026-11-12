@@ -426,7 +426,101 @@ each environment gathered says how many were gathered so far."
         (overlook-agent-shell--on-event
          '((:event . elicitation-request) (:data (:request-id . 3) (:message . "Two things?"))))
         (should (equal (overlook-agent-brief buffer) "? Two things?"))
-        (should-not (overlook-agent-choices buffer))))))
+        (should-not (overlook-agent-choices buffer))
+        ;; An "Other" field the bridge left unlinked is still the same question.
+        (setf (alist-get :fields elicitation)
+              '(((:key . "q") (:type . single-select)
+                 (:options ((:value . "a") (:title . "Plan A"))))
+                ((:key . "q_custom") (:type . string))))
+        (should (equal (mapcar #'car (overlook-agent-choices buffer)) '("1")))
+        (overlook-agent-choose buffer "1")
+        (should (equal set '(("q" . "a") ("q_custom"))))))))
+
+(ert-deftest overlook-agent-shell-offers-every-permission-option ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let ((overlook-agent-notify nil)
+          (overlook-projects-function #'ignore)
+          (sent nil))
+      (setf (map-elt agent-shell--state :tool-calls)
+            '(("t1" (:permission-request-id . 7)
+               (:permission-actions
+                ((:kind . "allow_always") (:option . "Clear and auto") (:option-id . "c"))
+                ((:kind . "allow_always") (:option . "Auto") (:option-id . "a"))
+                ((:kind . "allow_always") (:option . "Bypass") (:option-id . "b"))
+                ((:kind . "allow_once") (:option . "Manual") (:option-id . "m"))))))
+      (cl-letf (((symbol-function 'agent-shell--send-permission-response)
+                 (cl-function (lambda (&key option-id &allow-other-keys) (push option-id sent)))))
+        (overlook-agent-shell--on-event
+         '((:event . permission-request) (:data (:tool-call-id . "t1") (:tool-call (:title . "Plan")))))
+        (should (equal (mapcar (lambda (choice) (seq-take choice 2)) (overlook-agent-choices buffer))
+                       '(("!" "Clear and auto") ("1" "Auto") ("2" "Bypass") ("y" "Manual"))))
+        (overlook-agent-choose buffer "2")
+        (should (equal sent '("b")))))))
+
+(ert-deftest overlook-agent-shell-answers-a-whole-form ()
+  (overlook-agent-shell-test-with-shell 'claude-code
+    (overlook-agent-shell--track)
+    (let* ((overlook-agent-notify nil)
+           (overlook-projects-function #'ignore)
+           (fields '(((:key . "question_0") (:type . single-select) (:title . "Fix")
+                      (:options ((:value . "js") (:title . "JS") (:description . "small"))
+                                ((:value . "app") (:title . "App"))))
+                     ((:key . "question_0_custom") (:type . string) (:title . "Other"))
+                     ((:key . "question_1") (:type . multi-select) (:title . "Where")
+                      (:description . "Which places?")
+                      (:options ((:value . "a") (:title . "A")) ((:value . "b") (:title . "B"))))
+                     ((:key . "question_1_custom") (:type . string) (:title . "Other"))))
+           (elicitation `((:status . pending) (:fields . ,fields)))
+           (values nil) (declined nil))
+      (cl-letf (((symbol-function 'agent-shell-elicitation--get)
+                 (lambda (_state id) (when (equal id 4) elicitation)))
+                ((symbol-function 'agent-shell-elicitation--set-values)
+                 (lambda (_state _id pairs) (setq values pairs)))
+                ((symbol-function 'agent-shell-elicitation--submit)
+                 (cl-function
+                  (lambda (&key id &allow-other-keys)
+                    (overlook-agent-shell--on-event
+                     `((:event . elicitation-response) (:data (:request-id . ,id)))))))
+                ((symbol-function 'agent-shell-elicitation--respond)
+                 (cl-function
+                  (lambda (&key id action &allow-other-keys)
+                    (setq declined action)
+                    (overlook-agent-shell--on-event
+                     `((:event . elicitation-response) (:data (:request-id . ,id))))))))
+        (overlook-agent-shell--on-event
+         '((:event . elicitation-request) (:data (:request-id . 4) (:message . "Two questions"))))
+        ;; Two questions take the form, not keys.
+        (should-not (overlook-agent-choices buffer))
+        (let ((form (overlook-agent-form buffer)))
+          (should (equal (plist-get form :id) "4"))
+          (should (eq (plist-get form :answerable) t))
+          (should (equal (mapcar (lambda (field) (list (plist-get field :key) (plist-get field :type)
+                                                        (plist-get field :other)))
+                                 (plist-get form :fields))
+                         '(("question_0" "single" "question_0_custom")
+                           ("question_1" "multi" "question_1_custom"))))
+          (should (equal (plist-get (car (plist-get (car (plist-get form :fields)) :options))
+                                    :description)
+                         "small")))
+        (should-error (overlook-agent-answer buffer "3" "accept" nil) :type 'user-error)
+        (should-error (overlook-agent-answer buffer "4" "accept" '((question_0 . "nope")))
+                      :type 'user-error)
+        (overlook-agent-answer buffer "4" "accept"
+                               '((question_0 . "app") (question_0_custom . "note")
+                                 (question_1 . ["a" "b"]) (question_1_custom . "")))
+        (should (equal values '(("question_0" . "app") ("question_0_custom" . "note")
+                                ("question_1" "a" "b") ("question_1_custom"))))
+        (should-not (overlook-agent-form buffer))
+        (overlook-agent-shell--on-event
+         '((:event . elicitation-request) (:data (:request-id . 4) (:message . "Again"))))
+        (overlook-agent-answer buffer "4" "decline" nil)
+        (should (eq declined 'decline))
+        ;; A field type the page cannot render leaves the form to the shell.
+        (setf (alist-get :fields elicitation) '(((:key . "x") (:type . unsupported))))
+        (overlook-agent-shell--on-event
+         '((:event . elicitation-request) (:data (:request-id . 4) (:message . "Odd"))))
+        (should (eq (plist-get (overlook-agent-form buffer) :answerable) :false))))))
 
 (ert-deftest overlook-agent-shell-sets-effort-last ()
   (let* ((config `((:identifier . claude-code)

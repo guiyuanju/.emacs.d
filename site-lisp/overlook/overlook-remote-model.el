@@ -176,5 +176,25 @@ What it knows goes as (:same HASH), when KNOWN is among the latest."
                      `(:key ,key :label ,(overlook-remote--text label)))
                    choices)))
 
+(defun overlook-remote--form (form)
+  "Question FORM an agent waits on, as the page shows it, or nil."
+  (when form
+    (let ((text #'overlook-remote--text))
+      `(:id ,(plist-get form :id)
+        :message ,(funcall text (plist-get form :message))
+        :answerable ,(plist-get form :answerable)
+        :fields ,(vconcat
+                  (mapcar (lambda (field)
+                            `(:title ,(funcall text (plist-get field :title))
+                              :description ,(funcall text (plist-get field :description))
+                              :options ,(vconcat
+                                         (mapcar (lambda (option)
+                                                   `(:value ,(plist-get option :value)
+                                                     :title ,(funcall text (plist-get option :title))
+                                                     :description ,(funcall text (plist-get option :description))))
+                                                 (plist-get field :options)))
+                              ,@field))
+                          (plist-get form :fields)))))))
+
 (provide 'overlook-remote-model)
 ;;; overlook-remote-model.el ends here

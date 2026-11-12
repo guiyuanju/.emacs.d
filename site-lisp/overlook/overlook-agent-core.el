@@ -110,8 +110,11 @@ telling whether it can take a prompt now; `reply' a function returning
 its last reply, or nil; `transcript' a function returning the file
 recording its session, or nil; `choices' a function returning the answers it
 offers you now, each (KEY LABEL FUNCTION) with FUNCTION giving that answer
-in its buffer, or nil; `forked-from' a function returning the session id
-its session was forked from, or nil; `environment' the entries of
+in its buffer, or nil; `form' a function returning the question it waits
+on as a plist of :id, :message, :answerable and :fields, or nil; `answer' a
+function of that form's ID, an ACTION, \"accept\" or \"decline\", and the
+VALUES of its fields as an alist; `forked-from' a function returning the
+session id its session was forked from, or nil; `environment' the entries of
 `overlook-agent-make-environment' its process started with, or nil;
 `persona' the name of the persona it runs without an agent program, or nil;
 `remote-controls' a function returning a plist of :slash, a list of
@@ -554,6 +557,22 @@ Looked up afresh, so an answer given elsewhere meanwhile is not given twice."
                  (not (overlook-agent-choices buffer)))
         (overlook-agent--set-status 'working)))
     (overlook-agent-changed)))
+
+(defun overlook-agent-form (buffer)
+  "The question form agent BUFFER waits on, as its frontend says, or nil."
+  (ignore-errors (overlook-agent-call buffer 'form)))
+
+(defun overlook-agent-answer (buffer id action values)
+  "Answer agent BUFFER's question form ID with ACTION and field VALUES."
+  (unless (overlook-agent-get buffer 'answer)
+    (user-error "%s cannot be answered from here" (buffer-name buffer)))
+  (overlook-agent-call buffer 'answer id action values)
+  (with-current-buffer buffer
+    (when (and (eq overlook-agent-status 'waiting)
+               (not (overlook-agent-form buffer))
+               (not (overlook-agent-choices buffer)))
+      (overlook-agent--set-status 'working)))
+  (overlook-agent-changed))
 
 (defun overlook-agent-turn-label (buffer)
   "How long agent BUFFER's latest turn has run, or ran, once past a minute; or nil."
