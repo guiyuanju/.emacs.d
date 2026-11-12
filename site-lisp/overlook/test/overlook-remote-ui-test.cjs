@@ -29,7 +29,14 @@ const context = vm.createContext({
   Framework7: function() {
     const modal = () => ({open(){},close(){}});
     this.views = {create(){}};
-    this.toast = {create: modal};
+    this.toast = {create: options => {
+      const instance = {open(){}, close() {
+        if (this.destroyed) throw new TypeError("undefined is not an object (evaluating 't.params.animate')");
+        options.on?.closed?.(this);
+        this.destroyed = true;
+      }};
+      return instance;
+    }};
     this.dialog = {create: options => {
       context.lastDialog = options;
       return {open() { if (!context.deferDialog) options.buttons[context.confirm() ? 1 : 0].onClick(); }};
@@ -150,6 +157,11 @@ vm.runInContext('composeId = "original";',context);
   await vm.runInContext('sessionAction("reload", $("session-menu"))',context);
   await vm.runInContext('sessionAction("reload", $("session-menu"))',context);
   assert.notEqual(reloads[0],reloads[1]);
+  vm.runInContext('toast("First"); globalThis.expiredToast = toast.current; toast.current.close(); toast("After timeout")', context);
+  assert.equal(context.expiredToast.destroyed, true);
+  assert.equal(vm.runInContext('toast.current.destroyed', context), undefined);
+  vm.runInContext('globalThis.previousToast = toast.current; toast("Replacement"); previousToast.close = () => { throw new Error("Closed twice"); }; toast("Next")', context);
+  vm.runInContext('toast.current.destroyed = true; toast("After destruction")', context);
   let finish;
   context.fetch = async () => new Promise(resolve => { finish = resolve; });
   elements.get('text').value = 'first';

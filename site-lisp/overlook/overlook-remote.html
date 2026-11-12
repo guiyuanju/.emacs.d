@@ -449,10 +449,14 @@ if (token && !location.hash) {
 }
 
 function toast(message) {
-  toast.current?.close();
-  toast.current = app.toast.create({ text: htmlText(message),
-    closeTimeout: 4000, destroyOnClose: true });
-  toast.current.open();
+  const previous = toast.current;
+  toast.current = null;
+  if (previous && !previous.destroyed) previous.close();
+  const notification = app.toast.create({ text: htmlText(message),
+    closeTimeout: 4000, destroyOnClose: true,
+    on: { closed(instance) { if (toast.current === instance) toast.current = null; } } });
+  toast.current = notification;
+  notification.open();
 }
 
 let lastSync = null;
