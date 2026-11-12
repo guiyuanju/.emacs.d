@@ -807,9 +807,7 @@
 
 (use-package iuiw-jira
   :ensure nil
-  :after iuiw-workspace
-  :config
-  (iuiw-jira-dashboard-mode 1))
+  :commands (iuiw-jira-browse iuiw-jira-add-ticket))
 
 ;;; Files and Git
 
