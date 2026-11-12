@@ -149,6 +149,26 @@ nil when there is neither.  The prompt is left unsent, as \\[overlook-agent-send
   (pcase (overlook-item-at-point)
     (`(agent . ,buffer) buffer)))
 
+(defun overlook-agent--row-start-p (pos)
+  "Non-nil when the dashboard line at POS starts an agent's row."
+  (let ((item (get-text-property pos 'overlook-item)))
+    (and (eq (car-safe item) 'agent)
+         (or (= pos (point-min))
+             (not (equal (get-text-property (1- pos) 'overlook-item) item))))))
+
+(defun overlook-next-agent ()
+  "Move to the next agent's row."
+  (interactive)
+  (overlook--step t #'overlook-agent--row-start-p "agent"))
+
+(defun overlook-previous-agent ()
+  "Move to the previous agent's row."
+  (interactive)
+  (overlook--step nil #'overlook-agent--row-start-p "agent"))
+
+(overlook-define-key "C-S-j" #'overlook-next-agent)
+(overlook-define-key "C-S-k" #'overlook-previous-agent)
+
 ;;;###autoload
 (define-minor-mode overlook-agent-mode
   "Track agents and list them on the dashboard."

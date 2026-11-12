@@ -576,6 +576,28 @@ Agents are listed; usage and repos are not."
           (should (equal (overlook-item-at-point) (cons 'agent beta))))
       (mapc #'kill-buffer (list alpha beta)))))
 
+(ert-deftest overlook-next-agent-stops-at-each-agent-once ()
+  (let ((alpha (overlook-test--agent "alpha"))
+        (beta (overlook-test--agent "beta")))
+    (with-current-buffer beta
+      (setq overlook-agent-status 'waiting)
+      (setf (alist-get 'choices overlook-agent-identity)
+            (lambda () `(("y" "Allow" ,#'ignore)))))
+    (unwind-protect
+        (overlook-test-with-dashboard `(("one" ,alpha ,beta)) "one"
+          (goto-char (point-min))
+          (overlook-next-agent)
+          (should (equal (overlook-item-at-point) (cons 'agent alpha)))
+          (overlook-next-agent)
+          (should (equal (overlook-item-at-point) (cons 'agent beta)))
+          ;; Past the choices line under beta, back round to alpha.
+          (overlook-next-agent)
+          (should (equal (overlook-item-at-point) (cons 'agent alpha)))
+          (overlook-previous-agent)
+          (should (equal (overlook-item-at-point) (cons 'agent beta)))
+          (should (= (line-number-at-pos) (overlook-test--line-of "beta"))))
+      (mapc #'kill-buffer (list alpha beta)))))
+
 (ert-deftest overlook-agent-choices-sit-under-the-row-and-take-keys ()
   (let* ((agent (overlook-test--agent "claude"))
          (asked t)

@@ -167,8 +167,6 @@ Add one with `overlook-add-hint'; the section is left out while empty.")
                  ("C-k" . magit-section-backward-sibling)
                  ("C-h" . magit-section-up)
                  ("C-l" . magit-section-forward)
-                 ("C-S-j" . overlook-next-attention)
-                 ("C-S-k" . overlook-previous-attention)
                  ("] a" . overlook-next-attention)
                  ("[ a" . overlook-previous-attention)
                  ("q" . overlook)))
@@ -581,8 +579,12 @@ quitting, leaves them there."
 
 (defun overlook--step (forward property what)
   "Move to the next line starting with PROPERTY, wrapping.
+PROPERTY can also be a function of a line's start telling it is one.
 FORWARD picks the direction; WHAT names those lines when there is none."
   (let ((start (line-beginning-position))
+        (stop-p (if (functionp property)
+                    property
+                  (lambda (pos) (get-text-property pos property))))
         (pos nil))
     (save-excursion
       (catch 'found
@@ -591,11 +593,11 @@ FORWARD picks the direction; WHAT names those lines when there is none."
               (when (or (/= 0 (forward-line 1)) (eobp)) (goto-char (point-min)))
             (when (/= 0 (forward-line -1)) (goto-char (point-max)) (forward-line -1)))
           (when (= (point) start) (throw 'found nil))
-          (when (and (get-text-property (point) property) (not (invisible-p (point))))
+          (when (and (funcall stop-p (point)) (not (invisible-p (point))))
             (throw 'found (setq pos (point)))))))
     (if pos
         (goto-char pos)
-      (message "No %s%s" (if (get-text-property start property) "other " "") what))))
+      (message "No %s%s" (if (funcall stop-p start) "other " "") what))))
 
 (defun overlook-next-heading ()
   "Move to the next heading."

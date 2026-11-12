@@ -150,7 +150,8 @@ returning updates it. New projects append and closed projects disappear.
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous row at the same level, as Magit's `M-n` / `M-p` do |
 | `C-h` / `C-l` | up to the parent row / on into the next row, the first child of an unfolded one, as Magit's `^` / `n` do |
-| `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
+| `C-S-j` / `C-S-k` | next / previous agent |
+| `] a` / `[ a` | next / previous agent needing you |
 | `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a project with its agents unless it has uncommitted changes |
 | `H` | hand the agent's task off to another agent |
 | `w` | start an agent in a new worktree of the row's project, as `overlook-agent-worktree` does; on a task row a function of `overlook-agent-worktree-task-functions` knows, offer its branch name and leave the task unsent at the agent's prompt |
