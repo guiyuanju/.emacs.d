@@ -43,6 +43,8 @@
 (declare-function overlook-agent-forget-project "overlook-agent")
 (declare-function overlook-agent-draft-command "overlook-agent")
 (declare-function overlook-agent-reference "overlook-agent")
+(declare-function overlook-worktree-list "overlook-worktree")
+(declare-function overlook-worktree-path "overlook-worktree")
 (declare-function overlook-courier-hand-off "overlook-courier")
 (declare-function overlook-project-heading "overlook")
 (declare-function overlook-refresh "overlook")
@@ -900,13 +902,21 @@ opened from the repository's Magit status buffer, where its suffixes run."
 Without one, the project's root when inside its folder or root: a project
 in `iuiw-workspace-project-roots' has its root there.  Outside any
 project, return the version-control root."
-  (or (when-let* ((name (overlook-current-project)))
-        (overlook-project-root name))
+  (or (when-let* ((name (overlook-current-project))
+                   (root (overlook-project-root name)))
+        (or (iuiw-workspace--worktree-of root) root))
       (if-let* ((folder (iuiw-workspace-project-root)))
           (or (iuiw-workspace--root (iuiw-workspace--file-id folder)) folder)
         (if-let* ((id (iuiw-workspace--root-id)))
             (iuiw-workspace--root id)
           (overlook-agent-project-root)))))
+
+(defun iuiw-workspace--worktree-of (root)
+  "The worktree of project ROOT holding `default-directory', or nil."
+  (and (fboundp 'overlook-worktree-list)
+       (seq-find (lambda (path) (file-in-directory-p default-directory path))
+                 (mapcar (lambda (name) (overlook-worktree-path root name))
+                         (overlook-worktree-list root)))))
 
 (defun iuiw-workspace-overlook-root (name)
   "Root of project NAME: the root or project folder of that id, else a guess."
@@ -1099,6 +1109,55 @@ The item is lines LINE to LAST of FILE."
       (forward-line (1+ (- last line)))
       (concat "实现这条 todo：\n"
               (overlook-agent-reference (file-relative-name file root) beg (point))))))
+
+(defun iuiw-workspace--todo-last (file line)
+  "The last line of the item on LINE of FILE, with its subitems."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (let ((indent (current-indentation))
+          (last line))
+      (forward-line 1)
+      (while (and (not (eobp)) (looking-at-p "[ \t]*[^ \t\n]") (> (current-indentation) indent))
+        (setq last (1+ last))
+        (forward-line 1))
+      last)))
+
+(defun iuiw-workspace--branch-name (text)
+  "A branch name from the first English words of todo TEXT, or nil."
+  (when-let* ((words (split-string (downcase (iuiw-workspace--todo-text text)) "[^a-z0-9]+" t)))
+    (string-join (seq-take words 5) "-")))
+
+(defun iuiw-workspace--note-branch (file line text branch)
+  "Note BRANCH as the first subitem of item TEXT on LINE of FILE, and save FILE."
+  (with-current-buffer (find-file-noselect file t)
+    (when (buffer-modified-p)
+      (user-error "%s has unsaved changes" (buffer-name)))
+    (unless (verify-visited-file-modtime (current-buffer))
+      (user-error "%s changed on disk" (buffer-name)))
+    (save-excursion
+      (goto-char (point-min))
+      (forward-line (1- line))
+      (unless (looking-at (concat " *- \\(\\[ \\] \\)?" (regexp-quote text) "$"))
+        (user-error "%s changed since the dashboard read it" (buffer-name)))
+      (let ((note (format "%s  - 分支 `%s`" (make-string (current-indentation) ?\s) branch)))
+        (unless (save-excursion (forward-line 1) (looking-at-p (concat (regexp-quote note) "$")))
+          (end-of-line)
+          (insert "\n" note)
+          (save-buffer)))))
+  (overlook-refresh))
+
+(defun iuiw-workspace-worktree-task (item)
+  "The task of todo row ITEM, for `overlook-agent-worktree-task-functions'."
+  (pcase item
+    (`(todo ,file ,line ,text . ,_)
+     (list :project (iuiw-workspace--file-id file)
+           :branch (iuiw-workspace--branch-name text)
+           :prompt (lambda (root)
+                     (iuiw-workspace--todo-prompt file line (iuiw-workspace--todo-last file line)
+                                                  text root))
+           :started (lambda (branch) (iuiw-workspace--note-branch file line text branch))))))
 
 (defun iuiw-workspace--item-rows (items file project mark &optional draft identities)
   "Rows of ITEMS of FILE, each led by MARK of its text.
