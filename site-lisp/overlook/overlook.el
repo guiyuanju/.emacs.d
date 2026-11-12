@@ -175,10 +175,10 @@ Add one with `overlook-add-hint'; the section is left out while empty.")
 (define-derived-mode overlook-mode magit-section-mode "Overlook"
   "Dashboard over projects and what lives in them."
   (setq-local revert-buffer-function (lambda (&rest _) (overlook--render))
-              truncate-lines nil
-              truncate-partial-width-windows nil
-              word-wrap t
-              word-wrap-by-category t
+              truncate-lines t
+              ;; Cut and wrapped lines leave the fringe blank.
+              fringe-indicator-alist (append '((truncation nil nil) (continuation nil nil))
+                                             fringe-indicator-alist)
               left-margin-width 1
               right-margin-width 1
               mode-line-format '(:eval (overlook--mode-line))
@@ -391,12 +391,14 @@ Lines below start where the first piece did, and leave a column at the end."
   "The line under ROW offering its answers, after PREFIX, or an empty string."
   (if-let* ((choices (overlook-row-choices row)))
       (concat prefix
-              (mapconcat (pcase-lambda (`(,key ,label . ,_))
-                           (propertize (concat (propertize key 'face 'help-key-binding) " "
-                                               (overlook-truncate label 40))
-                                       'overlook-choice key
-                                       'mouse-face 'highlight))
-                         choices "  ")
+              (overlook--wrap
+               (mapcar (pcase-lambda (`(,key ,label . ,_))
+                         (propertize (concat (propertize key 'face 'help-key-binding) " "
+                                             (overlook-truncate label 40))
+                                     'overlook-choice key
+                                     'mouse-face 'highlight))
+                       choices)
+               "  " prefix)
               "\n")
     ""))
 
