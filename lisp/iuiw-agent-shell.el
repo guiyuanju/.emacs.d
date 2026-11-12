@@ -12,6 +12,7 @@
 (declare-function overlook-agent-project "overlook-agent")
 (declare-function overlook-agent-show "overlook-agent")
 (declare-function overlook-current-project "overlook")
+(declare-function overlook-agent-worktree-command "overlook-agent-worktree" (name))
 (declare-function iuiw-assistant-shell-p "iuiw-assistant")
 (declare-function modus-themes-get-color-value "modus-themes")
 
@@ -37,6 +38,26 @@ and startup behavior."
     (if buffer
         (overlook-agent-show buffer)
       (agent-shell arg))))
+
+(defun iuiw-agent-shell--worktree (name)
+  "Read a branch and start agent NAME in that worktree of the current project."
+  (require 'overlook-agent-worktree)
+  (call-interactively (overlook-agent-worktree-command name)))
+
+(defun iuiw-agent-shell-claude ()
+  "Start Claude in a worktree of the current project, read a branch first."
+  (interactive)
+  (iuiw-agent-shell--worktree "claude"))
+
+(defun iuiw-agent-shell-codex ()
+  "Start Codex in a worktree of the current project, read a branch first."
+  (interactive)
+  (iuiw-agent-shell--worktree "codex"))
+
+(defun iuiw-agent-shell-pi ()
+  "Start Pi in a worktree of the current project, read a branch first."
+  (interactive)
+  (iuiw-agent-shell--worktree "pi"))
 
 (defcustom iuiw-agent-shell-header-separator "·"
   "Glyph separating fields in the agent-shell header line.

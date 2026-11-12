@@ -516,10 +516,10 @@
     "aa" '(iuiw-agent-shell-toggle :which-key "agent toggle")
     "aA" '(agent-shell-new-shell :which-key "start agent")
     "aw" '(overlook-agent-worktree :which-key "agent in worktree")
-    "ac" '(agent-shell-anthropic-start-claude-code :which-key "Claude Code")
+    "ac" '(iuiw-agent-shell-claude :which-key "Claude Code")
     "aC" '(overlook-agent-shell-claude-switch-account :which-key "Claude account")
-    "ax" '(agent-shell-openai-start-codex :which-key "Codex")
-    "ai" '(agent-shell-pi-start-agent :which-key "Pi agent")
+    "ax" '(iuiw-agent-shell-codex :which-key "Codex")
+    "ai" '(iuiw-agent-shell-pi :which-key "Pi agent")
     "al" '(overlook-agent-switch :which-key "list agents")
     "ad" '(overlook :which-key "dashboard")
     "ar" '(overlook-agent-resume-toggle :which-key "continue after quota reset")
@@ -1197,7 +1197,7 @@
 (use-package iuiw-agent-shell
   :ensure nil
   :after agent-shell
-  :commands iuiw-agent-shell-toggle
+  :commands (iuiw-agent-shell-toggle iuiw-agent-shell-claude iuiw-agent-shell-codex iuiw-agent-shell-pi)
   :demand t
   :autoload iuiw-agent-shell-dot-subdir)
 
@@ -1346,6 +1346,7 @@
   (require 'overlook-agent-worktree)
   (add-hook 'overlook-agent-worktree-task-functions #'iuiw-workspace-worktree-task)
   (overlook-add-hint "SPC a w" "agent in a new worktree of this project")
+  (overlook-add-hint "SPC a c/x/i" "Claude / Codex / Pi in a new worktree of this project")
   (overlook-tabspaces-mode 1)
   (overlook-repo-mode 1)
   (add-hook 'overlook-projects-mark-functions #'iuiw-workspace-overlook-mark)
