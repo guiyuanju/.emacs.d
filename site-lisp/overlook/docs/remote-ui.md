@@ -6,7 +6,7 @@ navigation state belong to the browser.
 
 ## Dashboard and project pages
 
-Projects and personas appear before usage. Project siblings use a stable name
+Usage appears before projects and personas. Project siblings use a stable name
 order; other domain ordering is preserved. An attention shortcut collects real
 waiting/failed/attention conversations without moving the surrounding lists.
 
@@ -20,8 +20,10 @@ Long detail lists initially show six entries and retain their disclosure state.
 Task dates distinguish today and overdue dates. Completion remains a server
 command and shows a busy state while pending.
 
-Usage accounts show compact consumed percentages. Expand an account to see
-separate windows, reset times and advertised account actions. A successful
+Usage accounts show inline rings and consumed percentages for each window,
+with all windows on one row. Reset times show only the remaining duration,
+without a date or reset icon. Account actions are available beside the account
+heading; usage has no disclosure or duplicated detail view. A successful
 remote sync does not prove the underlying provider usage data is fresh.
 
 Persona overview rows show a stable colored avatar, identity, status and

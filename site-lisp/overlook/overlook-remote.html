@@ -142,20 +142,15 @@
   .remote-item > .more { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0; border-radius: 22px; background: transparent; color: var(--accent); font-size: 25px; line-height: 1; z-index: 2; }
   .remote-item > .more:active { background: var(--soft); }
   .remote-item > .choices { padding: 0 16px 16px; margin: 0; }
-  .usage-row .item-inner { padding-top: 20px !important; padding-bottom: 22px !important; }
-  .usage-account { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 17px; font-weight: 600; }
-  .usage-account-name { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 400; color: var(--dim); }
-  .usage-account .icon { width: 24px; height: 24px; }
-  .usage-windows { display: grid; gap: 20px; }
-  .usage-window { min-width: 0; }
-  .usage-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+  .usage-account { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 12px; font-size: 15px; font-weight: 600; line-height: 20px; }
+  .usage-account .icon { width: 20px; height: 20px; flex: none; }
+  .usage-account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--dim); }
   .usage-label { color: var(--dim); }
   .usage-value { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .usage-reset { display: block; margin-top: 6px; color: var(--dim); font-size: 12px; }
-  .usage-window .progressbar { height: 6px; border-radius: 3px; --f7-progressbar-bg-color: var(--soft); --f7-progressbar-progress-color: var(--accent); }
-  .usage-window.warning .progressbar { --f7-progressbar-progress-color: var(--working); }
+  .usage-reset { min-width: 0; margin-left: auto; color: var(--dim); font-size: 12px; line-height: 18px; white-space: nowrap; }
+  .usage-ring { display: inline-block; width: 16px; height: 16px; flex: none; border-radius: 50%; background: conic-gradient(var(--accent) var(--usage-progress), var(--soft) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0); }
+  .warning .usage-ring { background: conic-gradient(var(--working) var(--usage-progress), var(--soft) 0); }
   .usage-window.warning .usage-value { color: var(--working); }
-  .usage-window .progressbar span { border-radius: inherit; }
   .sync-footer { margin: 28px 24px 0; text-align: center; color: var(--dim); font-size: 12px; line-height: 18px; }
   :is(#connection,[data-snapshot-id="connection"]) { flex: none; margin: 8px 20px; padding: 14px 16px; border-radius: 12px; background: var(--wait-bg); font-size: 15px; line-height: 1.4; }
   :is(#connection,[data-snapshot-id="connection"]) .button { display: inline-flex; width: auto; margin: 10px 10px 0 0; }
@@ -346,19 +341,11 @@
   .attention-detail { display: block; margin-top: 5px; color: var(--dim); font-size: 13px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .attention-number { flex: none; display: grid; place-items: center; min-width: 30px; height: 30px; padding: 0 7px; box-sizing: border-box; border-radius: 15px; background: var(--wait-bg); color: var(--waiting); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .dashboard-attention > .dashboard-section { margin: 10px 0 0; }
-  .usage-disclosure { padding: 0; }
-  .usage-summary { position: relative; display: block; padding: 16px 38px 16px 16px; cursor: pointer; list-style: none; }
-  .usage-summary::-webkit-details-marker { display: none; }
-  .usage-summary::after { position: absolute; right: 17px; top: 24px; width: 6px; height: 6px; border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim); content: ""; transform: rotate(45deg); transition: transform .18s ease; }
-  .usage-disclosure[open] > .usage-summary::after { transform: rotate(225deg); }
-  .usage-summary .usage-account { display: flex; gap: 8px; margin: 0 0 8px; font-size: 15px; line-height: 20px; }
-  .usage-summary .usage-account .icon { width: 20px; height: 20px; flex: none; }
-  .usage-summary .usage-account > span:not(.usage-account-name) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .usage-summary .usage-account-name { margin-left: auto; font-size: 12px; }
-  .usage-summary-values { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; line-height: 18px; }
-  .usage-summary-value { display: inline-flex; gap: 7px; }
-  .usage-summary-value.warning .usage-value { color: var(--working); }
-  .usage-disclosure > .usage-windows { padding: 8px 16px 20px; gap: 20px; }
+  .usage-content { padding: 16px; }
+  .usage-windows { display: flex; align-items: center; gap: 16px; overflow-x: auto; }
+  .usage-window { display: inline-flex; flex: none; align-items: center; gap: 6px; white-space: nowrap; }
+  .usage-caption { display: flex; flex: none; align-items: center; gap: 7px; font-size: 13px; line-height: 18px; }
+  .usage-account-actions { margin-left: auto; flex: none; border: 0; padding: 0 4px; min-width: 32px; min-height: 32px; background: transparent; color: var(--accent); font: inherit; font-size: 20px; }
   .task-due.overdue { color: var(--failed); }
   .task-check[aria-busy="true"] { opacity: .45; }
   .file-row .row-subtitle { white-space: normal; overflow-wrap: anywhere; }
@@ -1448,7 +1435,6 @@ function nodeActions(box, node) {
 }
 
 const dashboardDisclosures = new Map();
-const usageDisclosures = new Map();
 function rememberDashboardDisclosure(store, key, value) {
   if (!store.has(key) && store.size >= 256) store.delete(store.keys().next().value);
   store.set(key, value);
@@ -1493,7 +1479,7 @@ function dashboardPersonaSection(section) {
 function dashboardSectionRank(section) {
   if (dashboardNodes([section], node => node.kind === "project").length) return 0;
   if (dashboardPersonaSection(section)) return 1;
-  if (dashboardNodes([section], node => node.kind === "usage").length) return 3;
+  if (dashboardNodes([section], node => node.kind === "usage").length) return -1;
   return 2;
 }
 function dashboardAttention(sections) {
@@ -1548,61 +1534,52 @@ function dashboardDue(value, now = new Date()) {
   return {label: "Due " + value, overdue: false};
 }
 function usageInto(container, node) {
-  const key = node.resourceId || node.id;
-  const details = el("details", "usage-disclosure");
-  details.open = !!usageDisclosures.get(key);
-  const summary = el("summary", "usage-summary");
-  const heading = el("span", "usage-account");
+  const content = el("div", "usage-content");
+  const heading = el("div", "usage-account");
   const provider = node.provider || node.title || "Usage";
   heading.append(icon(provider), el("span", "", provider[0].toUpperCase() + provider.slice(1)));
   if (node.account) heading.append(el("span", "usage-account-name", node.account));
-  const values = el("span", "usage-summary-values");
-  values.append(el("span", "usage-label", "Used"));
-  for (const item of node.windows || []) {
-    const label = el("span", "usage-summary-value" + (typeof item.value === "number" && item.value >= 80 ? " warning" : ""));
-    label.append(el("span", "usage-label", item.label),
-      el("span", "usage-value", typeof item.value === "number" ? `${Math.floor(item.value)}%` : item.value));
-    values.append(label);
+  if (node.commands?.length) {
+    const actions = el("button", "usage-account-actions", "⋯");
+    actions.type = "button";
+    actions.setAttribute("aria-label", "Account actions");
+    actions.onclick = () => nodeActions(container.closest("li") || container, node);
+    heading.append(actions);
   }
-  summary.append(heading, values);
-  details.append(summary);
   const windows = el("div", "usage-windows");
   for (const item of node.windows || []) {
-    const window = el("div", "usage-window");
+    const numeric = typeof item.value === "number" && Number.isFinite(item.value);
+    const window = el("div", "usage-window" + (numeric && item.value >= 80 ? " warning" : ""));
     const caption = el("div", "usage-caption");
-    const label = ({"5h": "5 hours", "7d": "7 days"})[item.label] || item.label;
-    caption.append(el("span", "usage-label", label),
-      el("span", "usage-value", typeof item.value === "number" ? `${Math.floor(item.value)}%` : item.value));
-    window.append(caption);
-    if (typeof item.value === "number") {
-      const progress = el("div", "progressbar");
-      progress.setAttribute("role", "progressbar");
-      progress.setAttribute("aria-label", item.label + " usage");
-      progress.setAttribute("aria-valuemin", "0");
-      progress.setAttribute("aria-valuemax", "100");
-      progress.setAttribute("aria-valuenow", item.value);
-      const fill = el("span");
-      fill.style.transform = `translate3d(${Math.min(100, Math.max(0, item.value)) - 100}%,0,0)`;
-      progress.append(fill);
-      if (item.value >= 80) window.classList.add("warning");
-      window.append(progress);
+    if (numeric) {
+      const ring = el("span", "usage-ring");
+      ring.setAttribute("role", "progressbar");
+      ring.setAttribute("aria-label", item.label + " used");
+      ring.setAttribute("aria-valuemin", "0");
+      ring.setAttribute("aria-valuemax", "100");
+      ring.setAttribute("aria-valuenow", Math.min(100, Math.max(0, item.value)));
+      ring.style.setProperty("--usage-progress", `${Math.min(100, Math.max(0, item.value))}%`);
+      caption.append(ring);
     }
+    caption.append(el("span", "usage-label", item.label),
+      el("span", "usage-value", numeric ? `${Math.floor(item.value)}%` : (item.value || "—")));
+    caption.setAttribute("aria-label", `${item.label}: ${numeric ? Math.floor(item.value) + "% used" : (item.value || "unavailable")}`);
+    window.append(caption);
     if (item.reset) {
-      const reset = typeof item.reset === "number" ? new Date(item.reset * 1000).toLocaleString([], {
-        weekday: "short", hour: "numeric", minute: "2-digit" }) : item.reset;
-      window.append(el("span", "usage-reset", "Reset · " + reset));
+      let reset = item.reset;
+      if (typeof reset === "number") {
+        const minutes = Math.max(0, Math.ceil((reset * 1000 - Date.now()) / 60000));
+        const days = Math.floor(minutes / 1440);
+        const hours = Math.floor(minutes % 1440 / 60);
+        const rest = minutes % 60;
+        reset = days ? `${days}d ${hours}h` : hours ? `${hours}h ${rest}m` : `${rest}m`;
+      }
+      window.append(el("span", "usage-reset", reset));
     }
     windows.append(window);
   }
-  details.append(windows);
-  if (node.commands?.length) {
-    const actions = el("button", "usage-actions", "Account actions");
-    actions.type = "button";
-    actions.onclick = () => nodeActions(container.closest("li") || container, node);
-    details.append(actions);
-  }
-  details.ontoggle = () => rememberDashboardDisclosure(usageDisclosures, key, details.open);
-  container.append(details);
+  content.append(heading, windows);
+  container.append(content);
 }
 
 function personaMenu(row, box, node) {
