@@ -99,6 +99,7 @@ whoever asked for the work.  `--worktree` goes with `--handoff` too.
 ```sh
 courier worktree list .
 courier worktree add . fix-login           # without starting an agent
+courier worktree add --from origin/main . fix-login   # branch from origin/main
 courier worktree remove . fix-login        # keeps the branch; --force first drops uncommitted changes
 ```
 

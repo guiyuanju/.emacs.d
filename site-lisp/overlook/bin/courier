@@ -10,7 +10,8 @@
 #   courier whoami                 print your own id
 #   courier persona list           list the personas: lasting identities with a memory
 #   courier persona start NAME [DIR [TASK]]  start persona NAME (--engine E --effort L first)
-#   courier worktree list DIR      list the worktrees of project DIR; worktree add DIR BRANCH
+#   courier worktree list DIR      list the worktrees of project DIR
+#   courier worktree add DIR BRANCH  make one (--from START first: branch from START, not HEAD)
 #   courier worktree remove DIR BRANCH  remove one, keeping the branch (--force first: even if dirty)
 #   courier skill [NAME]           print the guide to courier for agents, or skill courier-NAME
 # Who you are comes from $COURIER_ID; the Emacs server from $COURIER_SOCKET.

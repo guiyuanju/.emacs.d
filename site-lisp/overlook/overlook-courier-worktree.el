@@ -51,8 +51,9 @@ commit your work there, and leave the main checkout alone."
 (defun overlook-courier-worktree-cli (args)
   "Run the worktree command ARGS and return its output."
   (pcase args
-    (`("add" ,dir ,branch)
-     (format "Worktree for %s at %s." branch (abbreviate-file-name (overlook-worktree-add dir branch))))
+    ((or `("add" ,dir ,branch) `("add" "--from" ,start ,dir ,branch))
+     (format "Worktree for %s at %s." branch
+             (abbreviate-file-name (overlook-worktree-add dir branch start))))
     ((or `("remove" ,dir ,branch) `("remove" "--force" ,dir ,branch))
      (overlook-worktree-remove dir branch (equal (cadr args) "--force"))
      (format "Removed the worktree of %s; the branch is kept." branch))
@@ -61,7 +62,7 @@ commit your work there, and leave the main checkout alone."
                       (format "%s  %s" name (abbreviate-file-name (overlook-worktree-path dir name))))
                     (overlook-worktree-list dir) "\n")
          "No worktrees."))
-    (_ (user-error "Usage: courier worktree add DIR BRANCH | remove [--force] DIR BRANCH | list DIR"))))
+    (_ (user-error "Usage: courier worktree add [--from START] DIR BRANCH | remove [--force] DIR BRANCH | list DIR"))))
 
 (provide 'overlook-courier-worktree)
 ;;; overlook-courier-worktree.el ends here

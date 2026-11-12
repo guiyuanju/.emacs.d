@@ -41,7 +41,9 @@ courier spawn --effort high claude ~/repo 'Find why the build fails.'
 Give the child an exact scope: which files, read-only or not, what to
 report.  When it will edit files while others work in the same project,
 give it a checkout of its own with `--worktree BRANCH`: it starts in
-`DIR/.worktrees/BRANCH` on that branch, made from the current commit.
+`DIR/.worktrees/BRANCH` on that branch, made from the current commit
+(`courier worktree add --from origin/main DIR BRANCH` first to start
+elsewhere).
 Merge or review the branch afterwards, then clean up:
 
 ```sh
