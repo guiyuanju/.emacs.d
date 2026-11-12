@@ -1183,8 +1183,7 @@ switches to PROJECT first when it is non-nil.  DRAFT, if any, is what
                :id (list 'todo file line (substring-no-properties text)
                          (and before (substring-no-properties before)) occurrence)
                :content (list indent (funcall mark text)
-                              (list :fit (concat before (iuiw-workspace--todo-display text))
-                                    :before " "))
+                              " " (concat before (iuiw-workspace--todo-display text)))
                :action (iuiw-workspace--todo-visit project file line)
                :commands (delq nil
                                (list (and draft
