@@ -1856,3 +1856,9 @@ Agents are listed; usage and repos are not."
           (should (equal started (list "codex" root))))
       (when agent (kill-buffer agent))
       (delete-directory root t))))
+
+(ert-deftest overlook-agent-reference-quotes-lines ()
+  (with-temp-buffer
+    (insert "one\ntwo\nthree\n")
+    (should (equal (overlook-agent-reference "f.md" 5 9) "f.md:2\n```\ntwo\n```\n"))
+    (should (equal (overlook-agent-reference "f.md" 1 9) "f.md:1-2\n```\none\ntwo\n```\n"))))

@@ -91,9 +91,11 @@
 
 (defun overlook-agent-reference (path beg end)
   "The current buffer from BEG to END quoted as lines of PATH, for an agent."
-  (format "%s:%d-%d\n```\n%s\n```\n" path
-          (line-number-at-pos beg) (line-number-at-pos (max beg (1- end)))
-          (buffer-substring-no-properties beg end)))
+  (let ((first (line-number-at-pos beg))
+        (last (line-number-at-pos (max beg (1- end)))))
+    (format "%s:%s\n```\n%s\n```\n" path
+            (if (= first last) first (format "%d-%d" first last))
+            (string-trim-right (buffer-substring-no-properties beg end) "\n+"))))
 
 ;;;###autoload
 (defun overlook-agent-send (&optional beg end)
