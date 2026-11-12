@@ -504,6 +504,9 @@
     "TAB s"   '(iuiw-workspace-sync :which-key "sync workspace & emacs")
     "TAB p"   '(iuiw-workspace-visit-project-md :which-key "project.md")
     "TAB w"   '(iuiw-workspace-cycle-filter :which-key "filter workspace")
+    "TAB j"   '(:ignore t :which-key "jira")
+    "TAB j j" '(iuiw-jira-browse :which-key "open ticket")
+    "TAB j a" '(iuiw-jira-add-ticket :which-key "add ticket")
     "TAB ["   '(tab-bar-switch-to-prev-tab :which-key "previous")
     "TAB ]"   '(tab-bar-switch-to-next-tab :which-key "next")
     "TAB `"   '(tab-bar-switch-to-recent-tab :which-key "last")
@@ -800,6 +803,12 @@
 (use-package iuiw-gitlab
   :ensure nil
   :commands iuiw-browse-mr)
+
+(use-package iuiw-jira
+  :ensure nil
+  :after iuiw-workspace
+  :config
+  (iuiw-jira-dashboard-mode 1))
 
 ;;; Files and Git
 
