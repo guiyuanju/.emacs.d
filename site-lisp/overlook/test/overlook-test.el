@@ -7,6 +7,7 @@
 (require 'overlook-markers)
 (require 'overlook-usage)
 (require 'overlook-agent-courier)
+(require 'overlook-agent-worktree)
 
 (defvar overlook-test--projects nil
   "Alist of project name to its buffers, for the fake backend.")
@@ -1703,3 +1704,125 @@ Agents are listed; usage and repos are not."
     (should (equal (overlook-sort-projects '("d" "c" "b" "a")) '("a" "b" "c" "d")))
     (dolist (name '("a" "b" "c" "d"))
       (should (= (gethash name calls) 1)))))
+
+;; Agents to start are offered with the preferred ones first, the first by default.
+(ert-deftest overlook-agent-names-put-preferred-first ()
+  (let ((overlook-agent-preferred-names '("claude" "codex" "pi"))
+        (overlook-agent-names-function (lambda () '("gemini" "pi" "claude" "x")))
+        offered)
+    (should (equal (overlook-agent-names) '("claude" "pi" "gemini" "x")))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt table &rest args)
+                 (setq offered (list (funcall table "" nil 'metadata)
+                                     (all-completions "" table)))
+                 (nth 4 args))))
+      (should (equal (overlook-agent-read-name) "claude"))
+      (should (equal (alist-get 'display-sort-function (cdar offered)) 'identity))
+      (should (equal (cadr offered) '("claude" "pi" "gemini" "x"))))))
+
+(defun overlook-test--git-project ()
+  "A temp repo with one commit on main, as a directory name."
+  (let ((root (file-name-as-directory (file-truename (make-temp-file "overlook-wt" t)))))
+    (let ((default-directory root))
+      (call-process "git" nil nil nil "init" "-q" "-b" "main")
+      (call-process "git" nil nil nil "-c" "user.name=t" "-c" "user.email=t@t"
+                    "commit" "-q" "--allow-empty" "-m" "start"))
+    root))
+
+;; `w' on a task row starts the agent in a new worktree, its task left unsent.
+(ert-deftest overlook-agent-worktree-starts-a-task-in-a-worktree ()
+  (let* ((root (overlook-test--git-project))
+         (overlook-worktree-setup-functions nil)
+         (inserted nil) (started nil) (noted nil) (agent nil)
+         (overlook-agent-start-function
+          (lambda (name dir &rest _)
+            (setq started (list name dir overlook-agent-starting-project))
+            (setq agent (overlook-test--agent name))
+            (with-current-buffer agent
+              (setf (alist-get 'insert overlook-agent-identity)
+                    (lambda (text) (setq inserted text))))
+            agent))
+         (overlook-agent-worktree-task-functions
+          (list (lambda (item)
+                  (pcase item
+                    (`(todo . ,_)
+                     (list :project "two" :branch "fix-it"
+                           :prompt (lambda (dir) (concat "do it in " dir))
+                           :started (lambda (branch) (setq noted branch)))))))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-item-at-point) (lambda () '(todo "x")))
+                  ((symbol-function 'overlook-project-root) (lambda (_) root))
+                  ((symbol-function 'overlook-ensure-project) #'ignore)
+                  ((symbol-function 'overlook-show-elsewhere) #'ignore)
+                  ((symbol-function 'overlook-agent-read-name) (lambda () "codex"))
+                  ((symbol-function 'completing-read)
+                   (lambda (_prompt _table _pred _require initial &rest _) initial)))
+          (overlook-agent-worktree-at-point)
+          (let ((tree (overlook-worktree-path root "fix-it")))
+            (should (equal started (list "codex" tree "two")))
+            (should (equal inserted (concat "do it in " tree)))
+            (should (equal noted "fix-it"))
+            (should (equal (overlook-worktree-branch tree) "fix-it"))))
+      (when agent (kill-buffer agent))
+      (delete-directory root t))))
+
+;; `a' starts another agent in the worktree of the row, else in the project's root.
+(ert-deftest overlook-agent-worktree-adds-an-agent-to-the-row-checkout ()
+  (let* ((root (overlook-test--git-project))
+         (overlook-worktree-setup-functions nil)
+         (tree (overlook-worktree-add root "fix"))
+         (roots nil) (agents nil)
+         (items nil)
+         (overlook-agent-start-function
+          (lambda (name dir &rest _)
+            (push dir roots)
+            (car (push (overlook-test--agent name) agents)))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-agent-worktree--items) (lambda () items))
+                  ((symbol-function 'overlook-project-root) (lambda (_) root))
+                  ((symbol-function 'overlook-ensure-project) #'ignore)
+                  ((symbol-function 'overlook-show-elsewhere) #'ignore)
+                  ((symbol-function 'overlook-agent-read-name) (lambda () "claude")))
+          (setq items (list (cons 'repo (concat tree "sub/")) (cons 'worktree tree)
+                            (cons 'project "one")))
+          (overlook-agent-worktree-agent-at-point)
+          (setq items (list (cons 'repo root) (cons 'project "one")))
+          (overlook-agent-worktree-agent-at-point)
+          (should (equal roots (list root tree)))
+          (setq items nil)
+          (should-error (overlook-agent-worktree-agent-at-point) :type 'user-error))
+      (mapc #'kill-buffer agents)
+      (delete-directory root t))))
+
+;; The Keys section lists the hints in order, keys aligned; none leaves it out.
+(ert-deftest overlook-hints-section-lists-keys ()
+  (let ((overlook-hints nil))
+    (should-not (overlook--hints-section))
+    (overlook-add-hint "w" "one")
+    (overlook-add-hint "SPC a w" "two")
+    (overlook-add-hint "w" "three")
+    (should (equal overlook-hints '(("w" . "three") ("SPC a w" . "two"))))
+    (let ((section (overlook--hints-section)))
+      (should (equal (mapcar #'overlook-row-id (overlook-row-children section))
+                     '((hint . "w") (hint . "SPC a w"))))
+      (should (equal (plist-get (car (overlook-row-content (car (overlook-row-children section))))
+                                :like)
+                     '("w" "SPC a w"))))))
+
+;; Picking the branch of the main checkout starts the agent there, making no worktree.
+(ert-deftest overlook-agent-worktree-starts-in-main-for-its-branch ()
+  (let* ((root (overlook-test--git-project))
+         (started nil) (agent nil)
+         (overlook-agent-start-function
+          (lambda (_name dir &rest _) (setq started dir) (setq agent (overlook-test--agent "c")))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-ensure-project) #'ignore)
+                  ((symbol-function 'overlook-show-elsewhere) #'ignore)
+                  ((symbol-function 'completing-read)
+                   (lambda (_prompt table &rest _) (should (member "main" table)) "main")))
+          (overlook-agent-worktree-start
+           "one" root (overlook-agent-worktree-read-branch root) "claude")
+          (should (equal started root))
+          (should-not (overlook-worktree-list root)))
+      (when agent (kill-buffer agent))
+      (delete-directory root t))))

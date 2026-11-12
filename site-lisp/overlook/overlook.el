@@ -133,6 +133,31 @@ The binding is recorded in `overlook-keys'."
   (keymap-set overlook-mode-map key command)
   (setf (alist-get key overlook-keys nil nil #'equal) command))
 
+(defvar overlook-hints nil
+  "Keys the Keys section, last on the dashboard, reminds of, as (KEY . WHAT).
+Add one with `overlook-add-hint'; the section is left out while empty.")
+
+(defun overlook-add-hint (key what)
+  "Remind of KEY, a string as typed, doing WHAT in the Keys section."
+  (if-let* ((hint (assoc key overlook-hints)))
+      (setcdr hint what)
+    (setq overlook-hints (append overlook-hints (list (cons key what))))))
+
+(defun overlook--hints-section ()
+  "The Keys section, listing `overlook-hints'."
+  (let ((keys (mapcar #'car overlook-hints)))
+    (overlook-section-row
+     "Keys"
+     (mapcar (lambda (hint)
+               (overlook-row :id (cons 'hint (car hint))
+                             :content (list (list :pad (propertize (car hint) 'face 'help-key-binding)
+                                                  :like keys)
+                                            "  "
+                                            (propertize (cdr hint) 'face 'shadow))))
+             overlook-hints))))
+
+(add-hook 'overlook-sections #'overlook--hints-section 90)
+
 (pcase-dolist (`(,key . ,command)
                '(("RET" . overlook-visit)
                  ("o" . overlook-visit)

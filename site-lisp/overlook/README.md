@@ -148,6 +148,8 @@ returning updates it. New projects append and closed projects disappear.
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a project with its agents unless it has uncommitted changes |
 | `H` | hand the agent's task off to another agent |
+| `w` | start an agent in a new worktree of the row's project, as `overlook-agent-worktree` does; on a task row a function of `overlook-agent-worktree-task-functions` knows, offer its branch name and leave the task unsent at the agent's prompt |
+| `a` | start another agent in the row's worktree, else in its project's root |
 | `e` | edit a persona |
 | `g` | redraw |
 | `q` | close |
@@ -184,6 +186,7 @@ turn on.
 | `overlook-repo` | changed repos and worktrees under each project |
 | `overlook-worktree` | Git worktree operations, independent of agents and courier |
 | `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |
+| `overlook-agent-worktree` | agents started in a worktree of their project, from the keyboard or the dashboard |
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
 | `overlook-agent-courier` | agents messaging, spawning and watching each other; personas |
@@ -401,6 +404,7 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook-agent-shell-claude-switch-account` | pick the Claude account agents started or resumed from now on run as |
 | `overlook-persona-start`, `overlook-persona-new` | start a persona, or make one |
 | `overlook-remote-mode`, `overlook-remote-url` | serve the phone page; copy its address |
+| `overlook-agent-worktree` | pick an agent in agent-shell's picker (`overlook-agent-preferred-names` first, the first preselected) and a branch, and start it in that worktree of the current project, made from the remote's default branch if missing; the branch of the main checkout starts it there instead. agent-shell then offers a past session there, as `agent-shell-session-strategy` says |
 | `overlook-worktree-create` | make a worktree of this project, branching from a ref (empty: the remote's default branch); with `C-u`, pick the project and which of its repos |
 | `overlook-worktree-delete` | remove a worktree of this project and its buffers; with `C-u`, its branch too where merged |
 
@@ -427,6 +431,9 @@ it and add it again from the address copied by `overlook-remote-url`.
   sit under the current one.
 - `overlook-markers`: the files marking a folder of several repos as one
   project.
+- `overlook-agent-preferred-names`: the agents offered first, in order,
+  when one is picked to start; the rest follow, including every
+  agent-shell agent not in `overlook-agent-shell-configs`.
 - `overlook-worktree-copied-files`: untracked files, such as `.env`,
   copied from each repo into its new worktree checkouts;
   `overlook-worktree-setup-functions` runs more setup on them.
@@ -561,6 +568,10 @@ checkouts, including folders of several repos.  It has no dashboard or
 courier dependency.  `overlook-worktree-directory` and
 `overlook-worktree-marker` configure their location and project marker.
 `overlook-courier-worktree` starts agents in them.
+`overlook-add-hint` adds a key to the Keys section, last on the
+dashboard; `overlook-hints` holds them.  `overlook-agent-worktree-task-functions` tells `w` on the dashboard the
+task a row stands for: its project, a branch name, the prompt to leave
+unsent, and what to do once the agent started.
 
 - `overlook-worktree-add DIR BRANCH &optional START REPOS`: make or
   extend the worktree and return its path.  A new branch starts at
@@ -633,6 +644,7 @@ The public entry points remain `overlook`, `overlook-agent` and
 | `overlook-agent-session` | saved sessions, resume and fork persistence | agent core |
 | `overlook-agent-view` | live and saved rows, fork trees and labels | agent core, sessions |
 | `overlook-agent` | interactive commands and tracking mode | Emacs view, agent layers |
+| `overlook-agent-worktree` | agents in project worktrees, `w` and `a` on the dashboard | agent, worktree |
 | `overlook-usage` | local quota readings, availability publisher and usage rows | data, Emacs view |
 | `overlook-usage-subscription` | asynchronous subscription queries, credential reads and backoff | usage |
 | `overlook-agent-resume` | session-bound continuation on quota recovery | agent, usage |
