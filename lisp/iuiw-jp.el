@@ -95,7 +95,7 @@ processes would contend for the repository's git index."
  :args '((:name "type" :type string :description "word, grammar or expression")
          (:name "title" :type string :description "Dictionary form of the word, or the standard form of the grammar point")
          (:name "body" :type string :description "Meaning, usage and examples, in Markdown")
-         (:name "tags" :type string :optional t :description "Comma-separated, e.g. a JLPT level like N3")
+         (:name "tags" :type string :description "Comma-separated, starting with the JLPT level N5-N1, estimated for words outside the JLPT lists")
          (:name "reading" :type string :optional t :description "Reading in kana, for words")))
 
 (defun iuiw-jp--deepseek-key ()
