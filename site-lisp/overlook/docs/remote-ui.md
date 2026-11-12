@@ -33,6 +33,7 @@ Descriptions remain visible in the conversation and its information sheet.
 
 The navigation title identifies the specific conversation; its subtitle retains
 persona/provider/status context. Tap the title to inspect conversation details.
+Context usage appears beside the session menu in the fixed header when available.
 Returning to a conversation restores its reading position; returning to a list
 restores its scroll position and focused row when that row still exists.
 
