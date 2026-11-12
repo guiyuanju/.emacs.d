@@ -637,7 +637,9 @@ such as overlook-remote follow them live; see
 Agent consumers use `overlook-agent-ready-p` and `overlook-agent-submit`
 for prompt delivery.  `overlook-agent-call` invokes an optional identity
 capability in the agent's buffer, returning nil when absent and letting
-errors propagate.  `overlook-agent-title`, `overlook-agent-brief`,
+errors propagate.  A frontend whose buffer cannot simply be renamed
+supplies a `rename` capability, used when courier names a persona's
+buffer.  `overlook-agent-title`, `overlook-agent-brief`,
 `overlook-agent-reply` and `overlook-agent-choices` provide display values.
 `overlook-agent-form` exposes a pending structured question;
 `overlook-agent-answer` submits or declines it by form ID with field values.

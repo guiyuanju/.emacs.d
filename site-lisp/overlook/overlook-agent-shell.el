@@ -687,6 +687,11 @@ Nil until they are gathered, so that an empty environment is gathered once.")
   "This shell's session title: the agent's, else its first prompt."
   (map-nested-elt agent-shell--state '(:session :title)))
 
+(defun overlook-agent-shell--rename (name)
+  "Rename this shell's buffer to NAME, keeping `shell-maker' pointed at it."
+  (rename-buffer name t)
+  (setq-local shell-maker--buffer-name-override (buffer-name)))
+
 (defun overlook-agent-shell--forked-from ()
   "Session id `agent-shell-fork' forked this shell's session from, or nil."
   (map-elt agent-shell--state :fork-session-id))
@@ -745,6 +750,7 @@ Nil until they are gathered, so that an empty environment is gathered once.")
               (context . overlook-agent-shell--context)
               (brief . overlook-agent-shell--brief)
               (title . overlook-agent-shell--title)
+              (rename . overlook-agent-shell--rename)
               (choices . overlook-agent-shell--choices)
               (form . overlook-agent-shell--form)
               (answer . overlook-agent-shell--answer)

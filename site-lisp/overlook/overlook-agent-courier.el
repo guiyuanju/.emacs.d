@@ -132,7 +132,9 @@ A persona without an agent program names its buffer itself."
                 ((overlook-courier-persona-of id))
                 (name (format "%s · %s" id (or (overlook-agent-get buffer 'agent) "agent")))
                 ((not (equal (buffer-name buffer) name))))
-      (with-current-buffer buffer (rename-buffer name t)))))
+      (if (overlook-agent-get buffer 'rename)
+          (overlook-agent-call buffer 'rename name)
+        (with-current-buffer buffer (rename-buffer name t))))))
 
 (defun overlook-agent-courier--sync ()
   "Register the agents courier does not know yet; detach and name the personas."
