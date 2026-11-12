@@ -132,7 +132,9 @@ returning updates it. New projects append and closed projects disappear.
 - **Worktrees**: while a project has some, its rows are grouped by
   checkout.  The main checkout comes first, with the agents in no worktree
   and the changed repos; then each worktree, with the agents working in
-  it and its changed files.  A worktree shows its
+  it and its changed files.  A checkout shows by the branch its repos are
+  on, or by its folder when they are on several; a repo under it names
+  its branch only where it differs, on the phone page too.  A worktree shows its
   commits ahead of (`↑N`) and behind (`↓N`) the main checkout's branch, or
   `merged`, and is dimmed when merged with nothing in it.
 - A project with no rows is left out, unless it is current or

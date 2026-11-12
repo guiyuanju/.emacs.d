@@ -461,16 +461,17 @@ it, indented."
                 :children children
                 :nest t))
 
-(defun overlook-repo--row (dir project &optional width name before marks)
+(defun overlook-repo--row (dir project &optional width name before marks parent)
   "The row of repo DIR in PROJECT, its NAME padded to WIDTH.
 BEFORE are rows under it ahead of the changed files.  MARKS go after
-its branch.  A branch named as the row is left out."
+its branch.  A branch named as the row or as PARENT, the branch of the
+row above, is left out."
   (pcase-let* ((`(,branch . ,files) (overlook-repo--status dir))
                (data (overlook-repo-data (cons 'repo dir)))
                (name (or name (plist-get data :title)))
-               (branch (and (not (equal branch name)) branch)))
+               (branch (and (not (member branch (list name parent))) branch)))
     (overlook-repo--heading
-     (concat (propertize (concat (if (and branch width) (string-pad name width) name)
+     (concat (propertize (concat (if (and width (or branch marks)) (string-pad name width) name)
                                  (if branch (concat "  " branch) ""))
                          'face 'overlook-repo-name)
              marks)
@@ -479,16 +480,22 @@ its branch.  A branch named as the row is left out."
      (lambda () (overlook-show-elsewhere project (lambda () (overlook-repo-open dir))))
      (append before (overlook-repo--file-rows dir files project)))))
 
-(defun overlook-repo--group-row (tree name project dirs before &optional marks)
-  "The row of folder TREE of PROJECT by NAME, holding repos DIRS.
+(defun overlook-repo--group-row (tree project dirs before &optional marks)
+  "The row of folder TREE of PROJECT, holding repos DIRS, by its data's title.
 Under it go the rows BEFORE, then a row of each of DIRS, its line counts
 their total; MARKS is as for `overlook-repo--repo-rows'."
-  (overlook-repo--heading
-   (propertize name 'face 'overlook-repo-name)
-   (overlook-repo--changes dirs)
-   (cons 'worktree tree)
-   (lambda () (overlook-show-elsewhere project (lambda () (dired tree))))
-   (append before (overlook-repo--repo-rows dirs project marks))))
+  (let ((data (overlook-repo-data (cons 'worktree tree))))
+    (overlook-repo--heading
+     (propertize (plist-get data :title) 'face 'overlook-repo-name)
+     (overlook-repo--changes dirs)
+     (cons 'worktree tree)
+     (lambda () (overlook-show-elsewhere project (lambda () (dired tree))))
+     (append before (overlook-repo--repo-rows dirs project marks (plist-get data :branch))))))
+
+(defun overlook-repo--branch (dirs)
+  "The branch all repos DIRS are on as last read, or nil."
+  (let ((branches (delete-dups (mapcar (lambda (dir) (car (overlook-repo--status dir))) dirs))))
+    (and (length= branches 1) (car branches))))
 
 (defun overlook-repo--folders (project)
   "Folders of PROJECT lying inside a larger repo."
@@ -503,13 +510,14 @@ their total; MARKS is as for `overlook-repo--repo-rows'."
                        (overlook-repo--folders project)))
     "*"))
 
-(defun overlook-repo--repo-rows (dirs project &optional marks)
+(defun overlook-repo--repo-rows (dirs project &optional marks parent)
   "A row of each repo or folder in DIRS in PROJECT, names aligned.
-MARKS, a function of a DIR, returns the marks after its branch."
+MARKS, a function of a DIR, returns the marks after its branch.  PARENT
+is the branch of the row above."
   (let ((width (apply #'max 0 (mapcar (lambda (dir) (string-width (overlook-repo--label dir)))
                                       dirs))))
     (mapcar (lambda (dir)
-              (overlook-repo--row dir project width nil nil (and marks (funcall marks dir))))
+              (overlook-repo--row dir project width nil nil (and marks (funcall marks dir)) parent))
             dirs)))
 
 (defun overlook-repo--base (checkout tree root)
@@ -548,8 +556,12 @@ Reads it again in the background when stale, redrawing when it changed."
      (propertize (concat (format " ↑%d" ahead) (if (> behind 0) (format " ↓%d" behind) ""))
                  'face 'shadow))))
 
-(defun overlook-repo--worktree-row (tree name root project)
-  "The row of worktree TREE of ROOT in PROJECT, by NAME.
+(defun overlook-repo--checkout-p (dir)
+  "Non-nil when DIR is a checkout of a project with worktrees."
+  (or (overlook-worktree-list dir) (overlook-worktree-at dir)))
+
+(defun overlook-repo--worktree-row (tree root project)
+  "The row of worktree TREE of ROOT in PROJECT.
 Under it go the rows of `overlook-worktree-functions', then its repo's
 changed files, or a row of each of its repos when it has several.  Each
 repo shows its commits ahead of and behind the main checkout's branch.
@@ -564,8 +576,8 @@ commit is unmerged."
                   (overlook-repo--divergence-marks (alist-get dir divergences nil nil #'equal))))
          (before (overlook-rows 'overlook-worktree-functions project tree))
          (row (if (equal repos (list tree))
-                  (overlook-repo--row tree project nil name before (funcall marks tree))
-                (overlook-repo--group-row tree name project repos before marks))))
+                  (overlook-repo--row tree project nil nil before (funcall marks tree))
+                (overlook-repo--group-row tree project repos before marks))))
     (dolist (dir repos)
       (cl-pushnew dir overlook-repo--shown :test #'equal))
     (setf (overlook-row-dim row)
@@ -586,7 +598,8 @@ Under it go the rows of `overlook-worktree-functions' for no worktree."
     (if (equal (overlook-repo--top root) root)
         (overlook-repo--row root project nil nil before)
       (overlook-repo--heading
-       (propertize (overlook-repo--label root) 'face 'overlook-repo-name)
+       (propertize (plist-get (overlook-repo-data (cons 'worktree root)) :title)
+                   'face 'overlook-repo-name)
        (overlook-repo--changes (overlook-repo--changed project))
        (cons 'worktree root)
        (lambda () (overlook-show-elsewhere project (lambda () (dired root))))
@@ -599,8 +612,7 @@ Neither shows while the project has no worktrees."
               (trees (overlook-worktrees project)))
     (cons (overlook-repo--main-row root project)
           (mapcar (lambda (tree)
-                    (overlook-repo--worktree-row tree (overlook-repo--label tree)
-                                                    root project))
+                    (overlook-repo--worktree-row tree root project))
                   trees))))
 
 (defun overlook-repo--dirs (project)
@@ -633,12 +645,13 @@ Neither shows while the project has no worktrees."
   "Rows of the changed repos and folders of PROJECT, for DIR nil.
 Under a main checkout that is a repo, its own files are on its row."
   (unless dir
-    (let ((root (overlook-project-root project)))
+    (let* ((root (overlook-project-root project))
+           (trees (overlook-worktrees project)))
       (overlook-repo--repo-rows
-       (if (and (overlook-worktrees project) (equal (overlook-repo--top root) root))
+       (if (and trees (equal (overlook-repo--top root) root))
            (remove root (overlook-repo--changed project))
          (overlook-repo--changed project))
-       project))))
+       project nil (and trees (plist-get (overlook-repo-data (cons 'worktree root)) :branch))))))
 
 (defun overlook-repo--close-blocker (project)
   "Why PROJECT cannot close: uncommitted changes in its repos, or nil.
@@ -778,7 +791,9 @@ Its branch stays."
   (overlook-refresh))
 
 (defun overlook-repo-data (key)
-  "Repository KEY as paths, status and change counts."
+  "Repository KEY as paths, status and change counts.
+A checkout of a project with worktrees has the branch all its repos are
+on as its title, else its folder's name."
   (pcase key
     (`(repo-file ,dir ,path)
      (when-let* ((file (assoc path (cdr (overlook-repo--status dir)))))
@@ -790,11 +805,14 @@ Its branch stays."
     (`(repo . ,dir)
      (pcase-let* ((`(,branch . ,files) (overlook-repo--status dir))
                   (`(,added . ,removed) (overlook-repo--total files)))
-       (list :kind "repo" :title (overlook-repo--label dir) :branch branch
+       (list :kind "repo"
+             :title (or (and (overlook-repo--checkout-p dir) branch) (overlook-repo--label dir))
+             :branch branch
              :repositoryId (overlook-data-id (cons 'repo dir))
              :added added :removed removed)))
     (`(worktree . ,dir)
-     (list :kind "folder" :title (overlook-repo--label dir)))))
+     (let ((branch (overlook-repo--branch (overlook-worktree-repos dir))))
+       (list :kind "folder" :title (or branch (overlook-repo--label dir)) :branch branch)))))
 
 (defun overlook-repo--row-data (row)
   "Compatibility adapter for ROW's business data."

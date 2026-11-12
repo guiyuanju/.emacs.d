@@ -1275,7 +1275,9 @@ Agents are listed; usage and repos are not."
       (kill-buffer alpha)
       (delete-directory root t))))
 
-;; Worktrees of the project show under it while clean; one of several repos has a row of each under its own.
+;; Worktrees of the project show under it while clean; one of several repos has a row of each
+;; under its own.  A checkout shows by the branch all its repos are on, else by its folder, and a
+;; repo shows its branch only where it differs from its checkout's.
 (ert-deftest overlook-repo-lists-worktrees-while-clean ()
   (require 'overlook-courier-worktree)
   (let ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
@@ -1283,9 +1285,12 @@ Agents are listed; usage and repos are not."
         (overlook-repo--status (make-hash-table :test #'equal)))
     (unwind-protect
         (progn
-          (dolist (dir '("api/.git" ".worktrees/fix/api/.git" ".worktrees/fix/web/.git"))
+          (dolist (dir '("api/.git" "web/.git" ".worktrees/fix/api/.git" ".worktrees/fix/web/.git"
+                         ".worktrees/mix/api/.git" ".worktrees/mix/web/.git"))
             (make-directory (expand-file-name dir root) t))
-          (dolist (repo '(("api/" "main") (".worktrees/fix/api/" "fix") (".worktrees/fix/web/" "fix")))
+          (dolist (repo '(("api/" "main") ("web/" "main")
+                          (".worktrees/fix/api/" "fix") (".worktrees/fix/web/" "fix")
+                          (".worktrees/mix/api/" "mix") (".worktrees/mix/web/" "hotfix")))
             (puthash (expand-file-name (car repo) root)
                      (cons (float-time) (cdr repo)) overlook-repo--status))
           (overlook-test-with-dashboard `(("one" ,alpha)) "one"
@@ -1295,10 +1300,19 @@ Agents are listed; usage and repos are not."
                   (overlook-worktree-functions (list #'overlook-repo--changed-rows))
                   (overlook-worktrees-functions (list #'overlook-repo--worktree-dirs)))
               (overlook--render)
-              (should (string-match-p "^⎇ fix$" (buffer-substring-no-properties (point-min) (point-max))))
-              (should (string-match-p "⎇ +api +fix" (buffer-string)))
-              (should (string-match-p "⎇ +web +fix" (buffer-string)))
-              (should-not (string-search "main" (buffer-string)))
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (string-match-p "^⎇ main$" text))
+                (should (string-match-p "^⎇ fix$" text))
+                (should (string-match-p "^⎇ mix$" text))
+                (should (string-match-p "⎇ +api$" text))
+                (should (string-match-p "⎇ +web +hotfix$" text))
+                (should-not (string-search "fix  fix" text)))
+              (let ((data (overlook-repo-data (cons 'worktree (expand-file-name ".worktrees/fix/" root)))))
+                (should (equal (plist-get data :title) "fix"))
+                (should (equal (plist-get data :branch) "fix")))
+              (let ((data (overlook-repo-data (cons 'worktree (expand-file-name ".worktrees/mix/" root)))))
+                (should (equal (plist-get data :title) "mix"))
+                (should-not (plist-get data :branch)))
               (goto-char (point-min))
               (search-forward "web")
               (should (equal (oref (oref (magit-current-section) parent) value)
@@ -1308,7 +1322,7 @@ Agents are listed; usage and repos are not."
 
 ;; Under a project come its main checkout, holding the agents in no worktree with those of no
 ;; project and then the changed repos, then its worktrees, each holding the agents working in
-;; it and then its changed files.  A branch named as its worktree is not shown twice.
+;; it and then its changed files.  Each shows by its branch, not its folder.
 (ert-deftest overlook-project-groups-by-worktree ()
   (require 'overlook-courier-worktree)
   (let* ((root (file-name-as-directory (make-temp-file "overlook-repo" t)))
@@ -1338,7 +1352,7 @@ Agents are listed; usage and repos are not."
                    (overlook-worktrees-functions overlook-repo--worktree-dirs)
                    (overlook-project-functions overlook-repo--checkout-rows -50)))
               (overlook--render)
-              (should (< (overlook-test--line-of "  main")
+              (should (< (overlook-test--line-of "⎇ main")
                          (min (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
                          (max (overlook-test--line-of "beta") (overlook-test--line-of "gamma"))
                          (overlook-test--line-of "a.el")

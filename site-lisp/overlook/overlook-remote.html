@@ -1629,6 +1629,12 @@ function personaMenu(row, box, node) {
   row.setAttribute("aria-description", "Touch and hold or press Shift+F10 for actions");
 }
 
+// A repo's branch, unless its title or the row above already names it.
+function shownBranch(node, parentBranch) {
+  return node.kind === "repo" && node.branch && ![node.title, parentBranch].includes(node.branch)
+    ? node.branch : null;
+}
+
 function renderNode(node, options = {}) {
   const box = el("li", "remote-item");
   box.dataset.nodeId = node.id;
@@ -1676,7 +1682,8 @@ function renderNode(node, options = {}) {
         `${personaConversations.length} ${personaConversations.length === 1 ? "conversation" : "conversations"}`));
       text.append(meta);
     }
-    if (node.kind === "repo" && node.branch) text.append(el("span", "row-subtitle", node.branch));
+    const branch = shownBranch(node, options.parentBranch);
+    if (branch) text.append(el("span", "row-subtitle", branch));
     if (node.added || node.removed) {
       const counts = el("span", "change-counts");
       if (node.added) counts.append(el("span", "added", `+${node.added}`));
@@ -1803,7 +1810,7 @@ function dashboardGroup(title, nodes, options = {}) {
   more.type = "button";
   const draw = () => {
     const showingAll = expanded();
-    rows.replaceChildren(...(showingAll ? nodes : nodes.slice(0, limit)).map(node => renderNode(node, {personaList: options.personaList})));
+    rows.replaceChildren(...(showingAll ? nodes : nodes.slice(0, limit)).map(node => renderNode(node, {personaList: options.personaList, parentBranch: options.parentBranch})));
     more.textContent = showingAll ? "Show less" : `Show all ${nodes.length}`;
     more.setAttribute("aria-label", `${more.textContent}${title ? " · " + title : ""}`);
     more.setAttribute("aria-expanded", String(!!showingAll));
@@ -1998,7 +2005,8 @@ function groupContents(selected) {
     ? [["Conversations", conversations], ["Saved conversations", saved], ["To do", tasks], ["Code & changes", code], ["Resources", resources]]
     : [["Conversations", [...conversations, ...saved]], ["To do", tasks], ["Code & changes", code], ["Resources", resources]];
   for (const [title, nodes] of sections) {
-    if (nodes.length) groups.push(dashboardGroup(title, stableProjectNodes(nodes), {key: `${selected.id}:${title}`}));
+    if (nodes.length) groups.push(dashboardGroup(title, stableProjectNodes(nodes),
+      {key: `${selected.id}:${title}`, parentBranch: selected.branch}));
   }
   if (!selected.children.length) groups.push(el("p", "project-empty", persona
     ? "Start a conversation with this persona." : "No items to show in this group yet."));
