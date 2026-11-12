@@ -122,13 +122,15 @@ returning updates it. New projects append and closed projects disappear.
 - **A fork**, made with `agent-shell-fork`: under the agent it came from,
   after `└`, when both are under the same project; otherwise marked
   `fork`.  `overlook-agent-forks-file` keeps the tree across restarts.
-- **A repo**: its branch and the lines changed since its last commit, then
-  each changed file with its line counts, an untracked one counted as all
-  added.  Files are grouped by folder, and a file leaves blank the
-  leading folders it shares with the one above. Every folder is abbreviated
-  to its initial; filenames stay complete, and the tooltip shows the full
-  path. These come from Git, so
-  they show every change in the working tree, whoever made it.
+- **A repo**: its branch, then each changed file with the lines changed
+  since the last commit, an untracked one counted as all added.  Files
+  sit under a foldable row of each folder, with their total.  A folder
+  holding only one folder is joined with it, as in `site-lisp/overlook/`,
+  and one holding only a file shows on the file's row, as in
+  `tests/test.txt`; a path too wide for the window has its leading
+  folders cut to their initials.  RET on a folder shows its diff.  The
+  tooltip shows a file's full path.  These come from Git, so they show
+  every change in the working tree, whoever made it.
 - **Worktrees**: while a project has some, its rows are grouped by
   checkout.  The main checkout comes first, with the agents in no worktree
   and the changed repos; then each worktree, with the agents working in
@@ -144,7 +146,7 @@ returning updates it. New projects append and closed projects disappear.
 
 | Key | |
 |---|---|
-| `RET` / `o` | visit the row: switch to a project, show a repo's or file's diff in Magit, show an agent, resume a saved one |
+| `RET` / `o` | visit the row: switch to a project, show a repo's, folder's or file's diff in Magit, show an agent, resume a saved one |
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous row at the same level, as Magit's `M-n` / `M-p` do |
 | `C-h` / `C-l` | up to the parent row / on into the next row, the first child of an unfolded one, as Magit's `^` / `n` do |

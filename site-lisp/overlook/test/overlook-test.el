@@ -1034,15 +1034,22 @@ Agents are listed; usage and repos are not."
       (overlook-repo-open-file temporary-file-directory '("new/a.el" " R" 2 1 "old/a.el")))
     (should (equal compared '("HEAD" nil ("old/a.el" "new/a.el"))))))
 
-(ert-deftest overlook-repo-file-rows-group-by-folder ()
-  (cl-letf (((symbol-function 'overlook-row)
-             (lambda (&rest args) (substring-no-properties (plist-get args :content)))))
-    (should (equal (overlook-repo--file-rows
-                    temporary-file-directory
-                    '(("a/x.el" " M" 1 0) ("a/b/y.el" " M" 1 0) ("a/z.el" " M" 1 0) ("r.el" " M" 1 0)
-                      ("ab/w.el" " M" 1 0))
-                    "p")
-                   '("r.el +1" "a/x.el +1" "  z.el +1" "  b/y.el +1" "a/w.el +1")))))
+(ert-deftest overlook-repo-file-rows-nest-by-folder ()
+  (cl-labels ((tree (row)
+                (cons (substring-no-properties
+                       (apply #'concat (funcall (overlook-row-content row) nil)))
+                      (mapcar #'tree (overlook-row-children row)))))
+    (should (equal (mapcar #'tree
+                           (overlook-repo--file-rows
+                            temporary-file-directory
+                            '(("a/x.el" " M" 1 0) ("a/b/y.el" " M" 1 0) ("a/z.el" " M" 1 0)
+                              ("r.el" " M" 1 0) ("c/d/e/w.el" " M" 2 1))
+                            "p"))
+                   '(("a/ +3" ("b/y.el +1") ("x.el +1") ("z.el +1"))
+                     ("c/d/e/w.el +2 −1")
+                     ("r.el +1")))))
+  (should (equal (overlook-repo--folder-label "site-lisp/overlook/test/" 10) "s/o/test/"))
+  (should (equal (overlook-repo--folder-label "site-lisp/overlook/" 40) "site-lisp/overlook/")))
 
 (ert-deftest overlook-repo-treats-added-files-as-new ()
   (should (string-search " new" (overlook-repo--file-label '("a" " A" 2 0))))
@@ -1255,7 +1262,7 @@ Agents are listed; usage and repos are not."
                     (frontend (progn (goto-char (point-min)) (search-forward "frontend")
                                      (buffer-substring-no-properties (line-beginning-position)
                                                                      (line-end-position)))))
-                (should (string-match-p "⎇ +api +main \\+3 −1\\'" api))
+                (should (string-match-p "⎇ +api +main\\'" api))
                 (should (string-match-p "⎇ +frontend  dev" frontend))
                 (should-not (string-search "docs" (buffer-string)))
                 (should (member (expand-file-name "docs/" root) overlook-repo--shown))
@@ -1264,7 +1271,7 @@ Agents are listed; usage and repos are not."
               (search-forward "a.el")
               (should (equal (overlook-item-at-point)
                              (list 'repo-file (expand-file-name "api/" root) "src/a.el")))
-              (should (string-match-p "\\`   s/a\\.el \\+3 −1\\'"
+              (should (string-match-p "\\`   src/a\\.el \\+3 −1\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
               (should (< (overlook-test--line-of "b.el new") (overlook-test--line-of "frontend")))
@@ -1359,7 +1366,7 @@ Agents are listed; usage and repos are not."
                          (overlook-test--line-of "⎇ fix")
                          (overlook-test--line-of "alpha")
                          (overlook-test--line-of "w.el")))
-              (should (string-match-p "^⎇ fix +\\+1$" (buffer-substring-no-properties
+              (should (string-match-p "^⎇ fix$" (buffer-substring-no-properties
                                                        (point-min) (point-max))))
               (goto-char (point-min))
               (search-forward "alpha")
@@ -1407,7 +1414,7 @@ Agents are listed; usage and repos are not."
                    (overlook-project-functions overlook-repo--checkout-rows -50)))
               (overlook--render)
               (let ((text (buffer-substring-no-properties (point-min) (point-max))))
-                (should (string-match-p "^⎇ fix ↑2 ↓1 \\+1\n   .*alpha.*\n   w\\.el" text))
+                (should (string-match-p "^⎇ fix ↑2 ↓1\n   .*alpha.*\n   w\\.el \\+1" text))
                 (should (string-match-p "^⎇ old merged$" text)))
               (goto-char (point-min))
               (search-forward "⎇ old")
@@ -1605,12 +1612,12 @@ Agents are listed; usage and repos are not."
                   (overlook-worktree-functions (list #'overlook-repo--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
-              (should (string-match-p "⎇ +one +main \\+2"
+              (should (string-match-p "⎇ +one +main\\'"
                                       (progn (search-forward "one  main")
                                              (buffer-substring-no-properties
                                               (line-beginning-position) (line-end-position)))))
               (search-forward "n.md")
-              (should (string-match-p "n/n\\.md \\+2\\'"
+              (should (string-match-p "\\`   notes/n\\.md \\+2\\'"
                                       (buffer-substring-no-properties (line-beginning-position)
                                                                       (line-end-position))))
               (puthash card (list (float-time) "main") overlook-repo--status)
