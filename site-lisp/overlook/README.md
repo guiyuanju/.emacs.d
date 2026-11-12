@@ -146,7 +146,8 @@ returning updates it. New projects append and closed projects disappear.
 |---|---|
 | `RET` / `o` | visit the row: switch to a project, show a repo's or file's diff in Magit, show an agent, resume a saved one |
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
-| `C-j` / `C-k` | next / previous heading |
+| `C-j` / `C-k` | next / previous row at the same level, as Magit's `M-n` / `M-p` do |
+| `C-h` / `C-l` | up to the parent row / on into the next row, the first child of an unfolded one, as Magit's `^` / `n` do |
 | `] a` / `[ a`, `C-S-j` / `C-S-k` | next / previous agent needing you |
 | `d d` | delete the row's thing, asking first where that loses something: kill an agent, forget a saved one, remove a worktree with its agents (keeping its branch), close a project with its agents unless it has uncommitted changes |
 | `H` | hand the agent's task off to another agent |
