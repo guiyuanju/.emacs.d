@@ -1098,7 +1098,7 @@ It first switches to PROJECT, creating it if needed, when non-nil."
 
 (defun iuiw-workspace--todo-prompt (file line last text root)
   "A prompt for an agent in ROOT to carry out item TEXT.
-The item is lines LINE to LAST of FILE."
+The item is lines LINE to LAST of FILE, named relative to ROOT when in it."
   (with-temp-buffer
     (insert-file-contents file)
     (goto-char (point-min))
@@ -1108,7 +1108,10 @@ The item is lines LINE to LAST of FILE."
     (let ((beg (point)))
       (forward-line (1+ (- last line)))
       (concat "实现这条 todo：\n"
-              (overlook-agent-reference (file-relative-name file root) beg (point))))))
+              (overlook-agent-reference (if (file-in-directory-p file root)
+                                            (file-relative-name file root)
+                                          (abbreviate-file-name file))
+                                        beg (point))))))
 
 (defun iuiw-workspace--todo-last (file line)
   "The last line of the item on LINE of FILE, with its subitems."

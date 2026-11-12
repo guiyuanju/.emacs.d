@@ -133,7 +133,10 @@ status: done
                  "## Todo\n- [ ] one #now\n  - detail\n- [ ] two\n")))
       (should (equal (iuiw-workspace--todo-prompt file 2 3 "one #now" (file-name-directory file))
                      (concat "实现这条 todo：\nproject.md:2-3\n```\n"
-                             "- [ ] one #now\n  - detail\n\n```\n")))
+                             "- [ ] one #now\n  - detail\n```\n")))
+      (should (equal (iuiw-workspace--todo-prompt file 4 4 "two" (expand-file-name "elsewhere/" iuiw-workspace-directory))
+                     (format "实现这条 todo：\n%s:4\n```\n- [ ] two\n```\n"
+                             (abbreviate-file-name file))))
       (should-error (iuiw-workspace--todo-prompt file 2 2 "two" "/")))))
 
 (ert-deftest iuiw-workspace-closed-projects-order ()
