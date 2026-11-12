@@ -1,6 +1,7 @@
 *
 !.gitignore
 !init.el
+!Makefile
 !early-init.el
 !lisp
 !lisp/**
