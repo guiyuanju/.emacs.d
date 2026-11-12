@@ -477,12 +477,13 @@ to DIR's."
   "The name repo DIR shows by."
   (file-name-nondirectory (directory-file-name dir)))
 
-(defun overlook-repo--heading (label item action children)
-  "A row of LABEL after ⎇.
+(defun overlook-repo--heading (label item action children &optional glyph)
+  "A row of LABEL after GLYPH, ⎇ by default.
 ITEM is its id, ACTION what RET does on it, and CHILDREN the rows under
 it, indented."
   (overlook-row :id item
-                :content (list (overlook-glyph-cell (propertize "⎇" 'face 'overlook-repo-name))
+                :content (list (overlook-glyph-cell
+                                (propertize (or glyph "⎇") 'face 'overlook-repo-name))
                                label)
                 :help (cdr item)
                 :action action
@@ -493,19 +494,28 @@ it, indented."
   "The row of repo DIR in PROJECT, its NAME padded to WIDTH.
 BEFORE are rows under it ahead of the changed files.  MARKS go after
 its branch.  A branch named as the row or as PARENT, the branch of the
-row above, is left out."
+row above, is left out.  A row named by its branch shows after ⎇, any
+other after ▣ and with its line counts."
   (pcase-let* ((`(,branch . ,files) (overlook-repo--status dir))
                (data (overlook-repo-data (cons 'repo dir)))
+               (glyph (unless (or name (overlook-repo--checkout-p dir)) "▣"))
                (name (or name (plist-get data :title)))
-               (branch (and (not (member branch (list name parent))) branch)))
+               (branch (and (not (member branch (list name parent))) branch))
+               (counts (if glyph
+                           (overlook-repo--counts (plist-get data :added) (plist-get data :removed))
+                         "")))
     (overlook-repo--heading
-     (concat (propertize (concat (if (and width (or branch marks)) (string-pad name width) name)
+     (concat (propertize (concat (if (and width (or branch marks (> (length counts) 0)))
+                                     (string-pad name width)
+                                   name)
                                  (if branch (concat "  " branch) ""))
                          'face 'overlook-repo-name)
-             marks)
+             marks
+             counts)
      (cons 'repo dir)
      (lambda () (overlook-show-elsewhere project (lambda () (overlook-repo-open dir))))
-     (append before (overlook-repo--file-rows dir files project)))))
+     (append before (overlook-repo--file-rows dir files project))
+     glyph)))
 
 (defun overlook-repo--group-row (tree project dirs before &optional marks)
   "The row of folder TREE of PROJECT, holding repos DIRS, by its data's title.

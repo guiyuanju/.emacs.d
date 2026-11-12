@@ -18,8 +18,8 @@ blog
    codex
 
 checkout
-   ⎇ api       feature/refunds  ●4
-   ⎇ frontend  feature/refunds  ●2
+   ▣ api       feature/refunds  ●4
+   ▣ frontend  feature/refunds  ●2
    claude  Running the payment tests                   12m  41%
       refund.go +48 −6 api/internal/
       RefundButton.tsx +31 frontend/src/

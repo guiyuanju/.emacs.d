@@ -1303,8 +1303,8 @@ Agents are listed; usage and repos are not."
                     (frontend (progn (goto-char (point-min)) (search-forward "frontend")
                                      (buffer-substring-no-properties (line-beginning-position)
                                                                      (line-end-position)))))
-                (should (string-match-p "⎇ +api +main\\'" api))
-                (should (string-match-p "⎇ +frontend  dev" frontend))
+                (should (string-match-p "▣ +api +main \\+3 −1\\'" api))
+                (should (string-match-p "▣ +frontend  dev" frontend))
                 (should-not (string-search "docs" (buffer-string)))
                 (should (member (expand-file-name "docs/" root) overlook-repo--shown))
                 (should (= (string-search "main" api) (string-search "dev" frontend))))
@@ -1352,8 +1352,8 @@ Agents are listed; usage and repos are not."
                 (should (string-match-p "^⎇ main$" text))
                 (should (string-match-p "^⎇ fix$" text))
                 (should (string-match-p "^⎇ mix$" text))
-                (should (string-match-p "⎇ +api$" text))
-                (should (string-match-p "⎇ +web +hotfix$" text))
+                (should (string-match-p "▣ +api$" text))
+                (should (string-match-p "▣ +web +hotfix$" text))
                 (should-not (string-search "fix  fix" text)))
               (let ((data (overlook-repo-data (cons 'worktree (expand-file-name ".worktrees/fix/" root)))))
                 (should (equal (plist-get data :title) "fix"))
@@ -1691,7 +1691,7 @@ Agents are listed; usage and repos are not."
                   (overlook-worktree-functions (list #'overlook-repo--changed-rows)))
               (overlook--render)
               (goto-char (point-min))
-              (should (string-match-p "⎇ +one +main\\'"
+              (should (string-match-p "▣ +one +main \\+2\\'"
                                       (progn (search-forward "one  main")
                                              (buffer-substring-no-properties
                                               (line-beginning-position) (line-end-position)))))
