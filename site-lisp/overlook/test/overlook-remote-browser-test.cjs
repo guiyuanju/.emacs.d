@@ -16,7 +16,7 @@ section.children.push(node('writing','Writing',{kind:'project',children:[node('d
 section.children.push(node('homelab','Home Lab',{kind:'project',children:[node('repo','server',{kind:'repo',children:[node('config','config.json',{kind:'file',diff:true})]})]}));
 const usage=node('usage','Usage',{kind:'group',children:[
  node('claude-usage','Claude',{kind:'usage',provider:'claude',windows:[{label:'5h',value:24,reset:'2h 30m'},{label:'7d',value:12}]}),
- node('codex-usage','Codex',{kind:'usage',provider:'codex',windows:[{label:'5h',value:18},{label:'7d',value:92,reset:'3d'}]})]});
+ node('codex-usage','Codex',{kind:'usage',provider:'codex',account:'work@example.com',commands:[{name:'switch',label:'Switch account'}],windows:[{label:'5h',value:18},{label:'7d',value:92,reset:'3d'}]})]});
 const personas=node('personas','Personas',{kind:'group',children:[node('reviewer','Reviewer',{kind:'persona',persona:'Reviewer',description:'Reviews code and explains tradeoffs.',subtitle:'Reviews code and explains tradeoffs.',status:'idle',commands:[{name:'new',label:'New conversation'}],children:[node('persona-chat','Architecture review',{kind:'agent',persona:'Reviewer',agent:'p',status:'idle',provider:'codex'})]})]});
 personas.children.push(node('single-persona','An obscure task title',{kind:'agent',persona:'Helper',agent:'h',provider:'codex',status:'idle',commands:[{name:'open',label:'Open'}]}));
 const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working',brief:'Checking the mobile layout',context:24,choices:[],queued:[],reply:'',transcript:'',controls:{steer:true,actions:['stop','reload','restart','fork','close'],slash:[{name:'compact',description:'Compact context'}]}};
@@ -71,7 +71,18 @@ const agent={id:'a',title:'Framework7 migration',agent:'claude',status:'working'
   assert.equal(await page.locator('.usage-window.warning').count(),1);
   assert.equal(await page.getByText('2h 30m',{exact:true}).count(),1);
   const bars=await page.locator('.usage-window .usage-ring').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().toJSON()));
-  assert.equal(bars[1].top, bars[0].top);
+  assert.equal(bars[2].left, bars[0].left);
+  assert.equal(bars[3].left, bars[1].left);
+  if(devices[device].viewport.width>=360) assert.equal(bars[1].top, bars[0].top);
+  else assert(bars[1].left===bars[0].left && bars[1].top>bars[0].top);
+  const usageIcon=await page.locator('[data-node-id="codex-usage"] .usage-icon').boundingBox();
+  assert(Math.abs(usageIcon.y+usageIcon.height/2-bars[2].y-bars[2].height/2)<1);
+  assert.equal(await page.locator('[data-node-id="codex-usage"] .usage-icon').getAttribute('aria-label'),'Codex · work@example.com');
+  assert.equal(await page.locator('#dashboard-content').getByText('Claude',{exact:true}).count(),0);
+  await page.locator('[data-node-id="codex-usage"] .usage-content').dispatchEvent('contextmenu');
+  await page.locator('.actions-modal').getByText('Switch account',{exact:true}).waitFor();
+  await page.locator('.actions-modal').getByText('Cancel',{exact:true}).click();
+  await page.locator('.actions-modal').waitFor({state:'detached'});
   assert(bars.every(bar=>bar.width===16 && bar.height===16 && bar.right<devices[device].viewport.width));
   await page.screenshot({path:`${output}/overlook-${device.replaceAll(' ','-')}-${theme}-dashboard.png`});
   assert.equal(await page.locator('.group-row .group-icon').count(),3);
