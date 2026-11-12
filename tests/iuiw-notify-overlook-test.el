@@ -19,6 +19,7 @@
            (now 1000) sent)
        (setq-local overlook-agent-identity '((agent . "test")))
        (cl-letf (((symbol-function 'float-time) (lambda (&rest _) now))
+                 ((symbol-function 'iuiw-notify-overlook--unlocked-p) #'ignore)
                  ((symbol-function 'overlook-refresh) #'ignore)
                  ((symbol-function 'iuiw-notify-send)
                   (lambda (&rest args) (push args sent))))
@@ -84,6 +85,7 @@
         (overlook-usage--rows '(("claude" ("5h" 100 1100) ("week" 100 1200))))
         (now 1000) sent)
     (cl-letf (((symbol-function 'float-time) (lambda () now))
+              ((symbol-function 'iuiw-notify-overlook--unlocked-p) #'ignore)
               ((symbol-function 'iuiw-notify-send) (lambda (&rest args) (push args sent))))
       (iuiw-notify-overlook--usage)
       (setq now 1101)
@@ -107,6 +109,7 @@
                                 ("fresh" ("5h" 100 1200))))
         (now 1000) sent)
     (cl-letf (((symbol-function 'float-time) (lambda () now))
+              ((symbol-function 'iuiw-notify-overlook--unlocked-p) #'ignore)
               ((symbol-function 'iuiw-notify-send) (lambda (&rest args) (push args sent))))
       (iuiw-notify-overlook--usage)
       (should (= (hash-table-count iuiw-notify-overlook--quotas) 1))
@@ -118,4 +121,25 @@
       (should-not sent))))
 
 (provide 'iuiw-notify-overlook-test)
+
+(ert-deftest iuiw-notify-overlook-skips-while-unlocked ()
+  (iuiw-notify-overlook-test--agent
+   (cl-letf (((symbol-function 'iuiw-notify-overlook--unlocked-p) (lambda () t)))
+     (overlook-agent-report 'working)
+     (overlook-agent-report 'attention))
+   (should-not sent)
+   (overlook-agent-report 'failed)
+   (should (= (length sent) 1))))
+
+(ert-deftest iuiw-notify-overlook-reads-the-console-lock ()
+  (let ((system-type 'darwin) (output nil))
+    (cl-letf (((symbol-function 'call-process)
+               (lambda (&rest _) (insert output) 0)))
+      (setq output "  \"IOConsoleLocked\" = No\n")
+      (should (iuiw-notify-overlook--unlocked-p))
+      (setq output "  \"IOConsoleLocked\" = Yes\n")
+      (should-not (iuiw-notify-overlook--unlocked-p))
+      (setq output "")
+      (should-not (iuiw-notify-overlook--unlocked-p)))))
+
 ;;; iuiw-notify-overlook-test.el ends here

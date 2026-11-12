@@ -19,9 +19,19 @@
 (defvar iuiw-notify-overlook--quotas (make-hash-table :test #'equal)
   "Usage row names to their tracked reset times and notification flags.")
 
+(defun iuiw-notify-overlook--unlocked-p ()
+  "Non-nil when this Mac's screen is known to be unlocked, so the user is at it."
+  (and (eq system-type 'darwin)
+       (with-temp-buffer
+         (and (eq 0 (ignore-errors
+                      (call-process "ioreg" nil t nil "-n" "Root" "-d1" "-k" "IOConsoleLocked")))
+              (progn (goto-char (point-min))
+                     (re-search-forward "\"IOConsoleLocked\" = No\\b" nil t))))))
+
 (defun iuiw-notify-overlook--send (title body group)
-  "Send TITLE and BODY in GROUP only while remote access is enabled."
-  (when (bound-and-true-p overlook-remote-mode)
+  "Send TITLE and BODY in GROUP while remote access is on and the screen locked."
+  (when (and (bound-and-true-p overlook-remote-mode)
+             (not (iuiw-notify-overlook--unlocked-p)))
     (condition-case err
         (iuiw-notify-send title body :group group)
       (error (display-warning 'iuiw-notify (error-message-string err) :warning)))))
