@@ -1001,6 +1001,25 @@ Agents are listed; usage and repos are not."
       (mapc #'kill-buffer (list router worker))
       (delete-directory root t))))
 
+(ert-deftest overlook-agent-courier-names-a-persona-agent-after-its-instance ()
+  (require 'overlook-agent-courier)
+  (let* ((root (make-temp-file "personas" t))
+         (overlook-courier-persona-directories (list root))
+         (chat (overlook-test--agent "codex"))
+         (worker (overlook-test--agent "claude")))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "chat" root))
+          (write-region "---\nengine: claude, codex\nmultiple: on\n---\n" nil (expand-file-name "chat/persona.md" root))
+          (with-current-buffer chat (setq overlook-agent-courier-id "chat-2"))
+          (with-current-buffer worker (setq overlook-agent-courier-id "claude@fix"))
+          (overlook-agent-courier--name-persona chat)
+          (overlook-agent-courier--name-persona worker)
+          (should (equal (buffer-name chat) "chat-2 · codex"))
+          (should (equal (buffer-name worker) "claude")))
+      (mapc #'kill-buffer (list chat worker))
+      (delete-directory root t))))
+
 (ert-deftest overlook-fold-once-hides-a-row-and-keeps-it-hidden ()
   (with-temp-buffer
     (magit-section-mode)

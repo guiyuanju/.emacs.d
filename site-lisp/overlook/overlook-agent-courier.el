@@ -124,11 +124,22 @@ Its id comes from its $COURIER_ID, else the persona its identity names."
              (overlook-agent-courier--persona-item-p (cons 'agent buffer)))
     (overlook-detach buffer)))
 
+(defun overlook-agent-courier--name-persona (buffer)
+  "Name agent BUFFER after the persona instance it runs, like \"chat-2 · codex\".
+A persona without an agent program names its buffer itself."
+  (let ((id (buffer-local-value 'overlook-agent-courier-id buffer)))
+    (when-let* (((not (overlook-agent-get buffer 'persona)))
+                ((overlook-courier-persona-of id))
+                (name (format "%s · %s" id (or (overlook-agent-get buffer 'agent) "agent")))
+                ((not (equal (buffer-name buffer) name))))
+      (with-current-buffer buffer (rename-buffer name t)))))
+
 (defun overlook-agent-courier--sync ()
-  "Register the agents courier does not know yet, and detach the personas."
+  "Register the agents courier does not know yet; detach and name the personas."
   (dolist (buffer (overlook-agent-buffers))
     (overlook-agent-courier--register buffer)
-    (overlook-agent-courier--detach-persona buffer)))
+    (overlook-agent-courier--detach-persona buffer)
+    (overlook-agent-courier--name-persona buffer)))
 
 (defun overlook-agent-courier--turn-started ()
   "Tell courier this agent started a turn."
@@ -164,6 +175,7 @@ projects goes to `overlook-orphan-project'."
                    (overlook-agent-start name directory nil t effort))))
     (let ((overlook-agent-courier--parent parent)) (overlook-agent-courier--register buffer))
     (overlook-agent-courier--detach-persona buffer)
+    (overlook-agent-courier--name-persona buffer)
     (buffer-local-value 'overlook-agent-courier-id buffer)))
 
 (defun overlook-agent-courier--mark (buffer)
@@ -294,11 +306,11 @@ Its agents are listed under it."
           (t (completing-read "Converse with: " names nil t)))))
 
 (defun overlook-persona-converse (name &optional engine)
-  "Start a conversation with persona NAME and show it in another window.
+  "Start a conversation with persona NAME in the selected window.
 NAME is one of the personas that may run several times.  It runs on
 ENGINE, else on the first of its engines whose plan is not near its limit."
   (interactive (list (overlook-agent-courier--read-multiple)))
-  (pop-to-buffer (overlook-courier-agent-buffer
+  (pop-to-buffer-same-window (overlook-courier-agent-buffer
                   (overlook-courier-agent (overlook-courier-persona-start name :engine engine)))))
 
 (defun overlook-persona-converse-on (name engine)

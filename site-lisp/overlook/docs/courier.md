@@ -166,7 +166,9 @@ or on its only row while there are none, makes a new one.  An agent
 running a persona is listed there only, not under a project.  overlook
 keeps every agent's courier id when it resumes the agent in a later
 Emacs, and refuses to resume a persona's session while another agent
-runs that persona.
+runs that persona.  Its agent's buffer is named after the instance and
+engine, like `chat-2 · codex`; `overlook-persona-converse` starts a
+further conversation with a persona whose multiple is on.
 
 ### Personas on gptel
 
