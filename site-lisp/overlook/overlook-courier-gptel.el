@@ -103,6 +103,12 @@
 (defvar-local overlook-courier-gptel--reply-start nil
   "Marker where the reply in progress starts.")
 
+(defvar-local overlook-courier-gptel--spinner nil
+  "The overlay showing the spinner while a request is out.")
+
+(defconst overlook-courier-gptel--spinner-frames "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+  "Frames of the spinner, one character each.")
+
 (defvar-local overlook-courier-gptel--own-turns nil
   "Non-nil when this persona tells courier of its turns itself.
 Otherwise it is an overlook agent courier learned of, and whose turns
@@ -179,6 +185,33 @@ reach courier through overlook's turn hooks.")
       (save-restriction
         (narrow-to-region start end)
         (let ((inhibit-read-only t)) (markdown-overlays-put))))))
+
+(defun overlook-courier-gptel--spin ()
+  "Show a spinner where the current buffer's reply goes, until the request ends.
+The overlay stays after text inserted at it, so it follows the reply."
+  (overlook-courier-gptel--stop-spinner)
+  (let* ((mark (process-mark (get-buffer-process (current-buffer))))
+         (overlay (make-overlay mark mark nil t t))
+         (frame 0)
+         (timer nil))
+    (setq timer (run-at-time
+                 0 0.1
+                 (lambda ()
+                   (if (not (overlay-buffer overlay))
+                       (cancel-timer timer)
+                     (setq frame (% (1+ frame) (length overlook-courier-gptel--spinner-frames)))
+                     (overlay-put overlay 'after-string
+                                  (propertize (string (aref overlook-courier-gptel--spinner-frames frame))
+                                              'face 'shadow))))))
+    (overlay-put overlay 'after-string
+                 (propertize (string (aref overlook-courier-gptel--spinner-frames 0)) 'face 'shadow))
+    (setq overlook-courier-gptel--spinner overlay)))
+
+(defun overlook-courier-gptel--stop-spinner ()
+  "Remove the current buffer's spinner; its timer then stops itself."
+  (when overlook-courier-gptel--spinner
+    (delete-overlay overlook-courier-gptel--spinner)
+    (setq overlook-courier-gptel--spinner nil)))
 
 (defun overlook-courier-gptel--append (buffer text &optional face)
   "Add TEXT to the exchange in persona BUFFER, shown with FACE."
@@ -262,6 +295,7 @@ and the dashboard lists it with the personas, not in a project."
           (write-region overlook-courier-gptel--entry nil file t 'silent))
         (overlook-courier-gptel--render overlook-courier-gptel--reply-start
                                         (process-mark (get-buffer-process buffer)))
+        (overlook-courier-gptel--stop-spinner)
         (setq overlook-courier-gptel--busy nil)
         (overlook-courier-gptel--show "\n")
         (overlook-courier-gptel--prompt))
@@ -298,6 +332,7 @@ TYPED means it was typed at the buffer's prompt, so it shows there already."
         (overlook-courier-gptel--show (concat (string-trim prompt) "\n") 'comint-highlight-input))
       (overlook-courier-gptel--show "\n")
       (setq overlook-courier-gptel--reply-start (copy-marker (process-mark (get-buffer-process buffer))))
+      (overlook-courier-gptel--spin)
       (overlook-courier-gptel--turn-started buffer)
       (overlook-courier-gptel--event buffer 'prompt :text prompt)
       (condition-case err

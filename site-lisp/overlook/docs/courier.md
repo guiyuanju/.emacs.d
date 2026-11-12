@@ -178,7 +178,8 @@ memory: off
 ```
 
 Its buffer, `*NAME*`, is a comint buffer: type at the `NAME> ` prompt and
-press `RET` to ask; the header line says no earlier question is sent.  `C-c C-c` or `C-c C-k` stops the
+press `RET` to ask; a spinner shows while it answers, and the header line
+says no earlier question is sent.  `C-c C-c` or `C-c C-k` stops the
 request.  Every exchange is also appended to `NAME.md` in
 `overlook-courier-gptel-history-directory`, never sent back; each start
 of the persona moves the last one to `archive/` there.  `M-x

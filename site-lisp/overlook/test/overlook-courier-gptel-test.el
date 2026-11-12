@@ -102,11 +102,15 @@ RESULTS are tool results (TOOL ARGS RESULT) given after the chunks."
       (insert "猫")
       (overlook-courier-gptel-submit)
       (should (equal (caar overlook-courier-gptel-test--requests) "猫"))
+      (should (overlay-buffer overlook-courier-gptel--spinner))
       (insert "犬")
       (should-error (overlook-courier-gptel-submit))
       (overlook-courier-gptel-test--reply '("cat"))
       ;; The draft typed while it answered waits at the new prompt.
-      (should (string-suffix-p "jp> 猫\n\ncat\n\njp> 犬" (buffer-string))))
+      (should (string-suffix-p "jp> 猫\n\ncat\n\njp> 犬" (buffer-string)))
+      (should-not overlook-courier-gptel--spinner)
+      (should-not (seq-some (lambda (o) (overlay-get o 'after-string))
+                            (overlays-in (point-min) (point-max)))))
     (should (string-search "猫\n\ncat"
                            (with-temp-buffer
                              (insert-file-contents
