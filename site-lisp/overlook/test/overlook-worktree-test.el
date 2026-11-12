@@ -176,3 +176,13 @@ REPOS nil makes the project itself one repo."
       (should-not (string-match-p
                    "\\.worktrees"
                    (overlook-worktree-git (expand-file-name "api" root) "worktree" "list"))))))
+
+(ert-deftest overlook-worktree-refuses-a-branch-checked-out-elsewhere ()
+  (overlook-worktree-test--with-project nil
+    (overlook-worktree-git root "branch" "free")
+    (overlook-worktree-add root "fix")
+    (should (equal (sort (overlook-worktree-free-branches root) #'string<) '("fix" "free")))
+    (should (string-match-p "main is checked out"
+                            (cadr (should-error (overlook-worktree-add root "main")
+                                                :type 'user-error))))
+    (should-not (file-exists-p (overlook-worktree-path root "main")))))

@@ -184,6 +184,38 @@ They live in `overlook-worktree-directory'."
   "The Git config key holding the base of BRANCH."
   (format "branch.%s.overlookBase" branch))
 
+(defun overlook-worktree-checked-out (repo)
+  "(BRANCH . CHECKOUT) of each branch of REPO checked out, in any of its worktrees."
+  (let (pairs checkout)
+    (dolist (line (split-string (or (overlook-worktree--output repo "worktree" "list" "--porcelain")
+                                    "")
+                                "\n"))
+      (cond ((string-prefix-p "worktree " line)
+             (setq checkout (file-name-as-directory (substring line 9))))
+            ((string-prefix-p "branch refs/heads/" line)
+             (push (cons (substring line 18) checkout) pairs))))
+    (nreverse pairs)))
+
+(defun overlook-worktree-free-branches (dir)
+  "Branches a worktree of project DIR can check out.
+They are the local branches of its first repo checked out nowhere, or
+in a worktree of DIR."
+  (when-let* ((repo (car (overlook-worktree-repos dir))))
+    (let ((inside (file-truename (expand-file-name overlook-worktree-directory dir)))
+          (taken (overlook-worktree-checked-out repo)))
+      (seq-remove (lambda (branch)
+                    (when-let* ((checkout (cdr (assoc branch taken))))
+                      (not (file-in-directory-p checkout inside))))
+                  (overlook-worktree--refs repo "refs/heads")))))
+
+(defun overlook-worktree-main-checkout-p (dir branch)
+  "Non-nil when BRANCH is checked out in the main checkout of a repo of DIR.
+DIR is a project."
+  (seq-some (lambda (repo)
+              (when-let* ((checkout (cdr (assoc branch (overlook-worktree-checked-out repo)))))
+                (file-equal-p checkout repo)))
+            (overlook-worktree-repos dir)))
+
 (defun overlook-worktree--add-one (repo path branch start)
   "Check out BRANCH of REPO at PATH, making it at START when it does not exist.
 START is as for `overlook-worktree-add'; one other than HEAD is recorded
@@ -191,7 +223,11 @@ as the branch's base."
   (make-directory (file-name-directory (directory-file-name path)) t)
   (if (overlook-worktree--output repo "rev-parse" "--verify" "--quiet"
                                  (concat "refs/heads/" branch))
-      (overlook-worktree-git repo "worktree" "add" (directory-file-name path) branch)
+      (progn
+        (when-let* ((checkout (cdr (assoc branch (overlook-worktree-checked-out repo)))))
+          (user-error "Branch %s is checked out in %s; pick another branch"
+                      branch (abbreviate-file-name checkout)))
+        (overlook-worktree-git repo "worktree" "add" (directory-file-name path) branch))
     (let ((start (if (eq start 'default) (overlook-worktree-default-start repo) start)))
       (when (and start overlook-worktree-fetch)
         (with-demoted-errors "Fetch failed: %S" (overlook-worktree--fetch repo start)))
@@ -387,7 +423,7 @@ start is `default'."
                                                 nil t)))
           (repo (if repos (expand-file-name (car repos) dir) (car all)))
           (locals (overlook-worktree--refs repo "refs/heads"))
-          (branch (completing-read "Branch: " locals))
+          (branch (completing-read "Branch: " (overlook-worktree-free-branches dir)))
           (start (unless (member branch locals)
                    (let ((input (completing-read
                                  "Start (empty: the default branch): "
