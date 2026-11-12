@@ -51,6 +51,19 @@ it returns has been registered with `overlook-agent-register'."
   :type 'function
   :group 'overlook)
 
+(defcustom overlook-agent-preferred-names '("claude" "codex" "pi")
+  "Agents offered first, in this order, when one to start is picked."
+  :type '(repeat string)
+  :group 'overlook)
+
+(defvar overlook-agent-names-function nil
+  "Function returning the names of the agents that can be started.
+They are those `overlook-agent-start-function' takes.")
+
+(defvar overlook-agent-read-name-function nil
+  "Function reading the name of an agent to start, or nil for a plain prompt.
+It offers them as `overlook-agent-names' orders them, the first by default.")
+
 (defvar overlook-agent-effort nil
   "Reasoning effort level, like \"high\", for the agent being started, or nil.
 Bound around `overlook-agent-start-function', which applies it if its
@@ -521,6 +534,26 @@ asking.  EFFORT is its reasoning effort level, or nil for its default."
     (apply overlook-agent-start-function name root
            (cond (session (list nil session))
                  (fresh (list t))))))
+
+(defun overlook-agent-names ()
+  "Names of the agents that can be started, `overlook-agent-preferred-names' first."
+  (let ((names (and overlook-agent-names-function (funcall overlook-agent-names-function))))
+    (append (seq-filter (lambda (name) (member name names)) overlook-agent-preferred-names)
+            (seq-remove (lambda (name) (member name overlook-agent-preferred-names)) names))))
+
+(defun overlook-agent-read-name ()
+  "Read the name of an agent to start, as `overlook-agent-names' orders them.
+The first is the default."
+  (let ((names (or (overlook-agent-names) (user-error "No agent can be started"))))
+    (if overlook-agent-read-name-function
+        (funcall overlook-agent-read-name-function)
+      (completing-read (format-prompt "Agent" (car names))
+                       (lambda (string predicate action)
+                         (if (eq action 'metadata)
+                             '(metadata (display-sort-function . identity)
+                                        (cycle-sort-function . identity))
+                           (complete-with-action action names string predicate)))
+                       nil t nil nil (car names)))))
 
 ;;; Session identity
 

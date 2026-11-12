@@ -560,3 +560,20 @@ each environment gathered says how many were gathered so far."
                (lambda (&rest args) (setq queued (plist-get args :prompt)))))
       (should-error (overlook-agent-shell--resume-submit "continue"))
       (should (equal queued "draft")))))
+
+;; Agents are picked with agent-shell's picker, preferred ones first, the first preselected.
+(ert-deftest overlook-agent-shell-read-name-uses-agent-shells-picker ()
+  (let ((overlook-agent-preferred-names '("codex" "claude"))
+        (overlook-agent-names-function #'overlook-agent-shell-names)
+        (overlook-agent-shell-configs
+         '(("claude" . (lambda () '((:identifier . claude-code))))
+           ("codex" . (lambda () '((:identifier . codex))))))
+        (agent-shell-agent-configs (list (lambda () '((:identifier . pi))))))
+    (cl-letf (((symbol-function 'agent-shell-select-config)
+               (lambda (&rest _)
+                 (should (equal (mapcar (lambda (maker) (map-elt (funcall maker) :identifier))
+                                        agent-shell-agent-configs)
+                                '(codex claude-code pi)))
+                 (should (equal agent-shell-preferred-agent-config '(preselect . codex)))
+                 '((:identifier . claude-code)))))
+      (should (equal (overlook-agent-shell-read-name) "claude")))))

@@ -791,12 +791,46 @@ id once this shell is gone, rather than taking the current project's."
               config))
     config))
 
+(defun overlook-agent-shell--configs ()
+  "(NAME . MAKER) of each agent overlook starts.
+Those of `overlook-agent-shell-configs' come first, then the other agents
+of `agent-shell-agent-configs', named by their identifier."
+  (let ((ids (mapcar (lambda (entry) (map-elt (ignore-errors (funcall (cdr entry))) :identifier))
+                     overlook-agent-shell-configs)))
+    (append overlook-agent-shell-configs
+            (delq nil
+                  (mapcar (lambda (entry)
+                            (let* ((config (if (functionp entry) (ignore-errors (funcall entry)) entry))
+                                   (id (map-elt config :identifier)))
+                              (and id (not (memq id ids))
+                                   (cons (format "%s" id)
+                                         (if (functionp entry) entry (lambda () config))))))
+                          (if (functionp agent-shell-agent-configs)
+                              (funcall agent-shell-agent-configs)
+                            agent-shell-agent-configs))))))
+
+(defun overlook-agent-shell-names ()
+  "Names of the agents `overlook-agent-shell-start' starts."
+  (mapcar #'car (overlook-agent-shell--configs)))
+
+(defun overlook-agent-shell-read-name ()
+  "Read an agent with agent-shell's picker, as `overlook-agent-names' orders them.
+The first is preselected."
+  (let* ((configs (overlook-agent-shell--configs))
+         (makers (mapcar (lambda (name) (cdr (assoc name configs))) (overlook-agent-names)))
+         (first (map-elt (ignore-errors (funcall (car makers))) :identifier))
+         (config (let ((agent-shell-agent-configs makers)
+                       (agent-shell-preferred-agent-config (and first (cons 'preselect first))))
+                   (agent-shell-select-config :prompt "Agent: "))))
+    (overlook-agent-shell--name config)))
+
 (defun overlook-agent-shell-start (name root &optional fresh session)
   "Start agent NAME in ROOT for overlook and return its buffer.
 FRESH bypasses agent-shell's session choice and starts a new conversation;
 SESSION resumes the session of that id.  It starts at the reasoning effort
 `overlook-agent-effort' if set."
   (let ((make-config (or (alist-get name overlook-agent-shell-configs nil nil #'equal)
+                         (alist-get name (overlook-agent-shell--configs) nil nil #'equal)
                          (user-error "No agent-shell config for %s" name)))
         (default-directory root)
         (agent-shell-cwd-function (lambda () root))
@@ -890,7 +924,9 @@ other MCP calls asked for permission showing only their tool name."
         (advice-add 'agent-shell-fork :around #'overlook-agent-shell--carry-on)
         (add-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
         (add-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
-        (setq overlook-agent-start-function #'overlook-agent-shell-start)
+        (setq overlook-agent-start-function #'overlook-agent-shell-start
+              overlook-agent-names-function #'overlook-agent-shell-names
+              overlook-agent-read-name-function #'overlook-agent-shell-read-name)
         (dolist (buffer (buffer-list))
           (with-current-buffer buffer
             (when (derived-mode-p 'agent-shell-mode) (overlook-agent-shell--track)))))
@@ -904,7 +940,9 @@ other MCP calls asked for permission showing only their tool name."
     (advice-remove 'agent-shell-fork #'overlook-agent-shell--carry-on)
     (remove-hook 'agent-shell-mode-hook #'overlook-agent-shell--track)
     (remove-hook 'overlook-project-command-functions #'overlook-agent-shell--new-command)
-    (setq overlook-agent-start-function nil)))
+    (setq overlook-agent-start-function nil
+          overlook-agent-names-function nil
+          overlook-agent-read-name-function nil)))
 
 (overlook-define-key "H" #'overlook-agent-shell-handoff)
 
