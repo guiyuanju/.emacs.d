@@ -52,6 +52,23 @@ script=script.replace(/\nshow\(\);\s*$/,'');
 context.scrollTo = (x,y) => {context.lastScroll = [x,y];};
 vm.runInContext(script,context);
 vm.runInContext('composeId = "original";',context);
+const navigation = vm.createContext({
+  window: {}, history: {back() {}}, show() {}, calls: [],
+});
+// Run the actual history handlers without starting network or rendering work.
+navigation.transitionPage = (update, back, animate) => navigation.calls.push([back, animate]);
+vm.runInContext('let navigationDepth = 2; let animateHistoryBack = false;\n'
+  + script.match(/function goBack\(\) \{[\s\S]*?\n\}/)[0] + '\n'
+  + script.match(/window.onpopstate = \(event\) => \{[\s\S]*?\n\};/)[0], navigation);
+navigation.window.onpopstate({state:{overlookDepth:1}});
+assert.deepEqual(navigation.calls.pop(), [true, false]);
+vm.runInContext('goBack()', navigation);
+navigation.window.onpopstate({state:{overlookDepth:0}});
+assert.deepEqual(navigation.calls.pop(), [true, true]);
+navigation.window.onpopstate({state:{overlookDepth:1}});
+assert.deepEqual(navigation.calls.pop(), [false, false]);
+navigation.window.onpopstate({state:{overlookDepth:0}});
+assert.deepEqual(navigation.calls.pop(), [true, false]);
 (async()=>{
   assert.equal(vm.runInContext('checkProtocol({protocolVersion:2}).protocolVersion',context),2);
   assert.throws(()=>vm.runInContext('checkProtocol({protocolVersion:99})',context),error=>error.code==='protocol_mismatch');

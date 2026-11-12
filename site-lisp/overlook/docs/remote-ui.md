@@ -117,7 +117,8 @@ Navigation continues to use the existing query-string routes and browser
 history. Framework7 Router is not enabled: the launch hash carries the
 credential, and changing the route/lifecycle model requires a separate migration
 of deep links, stream cancellation and draft ownership. No custom edge swipe is
-added on top of Safari's native history gesture.
+added on top of Safari's native history gesture. Browser history traversal
+uses the browser animation; the in-app Back button keeps its page transition.
 
 The UI does not infer provider freshness from display strings. Message times,
 unread counts and history pages use explicit backend fields.

@@ -2268,6 +2268,7 @@ function current() {
 }
 
 let navigationDepth = history.state?.overlookDepth || 0;
+let animateHistoryBack = false;
 let pageTransition = null;
 const conversationPositions = new Map();
 const navigationFocus = new Map();
@@ -2301,12 +2302,12 @@ function restoreNavigationFocus(back) {
   function cleanup() { observer.disconnect(); clearTimeout(timer); restoringFocus = null; }
   restoringFocus = cleanup;
 }
-function transitionPage(update, back = false) {
+function transitionPage(update, back = false, animate = true) {
   rememberNavigation();
   const render = update;
   update = () => { render(); shownRoute = location.search; requestAnimationFrame(() => restoreNavigationFocus(back)); };
   pageTransition?.();
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { update(); return; }
+  if (!animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { update(); return; }
   const page = document.querySelector(".remote-page");
   if (!page?.animate) { update(); return; }
   const snapshot = page.cloneNode(true);
@@ -2351,7 +2352,7 @@ function openGroup(id) {
 }
 
 function goBack() {
-  if (navigationDepth > 0) { history.back(); return; }
+  if (navigationDepth > 0) { animateHistoryBack = true; history.back(); return; }
   const search = new URLSearchParams(location.search);
   if (current()) search.delete("agent");
   else {
@@ -2420,7 +2421,10 @@ window.onpopstate = (event) => {
   const depth = event.state?.overlookDepth || 0;
   const back = depth < navigationDepth;
   navigationDepth = depth;
-  transitionPage(show, back);
+  // Browser gestures already animate the history traversal.
+  const animate = animateHistoryBack && back;
+  animateHistoryBack = false;
+  transitionPage(show, back, animate);
 };
 document.addEventListener("visibilitychange", resume);
 
