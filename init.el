@@ -203,8 +203,8 @@
 (use-package browse-url
   :ensure nil
   :custom
-  (browse-url-browser-function #'xwidget-webkit-browse-url)
-  (browse-url-secondary-browser-function #'browse-url-default-browser))
+  (browse-url-browser-function #'browse-url-default-browser)
+  (browse-url-secondary-browser-function #'xwidget-webkit-browse-url))
 
 (use-package xwwp
   :after xwidget
