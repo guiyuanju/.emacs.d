@@ -1,0 +1,12 @@
+Browser libraries for the remote page, unmodified but for dropped source map lines.
+
+- marked.js: marked 18.1.1, lib/marked.umd.js (MIT, marked-LICENSE)
+- purify.js: DOMPurify 3.4.17, dist/purify.min.js (Apache-2.0 or MPL-2.0, purify-LICENSE)
+- framework7.js: Framework7 9.3.0, framework7-bundle.min.js (MIT, framework7-LICENSE)
+- framework7.css: Framework7 9.3.0 core plus the components the page uses, concatenated
+  from the npm package without changes:
+    framework7.min.css components/{dialog,popup,actions,sheet,toast,preloader,input,
+    messagebar,swiper,photo-browser,typography}/*.css
+- framework7-colors.css: the colour variables Framework7's app.setColors() would inject
+  inline for the default theme (the CSP forbids inline styles).
+- lobe-icons-LICENSE: for the OpenAI mark in js/ui.js.

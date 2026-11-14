@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Overlook">
+<meta name="color-scheme" content="light dark">
+<title>Overlook</title>
+<link rel="icon" type="image/svg+xml" href="/overlook/icon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/overlook/apple-touch-icon.png">
+<link rel="manifest" href="/overlook/manifest.webmanifest">
+<link rel="stylesheet" href="assets/vendor/framework7.css">
+<link rel="stylesheet" href="assets/vendor/framework7-colors.css">
+<link rel="stylesheet" href="assets/app.css">
+<!-- overlook:importmap -->
+<script type="module" src="assets/js/main.js"></script>
+</head>
+<body>
+<div id="app">
+<div class="view view-main">
+<div class="page page-current remote-page home">
+  <div class="navbar remote-navbar">
+    <div class="navbar-bg"></div>
+    <div class="navbar-inner">
+      <div class="left"><button id="back" class="link" type="button" hidden aria-label="Back"><i class="icon icon-back"></i><span>Back</span></button></div>
+      <div id="heading" class="title">Overlook</div>
+      <div class="right">
+        <span id="context" hidden title="Context window used" aria-label="Context window used"></span>
+        <button id="session-menu" class="link" type="button" aria-label="Session menu" hidden>⋯</button>
+      </div>
+    </div>
+  </div>
+  <div id="connection" role="status" aria-live="polite" aria-atomic="true" hidden>
+    <span id="connection-message"></span>
+    <button id="reconnect" class="button button-tonal button-small" type="button">Retry</button>
+    <button id="return-dashboard" class="button button-tonal button-small" type="button" hidden>Dashboard</button>
+  </div>
+  <main id="dash" class="page-content remote-content">
+    <div class="screen-intro" id="dashboard-intro"><h1>Overlook</h1></div>
+    <div id="dashboard-content"></div>
+    <div class="sync-footer"><span id="conn">Connecting…</span></div>
+  </main>
+  <main id="detail" class="page-content remote-content" hidden>
+    <div id="persona-profile" class="persona-profile" hidden></div>
+    <div id="d-earlier" hidden>
+      <h2>Last reply</h2>
+      <div id="d-reply" class="markdown"></div>
+      <details><summary>Transcript (end)</summary><pre id="d-transcript"></pre></details>
+    </div>
+    <div id="history-controls" class="history-controls" hidden></div>
+    <div id="d-feed"></div>
+    <div id="d-live"></div>
+  </main>
+  <button id="latest" class="scroll-latest" type="button" aria-label="Jump to latest message" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button>
+  <div id="compose" class="toolbar messagebar" hidden>
+    <div id="slash-commands" aria-label="Available slash commands"></div>
+    <div class="toolbar-inner">
+      <div id="compose-status" class="compose-status" role="status" aria-live="polite"></div>
+      <div id="previews" class="images"></div>
+      <button id="attach" class="link" type="button" title="Attach images" aria-label="Attach images"><svg class="composer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg></button>
+      <input id="files" type="file" accept="image/*" multiple hidden>
+      <div class="messagebar-area"><textarea id="text" placeholder="Message" aria-label="Prompt this agent" rows="1"></textarea></div>
+      <button id="send" class="link" type="button" title="Send (⌘↩ or Ctrl+↩)" aria-label="Send"><svg class="composer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</body>
+</html>
