@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": "hello-1",
+  "method": "hello",
+  "params": {
+    "protocol": 1,
+    "epoch": "48213-1763020800123456789",
+    "emacs": "31.0.50",
+    "pid": 48213,
+    "lost": 0
+  }
+}

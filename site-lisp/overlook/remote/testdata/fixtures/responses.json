@@ -1,0 +1,264 @@
+{
+  "conversation.prompt": [
+    {
+      "match": {
+        "conversation": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160"
+      },
+      "result": {
+        "delivery": "queued",
+        "queueId": "queued-3"
+      }
+    },
+    {
+      "result": {
+        "delivery": "sent"
+      }
+    }
+  ],
+  "conversation.unqueue": [
+    {
+      "match": {
+        "queueId": "queued-404"
+      },
+      "error": {
+        "code": 409,
+        "message": "That prompt was sent already",
+        "data": {
+          "problem": "already_sent"
+        }
+      }
+    },
+    {
+      "result": {}
+    }
+  ],
+  "conversation.retry": [
+    {
+      "result": {}
+    }
+  ],
+  "conversation.action": [
+    {
+      "match": {
+        "action": "close",
+        "confirmed": []
+      },
+      "result": {
+        "outcome": "confirm",
+        "question": "Close agent Rewrite remote as a Go daemon? Queued prompts will be discarded. Its current work will stop. This conversation will remain saved for resuming."
+      }
+    },
+    {
+      "match": {
+        "action": "close"
+      },
+      "result": {
+        "outcome": "done",
+        "closed": true
+      }
+    },
+    {
+      "match": {
+        "action": "restart",
+        "confirmed": []
+      },
+      "result": {
+        "outcome": "confirm",
+        "question": "Start a fresh conversation? Unsent prompts may be lost."
+      }
+    },
+    {
+      "match": {
+        "action": "restart",
+        "confirmed": [
+          "Start a fresh conversation? Unsent prompts may be lost."
+        ]
+      },
+      "result": {
+        "outcome": "confirm",
+        "question": "Discard the running tool call?"
+      }
+    },
+    {
+      "match": {
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      },
+      "result": {
+        "outcome": "done",
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      }
+    },
+    {
+      "result": {
+        "outcome": "done",
+        "conversation": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160"
+      }
+    }
+  ],
+  "conversation.choose": [
+    {
+      "match": {
+        "key": "gone"
+      },
+      "error": {
+        "code": 409,
+        "message": "Rewrite remote as a Go daemon no longer asks that",
+        "data": {
+          "problem": "state_conflict"
+        }
+      }
+    },
+    {
+      "result": {}
+    }
+  ],
+  "conversation.answer": [
+    {
+      "match": {
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      },
+      "error": {
+        "code": 409,
+        "message": "Brotli vs gzip for SSE cannot be answered from here",
+        "data": {
+          "problem": "answer_unsupported"
+        }
+      }
+    },
+    {
+      "result": {}
+    }
+  ],
+  "conversation.attach": [
+    {
+      "match": {
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      },
+      "error": {
+        "code": 409,
+        "message": "This conversation cannot take files",
+        "data": {
+          "problem": "attachment_unsupported"
+        }
+      }
+    },
+    {
+      "result": {
+        "text": "@\"${FIXTURES}/root/alpha/.agent-shell/screenshots/phone-20261113-081500-123.png\""
+      }
+    }
+  ],
+  "conversation.earlier": [
+    {
+      "match": {
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      },
+      "result": {
+        "reply": "For snapshots brotli wins; for SSE keep gzip.",
+        "transcript": "Scout> Is brotli worth it…\n\nFor snapshots brotli wins; for SSE keep gzip.\n"
+      }
+    },
+    {
+      "result": {
+        "reply": "",
+        "transcript": ""
+      }
+    }
+  ],
+  "node.command": [
+    {
+      "match": {
+        "name": "kill",
+        "confirmed": []
+      },
+      "result": {
+        "outcome": "confirm",
+        "question": "Kill agent Scout, still working? "
+      }
+    },
+    {
+      "match": {
+        "name": "kill"
+      },
+      "result": {
+        "outcome": "done"
+      }
+    },
+    {
+      "match": {
+        "name": "close",
+        "confirmed": []
+      },
+      "result": {
+        "outcome": "confirm",
+        "question": "Close project overlook? Its agents keep running."
+      }
+    },
+    {
+      "match": {
+        "name": "close"
+      },
+      "result": {
+        "outcome": "done"
+      }
+    },
+    {
+      "match": {
+        "name": "new"
+      },
+      "result": {
+        "outcome": "done",
+        "conversation": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160"
+      }
+    },
+    {
+      "match": {
+        "name": "prompt"
+      },
+      "result": {
+        "outcome": "done",
+        "conversation": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160",
+        "draft": "Measure bytes vs. the old server (overlook/todo.org:12)"
+      }
+    },
+    {
+      "match": {
+        "name": "start"
+      },
+      "result": {
+        "outcome": "done",
+        "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65"
+      }
+    },
+    {
+      "result": {
+        "outcome": "done"
+      }
+    }
+  ],
+  "node.diff": [
+    {
+      "match": {
+        "path": [
+          "084ffd70d3f2b91c799e93161d2991e636380d283c79f3de3a636872bb10270c",
+          "306b4c652e176bd54e3c11b4b5cee87af091dd84479a8cac5e56ebd58d116c98",
+          "b0514237acbef6ba1ac259927bd92a3a71bbd6346eb198ffb7e562bbe64b1f81",
+          "556e87fd614ab92a42eb1d225d4290f3de97320222247680c4022af22f663c34"
+        ]
+      },
+      "result": {
+        "diff": "--- README.md\n+++ README.md\n@@ -1,3 +1,4 @@\n # overlook\n-Steer agents from Emacs.\n+Steer agents from Emacs,\n+or from a phone through overlook-remoted.\n \n"
+      }
+    },
+    {
+      "result": {
+        "diff": ""
+      }
+    }
+  ],
+  "ping": [
+    {
+      "result": {}
+    }
+  ]
+}

@@ -1,0 +1,578 @@
+{
+  "jsonrpc": "2.0",
+  "method": "sync",
+  "params": {
+    "dashboard": [
+      {
+        "key": "ab89f9261f1b6d11effdc4594824a0d8c4d7b76e71a6c7f7c788661b6a909423",
+        "kind": "group",
+        "title": "Usage",
+        "heading": true,
+        "children": [
+          {
+            "key": "6956b6cc144c5e33dd5546c96053b2b37218f8e3be44429176b48bbb9349aa74",
+            "kind": "usage",
+            "title": "claude",
+            "provider": "claude",
+            "windows": [
+              {
+                "label": "5h",
+                "value": 42.5,
+                "reset": 1763038800
+              },
+              {
+                "label": "7d",
+                "value": 81,
+                "reset": 1763380800
+              },
+              {
+                "label": "Opus",
+                "value": 12,
+                "reset": 1763380800
+              }
+            ],
+            "commands": [
+              {
+                "name": "refresh",
+                "label": "Refresh"
+              },
+              {
+                "name": "switch",
+                "label": "Use for new agents"
+              }
+            ]
+          },
+          {
+            "key": "df1fa46ed6759e85fbc486941602d54cce3e669b2fdc1ca537a6c05bcc90215b",
+            "kind": "usage",
+            "title": "claude",
+            "provider": "claude",
+            "account": "work",
+            "windows": [
+              {
+                "label": "5h",
+                "value": 3,
+                "reset": 1763039400
+              },
+              {
+                "label": "7d",
+                "value": 27,
+                "reset": 1763380800
+              }
+            ]
+          },
+          {
+            "key": "a0420ac1929af33979d9f1f7659831c4188026ce2e966d69ca259c86beecb5dd",
+            "kind": "usage",
+            "title": "codex",
+            "provider": "codex",
+            "windows": [
+              {
+                "label": "5h",
+                "value": 64,
+                "reset": "2h 10m"
+              },
+              {
+                "label": "Weekly",
+                "value": "n/a"
+              }
+            ]
+          },
+          {
+            "key": "c550a27f7135f0f8f5cc036f0957533bf84970f49e07c22bac2cadbabb27bff7",
+            "kind": "usage",
+            "title": "deepseek",
+            "provider": "deepseek",
+            "windows": [
+              {
+                "label": "Balance",
+                "value": "¥38.20"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "084ffd70d3f2b91c799e93161d2991e636380d283c79f3de3a636872bb10270c",
+        "kind": "group",
+        "title": "Projects",
+        "heading": true,
+        "children": [
+          {
+            "key": "306b4c652e176bd54e3c11b4b5cee87af091dd84479a8cac5e56ebd58d116c98",
+            "kind": "project",
+            "title": "overlook",
+            "commands": [
+              {
+                "name": "new",
+                "label": "New conversation",
+                "input": "Task for the new agent",
+                "options": [
+                  "claude",
+                  "codex",
+                  "pi"
+                ]
+              },
+              {
+                "name": "close",
+                "label": "Close project",
+                "confirm": true
+              }
+            ],
+            "children": [
+              {
+                "key": "ac6e7ef7a3e19f7503db9b6ae0efe773f96642b710b4378f960dbcf9c6cdf329",
+                "kind": "agent",
+                "title": "Rewrite remote as a Go daemon",
+                "subtitle": "? Allow editing internal/store/store.go?",
+                "provider": "claude",
+                "status": "waiting",
+                "attention": true,
+                "choices": [
+                  {
+                    "key": "allow_once",
+                    "label": "Allow once"
+                  },
+                  {
+                    "key": "allow_always",
+                    "label": "Always allow"
+                  },
+                  {
+                    "key": "reject_once",
+                    "label": "Reject"
+                  },
+                  {
+                    "key": "reject_always",
+                    "label": "Always reject"
+                  }
+                ],
+                "conversation": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160",
+                "commands": [
+                  {
+                    "name": "kill",
+                    "label": "Kill",
+                    "confirm": true
+                  }
+                ]
+              },
+              {
+                "key": "a6e78809513ce6de0bd3c67d733c90f4036792154157d651c16b4a1f4ff032e2",
+                "kind": "saved",
+                "title": "Fix usage ring alignment",
+                "provider": "codex",
+                "status": "saved",
+                "subtitle": "Saved conversation",
+                "commands": [
+                  {
+                    "name": "resume",
+                    "label": "Resume"
+                  }
+                ]
+              },
+              {
+                "key": "b0514237acbef6ba1ac259927bd92a3a71bbd6346eb198ffb7e562bbe64b1f81",
+                "kind": "repo",
+                "title": "overlook-remote-go",
+                "branch": "overlook-remote-go",
+                "added": 1252,
+                "removed": 89,
+                "diff": true,
+                "children": [
+                  {
+                    "key": "9e485c5f8d1063cc3313beba200c17d32fb419f5d16c2a843251078ba7cb4e87",
+                    "kind": "folder",
+                    "title": "remote/internal/store/",
+                    "added": 240,
+                    "removed": 0,
+                    "diff": true,
+                    "children": [
+                      {
+                        "key": "bdab74649e94bb17e322ed22d11ec4847744a631bc58ea64112ccf35d0bc92ac",
+                        "kind": "file",
+                        "title": "store.go",
+                        "subtitle": "remote/internal/store/",
+                        "status": "A",
+                        "added": 180,
+                        "removed": 0,
+                        "diff": true
+                      },
+                      {
+                        "key": "67027ef51d7a11f58c9fcc05b152767c4e9b48e3c0d8cb519c1b62947067ae81",
+                        "kind": "file",
+                        "title": "media.go",
+                        "subtitle": "remote/internal/store/",
+                        "status": "A",
+                        "added": 60,
+                        "removed": 0,
+                        "diff": true
+                      }
+                    ]
+                  },
+                  {
+                    "key": "556e87fd614ab92a42eb1d225d4290f3de97320222247680c4022af22f663c34",
+                    "kind": "file",
+                    "title": "README.md",
+                    "status": "M",
+                    "added": 12,
+                    "removed": 4,
+                    "diff": true
+                  }
+                ]
+              },
+              {
+                "key": "17fd50b4bb0b71153db54fe18a96f731e97ee5ba575233731eab132ed561cb23",
+                "kind": "tasks",
+                "title": "Tasks",
+                "children": [
+                  {
+                    "key": "ba91675b4ac2fa93b793d311dcc8b2996fb9811df5c66497e6bfffe74c2fc2a9",
+                    "kind": "todo",
+                    "title": "Measure bytes vs. the old server",
+                    "due": "2026-11-13",
+                    "status": "open",
+                    "commands": [
+                      {
+                        "name": "prompt",
+                        "label": "Ask an agent"
+                      },
+                      {
+                        "name": "done",
+                        "label": "Done"
+                      }
+                    ]
+                  },
+                  {
+                    "key": "f7959dc6657682653095818bb4416ddd429da3482e6d4e830ac02d678645baf7",
+                    "kind": "todo",
+                    "title": "Write the launchd plist template",
+                    "due": "2026-11-10",
+                    "status": "waiting",
+                    "subtitle": "Switchover",
+                    "commands": [
+                      {
+                        "name": "done",
+                        "label": "Done"
+                      }
+                    ]
+                  },
+                  {
+                    "key": "30f0b5cba1549a069b205f196bac5d816c841e1ca370c3e76c15c370c882423b",
+                    "kind": "todo",
+                    "title": "Trim the Framework7 bundle",
+                    "status": "open",
+                    "commands": [
+                      {
+                        "name": "done",
+                        "label": "Done"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "9007bf6b8b0ef9822748091c202fd904990c9caf7b70fe7df82f76846b8c834a",
+            "kind": "project",
+            "title": "iuiw",
+            "commands": [
+              {
+                "name": "new",
+                "label": "New conversation",
+                "input": "Task for the new agent",
+                "options": [
+                  "claude",
+                  "codex",
+                  "pi"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "key": "59f47e81d3f0b7a3590ac3f7401bc737d8ccd322b679c81ced6c9a2499a02f55",
+                "kind": "todo",
+                "title": "Rotate the tailscale cert",
+                "due": "2026-11-20",
+                "status": "open",
+                "commands": [
+                  {
+                    "name": "done",
+                    "label": "Done"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "816d9153c57892c4f1e956ea924fb2930f8cca95215a1181084b93b15adf2d3c",
+        "kind": "group",
+        "title": "Personas",
+        "heading": true,
+        "children": [
+          {
+            "key": "f0d423bf699884f92110f44e3dfc03d4d7c116c86f14c16089d78310aee7737c",
+            "kind": "persona",
+            "title": "Scout",
+            "subtitle": "Research assistant that reads the web",
+            "provider": "deepseek",
+            "status": "idle",
+            "persona": "Scout",
+            "description": "Research assistant that reads the web",
+            "commands": [
+              {
+                "name": "start",
+                "label": "New conversation",
+                "input": "Message"
+              },
+              {
+                "name": "kill",
+                "label": "Kill",
+                "confirm": true
+              }
+            ],
+            "children": [
+              {
+                "key": "765992d46f3eb6bdeaaec737be96f175bbb3f0791aeb4a42949be9b61102a92b",
+                "kind": "agent",
+                "title": "Brotli vs gzip for SSE",
+                "subtitle": "For snapshots brotli wins; for SSE keep gzip.",
+                "provider": "deepseek",
+                "status": "done",
+                "persona": "Scout",
+                "description": "Research assistant that reads the web",
+                "conversation": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65",
+                "commands": [
+                  {
+                    "name": "kill",
+                    "label": "Kill",
+                    "confirm": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "c2ca127de7ea026e00c2a5139784049e40b96ac3372c05c0cb65560f9e0edac9",
+            "kind": "persona",
+            "title": "Mason",
+            "subtitle": "Refactors Emacs Lisp",
+            "provider": "claude",
+            "status": "offline",
+            "persona": "Mason",
+            "description": "Refactors Emacs Lisp",
+            "commands": [
+              {
+                "name": "start",
+                "label": "Start",
+                "input": "Message"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "conversations": [
+      {
+        "id": "conversation-06f8144e9a2601385f737f5cb6540bf9f5df039c802afaa355a3296461e4b160",
+        "provider": "claude",
+        "title": "Rewrite remote as a Go daemon",
+        "status": "waiting",
+        "project": "overlook",
+        "folder": "overlook-remote-go",
+        "root": "${FIXTURES}/root/alpha",
+        "brief": "? Allow editing internal/store/store.go?",
+        "context": 63.5,
+        "choices": [
+          {
+            "key": "allow_once",
+            "label": "Allow once"
+          },
+          {
+            "key": "allow_always",
+            "label": "Always allow"
+          },
+          {
+            "key": "reject_once",
+            "label": "Reject"
+          },
+          {
+            "key": "reject_always",
+            "label": "Always reject"
+          }
+        ],
+        "form": {
+          "id": "form-17",
+          "message": "Before I continue, pick the store layout.",
+          "answerable": true,
+          "fields": [
+            {
+              "key": "layout",
+              "type": "single",
+              "title": "Store layout",
+              "required": true,
+              "options": [
+                {
+                  "value": "one",
+                  "title": "One file",
+                  "description": "store.go holds everything"
+                },
+                {
+                  "value": "split",
+                  "title": "Split by concern"
+                }
+              ],
+              "other": "layout_note"
+            },
+            {
+              "key": "extras",
+              "type": "multi",
+              "title": "Also generate",
+              "options": [
+                {
+                  "value": "tests",
+                  "title": "Table tests"
+                },
+                {
+                  "value": "bench",
+                  "title": "Benchmarks"
+                }
+              ]
+            },
+            {
+              "key": "note",
+              "type": "text",
+              "title": "Anything else?"
+            },
+            {
+              "key": "strict",
+              "type": "boolean",
+              "title": "Fail on unknown fields"
+            },
+            {
+              "key": "limit",
+              "type": "integer",
+              "title": "Items retained",
+              "description": "Per conversation"
+            },
+            {
+              "key": "chart",
+              "type": "unsupported",
+              "title": "Draw the data flow"
+            }
+          ]
+        },
+        "queue": [
+          {
+            "id": "queued-1",
+            "text": "After that, run go vet."
+          },
+          {
+            "id": "queued-2",
+            "text": "Then summarize the diff."
+          }
+        ],
+        "controls": {
+          "steer": true,
+          "actions": [
+            "model",
+            "effort",
+            "stop",
+            "reload",
+            "restart",
+            "fork",
+            "close"
+          ],
+          "slash": [
+            {
+              "name": "/compact",
+              "description": "Compact the conversation"
+            },
+            {
+              "name": "/review",
+              "description": "Review the current diff"
+            },
+            {
+              "name": "/clear"
+            }
+          ],
+          "settings": [
+            {
+              "id": "model",
+              "label": "Model",
+              "value": "opus",
+              "choices": [
+                {
+                  "value": "opus",
+                  "name": "Opus"
+                },
+                {
+                  "value": "sonnet",
+                  "name": "Sonnet"
+                }
+              ]
+            },
+            {
+              "id": "effort",
+              "label": "Effort",
+              "value": "high",
+              "choices": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            }
+          ]
+        },
+        "canAttach": true
+      },
+      {
+        "id": "conversation-349c8502002011158b3153878ac92b09a436c595bccf86abb64a4b8c49b85d65",
+        "provider": "deepseek",
+        "title": "Brotli vs gzip for SSE",
+        "status": "done",
+        "persona": "Scout",
+        "description": "Research assistant that reads the web",
+        "folder": "scout",
+        "root": "${FIXTURES}/root",
+        "brief": "For snapshots brotli wins; for SSE keep gzip.",
+        "context": 8,
+        "controls": {
+          "actions": [
+            "model",
+            "stop",
+            "restart",
+            "close"
+          ],
+          "settings": [
+            {
+              "id": "model",
+              "label": "Model",
+              "value": "deepseek-chat",
+              "choices": [
+                {
+                  "value": "deepseek-chat",
+                  "name": "deepseek-chat"
+                },
+                {
+                  "value": "deepseek-reasoner",
+                  "name": "deepseek-reasoner"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

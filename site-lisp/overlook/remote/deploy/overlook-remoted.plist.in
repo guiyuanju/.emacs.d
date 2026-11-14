@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent for overlook-remoted; install.sh fills in the @…@ values.
+     launchd owns the listening socket (Sockets) and hands it to each run of the
+     daemon (-listen launchd:http), so restarts queue connections instead of refusing them. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@BINARY@</string>
+    <string>-listen</string>
+    <string>launchd:http</string>
+    <string>-token-file</string>
+    <string>@TOKEN_FILE@</string>
+    <string>-socket</string>
+    <string>@SOCKET@</string>
+  </array>
+  <key>Sockets</key>
+  <dict>
+    <key>http</key>
+    <dict>
+      <key>SockNodeName</key>
+      <string>@NODE@</string>
+      <key>SockServiceName</key>
+      <string>@PORT@</string>
+    </dict>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

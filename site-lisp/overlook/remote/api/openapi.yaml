@@ -1,0 +1,1234 @@
+openapi: 3.1.0
+info:
+  title: overlook remote browser API
+  version: "3"
+  summary: Steer Emacs agents and read the overlook dashboard from a phone.
+  description: |
+    Served by `overlook-remoted`. Protocol 3; every API response carries the
+    header `Overlook-Protocol: 3`. Bodies are JSON (`application/json`),
+    errors RFC 9457 `application/problem+json` with a stable `code`.
+
+    Conventions:
+    - Optional fields are omitted, never `null`. Empty arrays and `false`
+      booleans are omitted; readers treat absence as empty/false.
+    - Writes accept an `Idempotency-Key` header. A successful (`2xx`, not a
+      confirmation) result is remembered for one hour (512 keys) and replayed
+      for the same key and payload; the same key with another payload is
+      409 `idempotency_conflict`; a duplicate arriving while the first is in
+      flight waits for its result. Receipts are checked before the target is
+      looked up, so a replayed close succeeds after the conversation is gone.
+      Confirmation fields are not part of the payload compared.
+    - GET resources carry an `ETag`; `If-None-Match` gives `304`.
+    - Responses are brotli or gzip encoded when the client accepts it.
+    - When Emacs is not connected, reads serve the last snapshot with
+      `emacs: offline` and writes fail with 503 `emacs_offline`.
+
+    Not in this API (unauthenticated, served by the same daemon): the page at
+    `GET /overlook/` (HTML, `no-cache`, ETag), content-hashed assets under
+    `/overlook/assets/` (`immutable`), and the stable Home Screen routes
+    `/overlook/manifest.webmanifest`, `/overlook/icon.svg`,
+    `/overlook/apple-touch-icon.png`, `/overlook/icon-192.png`,
+    `/overlook/icon-512.png`.
+servers:
+  - url: /overlook/api
+security:
+  - bearer: []
+tags:
+  - name: dashboard
+  - name: stream
+  - name: conversations
+  - name: nodes
+  - name: health
+
+paths:
+  /dashboard:
+    get:
+      tags: [dashboard]
+      operationId: getDashboard
+      summary: Dashboard snapshot
+      description: |
+        With `known` naming one of the retained versions (at least 32), nodes
+        whose hash that version holds are sent as `{same: hash}`; otherwise
+        all nodes are sent in full. `ETag` is `"<known>"` of the current
+        version.
+      parameters:
+        - name: known
+          in: query
+          schema: { type: string }
+          description: The `known` cursor of the version the page holds.
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Current dashboard.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Overlook-Protocol: { $ref: '#/components/headers/OverlookProtocol' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /stream:
+    get:
+      tags: [stream]
+      operationId: getStream
+      summary: The page's one server-sent event stream
+      description: |
+        Subscribes to the dashboard (`dashboard` present), one conversation
+        (`conversation` present), or both. Only changes are sent: a resource
+        unchanged since the given cursors produces no event.
+
+        Events (`event:` name → `data:` JSON schema):
+        - `hello` → `StreamHello`, always first.
+        - `status` → `StreamStatus`, when Emacs connects or disconnects.
+        - `dashboard` → `DashboardDelta`.
+        - `conversation` → `ConversationDelta`, or `ConversationReset`
+          (`reset: true`, a full snapshot) when the cursor's epoch differs,
+          `after` is ahead of the server, or older than the retained history.
+        - `gone` → `StreamGone`, the subscribed conversation no longer exists.
+
+        Each `dashboard`/`conversation` event's `id:` is the query string that
+        resumes the stream from that point (all cursors of this subscription,
+        e.g. `dashboard=4f1c…&conversation=conversation-9a…&after=812&known=77e0…&epoch=k3x9-2`).
+        A `Last-Event-ID` header, when present, replaces the query's cursors.
+
+        Changes are coalesced: an event is written at most 200 ms after the
+        first change of a burst. A comment line (`:`) is written every 25 s.
+        With `Accept-Encoding: gzip` (and compression enabled on the server)
+        the stream is gzip encoded and flushed after every event.
+        At most 32 concurrent streams per server; more give 429.
+      parameters:
+        - name: dashboard
+          in: query
+          schema: { type: string }
+          allowEmptyValue: true
+          description: Subscribe to the dashboard; value is the held `known` cursor, empty for none.
+        - name: conversation
+          in: query
+          schema: { type: string }
+          description: Subscribe to this conversation.
+        - name: after
+          in: query
+          schema: { type: integer, minimum: 0 }
+          description: Conversation cursor, the `seq` the page holds.
+        - name: known
+          in: query
+          schema: { type: string }
+          description: Hash of the conversation state the page holds.
+        - name: epoch
+          in: query
+          schema: { type: string }
+          description: History epoch of `after`.
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Event stream.
+          headers:
+            Overlook-Protocol: { $ref: '#/components/headers/OverlookProtocol' }
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-sent events as listed above.
+              x-events:
+                hello: { $ref: '#/components/schemas/StreamHello' }
+                status: { $ref: '#/components/schemas/StreamStatus' }
+                dashboard: { $ref: '#/components/schemas/DashboardDelta' }
+                conversation:
+                  oneOf:
+                    - $ref: '#/components/schemas/ConversationDelta'
+                    - $ref: '#/components/schemas/ConversationReset'
+                gone: { $ref: '#/components/schemas/StreamGone' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /conversations:
+    get:
+      tags: [conversations]
+      operationId: listConversations
+      summary: Live conversations
+      parameters:
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Conversations, in Emacs's buffer order.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Overlook-Protocol: { $ref: '#/components/headers/OverlookProtocol' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationList' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /conversations/{conversation}:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    get:
+      tags: [conversations]
+      operationId: getConversation
+      summary: Conversation snapshot with its latest history page
+      description: |
+        `ETag` is `"<epoch>.<seq>.<known>"`. `earlier` is present only when no
+        activity is retained and Emacs supplied it within 2 s.
+      parameters:
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Snapshot.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Overlook-Protocol: { $ref: '#/components/headers/OverlookProtocol' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationSnapshot' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /conversations/{conversation}/history:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    get:
+      tags: [conversations]
+      operationId: getHistory
+      summary: An older page of retained activity
+      parameters:
+        - name: before
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+          description: Item id; the page holds items before it.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: epoch
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Items in ascending item order.
+          headers:
+            Overlook-Protocol: { $ref: '#/components/headers/OverlookProtocol' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`history_expired`: another epoch, or older items were discarded.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /conversations/{conversation}/prompts:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: sendPrompt
+      summary: Send a prompt, or queue it while the agent is busy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromptRequest' }
+      responses:
+        '200':
+          description: Delivered or queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromptResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/prompts/{queueId}:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+      - name: queueId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [conversations]
+      operationId: withdrawPrompt
+      summary: Withdraw a queued prompt
+      description: Also clears a paused queue's error. 409 `already_sent` once delivered.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: Withdrawn. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/prompts/retry:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: retryQueue
+      summary: Resume delivery of a queue paused by `queueError`
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: Delivery resumes. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/read:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    put:
+      tags: [conversations]
+      operationId: putReadPosition
+      summary: Acknowledge activity through a sequence
+      description: |
+        The read position becomes max(current, min(`through`, latest seq)); it
+        never moves back. Shared by all clients for the current Emacs epoch.
+        Works while Emacs is offline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReadRequest' }
+      responses:
+        '200':
+          description: Position stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /conversations/{conversation}/actions:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: runAction
+      summary: Session action, with confirmation flow
+      description: |
+        `action` is `steer` (requires `text`, only when `controls.steer`),
+        `close`, or one of `controls.actions` (`stop`, `reload`, `restart`,
+        `fork`, or a setting id with `text` = the chosen value).
+
+        A `confirm` outcome asks a question. Re-send the same request (same
+        `Idempotency-Key`) with the returned `confirmations` array and
+        `confirmationToken`, replacing any previous array. If the state
+        changed meanwhile the token is no longer valid and the sequence starts
+        over with a new first question. Nothing runs until `done`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActionRequest' }
+      responses:
+        '200':
+          description: Done, or a question to confirm.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActionResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/choice:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: choose
+      summary: Give one of the offered permission choices
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChoiceRequest' }
+      responses:
+        '204': { description: Given. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/forms/{form}:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+      - name: form
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [conversations]
+      operationId: answerForm
+      summary: Answer or decline the whole question form
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FormAnswer' }
+      responses:
+        '204': { description: Answered. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /conversations/{conversation}/attachments:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: attach
+      summary: Upload an image for the next prompt
+      description: |
+        Raw bytes, at most 20 MiB, whose magic bytes match `Content-Type`.
+        Returns the text naming the saved file, to insert into the draft. Only
+        when the conversation has `canAttach`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/gif: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Attached.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /images/{image}:
+    get:
+      tags: [conversations]
+      operationId: getImage
+      summary: An image shown in activity
+      description: '`image` is a content hash, so responses are `Cache-Control: private, max-age=31536000, immutable`.'
+      parameters:
+        - name: image
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[0-9a-f]{16}$' }
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Image bytes.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control:
+              schema: { type: string }
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/gif: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /nodes/{node}/diff:
+    parameters:
+      - $ref: '#/components/parameters/Node'
+    get:
+      tags: [nodes]
+      operationId: getNodeDiff
+      summary: Current unified diff of a node with `diff`
+      description: Cut at 20000 characters, ending in `"\n…"` when cut.
+      responses:
+        '200':
+          description: Diff text, possibly empty.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiffResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /nodes/{node}/commands/{name}:
+    parameters:
+      - $ref: '#/components/parameters/Node'
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [nodes]
+      operationId: runCommand
+      summary: Run a node command, with confirmation flow
+      description: |
+        `text` is required when the command has `input`; `option` must be one
+        of its `options`. Confirmation works as for session actions.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommandRequest' }
+      responses:
+        '200':
+          description: Done, or a question to confirm.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/EmacsOffline' }
+        '504': { $ref: '#/components/responses/EmacsTimeout' }
+
+  /healthz:
+    servers:
+      - url: /overlook
+    get:
+      tags: [health]
+      operationId: healthz
+      summary: Liveness, unauthenticated
+      security: []
+      responses:
+        '200':
+          description: The daemon serves.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: The token from the token file, carried by the launch URL's fragment.
+
+  parameters:
+    Conversation:
+      name: conversation
+      in: path
+      required: true
+      schema: { type: string }
+    Node:
+      name: node
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9a-f]{16}$' }
+      description: Node `id` from the current dashboard version.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7e]+$' }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      schema: { type: string }
+
+  headers:
+    ETag:
+      schema: { type: string }
+    OverlookProtocol:
+      schema: { type: string, const: "3" }
+
+  responses:
+    NotModified:
+      description: Unchanged since the given ETag.
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: 'Missing or wrong token (`unauthorized`); carries `WWW-Authenticate: Bearer`.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Target gone (`conversation_missing`, `node_missing`, `command_missing`, `image_missing`, `diff_missing`, `route_missing`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: State conflict (`state_conflict`, `already_sent`, `history_expired`, `prompt_unsupported`, `attachment_unsupported`, `answer_unsupported`, `idempotency_conflict`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooLarge:
+      description: '`request_too_large` or `image_too_large`.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: '`unsupported_media_type`.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooMany:
+      description: '`too_many_streams`.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    EmacsOffline:
+      description: '`emacs_offline`: Emacs is not connected, or disconnected while handling the request.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    EmacsTimeout:
+      description: '`emacs_timeout`: Emacs did not answer in time; the operation may still complete. Retry with the same Idempotency-Key.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status, code, detail]
+      properties:
+        type:
+          type: string
+          description: '`urn:overlook:problem:<code>`'
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code:
+          type: string
+          enum:
+            - invalid_json
+            - invalid_body
+            - invalid_field
+            - invalid_query
+            - invalid_idempotency_key
+            - empty_text
+            - unsupported_action
+            - invalid_option
+            - invalid_image
+            - unauthorized
+            - route_missing
+            - conversation_missing
+            - node_missing
+            - command_missing
+            - image_missing
+            - diff_missing
+            - method_not_allowed
+            - state_conflict
+            - history_expired
+            - already_sent
+            - prompt_unsupported
+            - attachment_unsupported
+            - answer_unsupported
+            - idempotency_conflict
+            - protocol_mismatch
+            - request_too_large
+            - image_too_large
+            - unsupported_media_type
+            - too_many_streams
+            - internal_error
+            - bridge_error
+            - emacs_offline
+            - emacs_timeout
+        detail:
+          type: string
+          description: Human text the page may show.
+
+    EmacsStatus:
+      type: string
+      enum: [online, offline]
+
+    Health:
+      type: object
+      required: [status, emacs]
+      properties:
+        status: { const: ok }
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        daemon:
+          type: string
+          description: The daemon's build version; deploy.sh checks it to know the new binary answers.
+
+    Dashboard:
+      type: object
+      required: [emacs, known, sections]
+      properties:
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        known:
+          type: string
+          description: Cursor of this version; empty before Emacs ever synced.
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/NodeOrSame' }
+
+    DashboardDelta:
+      type: object
+      required: [known, sections]
+      properties:
+        known: { type: string }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/NodeOrSame' }
+
+    NodeOrSame:
+      oneOf:
+        - $ref: '#/components/schemas/Node'
+        - $ref: '#/components/schemas/Same'
+
+    Same:
+      type: object
+      description: A node (with its whole subtree) the client already holds under this hash.
+      required: [same]
+      additionalProperties: false
+      properties:
+        same: { type: string }
+
+    Node:
+      type: object
+      required: [id, hash, kind, title]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+          description: Stable while the node keeps its place (derived from its key path).
+        hash:
+          type: string
+          description: Changes when the node or anything under it changes.
+        kind:
+          type: string
+          description: '`group`, `text`, `project`, `persona`, `agent`, `saved`, `usage`, `repo`, `folder`, `file`, `todo`, `tasks`, or another kind rendered generically.'
+        title: { type: string }
+        subtitle: { type: string }
+        provider: { type: string }
+        status: { type: string }
+        account: { type: string }
+        branch: { type: string }
+        added: { type: integer, minimum: 0 }
+        removed: { type: integer, minimum: 0 }
+        due: { type: string, format: date }
+        persona: { type: string }
+        description: { type: string }
+        windows:
+          type: array
+          items: { $ref: '#/components/schemas/UsageWindow' }
+        heading: { type: boolean }
+        attention: { type: boolean }
+        conversation:
+          type: string
+          description: Conversation id, on agent rows.
+        unreadCount:
+          type: integer
+          minimum: 1
+          description: On agent rows with unread replies.
+        choices:
+          type: array
+          items: { $ref: '#/components/schemas/Choice' }
+        commands:
+          type: array
+          items: { $ref: '#/components/schemas/Command' }
+        diff:
+          type: boolean
+          description: '`GET /nodes/{id}/diff` gives a diff.'
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/NodeOrSame' }
+
+    UsageWindow:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string }
+        value:
+          description: Percentage used, or display text.
+          type: [number, string]
+        reset:
+          description: Unix seconds of the reset, or display text.
+          type: [number, string]
+
+    Command:
+      type: object
+      required: [name, label]
+      properties:
+        name: { type: string }
+        label: { type: string }
+        input:
+          type: string
+          description: Placeholder of the required text.
+        options:
+          type: array
+          items: { type: string }
+        confirm:
+          type: boolean
+          description: Running it asks a question first.
+
+    Choice:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+
+    Conversation:
+      type: object
+      required: [id, provider, title, status, controls]
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          enum: [idle, working, waiting, done, failed]
+        persona: { type: string }
+        description: { type: string }
+        project: { type: string }
+        folder: { type: string }
+        brief: { type: string }
+        context:
+          type: number
+          description: Percent of the context window in use.
+        choices:
+          type: array
+          items: { $ref: '#/components/schemas/Choice' }
+        form: { $ref: '#/components/schemas/Form' }
+        queue:
+          type: array
+          items: { $ref: '#/components/schemas/QueueItem' }
+        queueError:
+          type: string
+          description: Delivery is paused until `POST …/prompts/retry`.
+        controls: { $ref: '#/components/schemas/Controls' }
+        canAttach: { type: boolean }
+        unreadCount: { type: integer, minimum: 1, description: Assistant text items after readThrough; omitted when 0. }
+        readThrough: { type: integer, minimum: 1, description: Shared read position; omitted when 0. }
+
+    Controls:
+      type: object
+      required: [actions]
+      properties:
+        steer: { type: boolean }
+        actions:
+          type: array
+          items: { type: string }
+          description: Always includes `close`; includes each setting id.
+        slash:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              description: { type: string }
+        settings:
+          type: array
+          items: { $ref: '#/components/schemas/Setting' }
+
+    Setting:
+      type: object
+      required: [id, label, value, choices]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        value: { type: string }
+        choices:
+          type: array
+          items:
+            type: object
+            required: [value, name]
+            properties:
+              value: { type: string }
+              name: { type: string }
+
+    QueueItem:
+      type: object
+      required: [id, text]
+      properties:
+        id: { type: string }
+        text: { type: string }
+
+    Form:
+      type: object
+      required: [id, message, fields]
+      properties:
+        id: { type: string }
+        message: { type: string }
+        answerable:
+          type: boolean
+          description: False when it can only be answered in Emacs.
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/Field' }
+
+    Field:
+      type: object
+      required: [key, type, title]
+      properties:
+        key: { type: string }
+        type:
+          type: string
+          enum: [single, multi, text, boolean, number, integer, unsupported]
+        title: { type: string }
+        description: { type: string }
+        required: { type: boolean }
+        options:
+          type: array
+          items:
+            type: object
+            required: [value, title]
+            properties:
+              value: { type: string }
+              title: { type: string }
+              description: { type: string }
+        other:
+          type: string
+          description: Key of the free-text “Other” answer in `values`.
+
+    Item:
+      type: object
+      description: |
+        One activity item. Text items stream: `text` is the suffix after
+        `offset` UTF-16 code units of what the client holds; a client whose
+        held length differs from `offset` must resubscribe from `after=0`.
+      required: [item, seq, type, createdAt, updatedAt]
+      properties:
+        item:
+          type: integer
+          minimum: 1
+          description: Item id; orders items.
+        seq:
+          type: integer
+          minimum: 1
+          description: Change that last touched it.
+        type:
+          type: string
+          enum: [prompt, text, tool, end, error]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        text:
+          type: string
+          description: prompt, text (suffix), error.
+        offset:
+          type: integer
+          minimum: 1
+          description: Text items only; omitted when 0.
+        title:
+          type: string
+          description: Tool items.
+        status:
+          type: string
+          description: 'Tool items: `pending`, `in_progress`, `completed`, `failed`.'
+        kind:
+          type: string
+          description: Tool items, ACP tool kind.
+        diff:
+          type: string
+          description: Tool items, unified diff of its edits.
+        images:
+          type: array
+          description: Image ids for `GET /images/{image}`; the full list, not a suffix.
+          items: { type: string }
+
+    History:
+      type: object
+      required: [hasMore]
+      properties:
+        hasMore: { type: boolean }
+        before:
+          type: integer
+          description: Item id to pass as `before` for the next older page.
+
+    Earlier:
+      type: object
+      description: Shown when no activity is retained (recording began later, or the daemon restarted).
+      required: [reply, transcript]
+      properties:
+        reply:
+          type: string
+          description: Last reply, markdown.
+        transcript:
+          type: string
+          description: Last 8000 characters of the agent's buffer.
+
+    ConversationList:
+      type: object
+      required: [epoch, emacs, conversations]
+      properties:
+        epoch: { type: string }
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        conversations:
+          type: array
+          items: { $ref: '#/components/schemas/Conversation' }
+
+    ConversationSnapshot:
+      type: object
+      required: [epoch, seq, known, emacs, conversation, items, history]
+      properties:
+        epoch:
+          type: string
+          description: History epoch.
+        seq:
+          type: integer
+          minimum: 0
+          description: Latest change of this conversation; the stream's `after`.
+        known:
+          type: string
+          description: Hash of `conversation`; the stream's `known`.
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        conversation: { $ref: '#/components/schemas/Conversation' }
+        items:
+          type: array
+          description: Latest page (50) in ascending order; always present, possibly empty.
+          items: { $ref: '#/components/schemas/Item' }
+        history: { $ref: '#/components/schemas/History' }
+        earlier: { $ref: '#/components/schemas/Earlier' }
+
+    HistoryPage:
+      type: object
+      required: [epoch, items, hasMore]
+      properties:
+        epoch: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Item' }
+        hasMore: { type: boolean }
+        before: { type: integer }
+
+    ConversationDelta:
+      type: object
+      description: Changes after the cursor. `conversation` only when its hash changed; `items` only those touched, text as suffix.
+      required: [epoch, seq, known]
+      properties:
+        epoch: { type: string }
+        seq: { type: integer, minimum: 0 }
+        known: { type: string }
+        conversation: { $ref: '#/components/schemas/Conversation' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Item' }
+
+    ConversationReset:
+      description: Replace everything held for the conversation.
+      allOf:
+        - $ref: '#/components/schemas/ConversationSnapshot'
+        - type: object
+          required: [reset]
+          properties:
+            reset: { const: true }
+
+    StreamHello:
+      type: object
+      required: [protocol, epoch, emacs]
+      properties:
+        protocol: { const: 3 }
+        epoch: { type: string }
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+
+    StreamStatus:
+      type: object
+      required: [emacs]
+      properties:
+        emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        epoch:
+          type: string
+          description: Present when the history epoch changed (Emacs restarted).
+
+    StreamGone:
+      type: object
+      required: [conversation]
+      properties:
+        conversation: { type: string }
+
+    PromptRequest:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Trimmed by the server; blank is `empty_text`.
+
+    PromptResult:
+      type: object
+      required: [delivery]
+      properties:
+        delivery:
+          type: string
+          enum: [sent, queued]
+        queueId:
+          type: string
+          description: Present when queued.
+
+    ReadRequest:
+      type: object
+      required: [through, epoch]
+      additionalProperties: false
+      properties:
+        through: { type: integer, minimum: 0 }
+        epoch: { type: string, minLength: 1 }
+
+    ReadResult:
+      type: object
+      required: [readThrough, unreadCount]
+      properties:
+        readThrough: { type: integer, minimum: 0 }
+        unreadCount: { type: integer, minimum: 0 }
+
+    ConfirmationFields:
+      type: object
+      properties:
+        confirmations:
+          type: array
+          items: { type: string }
+          description: The array returned by the last confirm outcome.
+        confirmationToken: { type: string }
+
+    ActionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ConfirmationFields'
+        - type: object
+          required: [action]
+          properties:
+            action: { type: string, minLength: 1 }
+            text: { type: string }
+
+    ActionResult:
+      oneOf:
+        - $ref: '#/components/schemas/ActionDone'
+        - $ref: '#/components/schemas/Confirm'
+      discriminator:
+        propertyName: outcome
+        mapping:
+          done: '#/components/schemas/ActionDone'
+          confirm: '#/components/schemas/Confirm'
+
+    ActionDone:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { const: done }
+        conversation:
+          type: string
+          description: Resulting conversation (new after reload, restart, fork).
+        closed:
+          type: boolean
+          description: The conversation was closed.
+
+    Confirm:
+      type: object
+      required: [outcome, question, confirmations, confirmationToken]
+      properties:
+        outcome: { const: confirm }
+        question: { type: string }
+        confirmations:
+          type: array
+          items: { type: string }
+          description: Every question accepted so far plus this one; send back as is after the user accepts.
+        confirmationToken: { type: string }
+
+    ChoiceRequest:
+      type: object
+      required: [key]
+      additionalProperties: false
+      properties:
+        key: { type: string, minLength: 1 }
+
+    FormAnswer:
+      type: object
+      required: [action]
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum: [accept, decline]
+        values:
+          type: object
+          description: Field key → string, string array, boolean or number; plus `other` keys.
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+              - type: array
+                items: { type: string }
+
+    AttachmentResult:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Text naming the saved file, for the draft.
+
+    DiffResult:
+      type: object
+      required: [diff]
+      properties:
+        diff: { type: string }
+
+    CommandRequest:
+      allOf:
+        - $ref: '#/components/schemas/ConfirmationFields'
+        - type: object
+          properties:
+            text: { type: string }
+            option: { type: string }
+
+    CommandResult:
+      oneOf:
+        - $ref: '#/components/schemas/CommandDone'
+        - $ref: '#/components/schemas/Confirm'
+      discriminator:
+        propertyName: outcome
+        mapping:
+          done: '#/components/schemas/CommandDone'
+          confirm: '#/components/schemas/Confirm'
+
+    CommandDone:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { const: done }
+        conversation:
+          type: string
+          description: Conversation the command opened or started; open it.
+        draft:
+          type: string
+          description: Text to append to that conversation's draft.
