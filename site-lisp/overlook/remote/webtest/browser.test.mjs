@@ -216,6 +216,16 @@ test("conversation reading: feed, folding, copy, tools, images, info, history an
   const files = page.locator("#d-feed .markdown").filter({ hasText: "Files:" });
   await files.waitFor();
   assert.equal(await files.locator("a[href^='https:']").getAttribute("target"), "_blank");
+  await page.context().route("https://example.com/", (route) => route.fulfill({ contentType: "text/html", body: "External website" }));
+  const conversationURL = page.url();
+  const popupOpened = page.waitForEvent("popup");
+  await files.getByText("site", { exact: true }).click();
+  const popup = await popupOpened;
+  await popup.waitForLoadState();
+  assert.equal(popup.url(), "https://example.com/");
+  assert.equal(await popup.evaluate(() => window.opener), null);
+  assert.equal(page.url(), conversationURL);
+  await popup.close();
   assert.equal(await files.locator("a.file-link[data-file='/tmp/missing.txt']").count(), 1);
   await files.getByText("report", { exact: true }).click();
   await page.locator(".dialog").getByText("report.pdf · 2.0 KB").waitFor();

@@ -10,10 +10,11 @@ DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
 
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName !== "A") return;
+  node.classList.add("external");
   const ref = fileRef(node.getAttribute("href"));
   if (ref) {
     node.dataset.file = ref;
-    node.classList.add("file-link", "external");
+    node.classList.add("file-link");
     return;
   }
   node.setAttribute("target", "_blank");
