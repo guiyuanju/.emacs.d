@@ -402,16 +402,60 @@ it leaves out are cleared, so the answer is exactly what VALUES says."
       (when (and draft (not (string-empty-p (string-trim draft))))
         (agent-shell--prompt-queue-enqueue :prompt draft)))))
 
+(defconst overlook-agent-shell--settings
+  '(("model" "Model" "model") ("effort" "Effort" "thought_level"))
+  "Remote settings: the action naming each, its label and its ACP category.")
+
+(defun overlook-agent-shell--option (category)
+  "This shell's select config option of id or CATEGORY, or nil."
+  (when-let* (((ignore-errors (agent-shell-initialized-p)))
+              (option (or (agent-shell-config-option :id category)
+                          ;; Several options sharing CATEGORY signal an error.
+                          (ignore-errors (agent-shell-config-option :category category))))
+              ((equal (map-elt option :type) "select")))
+    option))
+
+(defun overlook-agent-shell--settings ()
+  "Settings this shell's agent offers a remote client, as plists."
+  (seq-keep
+   (pcase-lambda (`(,action ,label ,category))
+     (when-let* ((option (overlook-agent-shell--option category)))
+       (list :id action :label label
+             :value (or (map-elt option :current-value) "")
+             :choices (mapcar (lambda (choice)
+                                (list :value (map-elt choice :value)
+                                      :name (or (map-elt choice :name) (map-elt choice :value))))
+                              (map-elt option :options)))))
+   overlook-agent-shell--settings))
+
+(defun overlook-agent-shell--set (action value)
+  "Set this shell's setting ACTION to VALUE; views refresh once the agent agrees."
+  (let ((option (overlook-agent-shell--option
+                 (nth 2 (assoc action overlook-agent-shell--settings))))
+        (buffer (current-buffer)))
+    (unless (seq-find (lambda (choice) (equal (map-elt choice :value) value))
+                      (map-elt option :options))
+      (user-error "Unknown %s: %s" action value))
+    (agent-shell-set-config-option-value
+     :id (map-elt option :id) :value value
+     :on-success (lambda (_) (when (buffer-live-p buffer) (overlook-agent-changed)))
+     :on-failure (lambda (result)
+                   (message "Could not set %s: %s" action
+                            (or (map-nested-elt result '(:acp-error message)) "agent refused"))))))
+
 (defun overlook-agent-shell--controls ()
   "Controls available for this shell's remote client."
-  (list :slash (mapcar (lambda (command)
-                         (list :name (map-elt command 'name)
-                               :description (or (map-elt command 'description) "")))
-                       (map-elt agent-shell--state :available-commands))
-        :steer (agent-shell-steering-supported-p)
-        :actions (append '("stop" "reload" "restart")
-                         (when (map-elt agent-shell--state :supports-session-fork)
-                           '("fork")))))
+  (let ((settings (overlook-agent-shell--settings)))
+    (list :settings settings
+          :slash (mapcar (lambda (command)
+                           (list :name (map-elt command 'name)
+                                 :description (or (map-elt command 'description) "")))
+                         (map-elt agent-shell--state :available-commands))
+          :steer (agent-shell-steering-supported-p)
+          :actions (append (mapcar (lambda (setting) (plist-get setting :id)) settings)
+                           '("stop" "reload" "restart")
+                           (when (map-elt agent-shell--state :supports-session-fork)
+                             '("fork"))))))
 
 (defun overlook-agent-shell--start-session (command &optional forked)
   "Run COMMAND, which starts a session, returning that session's shell.
@@ -438,6 +482,8 @@ buffer keeps its directory cleanup when COMMAND stops halfway."
     ("reload" (overlook-agent-shell--start-session #'agent-shell-reload))
     ("restart" (overlook-agent-shell--start-session #'agent-shell-restart))
     ("fork" (overlook-agent-shell--start-session #'agent-shell-fork t))
+    ((guard (assoc action overlook-agent-shell--settings))
+     (overlook-agent-shell--set action text) (current-buffer))
     (_ (user-error "Unknown session action: %s" action))))
 
 (defun overlook-agent-shell--tool-title (data)
@@ -654,6 +700,8 @@ Each image is as `overlook-agent-shell--image' gives it."
        (when-let* (((equal (map-nested-elt update '(content type)) "image"))
                    (image (overlook-agent-shell--image (map-elt update 'content))))
          (overlook-agent-event 'text :text "" :images (list image))))
+      ;; Deferred so agent-shell has recorded the new value first.
+      ("config_option_update" (run-at-time 0 nil #'overlook-agent-changed))
       ("usage_update"
        (overlook-agent-shell--save-plan-usage
         (map-nested-elt update '(_meta _claude/rateLimit unifiedWindows)))

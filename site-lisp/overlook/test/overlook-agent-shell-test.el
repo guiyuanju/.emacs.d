@@ -26,6 +26,48 @@
       (should-not (plist-get controls :steer))
       (should-not (member "fork" (plist-get controls :actions))))))
 
+;; Configuration options as `agent-shell' normalizes them for a Claude session.
+(defconst overlook-agent-shell-test--config-options
+  '(((:id . "model") (:category . "model") (:type . "select") (:current-value . "opus")
+     (:options ((:value . "opus") (:name . "Opus")) ((:value . "sonnet") (:name . "Sonnet"))))
+    ((:id . "effort") (:category . "thought_level") (:type . "select") (:current-value . "medium")
+     (:options ((:value . "medium") (:name . "Medium")) ((:value . "high") (:name . "High"))))
+    ((:id . "fast") (:category . "model_config") (:type . "select") (:current-value . "off")
+     (:options ((:value . "on") (:name . "On")) ((:value . "off") (:name . "Off"))))))
+
+(ert-deftest overlook-agent-shell-remote-settings-set-model-and-effort ()
+  (with-temp-buffer
+    (setq-local agent-shell--state
+                `((:config-options . ,(copy-tree overlook-agent-shell-test--config-options))))
+    (let (sets changed)
+      (cl-letf (((symbol-function 'agent-shell-initialized-p) #'always)
+                ((symbol-function 'overlook-agent-changed) (lambda () (setq changed t)))
+                ((symbol-function 'agent-shell-set-config-option-value)
+                 (lambda (&rest args)
+                   (push (list (plist-get args :id) (plist-get args :value)) sets)
+                   (funcall (plist-get args :on-success) nil))))
+        (let ((controls (overlook-agent-shell--controls)))
+          (should (equal (mapcar (lambda (setting) (plist-get setting :id))
+                                 (plist-get controls :settings))
+                         '("model" "effort")))
+          (should (equal (car (plist-get controls :settings))
+                         '(:id "model" :label "Model" :value "opus"
+                           :choices ((:value "opus" :name "Opus") (:value "sonnet" :name "Sonnet")))))
+          (should (member "effort" (plist-get controls :actions))))
+        (should (eq (overlook-agent-shell--remote-action "effort" "high") (current-buffer)))
+        (should (equal sets '(("effort" "high"))))
+        (should changed)
+        (should-error (overlook-agent-shell--remote-action "model" "unknown") :type 'user-error)
+        (should-error (overlook-agent-shell--remote-action "fast" "on") :type 'user-error)))))
+
+(ert-deftest overlook-agent-shell-remote-settings-wait-for-the-session ()
+  (with-temp-buffer
+    (setq-local agent-shell--state
+                `((:config-options . ,(copy-tree overlook-agent-shell-test--config-options))))
+    (cl-letf (((symbol-function 'agent-shell-initialized-p) #'ignore))
+      (should-not (plist-get (overlook-agent-shell--controls) :settings))
+      (should-not (member "model" (plist-get (overlook-agent-shell--controls) :actions))))))
+
 (ert-deftest overlook-agent-shell-remote-fork-returns-the-new-shell ()
   (let ((original (generate-new-buffer "original-shell")) child)
     (unwind-protect

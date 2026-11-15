@@ -475,17 +475,24 @@ The history goes to archive/NAME-TIME.md in
   (require 'gptel)
   (let* ((persona (overlook-courier-persona overlook-courier-gptel--name))
          (backend (gptel-get-backend (plist-get persona :backend))))
-    (list :actions '("stop" "restart" "model")
-          :model (symbol-name (or overlook-courier-gptel--model
-                                  (if-let* ((model (plist-get persona :model)))
-                                      (intern model) gptel-model)))
-          :models (mapcar #'symbol-name (gptel-backend-models backend)))))
+    (list :actions '("model" "stop" "restart")
+          :settings
+          (list (list :id "model" :label "Model"
+                      :value (symbol-name (or overlook-courier-gptel--model
+                                              (if-let* ((model (plist-get persona :model)))
+                                                  (intern model) gptel-model)))
+                      :choices (mapcar (lambda (model)
+                                         (let ((name (symbol-name model)))
+                                           (list :value name :name name)))
+                                       (gptel-backend-models backend)))))))
 
 (defun overlook-courier-gptel--remote-action (action text)
   "Run session ACTION with TEXT from a remote view; return the persona's buffer."
   (pcase action
     ("model"
-     (unless (member text (plist-get (overlook-courier-gptel--controls) :models))
+     (unless (seq-find (lambda (choice) (equal (plist-get choice :value) text))
+                       (plist-get (car (plist-get (overlook-courier-gptel--controls) :settings))
+                                  :choices))
        (user-error "Unknown model: %s" text))
      (setq overlook-courier-gptel--model (intern text))
      (current-buffer))
