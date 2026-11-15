@@ -130,7 +130,10 @@ returning updates it. New projects append and closed projects disappear.
   `tests/test.txt`; a path too wide for the window has its leading
   folders cut to their initials.  RET on a folder shows its diff.  The
   tooltip shows a file's full path.  These come from Git, so they show
-  every change in the working tree, whoever made it.
+  every change in the working tree, whoever made it.  They are read
+  again soon after a save, a Magit refresh, an agent's tool call or
+  turn, or Emacs regaining focus, and every
+  `overlook-repo-status-interval` seconds for changes nothing reports.
 - **Checkouts**: while a project has worktrees, or its repos are on a
   branch, its rows are grouped by checkout.  The main checkout comes
   first, with the agents in no worktree and the changed repos; then each

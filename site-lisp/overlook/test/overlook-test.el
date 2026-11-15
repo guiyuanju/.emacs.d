@@ -1666,6 +1666,48 @@ Agents are listed; usage and repos are not."
           (should-not (gethash folder overlook-repo--again)))
       (delete-directory root t))))
 
+;; Touches without pause push their read back, but no further than the max wait after the first.
+(ert-deftest overlook-repo-touch-debounces-up-to-max-wait ()
+  (let ((overlook-repo--touched nil)
+        (overlook-repo--touch-first nil)
+        (overlook-repo--touch-timer nil)
+        (overlook-repo-touch-delay 0.5)
+        (overlook-repo-touch-max-wait 5)
+        (now 100.0)
+        delays)
+    (cl-letf (((symbol-function 'overlook-updating-p) #'always)
+              ((symbol-function 'float-time) (lambda (&optional _) now))
+              ((symbol-function 'run-with-timer)
+               (lambda (delay &rest _) (push delay delays) (timer-create))))
+      (overlook-repo--touch "/a/")
+      (setq now 104.75)
+      (overlook-repo--touch "/b/")
+      (setq now 106.0)
+      (overlook-repo--touch "/c/")
+      (should (equal (nreverse delays) '(0.5 0.25 0)))
+      (should (equal overlook-repo--touched '("/c/" "/b/" "/a/"))))))
+
+;; An agent's finished tool call that may change files touches its root and the files it changed.
+(ert-deftest overlook-repo-agent-event-touches-changed-repos ()
+  (let ((buffer (generate-new-buffer " agent"))
+        touched)
+    (unwind-protect
+        (cl-letf (((symbol-function 'overlook-repo--touch) (lambda (dir) (push dir touched)))
+                  ((symbol-function 'overlook-agent-get)
+                   (lambda (_buffer key) (and (eq key 'root) "/root/"))))
+          (overlook-repo--agent-event buffer '(:type text :text "hi"))
+          (overlook-repo--agent-event buffer '(:type tool :status "in_progress" :kind "edit"))
+          (overlook-repo--agent-event buffer '(:type tool :status "completed" :kind "read"))
+          (should-not touched)
+          (overlook-repo--agent-event
+           buffer '(:type tool :status "completed" :kind "edit"
+                    :diffs ((:file "/other/src/a.el" :old "" :new "x"))))
+          (should (equal touched '("/root/" "/other/src/")))
+          (setq touched nil)
+          (overlook-repo--agent-event buffer '(:type end))
+          (should (equal touched '("/root/"))))
+      (kill-buffer buffer))))
+
 ;; A folder inside a larger repo lists only the changes under it, and only while it has some.
 (ert-deftest overlook-repo-folder-in-repo-lists-its-changes ()
   (let* ((top (file-name-as-directory (file-truename (make-temp-file "overlook-repo" t))))

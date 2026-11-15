@@ -29,9 +29,10 @@
 ;; clean repo stays hidden until it changes.  A repo's row shows
 ;; its branch, and under it the changed files with the lines changed
 ;; since the last commit, under a row of each folder with their total, a folder holding only
-;; a folder joined with it, read asynchronously and at most every
-;; `overlook-repo-status-interval' seconds, and soon after a save in
-;; it or a Magit refresh of it.  RET on a repo shows its
+;; a folder joined with it, read asynchronously soon after a save in
+;; it, a Magit refresh of it, an agent's tool call or turn ending in it,
+;; or Emacs regaining focus, and every `overlook-repo-status-interval'
+;; seconds for changes no event reports.  RET on a repo shows its
 ;; diff in Magit, or its status when clean; RET on a file or a folder
 ;; shows its diff since the last commit in Magit.  Without Magit, VC does both.
 ;;
@@ -58,9 +59,11 @@
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
 (declare-function vc-version-diff "vc")
+(declare-function overlook-agent-get "overlook-agent-core")
 
-(defcustom overlook-repo-status-interval 30
-  "Seconds before a repo's branch and changes are read again."
+(defcustom overlook-repo-status-interval 180
+  "Seconds before a repo's branch and changes are read again.
+A fallback for changes no event reports, such as a commit in a terminal."
   :type 'number
   :group 'overlook)
 
@@ -75,8 +78,15 @@
   :group 'overlook)
 
 (defcustom overlook-repo-touch-delay 0.5
-  "Seconds a save or Magit refresh waits before its repos are read again.
-The saves and refreshes within that time share one read."
+  "Seconds of quiet a touch waits for before its repos are read again.
+A touch is a save, a Magit refresh, an agent's tool call or turn
+ending, or Emacs regaining focus; the touches within that time share
+one read."
+  :type 'number
+  :group 'overlook)
+
+(defcustom overlook-repo-touch-max-wait 5
+  "Most seconds touches arriving without pause delay their read."
   :type 'number
   :group 'overlook)
 
@@ -137,9 +147,12 @@ AHEAD counts its commits not on branch BASE, BEHIND those of BASE not on it.")
   "Worktree checkout to (BASE), BASE the one recorded for its branch or nil.")
 
 (defvar overlook-repo--touched nil
-  "Directories saved in or refreshed by Magit since the last touch read.")
+  "Directories touched since the last touch read.")
 
 (defvar overlook-repo--touch-timer nil)
+
+(defvar overlook-repo--touch-first nil
+  "Time of the first touch since the last touch read.")
 
 (defvar overlook-repo--shown nil
   "Repos and folders of the projects as last drawn, shown or clean.")
@@ -785,31 +798,76 @@ Its branch goes where it is merged into its base."
   (mapc #'overlook-repo--status overlook-repo--shown))
 
 (defun overlook-repo--touch (dir)
-  "Read the shown repos and folders holding DIR, or inside its repo, soon."
+  "Read the shown repos and folders holding DIR, or inside its repo, soon.
+The read waits for `overlook-repo-touch-delay' seconds without touches,
+at most `overlook-repo-touch-max-wait' after the first."
   (when (overlook-updating-p)
-    (push (file-name-as-directory (expand-file-name dir)) overlook-repo--touched)
-    (unless (timerp overlook-repo--touch-timer)
+    (let ((now (float-time)))
+      (unless overlook-repo--touched (setq overlook-repo--touch-first now))
+      (push (file-name-as-directory (expand-file-name dir)) overlook-repo--touched)
+      (when (timerp overlook-repo--touch-timer) (cancel-timer overlook-repo--touch-timer))
       (setq overlook-repo--touch-timer
-            (run-with-timer overlook-repo-touch-delay nil #'overlook-repo--read-touched)))))
+            (run-with-timer (max 0 (min overlook-repo-touch-delay
+                                        (- (+ overlook-repo--touch-first
+                                              overlook-repo-touch-max-wait)
+                                           now)))
+                            nil #'overlook-repo--read-touched)))))
+
+(defun overlook-repo--touched-p (shown touched)
+  "Non-nil when directory SHOWN holds one of TOUCHED, or lies in its repo."
+  (seq-some (lambda (dir)
+              (or (string-prefix-p shown dir)
+                  ;; A separate repo nested in DIR's is left alone.
+                  (and (string-prefix-p dir shown)
+                       (not (file-exists-p (expand-file-name ".git" shown))))))
+            touched))
 
 (defun overlook-repo--read-touched ()
   "Mark the shown repos and folders touched lately stale, and read them."
   (let ((touched (delete-dups overlook-repo--touched)))
     (setq overlook-repo--touched nil
+          overlook-repo--touch-first nil
           overlook-repo--touch-timer nil)
     (dolist (shown overlook-repo--shown)
-      (when (seq-some
-             (lambda (dir)
-               (or (string-prefix-p shown dir)
-                   ;; A separate repo nested in DIR's is left alone.
-                   (and (string-prefix-p dir shown)
-                        (not (file-exists-p (expand-file-name ".git" shown))))))
-             touched)
+      (when (overlook-repo--touched-p shown touched)
         (if (gethash shown overlook-repo--reading)
             (puthash shown t overlook-repo--again)
           (when-let* ((entry (gethash shown overlook-repo--status)))
             (setcar entry 0)))))
+    (maphash (lambda (checkout entry)
+               (when (overlook-repo--touched-p (file-name-as-directory checkout) touched)
+                 (setcar entry 0)))
+             overlook-repo--diverged)
     (overlook-repo--tick)))
+
+(defun overlook-repo--touch-shown ()
+  "Read all shown repos and folders soon."
+  (mapc #'overlook-repo--touch overlook-repo--shown))
+
+(defconst overlook-repo--quiet-tool-kinds '("read" "search" "think" "fetch")
+  "Tool call kinds that change no files.")
+
+(defun overlook-repo--agent-event (buffer event)
+  "Read the repos agent BUFFER may have changed soon, after EVENT.
+That is after a tool call that may change files finishes, and after a turn."
+  (when (pcase (plist-get event :type)
+          ('end t)
+          ('tool (and (member (plist-get event :status) '("completed" "failed"))
+                      (not (member (plist-get event :kind) overlook-repo--quiet-tool-kinds)))))
+    (dolist (diff (plist-get event :diffs))
+      (when-let* ((file (plist-get diff :file))
+                  ((file-name-absolute-p file)))
+        (overlook-repo--touch (file-name-directory file))))
+    (when (buffer-live-p buffer)
+      (overlook-repo--touch (or (and (fboundp 'overlook-agent-get)
+                                     (overlook-agent-get buffer 'root))
+                                (buffer-local-value 'default-directory buffer))))))
+
+(defun overlook-repo--focus-changed ()
+  "Read all shown repos soon when Emacs regains focus.
+Changes made outside Emacs, as in a terminal, report no other event."
+  (when (seq-some #'frame-focus-state (frame-list))
+    (overlook-repo--touch-shown)))
 
 (defun overlook-repo--saved ()
   "Read the repo of the file just saved soon."
@@ -845,12 +903,15 @@ Its branch goes where it is merged into its base."
      (overlook-project-close-blockers overlook-repo--close-blocker)
      (overlook-before-render-hook overlook-repo--forget)
      (overlook-tick-hook overlook-repo--tick)
-     (after-save-hook overlook-repo--saved)))
+     (after-save-hook overlook-repo--saved)
+     (overlook-agent-event-functions overlook-repo--agent-event)))
   ;; Adding to the hook before Magit defines it would drop Magit's own functions.
   (if overlook-repo-mode
       (progn
+        (add-function :after after-focus-change-function #'overlook-repo--focus-changed)
         (add-hook 'after-load-functions #'overlook-repo--watch-magit)
         (overlook-repo--watch-magit))
+    (remove-function after-focus-change-function #'overlook-repo--focus-changed)
     (remove-hook 'after-load-functions #'overlook-repo--watch-magit)
     (remove-hook 'magit-post-refresh-hook #'overlook-repo--magit-refreshed))
   (overlook-refresh))
