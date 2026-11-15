@@ -36,7 +36,13 @@ export function navigate(route, { back = false, replace = false } = {}) {
 }
 
 export const openConversation = (id) => navigate({ ...currentRoute(), conversation: id });
-export const openGroup = (id) => navigate({ node: id });
+export const openGroup = (id) => navigate({ node: id, tab: currentRoute().tab });
+
+// Switches the dashboard tab in place: no history entry and no new stream.
+export function replaceRoute(route) {
+  history.replaceState(history.state, "", location.pathname + formatRoute(route) + location.hash);
+  shownSearch = location.search;
+}
 
 export function goBack() {
   if (depth > 0) { animateHistoryBack = true; history.back(); return; }

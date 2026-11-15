@@ -41,15 +41,27 @@ async function open(t, { device = "iPhone 13", theme = "light", route = "", toke
   return { page, server, ctl, log, problems, settled, shot, device: devices[device] };
 }
 
+// A closing action sheet's backdrop still covers the tab bar while it fades.
+async function showTab(page, name) {
+  await page.locator(".backdrop-in").waitFor({ state: "detached" });
+  await page.locator("#tabs .remote-tab").filter({ has: page.getByText(name, { exact: true }) }).click();
+}
+
 const textEvent = (conversation, text, type = "text", extra = {}) => ({ method: "agent.event",
   params: { conversation, at: new Date().toISOString(), type, text, ...extra } });
 
 for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["iPhone SE", "light"], ["Pixel 5", "dark"]]) {
   test(`dashboard layout on ${device} ${theme}`, async (t) => {
     const { page, problems, shot, device: spec } = await open(t, { device, theme });
-    await page.locator("#dashboard-content .usage-row").first().waitFor();
+    await page.locator("#dashboard-content .conversation-row").first().waitFor();
     const sections = await page.locator("#dashboard-content > .dashboard-section > h2").allTextContents();
-    assert.deepEqual(sections, ["Agents", "Usage", "Projects", "Personas"]);
+    assert.deepEqual(sections, []);
+    assert.equal(await page.locator("#dashboard-content .usage-row").count(), 0);
+    assert.deepEqual(await page.locator("#tabs .remote-tab-label").allTextContents(), ["Agents", "Projects", "Personas", "Inbox", "Usage"]);
+    assert.equal(await page.locator("#dashboard-intro h1").innerText(), "Agents");
+    assert.equal(await page.getByRole("button", { name: "New agent", exact: true }).count(), 1);
+    const bar = await page.locator("#tabs").boundingBox();
+    assert(Math.abs(bar.y + bar.height - spec.viewport.height) < 1, "the tab bar sits at the bottom");
     const agents = page.locator("#dashboard-content > .dashboard-section").first();
     assert.equal(await agents.locator(".dashboard-show-more").count(), 0);
     assert(await agents.locator(".conversation-row").count() >= 2);
@@ -59,6 +71,7 @@ for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["
     assert.equal(await page.locator("html.ios").count(), 1);
     assert.equal(await page.locator("html.dark").count(), theme === "dark" ? 1 : 0);
     assert.equal(await page.locator("body").evaluate((el) => getComputedStyle(el).fontSize), "17px");
+    await showTab(page, "Usage");
     const rings = page.locator(".usage-window .usage-ring");
     assert.equal(await rings.count(), 6);
     assert.equal(await rings.first().getAttribute("aria-valuenow"), "42.5");
@@ -73,6 +86,11 @@ for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["
       assert.equal(boxes[4].left, boxes[1].left, "second columns line up across accounts");
     } else assert(boxes[1].left === boxes[0].left && boxes[1].top > boxes[0].top);
     assert.equal(await page.locator(".usage-row .usage-icon").nth(1).getAttribute("aria-label"), "Claude · work");
+    await showTab(page, "Projects");
+    assert.equal(new URL(page.url()).searchParams.get("tab"), "projects");
+    assert.equal(await page.locator("#dashboard-content .usage-row").count(), 0);
+    assert.equal(await page.locator("#dashboard-content").getByText("overlook", { exact: true }).count(), 1);
+    await showTab(page, "Personas");
     const persona = page.locator(".persona-row").first();
     assert.equal(await persona.locator(".more").count(), 0);
     assert.equal(await persona.locator(".persona-count").innerText(), "1 conversation");
@@ -88,27 +106,32 @@ for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["
 
 test("dashboard menus, attention, project pages, commands and diffs", async (t) => {
   const { page, log, problems, settled, shot } = await open(t);
-  await page.locator(".usage-row").first().waitFor();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
   assert.equal(await page.title(), "(1) Overlook", "the title counts rows waiting for a choice");
+  await showTab(page, "Usage");
   await page.locator(".usage-row .usage-content").first().dispatchEvent("contextmenu");
   await page.locator(".actions-modal.modal-in").getByText("Use for new agents", { exact: true }).waitFor();
   await page.locator(".actions-button").filter({ hasText: "Cancel" }).click();
   await page.locator(".actions-modal").waitFor({ state: "detached" });
+  await showTab(page, "Personas");
   await page.locator(".persona-row button").first().dispatchEvent("contextmenu");
   await page.locator(".actions-modal.modal-in").waitFor();
   assert.equal(await page.locator(".actions-button").filter({ hasText: "New conversation" }).count(), 1);
   await page.locator(".actions-button").filter({ hasText: "Cancel" }).click();
   await page.locator(".actions-modal").waitFor({ state: "detached" });
 
+  await showTab(page, "Agents");
+  assert.equal(await page.locator("#tabs .remote-tab-badge").innerText(), "1");
   assert.equal(await page.locator(".dashboard-attention, .attention-shortcut").count(), 0);
   const agents = page.locator("#dashboard-content > .dashboard-section").first();
   assert.equal(await agents.locator(".choices button").count(), 4);
   assert.equal(await agents.getByText("Brotli vs gzip for SSE", { exact: true }).count(), 0);
 
+  await showTab(page, "Projects");
   await page.locator("#dashboard-content").getByText("overlook", { exact: true }).click();
   await settled();
   await page.getByRole("heading", { name: "Conversations", exact: true }).waitFor();
-  assert.match(page.url(), /\?node=[0-9a-f]{16}#test-token$/);
+  assert.match(page.url(), /\?node=[0-9a-f]{16}&tab=projects#test-token$/);
   assert.equal(await page.getByRole("heading", { name: "To do", exact: true }).count(), 1);
   assert.equal(await page.getByRole("heading", { name: "Code & changes", exact: true }).count(), 1);
   assert.equal(await page.locator(".overview-facts").innerText(), "2 conversations\n3 tasks\n3 changed files");
@@ -178,6 +201,22 @@ test("dashboard menus, attention, project pages, commands and diffs", async (t) 
   await page.locator("#d-feed .markdown").first().waitFor();
   const created = (await log()).find((entry) => entry.path.endsWith("/commands/new"));
   assert.deepEqual(created.body, { text: "Port the page", option: "codex" });
+  assert.deepEqual(problems, []);
+});
+
+test("New agent on the Agents tab picks a project, then runs its command", async (t) => {
+  const { page, log, problems } = await open(t);
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
+  await page.getByRole("button", { name: "New agent", exact: true }).click();
+  const sheet = page.locator(".remote-sheet");
+  await sheet.getByText("Project", { exact: true }).waitFor();
+  await sheet.getByRole("button", { name: "overlook", exact: true }).click();
+  await sheet.locator("textarea").fill("Split the dashboard");
+  await sheet.locator("select").selectOption("codex");
+  await sheet.getByRole("button", { name: "New conversation", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("agent") === ALPHA);
+  const created = (await log()).find((entry) => entry.path.endsWith("/commands/new"));
+  assert.deepEqual(created.body, { text: "Split the dashboard", option: "codex" });
   assert.deepEqual(problems, []);
 });
 
@@ -292,6 +331,7 @@ test("composer: drafts, send, retry, queue, uploads, settings, steer and stop", 
   await page.locator("#text").fill("保留这个草稿");
   await page.locator("#back").click();
   await settled();
+  await showTab(page, "Personas");
   await page.locator("#dashboard-content").getByText("Scout", { exact: true }).click();
   await settled();
   await page.locator("#dashboard-content").getByText("Brotli vs gzip for SSE", { exact: true }).click();
@@ -303,6 +343,7 @@ test("composer: drafts, send, retry, queue, uploads, settings, steer and stop", 
   await settled();
   await page.locator("#back").click();
   await settled();
+  await showTab(page, "Agents");
   await page.locator("#dashboard-content > .dashboard-section").first().locator(".conversation-row .remote-row").first().click();
   await settled();
   assert.equal(await page.locator("#text").inputValue(), "保留这个草稿");
@@ -423,7 +464,7 @@ test("live updates, Emacs offline, gone, missing and credentials", async (t) => 
   await ctl("message", { method: "conversation.remove", params: { conversation: ALPHA } });
   await page.locator("#connection").getByText(/This conversation has ended/).waitFor();
   await page.locator("#return-dashboard").click();
-  await page.locator(".usage-row").first().waitFor();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
   await page.goto(server.url + "?agent=nope#" + TOKEN);
   await page.locator("#d-feed .view-state").getByText("Conversation ended").waitFor();
   await page.goto(server.url + "#wrong");
@@ -433,7 +474,7 @@ test("live updates, Emacs offline, gone, missing and credentials", async (t) => 
 
 test("stream reconnects with its cursors after a drop", async (t) => {
   const { page, ctl, log, server } = await open(t);
-  await page.locator(".usage-row").first().waitFor();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
   for (const client of server.daemon.streams) client.res.destroy();
   await page.locator("#connection").getByText(/Reconnecting/).waitFor();
   await page.locator("#connection").waitFor({ state: "hidden", timeout: 5000 });
@@ -446,7 +487,8 @@ test("stream reconnects with its cursors after a drop", async (t) => {
 
 test("Close agent confirms, then returns to the group; deep links and reduced motion", async (t) => {
   const { page, log, server, settled } = await open(t, { reducedMotion: "reduce" });
-  await page.locator(".usage-row").first().waitFor();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
+  await showTab(page, "Projects");
   await page.locator("#dashboard-content").getByText("overlook", { exact: true }).click();
   assert.equal(await page.locator(".page-snapshot").count(), 0);
   const node = new URL(page.url()).searchParams.get("node");
@@ -467,7 +509,7 @@ test("Close agent confirms, then returns to the group; deep links and reduced mo
   await page.getByRole("heading", { name: "To do", exact: true }).waitFor();
   await page.locator("#back").click();
   await settled();
-  await page.locator(".usage-row").first().waitFor();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
   assert.equal(new URL(page.url()).search, "");
 });
 

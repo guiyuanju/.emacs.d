@@ -72,8 +72,9 @@ test("page served by the daemon: dashboard, conversation, writes and live stream
   const index = await fetch(base + "/overlook/");
   assert.match(index.headers.get("content-security-policy"), /script-src 'self' 'sha256-/);
   await page.goto(base + "/overlook/#" + TOKEN);
-  await page.locator(".usage-row").first().waitFor();
-  assert.deepEqual(await page.locator("#dashboard-content > .dashboard-section > h2").allTextContents(), ["Usage", "Projects", "Personas"]);
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
+  assert.deepEqual(await page.locator("#tabs .remote-tab-label").allTextContents(), ["Agents", "Projects", "Personas", "Inbox", "Usage"]);
+  await page.locator("#tabs .remote-tab").filter({ has: page.getByText("Projects", { exact: true }) }).click();
   await page.locator("#dashboard-content").getByText("overlook", { exact: true }).click();
   await page.getByRole("heading", { name: "Conversations", exact: true }).waitFor();
   await page.locator(".conversation-row .remote-row").first().click();

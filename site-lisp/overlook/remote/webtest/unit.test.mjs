@@ -33,6 +33,8 @@ test("nodePath and findNodes count each conversation once", () => {
 });
 
 test("dashboard helpers order, date and label", () => {
+  assert.deepEqual([{ children: [{ kind: "usage" }] }, { children: [{ kind: "project" }] }, { children: [{ kind: "persona" }] },
+    { children: [{ kind: "tasks" }] }].map(model.sectionTab), ["usage", "projects", "personas", "inbox"]);
   assert.deepEqual(model.stableProjects([{ id: "z", title: "Zulu", kind: "project" }, { id: "r", title: "R", kind: "text" },
     { id: "a", title: "Alpha", kind: "project" }]).map((item) => item.id), ["a", "r", "z"]);
   assert.equal(model.dueLabel("2026-11-12", new Date(2026, 10, 12)).label, "Due today");
@@ -65,9 +67,13 @@ test("group sections split conversations, tasks, code and resources", () => {
 });
 
 test("routes keep the old query strings", () => {
-  assert.deepEqual(model.parseRoute("?agent=conversation-1"), { conversation: "conversation-1", node: null });
-  assert.deepEqual(model.parseRoute("?node=abc"), { conversation: null, node: "abc" });
-  assert.deepEqual(model.parseRoute("?conversation=c"), { conversation: "c", node: null });
+  assert.deepEqual(model.parseRoute("?agent=conversation-1"), { conversation: "conversation-1", node: null, tab: null });
+  assert.deepEqual(model.parseRoute("?node=abc"), { conversation: null, node: "abc", tab: null });
+  assert.deepEqual(model.parseRoute("?conversation=c"), { conversation: "c", node: null, tab: null });
+  assert.equal(model.parseRoute("?tab=inbox").tab, "inbox");
+  assert.equal(model.parseRoute("?tab=bogus").tab, null);
+  assert.equal(model.formatRoute({ tab: "agents" }), "");
+  assert.equal(model.formatRoute({ node: "abc", tab: "projects" }), "?node=abc&tab=projects");
   assert.equal(model.formatRoute({ node: "abc", conversation: "c d" }), "?node=abc&agent=c+d");
   assert.equal(model.formatRoute({}), "");
   assert.equal(model.streamQuery({ dashboard: "" }), "dashboard=");

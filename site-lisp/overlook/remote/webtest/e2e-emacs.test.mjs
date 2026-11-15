@@ -49,6 +49,7 @@ const lisp = (value) => JSON.stringify(value);
 
 test("dashboard, and a change in Emacs reaches it", async () => {
   await page.goto(`${env.base}/overlook/#${env.token}`);
+  await page.locator("#tabs .remote-tab").filter({ has: page.getByText("Projects", { exact: true }) }).click();
   await page.locator("#dashboard-content").getByText("shop", { exact: true }).click();
   await settled();
   await page.getByRole("heading", { name: "Conversations", exact: true }).waitFor();
@@ -172,6 +173,7 @@ test("history pages in older items", async () => {
 test("node command with confirmation, and one that opens a conversation", async () => {
   await env.el('(progn (e2e-make-agent "doomed") t)');
   await page.goto(`${env.base}/overlook/#${env.token}`);
+  await page.locator("#tabs .remote-tab").filter({ has: page.getByText("Projects", { exact: true }) }).click();
   await page.locator("#dashboard-content").getByText("shop", { exact: true }).click();
   await settled();
   const row = page.locator(".conversation-row").filter({ hasText: "Work on doomed" });

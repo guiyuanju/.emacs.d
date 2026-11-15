@@ -350,3 +350,14 @@ textarea::placeholder { color: #8e8e93; opacity: 1; }
 .history-controls button.link { display: inline-block; padding: 8px 12px; }
 :is(#slash-commands,[data-snapshot-id="slash-commands"]) button.slash-command { height: auto; justify-content: flex-start; flex-direction: column; align-items: flex-start; }
 .question-form fieldset > p.question-description:only-of-type { color: var(--dim); }
+
+/* Dashboard tab bar, only on the dashboard itself. */
+:is(#tabs,[data-snapshot-id="tabs"]) { display: flex; flex: none; padding-bottom: env(safe-area-inset-bottom); background: var(--card); border-top: .5px solid var(--line); }
+.remote-page:not(.home) > :is(#tabs,[data-snapshot-id="tabs"]) { display: none; }
+.remote-page.home > :is(#dash,[data-snapshot-id="dash"]) { padding-bottom: 32px; }
+.remote-tab { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; height: auto; min-height: 50px; padding: 4px 0 3px; border: 0; background: transparent; color: var(--idle); font-size: 10px; font-weight: 500; }
+.remote-tab[aria-selected="true"] { color: var(--accent); }
+.remote-tab svg { flex: none; width: 28px; height: 28px; }
+.remote-tab-badge { position: absolute; top: 3px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--waiting); color: #fff; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.new-agent { margin-bottom: 20px; padding: 0; background: transparent; }
+.new-agent .overview-new { width: 100%; margin-top: 0; }

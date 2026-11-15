@@ -6,11 +6,23 @@ navigation state belong to the browser.
 
 ## Dashboard and project pages
 
-An expanded Agents list leads the dashboard, collecting conversations and saved
-agents from all projects once each, excluding persona agents. Rows retain project
-context and open conversations directly. Status, unread counts and permission
-choices appear on these rows. Usage appears before projects and personas. Project siblings
-use a stable name order; other domain ordering is preserved.
+The dashboard has a bottom tab bar: Agents, Projects, Personas, Inbox and Usage.
+A section goes to the tab of what it holds (projects, personas, usage); any
+other section, such as Inbox, goes to Inbox. Emacs leaves out sections named in
+`overlook-remote-bridge-hidden-sections`, by default Keys. The tab is in the
+URL (`?tab=`), kept while opening a group and coming back, and switching tabs
+adds no history entry. The tab bar shows only on the dashboard itself, and the
+Agents tab badge counts agents waiting for you.
+
+The Agents tab shows only agents. New agent opens a sheet listing the
+projects that offer a new-agent command, projects under a nested group such as
+later or done marked with its name; picking one continues with that project's
+own command (its engine choice, or prompt and engine). Below it, an expanded
+list collects conversations and saved agents from all projects once each,
+excluding persona agents. Rows retain project context and open conversations
+directly. Status, unread counts and permission choices appear on these rows.
+Project siblings use a stable name order; other domain
+ordering is preserved.
 
 Project rows summarize the counts of working, waiting, failed and done agents,
 including nested agents and counting each conversation once.

@@ -94,6 +94,15 @@ export function sectionRank(section) {
   return 2;
 }
 
+// Dashboard tabs; a section goes to the tab of what it holds, anything unrecognised to the inbox.
+export const TABS = [{ id: "agents", title: "Agents" }, { id: "projects", title: "Projects" },
+  { id: "personas", title: "Personas" }, { id: "inbox", title: "Inbox" }, { id: "usage", title: "Usage" }];
+
+export function sectionTab(section) {
+  const rank = sectionRank(section);
+  return rank === -1 ? "usage" : rank === 0 ? "projects" : rank === 1 ? "personas" : "inbox";
+}
+
 export function orderSections(sections) {
   return sections.map((section, index) => ({ section, index }))
     .sort((a, b) => sectionRank(a.section) - sectionRank(b.section) || a.index - b.index)
@@ -162,13 +171,15 @@ export function unreadOf(node) {
 // Routes are the old query strings: ?agent=<conversation> or ?node=<id>, the token stays in the hash.
 export function parseRoute(search) {
   const params = new URLSearchParams(search);
-  return { conversation: params.get("agent") || params.get("conversation") || null, node: params.get("node") || null };
+  return { conversation: params.get("agent") || params.get("conversation") || null, node: params.get("node") || null,
+    tab: TABS.some((tab) => tab.id === params.get("tab")) ? params.get("tab") : null };
 }
 
 export function formatRoute(route) {
   const params = new URLSearchParams();
   if (route.node) params.set("node", route.node);
   if (route.conversation) params.set("agent", route.conversation);
+  if (route.tab && route.tab !== TABS[0].id) params.set("tab", route.tab);
   const query = params.toString();
   return query ? "?" + query : "";
 }

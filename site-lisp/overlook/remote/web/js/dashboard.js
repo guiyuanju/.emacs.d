@@ -3,10 +3,10 @@ import { api } from "js/api.js";
 import { state, setDashboard, remember, draft } from "js/state.js";
 import { $, el, svg, toast, confirmAction, actionSheet, viewState, actionFailure, icon, personaAvatar, personaProfile, pressMenu } from "js/ui.js";
 import { diffPre } from "js/markdown.js";
-import { openConversation, openGroup } from "js/router.js";
+import { openConversation, openGroup, replaceRoute } from "js/router.js";
 import { connected, connectionFailure, setEmacs } from "js/shell.js";
 import { Stale, expandNodes, findNodes, nodePath, nodeTitle, statusLabel, unit, nodeCounts, agentSummary, stableProjects,
-  isPersonaSection, orderSections, dueLabel, resetLabel, shownBranch, groupSections, personaStatus,
+  isPersonaSection, orderSections, sectionTab, TABS, dueLabel, resetLabel, shownBranch, groupSections, personaStatus,
   unreadOf, streamQuery, randomKey, appendDraft } from "js/model.js";
 import { app } from "js/vendor.js";
 
@@ -16,6 +16,10 @@ const icons = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>',
   task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>',
   waitingTask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>',
+  agents: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H12l-5 4v-4H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg>',
+  personas: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="14" cy="10" r="4.5"/><path d="M5 24c1-5 4.5-7.5 9-7.5s8 2.5 9 7.5"/></svg>',
+  inbox: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M3 15l3.5-9h15L25 15v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7Z"/><path d="M3 15h6l1.5 3h7L19 15h6"/></svg>',
+  usage: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4.5 19a9.5 9.5 0 1 1 19 0"/><path d="m14 19 5-6"/></svg>',
   chevron: '<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m1 1 6 6-6 6"/></svg>',
 };
 
@@ -115,17 +119,84 @@ export function renderDashboard() {
     return { ...node, kind: node.kind === "saved" ? "saved" : "agent",
       subtitle: [context, node.subtitle].filter(Boolean).join(" · ") };
   });
+  const tab = state.route.tab || TABS[0].id;
+  renderTabs(tab, agents);
+  const shown = orderSections(sections).filter((section) => sectionTab(section) === tab);
+  // The tab names its first group, so that group goes without a heading.
+  const sectionGroups = shown.map((section, index) => nodeGroup(index === 0 ? "" : nodeTitle(section),
+    stableProjects(section.children?.length ? section.children : [section]), { personaList: isPersonaSection(section) }));
   const groups = selected
     ? [...(selected.kind === "persona" ? [personaProfile(selected.persona || selected.title, selected.description)] : []), ...groupContents(selected)]
-    : [...(agents.length ? [nodeGroup("Agents", agents)] : []), ...orderSections(sections).map((section) => nodeGroup(nodeTitle(section),
-      stableProjects(section.children?.length ? section.children : [section]), { personaList: isPersonaSection(section) }))];
-  container.replaceChildren(...(groups.length ? groups : [el("p", "empty", "The dashboard is empty.")]));
+    : tab === "agents"
+      ? [newAgent(sections), agents.length ? nodeGroup("", agents) : el("p", "empty", "No agents yet.")].filter(Boolean)
+      : sectionGroups;
+  container.replaceChildren(...(groups.length ? groups : [el("p", "empty", "Nothing here yet.")]));
   if (pendingScroll !== null) {
     $("dash").scrollTop = pendingScroll;
     pendingScroll = null;
   }
   const waiting = new Set([...container.querySelectorAll(".choices")].map((choices) => choices.closest("[data-node-id]").dataset.nodeId)).size;
   document.title = waiting ? `(${waiting}) Overlook` : "Overlook";
+}
+
+function renderTabs(selected, agents) {
+  const bar = $("tabs");
+  $("dashboard-intro").querySelector("h1").textContent = TABS.find((tab) => tab.id === selected).title;
+  const waiting = agents.filter((node) => node.attention || node.choices?.length > 0 || ["waiting", "failed"].includes(node.status)).length;
+  bar.replaceChildren(...TABS.map((tab) => {
+    const button = el("button", "remote-tab");
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(tab.id === selected));
+    button.innerHTML = icons[tab.id === "projects" ? "folder" : tab.id];
+    button.append(el("span", "remote-tab-label", tab.title));
+    if (tab.id === "agents" && waiting) {
+      button.append(el("span", "remote-tab-badge", String(waiting)));
+      button.setAttribute("aria-label", `${tab.title}, ${unit(waiting, "waiting agent")}`);
+    }
+    button.onclick = () => selectTab(tab.id);
+    return button;
+  }));
+}
+
+function selectTab(tab) {
+  if ((state.route.tab || TABS[0].id) === tab) { $("dash").scrollTo({ top: 0, behavior: "smooth" }); return; }
+  closePanel(false);
+  state.route = { ...state.route, tab: tab === TABS[0].id ? null : tab };
+  replaceRoute(state.route);
+  renderDashboard();
+  $("dash").scrollTop = 0;
+}
+
+// Starts an agent in a project picked from a sheet: the project's own new-agent command, with its engine choice.
+function newAgent(sections) {
+  const command = (project) => project.commands?.find((item) => ["new-agent", "new"].includes(item.name));
+  const projects = findNodes(sections, (node) => node.kind === "project" && !!command(node));
+  if (!projects.length) return null;
+  const box = el("section", "dashboard-overview new-agent");
+  const button = el("button", "button button-fill overview-new", "New agent");
+  button.onclick = () => {
+    const container = panelContainer(box, null, {}, "New agent");
+    container.append(el("label", "form-label", "Project"));
+    for (const project of projects) {
+      const group = nodePath(project.id, sections)?.at(-2);
+      // Projects under a nested group such as later or done carry its name.
+      const shelved = group?.kind === "group" && nodePath(group.id, sections)?.length > 1;
+      const choice = el("button", "", nodeTitle(project) + (shelved ? ` · ${nodeTitle(group)}` : ""));
+      choice.onclick = (event) => {
+        event.stopPropagation();
+        const start = command(project);
+        if (start.input || start.options) openPanel(box, project, { name: start.name });
+        else runCommand(project, start, {}, choice);
+      };
+      container.append(choice);
+    }
+    const cancel = el("button", "", "Cancel");
+    cancel.onclick = () => closePanel();
+    container.append(cancel);
+  };
+  box.append(button);
+  return box;
 }
 
 function overview(selected, persona) {
@@ -412,7 +483,7 @@ export function closePanel(redraw = true) {
 // An open sheet's content container, reusing the sheet when box already owns it.
 export function panelContainer(box, node, extra = {}, title = "overlook") {
   if (panel?.box === box && panel.sheet.opened) {
-    panel = { ...panel, text: "", option: null, ...extra };
+    panel = { ...panel, text: "", option: null, ...extra, node: node ?? panel.node };
     const container = panel.sheet.el.querySelector(".commands");
     container.replaceChildren();
     container.className = "commands";
