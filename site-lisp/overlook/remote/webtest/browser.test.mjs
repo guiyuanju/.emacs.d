@@ -49,7 +49,13 @@ for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["
     const { page, problems, shot, device: spec } = await open(t, { device, theme });
     await page.locator("#dashboard-content .usage-row").first().waitFor();
     const sections = await page.locator("#dashboard-content > .dashboard-section > h2").allTextContents();
-    assert.deepEqual(sections, ["Usage", "Projects", "Personas"]);
+    assert.deepEqual(sections, ["Agents", "Usage", "Projects", "Personas"]);
+    const agents = page.locator("#dashboard-content > .dashboard-section").first();
+    assert.equal(await agents.locator(".dashboard-show-more").count(), 0);
+    assert(await agents.locator(".conversation-row").count() >= 2);
+    assert.match(await agents.locator(".row-subtitle").first().innerText(), /overlook/);
+    const ids = await agents.locator(".conversation-row").evaluateAll((rows) => rows.map((row) => row.dataset.nodeId));
+    assert.equal(new Set(ids).size, ids.length);
     assert.equal(await page.locator("html.ios").count(), 1);
     assert.equal(await page.locator("html.dark").count(), theme === "dark" ? 1 : 0);
     assert.equal(await page.locator("body").evaluate((el) => getComputedStyle(el).fontSize), "17px");
@@ -94,12 +100,10 @@ test("dashboard menus, attention, project pages, commands and diffs", async (t) 
   await page.locator(".actions-button").filter({ hasText: "Cancel" }).click();
   await page.locator(".actions-modal").waitFor({ state: "detached" });
 
-  const shortcut = page.locator(".attention-shortcut");
-  assert.equal(await shortcut.locator(".attention-number").innerText(), "1");
-  await shortcut.click();
-  assert.equal(await shortcut.getAttribute("aria-expanded"), "true");
-  await page.locator(".dashboard-attention .conversation-row").waitFor();
-  assert.equal(await page.locator(".dashboard-attention .choices button").count(), 4);
+  assert.equal(await page.locator(".dashboard-attention, .attention-shortcut").count(), 0);
+  const agents = page.locator("#dashboard-content > .dashboard-section").first();
+  assert.equal(await agents.locator(".choices button").count(), 4);
+  assert.equal(await agents.getByText("Brotli vs gzip for SSE", { exact: true }).count(), 0);
 
   await page.locator("#dashboard-content").getByText("overlook", { exact: true }).click();
   await settled();
@@ -289,8 +293,7 @@ test("composer: drafts, send, retry, queue, uploads, settings, steer and stop", 
   await settled();
   await page.locator("#back").click();
   await settled();
-  await page.locator(".dashboard-attention .attention-shortcut").click();
-  await page.locator(".dashboard-attention .conversation-row .remote-row").click();
+  await page.locator("#dashboard-content > .dashboard-section").first().locator(".conversation-row .remote-row").first().click();
   await settled();
   assert.equal(await page.locator("#text").inputValue(), "保留这个草稿");
   await page.locator("#send").click();

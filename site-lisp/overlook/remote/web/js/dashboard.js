@@ -1,12 +1,12 @@
-// Dashboard and group pages: usage, projects, personas, attention, node commands and diffs.
+// Dashboard and group pages: usage, projects, personas, node commands and diffs.
 import { api } from "js/api.js";
 import { state, setDashboard, remember, draft } from "js/state.js";
 import { $, el, svg, toast, confirmAction, actionSheet, viewState, actionFailure, icon, personaAvatar, personaProfile, pressMenu } from "js/ui.js";
 import { diffPre } from "js/markdown.js";
 import { openConversation, openGroup } from "js/router.js";
 import { connected, connectionFailure, setEmacs } from "js/shell.js";
-import { Stale, expandNodes, nodePath, nodeTitle, statusLabel, unit, nodeCounts, agentSummary, stableProjects,
-  isPersonaSection, orderSections, attentionNodes, dueLabel, resetLabel, shownBranch, groupSections, personaStatus,
+import { Stale, expandNodes, findNodes, nodePath, nodeTitle, statusLabel, unit, nodeCounts, agentSummary, stableProjects,
+  isPersonaSection, orderSections, dueLabel, resetLabel, shownBranch, groupSections, personaStatus,
   unreadOf, streamQuery, randomKey, appendDraft } from "js/model.js";
 import { app } from "js/vendor.js";
 
@@ -105,39 +105,27 @@ export function renderDashboard() {
     container.replaceChildren(el("p", "empty", "This group is no longer available. Go back to your projects."));
     return;
   }
-  const attention = selected ? null : attentionSection(sections);
+  const agents = selected ? [] : findNodes(sections, (node) => !!node.conversation || node.kind === "saved").filter((node) => {
+    const path = nodePath(node.id, sections) || [];
+    return !path.some((parent) => parent.kind === "persona" || parent.persona || isPersonaSection(parent));
+  }).map((node) => {
+    const path = nodePath(node.id, sections) || [];
+    const project = path.find((parent) => parent.kind === "project");
+    const context = project ? nodeTitle(project) : "";
+    return { ...node, kind: node.kind === "saved" ? "saved" : "agent",
+      subtitle: [context, node.subtitle].filter(Boolean).join(" · ") };
+  });
   const groups = selected
     ? [...(selected.kind === "persona" ? [personaProfile(selected.persona || selected.title, selected.description)] : []), ...groupContents(selected)]
-    : [...(attention ? [attention] : []), ...orderSections(sections).map((section) => nodeGroup(nodeTitle(section),
+    : [...(agents.length ? [nodeGroup("Agents", agents)] : []), ...orderSections(sections).map((section) => nodeGroup(nodeTitle(section),
       stableProjects(section.children?.length ? section.children : [section]), { personaList: isPersonaSection(section) }))];
   container.replaceChildren(...(groups.length ? groups : [el("p", "empty", "The dashboard is empty.")]));
   if (pendingScroll !== null) {
     $("dash").scrollTop = pendingScroll;
     pendingScroll = null;
   }
-  const waiting = container.querySelectorAll(".choices").length;
+  const waiting = new Set([...container.querySelectorAll(".choices")].map((choices) => choices.closest("[data-node-id]").dataset.nodeId)).size;
   document.title = waiting ? `(${waiting}) Overlook` : "Overlook";
-}
-
-function attentionSection(sections) {
-  const waiting = attentionNodes(sections);
-  if (!waiting.length) return null;
-  const section = el("section", "dashboard-section dashboard-attention");
-  const button = el("button", "attention-shortcut");
-  const label = el("span", "attention-caption", "Needs attention");
-  label.append(el("span", "attention-detail", waiting.length === 1 ? nodeTitle(waiting[0]) : unit(waiting.length, "conversation")));
-  button.append(label, el("span", "attention-number", String(waiting.length)));
-  const open = !!state.disclosures.get("attention");
-  button.setAttribute("aria-expanded", String(open));
-  const list = nodeGroup("", waiting, { key: "attention-items" });
-  list.hidden = !open;
-  button.onclick = () => {
-    list.hidden = !list.hidden;
-    remember(state.disclosures, "attention", !list.hidden);
-    button.setAttribute("aria-expanded", String(!list.hidden));
-  };
-  section.append(button, list);
-  return section;
 }
 
 function overview(selected, persona) {

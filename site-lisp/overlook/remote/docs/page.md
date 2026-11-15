@@ -6,9 +6,11 @@ navigation state belong to the browser.
 
 ## Dashboard and project pages
 
-Usage appears before projects and personas. Project siblings use a stable name
-order; other domain ordering is preserved. An attention shortcut collects real
-waiting/failed/attention conversations without moving the surrounding lists.
+An expanded Agents list leads the dashboard, collecting conversations and saved
+agents from all projects once each, excluding persona agents. Rows retain project
+context and open conversations directly. Status, unread counts and permission
+choices appear on these rows. Usage appears before projects and personas. Project siblings
+use a stable name order; other domain ordering is preserved.
 
 Project rows summarize the counts of working, waiting, failed and done agents,
 including nested agents and counting each conversation once.
