@@ -37,6 +37,12 @@
   :type 'natnum
   :group 'overlook)
 
+(defcustom overlook-remote-bridge-hidden-sections '("Keys")
+  "Titles of dashboard sections the phone does not get.
+Keys lists Emacs key bindings, which do nothing on a phone."
+  :type '(repeat string)
+  :group 'overlook)
+
 (defconst overlook-remote-bridge--text-limit (* 1024 1024)
   "Most bytes of text one agent event carries.")
 
@@ -224,7 +230,11 @@ does, by a \"#N\" suffix."
 (defun overlook-remote-bridge-sections (model rows)
   "Sections of dashboard MODEL as a vector of Node plists, recording ROWS."
   (let ((seen (make-hash-table :test #'equal)))
-    (vconcat (mapcar (lambda (row) (overlook-remote-bridge-node row nil rows seen)) model))))
+    (vconcat (mapcar (lambda (row) (overlook-remote-bridge-node row nil rows seen))
+                     (seq-remove (lambda (row)
+                                   (pcase (overlook-row-id row)
+                                     (`(section ,title) (member title overlook-remote-bridge-hidden-sections))))
+                                 model)))))
 
 ;;; Conversations
 

@@ -759,6 +759,14 @@ BODY sees the agent's conversation id as `id' and the sync's params as `sync'."
     (should (eq (gethash (list section key) rows) first))
     (should (eq (gethash (list section (concat key "#2")) rows) second))))
 
+;; Keys only lists Emacs bindings, so the phone does not get it.
+(ert-deftest overlook-bridge-leaves-out-hidden-sections ()
+  (let ((sections (overlook-remote-bridge-sections
+                   (list (overlook-section-row "Keys" (list (overlook-row :content "w")))
+                         (overlook-section-row "Inbox" (list (overlook-row :content "x"))))
+                   (make-hash-table :test #'equal))))
+    (should (equal (mapcar (lambda (node) (plist-get node :title)) sections) '("Inbox")))))
+
 (ert-deftest overlook-bridge-splits-long-text-and-cuts-output ()
   (with-temp-buffer
     (let* ((text (make-string (+ overlook-remote-bridge--text-limit 10) ?a))
