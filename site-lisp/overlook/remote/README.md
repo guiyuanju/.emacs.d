@@ -22,6 +22,9 @@ Flags (`-h` lists them all):
 | `-listen` | plain HTTP address, repeatable; default `127.0.0.1:8767`; `launchd:<name>` takes the socket of the plist's `Sockets` entry |
 | `-listen-tls`, `-tls-cert`, `-tls-key` | HTTPS address(es) (also `launchd:<name>`) and key pair; enables HTTP/2 |
 | `-socket` | bridge socket; default `${XDG_RUNTIME_DIR:-~/.local/state}/overlook-remote/bridge.sock` |
+| `-admin-socket` | control socket for the menu bar app (below); default `admin.sock` beside `-socket`; `""` disables it |
+| `-caffeinate` | command that keeps the Mac awake while the daemon runs (default `/usr/bin/caffeinate` on macOS); `""` never does |
+| `-settings-file` | keeps the keep-awake choice across restarts; default `settings.json` beside `-socket`; `""` keeps it in memory |
 | `-state-file` | state kept across restarts (history, read positions, receipts, images in `media/` beside it); default `state.json` beside `-socket`; `""` keeps nothing |
 | `-cache-dir` | compressed page files by content hash, so starts take ~10 ms; default `~/Library/Caches/overlook-remoted`; `""` disables |
 | `-web-dir` | serve the page from this directory (e.g. `remote/web`) instead of the binary, picking up edits on the next page load |
@@ -33,6 +36,58 @@ The page is `http://HOST:PORT/overlook/#TOKEN`, the same address the old
 server used, so a Home Screen link keeps working once the daemon takes the old
 port. `GET /overlook/healthz` answers without a token and says whether Emacs is
 connected.
+
+## Keeping the Mac awake
+
+While it runs, the daemon keeps the Mac from idle sleeping (the display still
+sleeps) with `caffeinate -i -w <daemon pid>`: caffeinate exits by itself when
+the daemon does, crash included, and the daemon restarts it if it dies. It is
+on by default; the menu bar app's **Keep Mac Awake** (or `set-awake` on the
+admin socket) turns it off and on, and the choice is kept in `-settings-file`.
+Emacs no longer holds a sleep assertion for remote.
+
+## Admin socket
+
+`-admin-socket` (0600 in the same 0700 directory as the bridge socket, so its
+permissions are the authentication; no token) speaks line-delimited JSON. Each
+request is one line, each answer one line, `{"status": {...}}` or `{"error": "..."}`:
+
+| Request | Answer |
+|---|---|
+| `{"op":"status"}` | the status |
+| `{"op":"watch"}` | the status now and again whenever it changes, until the client disconnects |
+| `{"op":"set-awake","on":false}` | turns keep-awake off (or on) and answers the new status |
+
+The status has `daemon` (version), `started`, `uptime` (seconds), `emacs`
+(`online`/`offline`), `streams` (open page streams), `listeners`
+(`addr`, `tls`, `loopback`), `awake` (the setting), `awakeHeld` (caffeinate
+running), and `scheme`, `host`, `port` for the page URL: the first
+non-loopback plain HTTP listener's port, and the host a phone should use
+(Tailscale's 100.64.0.0/10 address, else an `en` interface's). Try it with
+`echo '{"op":"status"}' | nc -U -w 1 ~/.local/state/overlook-remote/admin.sock`.
+
+## Menu bar app
+
+`overlook-menubar` (`menubar/`, a Swift package, macOS only) shows remote in
+the menu bar. The icon is an SF Symbols phone: with radio waves when Emacs is
+connected, plain while it is not, struck through when the daemon is stopped.
+The menu:
+
+- **status line**: `Remote online`, `Emacs not connected` or `Remote stopped`, with the number of open pages.
+- **Copy URL**: `http://HOST:PORT/overlook/#TOKEN` to the clipboard, the token read from `-token-file`.
+- **Show QR Code**: the same URL as a QR code in a window of its own, made in memory; Escape or ⌘W closes it.
+- **Keep Mac Awake**: the daemon's keep-awake setting.
+- **Start at Login**: `launchctl enable`/`disable` of both the daemon's and the app's labels (read from `launchctl print-disabled`).
+- **Restart Remote** (`launchctl kickstart -k`), or **Start Remote** while stopped.
+- **Open Log**: the daemon's log in Console.
+- **Quit and Stop Remote**: boots the daemon out (`launchctl bootout`), then quits.
+
+Starting the app starts the daemon if needed (`launchctl bootstrap` of its
+plist, or `kickstart` if loaded but not running). Only Quit stops the daemon:
+the app's LaunchAgent restarts it after a crash (`KeepAlive` on unsuccessful
+exit) without touching the daemon, and a Quit (exit 0) stays quit until the
+next login or a manual `launchctl bootstrap`. It follows the daemon over the
+admin socket's `watch` and reconnects every second while the daemon is down.
 
 ## Enabling Emacs
 
@@ -70,13 +125,20 @@ added again.
 
 ```sh
 cd site-lisp/overlook/remote
-TOKEN_FILE=… LISTEN=0.0.0.0:8766 PLIST=~/Library/LaunchAgents/io.github.guiyuanju.overlook-remoted.plist deploy/install.sh
+TOKEN_FILE=… LISTEN=0.0.0.0:8766 PLIST=~/Library/LaunchAgents/io.github.guiyuanju.overlook-remoted.plist \
+  MENUBAR_PLIST=~/Library/LaunchAgents/io.github.guiyuanju.overlook-menubar.plist deploy/install.sh
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.guiyuanju.overlook-remoted.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.guiyuanju.overlook-menubar.plist
 ```
 
-`install.sh` builds the binary into `$PREFIX/bin` (default `~/.local/bin`) and
-renders `deploy/overlook-remoted.plist.in` (KeepAlive, logs in
-`~/Library/Logs/overlook-remoted.log`); it never loads anything. `TOKEN_FILE`
+`install.sh` builds both binaries into `$PREFIX/bin` (default `~/.local/bin`;
+the menu bar app needs macOS and Swift, and `MENUBAR=0` skips it) and renders
+`deploy/overlook-remoted.plist.in` (KeepAlive, logs in
+`~/Library/Logs/overlook-remoted.log`) and `deploy/overlook-menubar.plist.in`
+(RunAtLoad, restarted only after a crash, GUI sessions only, logs in
+`~/Library/Logs/overlook-menubar.log`, pointing at the daemon's label, plist,
+token file, admin socket, log and port); it never loads anything. Bootstrapping
+the menu bar app alone is enough: it bootstraps the daemon. `TOKEN_FILE`
 is the file the init sets as `overlook-remote-token-file` (under
 `iuiw-state-directory`). launchd itself listens on `LISTEN` (the plist's
 `Sockets` → `http` entry) and hands the socket to the daemon
@@ -119,6 +181,13 @@ it. Each part has its own way to go live without taking remote down:
   Settings (`LABEL`, `PREFIX`/`BIN`, `PLIST`, `HEALTH_URL`, `STATE_FILE`,
   `TIMEOUT`, …) are listed at the top of the script; the defaults match
   `install.sh`.
+- **Menu bar app**: `deploy.sh` also builds it (`swift build -c release`);
+  release builds are reproducible, so when the result differs from the
+  installed `overlook-menubar` it runs `swift test` and swaps it in
+  (keeping `.prev`), `kickstart -k`s its agent (a signal, not Quit, so the
+  daemon keeps running) and restores `.prev` unless the app is still running
+  with the same pid a few seconds later. A menu bar failure never undoes the
+  daemon deploy. Skipped when the app is not installed or `MENUBAR=0`.
 - **Rollback by hand**: `cp ~/.local/bin/overlook-remoted.prev
   ~/.local/bin/overlook-remoted && launchctl kickstart -k
   gui/$(id -u)/io.github.guiyuanju.overlook-remoted`. For the page under
@@ -135,8 +204,8 @@ and the page's unit, browser and end-to-end tests when `go`/`node` exist; `make 
 
 | Test | What |
 |---|---|
-| `go test -race ./...` | daemon packages, a daemon end to end with the in-process fake Emacs, restarts resuming from the state file, `-web-dir` reloads |
-| `deploy/deploy_test.sh` | `deploy.sh` with a throwaway prefix and a fake `launchctl`: dry run, deploy, rollback, failing tests |
+| `go test -race ./...` | daemon packages, a daemon end to end with the in-process fake Emacs, restarts resuming from the state file, `-web-dir` reloads, the admin socket and keep-awake with a fake caffeinate, the menu bar app's model, URLs, icons, QR file and launchctl calls |
+| `deploy/deploy_test.sh` | `deploy.sh` with a throwaway prefix and a fake `launchctl`: dry run, deploy, rollback, failing tests, and the menu bar app's swap, skip when unchanged and rollback |
 | `webtest/unit.test.mjs` | page modules under Node |
 | `webtest/browser.test.mjs` | the page in emulated phones against a Node fake daemon |
 | `webtest/daemon.test.mjs` | the page against the real daemon with `-fake-emacs`, across a daemon restart |

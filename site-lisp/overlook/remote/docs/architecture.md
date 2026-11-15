@@ -35,8 +35,13 @@ Emacs: overlook-remote-bridge.el (client; reconnects with backoff)
 | `internal/assets` | page from the embedded FS or `-web-dir`: hashing, precompression and its disk cache, import map, CSP, cache headers, reload on change |
 | `internal/state` | the state file: format version, atomic 0600 writes, loading |
 | `internal/launchd` | listening sockets launchd holds for the job (`-listen launchd:<name>`) |
+| `internal/admin` | admin socket: line-delimited JSON `status`, `watch`, `set-awake`; server and client |
+| `internal/awake` | keeping the Mac awake with `caffeinate -i -w <pid>`, restarted if it dies |
+| `internal/settings` | the settings file (keep-awake), atomic 0600 writes |
+| `internal/netaddr` | the address a phone should open (Tailscale, else `en*`) |
 | `internal/fakeemacs` | bridge client double that replays fixtures and answers requests |
 | `web` | page sources and `embed.go` |
+| `menubar` | the menu bar app, a Swift package (macOS only): `MenubarCore` holds flags, status → menu model, page URL, launchctl, the admin client and the QR code; `overlook-menubar` draws it with AppKit |
 
 Dependency direction: `api → stream → store → bridge` (types only), `api →
 bridge` (calls), `assets → web`. `bridge` imports nothing internal.
@@ -57,6 +62,7 @@ bridge` (calls), `assets → web`. `bridge` imports nothing internal.
 | Compressed page files | daemon (`-cache-dir`, by content hash) | pruned after 7 days unused |
 | Unified diffs of tool calls | daemon (computed from `diffs`) | with the item |
 | Unified diffs of dashboard nodes | Emacs computes on request (`git diff`) | per request |
+| Keep-awake setting | daemon (`-settings-file`) | across restarts |
 | Drafts, disclosure, scroll positions | page (memory only) | page lifetime |
 
 "State file" means the daemon keeps it in memory and writes it to `-state-file`
@@ -246,7 +252,8 @@ the page needs no deploy: the next page load picks up edited files.
     applies only to non-loopback listeners. One token file shared with the old
     server so the Home Screen link survives switchover.
 19. **Dependencies:** stdlib, plus `github.com/andybalholm/brotli` and
-    `github.com/pmezard/go-difflib` (phase 2 adds them to `go.mod`).
+    `github.com/pmezard/go-difflib` (phase 2 adds them to `go.mod`). The
+    menu bar app is Swift with system frameworks only.
 20. **Embedding:** `web/embed.go` embeds `*`; `assets` serves only page files
     (skips `*.go`, `test/`, dot files), so page tests can live under `web/test/`.
 21. **State file.** Agents restart the daemon from the phone while the phone
@@ -288,11 +295,56 @@ the page needs no deploy: the next page load picks up edited files.
 24. **`healthz` reports the daemon's version** (`daemon`), so `deploy.sh`
     knows the restarted process is the new binary rather than the old one
     still answering.
+25. **The daemon keeps the Mac awake, with caffeinate.** Remote is useful only
+    while the Mac is awake, and the daemon is what runs whenever remote does,
+    so it owns the assertion instead of Emacs. `caffeinate -i -w <daemon
+    pid>` needs no cgo (IOKit's `IOPMAssertionCreateWithName` would), and
+    exits by itself when the daemon dies, so a crash cannot leave the Mac
+    awake; the daemon kills it when turned off and restarts it if it dies.
+    The setting lives in its own `settings.json`, not the state file, which
+    is dropped with the Emacs epoch. *Rejected:* Emacs's `system-sleep`
+    (tied to Emacs running, not remote); IOKit through the libc trampoline
+    trick of decision 22 (CoreFoundation strings and retain/release by hand
+    for no gain).
+26. **Admin socket beside the bridge socket.** Local tools need status and
+    control without the page's token: a second unix socket, 0600 in the
+    same 0700 directory, line-delimited JSON like the bridge, with `watch`
+    pushing a status whenever it changes (Emacs, stream count, keep-awake,
+    or the address, rechecked every 5 s). *Rejected:* more HTTP endpoints
+    (reachable from the network, would need the token, and `healthz` must
+    stay token-free and small); polling `healthz` from the menu.
+27. **The menu bar app is a separate process, and its Quit stops the
+    daemon.** Keeping it in its own process lets either restart without the
+    other: a deploy of the daemon does not make the icon flicker, and a UI
+    crash does not take remote down. Quit means "turn remote off" (bootout
+    of the daemon, then exit 0); a crash or a signal does not, and the app's
+    `KeepAlive = {SuccessfulExit = false}` restarts it after a crash but not
+    after Quit. *Rejected:* the menu inside the daemon (AppKit and cgo in
+    the daemon, every deploy flickers the icon, a UI crash takes remote down).
+28. **The menu bar app is Swift, not Go.** AppKit from Go needs cgo and a
+    systray wrapper; Swift gets AppKit, SF Symbols (template icons macOS
+    tints for light and dark menu bars), CoreImage's QR generator and its
+    own window natively, in a 380 KB binary instead of 5 MB. The QR code is
+    drawn in memory into the app's window (Escape or ⌘W closes it and drops
+    the image), so the token never touches disk. It stays an unbundled
+    executable with flags matching the old Go app, so the LaunchAgent plist
+    and `deploy.sh`'s swap-and-rollback stay as they were; the two sides
+    share only the admin socket's JSON. Release builds are reproducible, so
+    `deploy.sh` still detects a changed app with `cmp`. *Rejected:* Go with
+    `fyne.io/systray` (the first version: cgo, a temporary PNG shown with
+    Quick Look); a bundled `.app` with `SMAppService` for Start at Login
+    (signing, and the daemon's plist would have to move into the bundle,
+    away from `deploy.sh`).
 
 ## Deployment
 
 The daemon runs as a launchd LaunchAgent (`deploy/overlook-remoted.plist.in`,
 rendered by `deploy/install.sh`) that owns the listening socket; updates go
-through `deploy/deploy.sh`. Running it, TLS with `tailscale cert`, enabling
+through `deploy/deploy.sh`. The menu bar app is a second LaunchAgent
+(`deploy/overlook-menubar.plist.in`, RunAtLoad, restarted only after a crash)
+that bootstraps the daemon when it starts and boots it out on Quit;
+`deploy.sh` builds it with `swift build -c release`, runs `swift test` and
+swaps and restarts it when the binary changed, rolling it back if it does not
+stay up. Running it, TLS with `tailscale cert`, enabling
 `overlook-remote-bridge-mode` and updating remote from remote are in
 `../README.md`.

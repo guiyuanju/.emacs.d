@@ -2,6 +2,7 @@
 # Replaces the running overlook-remoted with one built from this checkout, without leaving remote down:
 # build, vet, test, smoke-test the new binary on a spare port with a copy of the state, swap it in
 # keeping overlook-remoted.prev, restart the LaunchAgent, and roll back unless it comes up healthy.
+# Then, if the installed overlook-menubar differs from a fresh build, swap and restart it the same way.
 #
 #   deploy/deploy.sh [--dry-run]
 #
@@ -15,6 +16,11 @@
 #   TIMEOUT       seconds to wait for the restarted daemon (30)
 #   GO_TEST_ARGS  arguments of go test (./...)
 #   LAUNCHCTL     launchctl command (launchctl)
+#   MENUBAR_LABEL the menu bar app's label (io.github.guiyuanju.overlook-menubar)
+#   MENUBAR_BIN   installed menu bar app, $PREFIX/bin/overlook-menubar; skipped when it does not exist
+#   MENUBAR       0 skips the menu bar app (the default without macOS, swift or MENUBAR_BIN)
+#   MENUBAR_SETTLE seconds the restarted menu bar app must keep running (3)
+#   SWIFT_TEST    0 skips swift test of a changed menu bar app
 set -eu
 
 dry_run=
@@ -34,6 +40,13 @@ TIMEOUT=${TIMEOUT:-30}
 GO_TEST_ARGS=${GO_TEST_ARGS:-./...}
 LAUNCHCTL=${LAUNCHCTL:-launchctl}
 service=gui/$(id -u)/$LABEL
+MENUBAR_LABEL=${MENUBAR_LABEL:-io.github.guiyuanju.overlook-menubar}
+MENUBAR_BIN=${MENUBAR_BIN:-$PREFIX/bin/overlook-menubar}
+MENUBAR_SETTLE=${MENUBAR_SETTLE:-3}
+menubar_service=gui/$(id -u)/$MENUBAR_LABEL
+if [ -z "${MENUBAR-}" ]; then
+  if [ "$(uname)" = Darwin ] && [ -e "$MENUBAR_BIN" ] && command -v swift >/dev/null; then MENUBAR=1; else MENUBAR=0; fi
+fi
 
 say() { echo "deploy: $*" >&2; }
 die() { say "$*"; exit 1; }
@@ -118,20 +131,34 @@ fi
 
 version=$(git -C "$remote" describe --always --dirty 2>/dev/null || echo dev)-$(date +%Y%m%d%H%M%S)
 say "building $version"
-(cd "$remote" && go build -trimpath -ldflags "-X main.version=$version" -o "$tmp/overlook-remoted" ./cmd/overlook-remoted) ||
+(cd "$remote" && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$version" -o "$tmp/overlook-remoted" ./cmd/overlook-remoted) ||
   die "build failed; nothing changed"
+menubar_changed=
+if [ "$MENUBAR" = 1 ]; then
+  # Release builds are reproducible, so an unchanged binary means unchanged sources.
+  swift build -c release --package-path "$remote/menubar" >"$tmp/swift-build.log" 2>&1 ||
+    { sed 's/^/  | /' "$tmp/swift-build.log" >&2; die "menu bar build failed; nothing changed"; }
+  cp "$remote/menubar/.build/release/overlook-menubar" "$tmp/overlook-menubar"
+  "$tmp/overlook-menubar" -token-file /dev/null -check >/dev/null || die "the new menu bar app does not start; nothing changed"
+  cmp -s "$tmp/overlook-menubar" "$MENUBAR_BIN" || menubar_changed=1
+fi
 say "go vet"
 (cd "$remote" && go vet ./...) || die "go vet failed; nothing changed"
 say "go test $GO_TEST_ARGS"
 # shellcheck disable=SC2086
 (cd "$remote" && go test $GO_TEST_ARGS) || die "go test failed; nothing changed"
+if [ -n "$menubar_changed" ] && [ "${SWIFT_TEST-1}" = 1 ]; then
+  say "swift test (menu bar app)"
+  swift test --package-path "$remote/menubar" >"$tmp/swift-test.log" 2>&1 ||
+    { sed 's/^/  | /' "$tmp/swift-test.log" >&2; die "swift test failed; nothing changed"; }
+fi
 
 say "smoke test on a spare port"
 mkdir -p "$tmp/state" "$tmp/s"
 chmod 700 "$tmp/state" "$tmp/s"
 echo smoke-token >"$tmp/token"
 if [ -r "$STATE_FILE" ]; then cp "$STATE_FILE" "$tmp/state/state.json"; fi
-set -- -listen 127.0.0.1:0 -token-file "$tmp/token" -socket "$tmp/s/bridge.sock" -state-file "$tmp/state/state.json"
+set -- -listen 127.0.0.1:0 -token-file "$tmp/token" -socket "$tmp/s/bridge.sock" -state-file "$tmp/state/state.json" -caffeinate ""
 if [ -n "${CACHE_DIR-}" ]; then set -- "$@" -cache-dir "$CACHE_DIR"; fi
 "$tmp/overlook-remoted" "$@" >"$tmp/smoke.log" 2>&1 &
 smoke_pid=$!
@@ -156,6 +183,9 @@ smoke_pid=
 if [ -n "$dry_run" ]; then
   say "dry run: would install $version as $BIN (keeping $BIN.prev), run $LAUNCHCTL kickstart -k $service,"
   say "dry run: and wait ${TIMEOUT}s for $HEALTH_URL to answer from $version${was_online:+ with Emacs online}"
+  if [ -n "$menubar_changed" ]; then say "dry run: would install the changed menu bar app as $MENUBAR_BIN and restart $menubar_service"
+  elif [ "$MENUBAR" = 1 ]; then say "dry run: the menu bar app is unchanged"
+  fi
   exit 0
 fi
 
@@ -179,11 +209,47 @@ rollback() {
   die "deploy of $version failed, and the previous binary does not answer at $HEALTH_URL either: remote is DOWN (see $service's log)"
 }
 
+# menubar_pid prints the menu bar app's pid while launchd reports it running.
+menubar_pid() {
+  out=$("$LAUNCHCTL" print "$menubar_service" 2>/dev/null) || return 1
+  case $out in *"$(printf '\tstate = running')"*) ;; *) return 1 ;; esac
+  printf '%s\n' "$out" | sed -n 's/^	pid = \([0-9][0-9]*\)$/\1/p' | head -n 1
+}
+
+# menubar_up succeeds when the menu bar app runs and still has the same pid MENUBAR_SETTLE seconds later.
+menubar_up() {
+  sleep 0.5
+  first=$(menubar_pid) && [ -n "$first" ] || return 1
+  sleep "$MENUBAR_SETTLE"
+  [ "$(menubar_pid)" = "$first" ]
+}
+
+deploy_menubar() {
+  [ -n "$menubar_changed" ] || { [ "$MENUBAR" = 1 ] && say "menu bar app unchanged"; return 0; }
+  if [ -e "$MENUBAR_BIN" ]; then cp -p "$MENUBAR_BIN" "$MENUBAR_BIN.prev.tmp" && mv -f "$MENUBAR_BIN.prev.tmp" "$MENUBAR_BIN.prev"; fi
+  cp "$tmp/overlook-menubar" "$MENUBAR_BIN.new" && mv -f "$MENUBAR_BIN.new" "$MENUBAR_BIN"
+  if ! "$LAUNCHCTL" print "$menubar_service" >/dev/null 2>&1; then
+    say "installed $MENUBAR_BIN; $menubar_service is not loaded, so nothing to restart"
+    return 0
+  fi
+  say "installed $MENUBAR_BIN; restarting $menubar_service"
+  # kickstart -k kills the app with a signal, which is not Quit: the daemon keeps running.
+  if "$LAUNCHCTL" kickstart -k "$menubar_service" && menubar_up; then
+    say "menu bar app restarted"
+    return 0
+  fi
+  cp -p "$MENUBAR_BIN.prev" "$MENUBAR_BIN.new" && mv -f "$MENUBAR_BIN.new" "$MENUBAR_BIN"
+  "$LAUNCHCTL" kickstart -k "$menubar_service" || true
+  if menubar_up; then die "the new menu bar app did not stay up and was rolled back; the daemon deploy of $version stands"; fi
+  die "the new menu bar app did not stay up, and the previous one does not either (see $menubar_service's log); the daemon deploy of $version stands"
+}
+
 cp "$tmp/overlook-remoted" "$BIN.new" && mv -f "$BIN.new" "$BIN"
 say "installed $BIN; restarting $service"
 "$LAUNCHCTL" kickstart -k "$service" || rollback "$LAUNCHCTL kickstart failed"
 if wait_healthy "$HEALTH_URL" "$version" "$was_online" "$TIMEOUT"; then
   say "deployed $version: $(health "$HEALTH_URL")"
+  deploy_menubar
   exit 0
 fi
 rollback "the new daemon did not answer ok${was_online:+ with Emacs online} at $HEALTH_URL within ${TIMEOUT}s: $(health "$HEALTH_URL" || echo no answer)"

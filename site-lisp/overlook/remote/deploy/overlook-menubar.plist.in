@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent for overlook-menubar; install.sh fills in the @…@ values.
+     KeepAlive restarts it only after a crash: Quit exits 0 and stays quit (and stops the daemon). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@MENUBAR_LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@MENUBAR_BINARY@</string>
+    <string>-label</string>
+    <string>@MENUBAR_LABEL@</string>
+    <string>-daemon-label</string>
+    <string>@LABEL@</string>
+    <string>-daemon-plist</string>
+    <string>@DAEMON_PLIST@</string>
+    <string>-token-file</string>
+    <string>@TOKEN_FILE@</string>
+    <string>-admin-socket</string>
+    <string>@ADMIN_SOCKET@</string>
+    <string>-log</string>
+    <string>@LOG@</string>
+    <string>-port</string>
+    <string>@PORT@</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>@MENUBAR_LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@MENUBAR_LOG@</string>
+</dict>
+</plist>
