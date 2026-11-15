@@ -25,6 +25,7 @@ const (
 	CodeNodeMissing           = "node_missing"
 	CodeCommandMissing        = "command_missing"
 	CodeImageMissing          = "image_missing"
+	CodeFileMissing           = "file_missing"
 	CodeDiffMissing           = "diff_missing"
 	CodeMethodNotAllowed      = "method_not_allowed"
 	CodeStateConflict         = "state_conflict"

@@ -28,7 +28,8 @@ info:
     `/overlook/assets/` (`immutable`), and the stable Home Screen routes
     `/overlook/manifest.webmanifest`, `/overlook/icon.svg`,
     `/overlook/apple-touch-icon.png`, `/overlook/icon-192.png`,
-    `/overlook/icon-512.png`.
+    `/overlook/icon-512.png`; and file downloads at
+    `/overlook/files/<ticket>/<name>` (see `fileLink`).
 servers:
   - url: /overlook/api
 security:
@@ -443,6 +444,40 @@ paths:
         '503': { $ref: '#/components/responses/EmacsOffline' }
         '504': { $ref: '#/components/responses/EmacsTimeout' }
 
+  /conversations/{conversation}/files:
+    parameters:
+      - $ref: '#/components/parameters/Conversation'
+    post:
+      tags: [conversations]
+      operationId: fileLink
+      summary: A download link for a file named in the conversation
+      description: |
+        `path` is a link target from the activity (absolute, `~/`, relative to
+        the conversation's root, or `file://`, percent-encoded or not; a
+        trailing `:line` is dropped when the file does not exist with it). It
+        must appear in a retained item, or in the earlier reply when none is
+        retained, and name a regular file. The returned `url` is
+        unauthenticated, works for 10 minutes, and serves the file as an
+        attachment (`Range` supported, no write deadline).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        '200':
+          description: The file is offered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileLink' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /images/{image}:
     get:
       tags: [conversations]
@@ -587,7 +622,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Target gone (`conversation_missing`, `node_missing`, `command_missing`, `image_missing`, `diff_missing`, `route_missing`).
+      description: Target gone (`conversation_missing`, `node_missing`, `command_missing`, `image_missing`, `file_missing`, `diff_missing`, `route_missing`).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -651,6 +686,7 @@ components:
             - node_missing
             - command_missing
             - image_missing
+            - file_missing
             - diff_missing
             - method_not_allowed
             - state_conflict
@@ -1196,6 +1232,16 @@ components:
         text:
           type: string
           description: Text naming the saved file, for the draft.
+
+    FileLink:
+      type: object
+      required: [name, size, url]
+      properties:
+        name: { type: string, description: The file's base name. }
+        size: { type: integer, description: Bytes. }
+        url:
+          type: string
+          description: '`/overlook/files/<ticket>/<name>`, outside this API.'
 
     DiffResult:
       type: object

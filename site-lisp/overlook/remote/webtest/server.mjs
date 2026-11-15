@@ -350,6 +350,11 @@ export function createServer(daemon = new FakeDaemon(), { web = WEB } = {}) {
         return res.end(file.data);
       }
       if (route === "/overlook/healthz") return json(res, 200, { status: "ok", emacs: daemon.emacs });
+      if (req.method === "GET" && route.startsWith("/overlook/files/t-")) {
+        const name = decodeURIComponent(route.split("/").pop());
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename*=utf-8''${encodeURIComponent(name)}` });
+        return res.end(Buffer.alloc(2048, 120));
+      }
       if (!route.startsWith("/overlook/api/")) return problem(res, 404, "route_missing", "No such route");
       if (req.headers.authorization !== "Bearer " + TOKEN) return problem(res, 401, "unauthorized", "Missing or wrong token");
       const body = ["POST", "PUT"].includes(req.method) ? await readBody(req) : null;
@@ -426,6 +431,12 @@ export function createServer(daemon = new FakeDaemon(), { web = WEB } = {}) {
     }
     if (req.method === "GET" && head === "conversations" && !id) {
       return json(res, 200, { epoch: daemon.epoch, emacs: daemon.emacs, conversations: [...daemon.conversations.values()].map((held) => daemon.wireConversation(held)) });
+    }
+    if (req.method === "POST" && head === "conversations" && sub === "files") {
+      needConversation(id);
+      const name = String(body.path || "").split("/").pop();
+      if (!name || name.startsWith("missing")) throw new Problem(404, "file_missing", "That file is not in this conversation or no longer exists");
+      return json(res, 200, { name, size: 2048, url: "/overlook/files/t-1/" + encodeURIComponent(name) });
     }
     if (req.method === "GET" && head === "images") {
       const bytes = daemon.images.get(id);

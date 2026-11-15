@@ -335,6 +335,19 @@ the page needs no deploy: the next page load picks up edited files.
     Quick Look); a bundled `.app` with `SMAppService` for Start at Login
     (signing, and the daemon's plist would have to move into the bundle,
     away from `deploy.sh`).
+29. **File links download through short-lived tickets.** `POST
+    /conversations/{c}/files` offers a file only when the link target appears
+    in that conversation's retained text (or the earlier reply) and names a
+    regular file, and returns its size, which the page shows in a confirmation
+    before downloading. The download itself is `GET
+    /overlook/files/<ticket>/<name>`, outside the authenticated API: the random
+    ticket works for 10 minutes and is the credential, so the browser can
+    stream a large file to disk as a plain navigation, with `Range`, and
+    without the 2-minute write deadline. *Rejected:* fetching with the token
+    into a blob (the whole file in the phone's memory before saving); serving
+    any path the token holder names (the mention check keeps a leaked token
+    from reading the disk directly); copying files into the media store like
+    images (no size bound fits arbitrary files).
 
 ## Deployment
 

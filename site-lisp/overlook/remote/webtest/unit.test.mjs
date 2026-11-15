@@ -240,3 +240,17 @@ test("stream stops retrying when onError says so, and pause and resume reconnect
   assert.equal(opened, 2);
   live.close();
 });
+
+test("file links and sizes", () => {
+  assert.equal(model.fileRef("docs/a.pdf#L2"), "docs/a.pdf");
+  assert.equal(model.fileRef("/Users/me/a%20b.txt"), "/Users/me/a%20b.txt");
+  assert.equal(model.fileRef("file:///tmp/x.log"), "/tmp/x.log");
+  assert.equal(model.fileRef("file://localhost/tmp/x.log"), "/tmp/x.log");
+  assert.equal(model.fileRef("~/notes.md"), "~/notes.md");
+  for (const href of ["https://example.com/a.pdf", "mailto:a@b.c", "#top", "//cdn.example/x.js", "", null]) assert.equal(model.fileRef(href), null, href);
+  assert.equal(model.fileSize(1), "1 byte");
+  assert.equal(model.fileSize(999), "999 bytes");
+  assert.equal(model.fileSize(2048), "2.0 KB");
+  assert.equal(model.fileSize(35_400_000), "35 MB");
+  assert.equal(model.fileSize(1.5e9), "1.5 GB");
+});

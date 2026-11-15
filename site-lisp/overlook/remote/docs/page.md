@@ -93,6 +93,11 @@ page while preserving the reading position. History is limited to activity
 retained by Remote; it does not reconstruct messages from before Remote began
 recording, and discarded history cannot be loaded.
 
+Links in replies that name files (paths, `~/`, relative to the root,
+`file://`) do not navigate: tapping one asks the daemon for the file, shows its
+name and size in a confirmation, and only then downloads it. Web links open in
+a new tab.
+
 Image uploads retain failed previews for retry or removal; the viewer can browse
 multiple images. Attachments still use the server's existing returned-text
 protocol. Removing an in-flight preview ignores its response; it cannot cancel

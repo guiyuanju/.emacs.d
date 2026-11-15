@@ -48,7 +48,8 @@ type Deps struct {
 
 // Server holds the API handlers.
 type Server struct {
-	d Deps
+	d     Deps
+	files *fileTickets
 }
 
 // New returns an API server.
@@ -65,7 +66,7 @@ func New(d Deps) *Server {
 	if d.Auth == nil {
 		d.Auth = func(h http.Handler) http.Handler { return h }
 	}
-	return &Server{d: d}
+	return &Server{d: d, files: newFileTickets()}
 }
 
 var (
@@ -89,12 +90,14 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /overlook/api/conversations/{conversation}/choice", s.choice)
 	api.HandleFunc("POST /overlook/api/conversations/{conversation}/forms/{form}", s.form)
 	api.HandleFunc("POST /overlook/api/conversations/{conversation}/attachments", s.attach)
+	api.HandleFunc("POST /overlook/api/conversations/{conversation}/files", s.fileLink)
 	api.HandleFunc("GET /overlook/api/images/{image}", s.image)
 	api.HandleFunc("GET /overlook/api/nodes/{node}/diff", s.diff)
 	api.HandleFunc("POST /overlook/api/nodes/{node}/commands/{name}", s.command)
 
 	mux := http.NewServeMux()
 	mux.Handle("/overlook/api/", apiHeaders(s.d.Auth(routed(api))))
+	mux.HandleFunc("GET "+filePrefix+"{ticket}/{name}", s.fileDownload)
 	mux.Handle("/overlook/healthz", apiHeaders(routed(http.HandlerFunc(s.health))))
 	if s.d.Assets != nil {
 		mux.Handle("/overlook/", s.d.Assets)
@@ -114,10 +117,10 @@ func apiHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// deadlines bounds every request but the event stream.
+// deadlines bounds every request but the event stream and file downloads.
 func deadlines(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/overlook/api/stream" {
+		if r.URL.Path != "/overlook/api/stream" && !strings.HasPrefix(r.URL.Path, filePrefix) {
 			rc := http.NewResponseController(w)
 			_ = rc.SetReadDeadline(time.Now().Add(requestDeadline))
 			_ = rc.SetWriteDeadline(time.Now().Add(requestDeadline))

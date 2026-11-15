@@ -672,3 +672,71 @@ func TestReceiptsAndSecretSurviveRestart(t *testing.T) {
 		t.Fatal("token from before the restart rejected")
 	}
 }
+
+func TestFileLinks(t *testing.T) {
+	e := setup(t)
+	root := t.TempDir()
+	_ = os.MkdirAll(root+"/docs", 0o700)
+	_ = os.WriteFile(root+"/docs/报告 v1.pdf", []byte("pdf-bytes"), 0o600)
+	_ = os.WriteFile(root+"/notes.txt", []byte("0123456789"), 0o600)
+	_ = os.WriteFile(root+"/secret.txt", []byte("no"), 0o600)
+	e.st.SetConversation(bridge.ConversationSetParams{Conversation: bridge.Conversation{ID: "c3", Provider: "p", Status: "idle", Root: root, Controls: bridge.Controls{Actions: []string{"close"}}}})
+	e.st.Event(bridge.Event{Conversation: "c3", At: time.Now(), Type: bridge.EventText,
+		Text: "See [the report](<docs/报告 v1.pdf>), [notes](" + root + "/notes.txt#L2), [line](notes.txt:3) and [dir](docs)."})
+
+	link := func(path string) (FileLink, result) {
+		r := e.do("POST", api+"/conversations/c3/files", map[string]string{"path": path})
+		var l FileLink
+		_ = json.Unmarshal(r.body, &l)
+		return l, r
+	}
+	l, r := link("docs/%E6%8A%A5%E5%91%8A%20v1.pdf")
+	if r.status != 200 || l.Name != "报告 v1.pdf" || l.Size != 9 || !strings.HasPrefix(l.URL, "/overlook/files/") {
+		t.Fatalf("encoded link %d %s", r.status, r.body)
+	}
+	d := e.do("GET", l.URL, nil, "Authorization", "")
+	if d.status != 200 || string(d.body) != "pdf-bytes" || !strings.HasPrefix(d.header.Get("Content-Disposition"), "attachment; filename*=utf-8''") {
+		t.Fatalf("download %d %v %s", d.status, d.header, d.body)
+	}
+	if l, r := link(root + "/notes.txt"); r.status != 200 || l.Size != 10 {
+		t.Fatalf("absolute %d %s", r.status, r.body)
+	}
+	if l, r := link("notes.txt:3"); r.status != 200 || l.Name != "notes.txt" {
+		t.Fatalf("line suffix %d %s", r.status, r.body)
+	}
+	if l, r := link("file://" + root + "/notes.txt"); r.status != 404 {
+		t.Fatalf("file URL not in text %d %+v", r.status, l)
+	}
+	for _, path := range []string{"secret.txt", root + "/secret.txt", "docs", "missing.txt"} {
+		if _, r := link(path); r.status != 404 || r.problem().Code != CodeFileMissing {
+			t.Errorf("%s: %d %s", path, r.status, r.body)
+		}
+	}
+	if _, r := link(" "); r.status != 400 {
+		t.Errorf("empty path %d", r.status)
+	}
+	if r := e.do("POST", api+"/conversations/zz/files", map[string]string{"path": "x"}); r.status != 404 || r.problem().Code != CodeConversationMissing {
+		t.Errorf("missing conversation %d %s", r.status, r.body)
+	}
+	if d := e.do("GET", "/overlook/files/0123/x", nil, "Authorization", ""); d.status != 404 {
+		t.Errorf("unknown ticket %d", d.status)
+	}
+}
+
+func TestFileTicketsExpire(t *testing.T) {
+	tk := newFileTickets()
+	now := time.Now()
+	tk.now = func() time.Time { return now }
+	id := tk.issue("/x")
+	if p, ok := tk.path(id); !ok || p != "/x" {
+		t.Fatal("fresh ticket")
+	}
+	now = now.Add(FileTicketTTL)
+	if _, ok := tk.path(id); ok {
+		t.Fatal("expired ticket served")
+	}
+	tk.issue("/y")
+	if len(tk.entries) != 1 {
+		t.Fatalf("expired ticket kept: %d", len(tk.entries))
+	}
+}

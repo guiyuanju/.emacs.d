@@ -1,13 +1,13 @@
 // The conversation page: header, activity feed, history paging, live answers and the read position.
 import { api } from "js/api.js";
 import { state, holdConversation, remember, draft } from "js/state.js";
-import { $, el, toast, viewState, actionSheet, imageStrip, messageTime, personaProfile, preloader } from "js/ui.js";
+import { $, el, toast, viewState, actionSheet, imageStrip, messageTime, personaProfile, preloader, confirmAction } from "js/ui.js";
 import { markdownHtml, enhanceCodeBlocks, foldContent, diffPre } from "js/markdown.js";
 import { connected, connectionFailure, setEmacs } from "js/shell.js";
 import { panelContainer } from "js/dashboard.js";
 import { syncCompose, sessionAction, renderSlashCommands, focusCompose, sessionBusy } from "js/compose.js";
 import { conversationFromSnapshot, applyDelta, applyHistory, sortedItems, toolRuns, statusLabel, streamQuery,
-  actionLabel, randomKey } from "js/model.js";
+  actionLabel, randomKey, fileSize } from "js/model.js";
 
 let stream = null;
 let generation = 0;
@@ -626,8 +626,34 @@ export function markSeen() {
   readTimer ??= setTimeout(() => { if (heldRead) sendRead(heldRead); }, wait);
 }
 
+let fileAsked = false;
+
+// Asks before downloading a file a reply links to, showing its size.
+async function onFileLink(event) {
+  const link = event.target.closest?.("a[data-file]");
+  if (!link || !view) return;
+  event.preventDefault();
+  if (fileAsked) return;
+  fileAsked = true;
+  try {
+    const file = await api.fileLink(view.id, link.dataset.file);
+    if (!await confirmAction(`${file.name} · ${fileSize(file.size)}`, { title: "Download file?", label: "Download" })) return;
+    const anchor = el("a", "external");
+    anchor.href = file.url;
+    anchor.download = file.name;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    fileAsked = false;
+  }
+}
+
 export function installConversation() {
   $("detail").addEventListener("scroll", onScroll, { passive: true });
+  $("detail").addEventListener("click", onFileLink);
   $("latest").onclick = () => { pinned = true; scrollToBottom(); };
   if (window.ResizeObserver) new ResizeObserver(() => { if (pinned && view) scrollToBottom(); }).observe($("detail"));
 }

@@ -221,27 +221,32 @@ func imageExt(s string) int {
 	return 0
 }
 
+// ResolvePath percent-decodes p, expands ~/ and resolves it against root; false when p is relative and root empty.
+func ResolvePath(p, root string) (string, bool) {
+	if dec, err := url.PathUnescape(p); err == nil {
+		p = dec
+	}
+	if rest, ok := strings.CutPrefix(p, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, rest)
+		}
+	}
+	if !filepath.IsAbs(p) {
+		if root == "" {
+			return "", false
+		}
+		p = filepath.Join(root, p)
+	}
+	return filepath.Clean(p), true
+}
+
 // ImagePaths returns the image file paths named in text, resolved against root (protocol section 8).
 func ImagePaths(text, root string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(p string) {
-		if dec, err := url.PathUnescape(p); err == nil {
-			p = dec
-		}
-		if rest, ok := strings.CutPrefix(p, "~/"); ok {
-			if home, err := os.UserHomeDir(); err == nil {
-				p = filepath.Join(home, rest)
-			}
-		}
-		if !filepath.IsAbs(p) {
-			if root == "" {
-				return
-			}
-			p = filepath.Join(root, p)
-		}
-		p = filepath.Clean(p)
-		if !seen[p] {
+		p, ok := ResolvePath(p, root)
+		if ok && !seen[p] {
 			seen[p] = true
 			out = append(out, p)
 		}

@@ -660,6 +660,24 @@ func (s *Store) Delta(id, epoch string, after int64, known string) (delta Conver
 	return delta, false, true, nil
 }
 
+// Mentions reports whether any of needles appears in a retained item of conversation id; empty means none is retained.
+func (s *Store) Mentions(id string, needles ...string) (found, empty bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cv, err := s.live(id)
+	if err != nil {
+		return false, false, err
+	}
+	for _, it := range cv.items {
+		for _, n := range needles {
+			if n != "" && (strings.Contains(it.text, n) || strings.Contains(it.title, n)) {
+				return true, false, nil
+			}
+		}
+	}
+	return false, len(cv.items) == 0, nil
+}
+
 // History returns up to limit items before item before.
 func (s *Store) History(id string, before int64, limit int, epoch string) (HistoryPage, error) {
 	s.mu.Lock()

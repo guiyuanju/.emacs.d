@@ -1,13 +1,23 @@
 // Sanitized markdown, code blocks with copy and expansion, long content folding, diffs.
 import { marked, DOMPurify } from "js/vendor.js";
 import { el, copyText } from "js/ui.js";
-import { longContent } from "js/model.js";
+import { longContent, fileRef } from "js/model.js";
+
+// file: links would be dropped as unsafe, so they become plain paths here and file links below.
+DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+  if (node.tagName === "A" && data.attrName === "href" && /^file:/i.test(data.attrValue)) data.attrValue = fileRef(data.attrValue) || "";
+});
 
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "A") {
-    node.setAttribute("target", "_blank");
-    node.setAttribute("rel", "noopener noreferrer");
+  if (node.tagName !== "A") return;
+  const ref = fileRef(node.getAttribute("href"));
+  if (ref) {
+    node.dataset.file = ref;
+    node.classList.add("file-link", "external");
+    return;
   }
+  node.setAttribute("target", "_blank");
+  node.setAttribute("rel", "noopener noreferrer");
 });
 
 export function markdownHtml(text) {

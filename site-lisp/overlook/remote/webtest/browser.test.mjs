@@ -207,6 +207,22 @@ test("conversation reading: feed, folding, copy, tools, images, info, history an
   await page.locator(".sheet-modal").waitFor({ state: "detached" });
 
   await ctl("message", textEvent(ALPHA, "", "end"));
+  await ctl("message", textEvent(ALPHA, "Files: [report](docs/report.pdf#L2), [gone](file:///tmp/missing.txt) and [site](https://example.com)."));
+  await ctl("message", textEvent(ALPHA, "", "end"));
+  const files = page.locator("#d-feed .markdown").filter({ hasText: "Files:" });
+  await files.waitFor();
+  assert.equal(await files.locator("a[href^='https:']").getAttribute("target"), "_blank");
+  assert.equal(await files.locator("a.file-link[data-file='/tmp/missing.txt']").count(), 1);
+  await files.getByText("report", { exact: true }).click();
+  await page.locator(".dialog").getByText("report.pdf · 2.0 KB").waitFor();
+  const download = page.waitForEvent("download");
+  await page.locator(".dialog-button").filter({ hasText: "Download" }).click();
+  assert.equal((await download).suggestedFilename(), "report.pdf");
+  assert.deepEqual((await log()).filter((entry) => entry.path.endsWith("/files")).map((entry) => entry.body), [{ path: "docs/report.pdf" }]);
+  await files.getByText("gone", { exact: true }).click();
+  await page.locator(".toast").getByText("That file is not in this conversation or no longer exists").waitFor();
+  assert.equal(await page.locator(".dialog").count(), 0);
+
   await ctl("message", textEvent(ALPHA, "Long response ".repeat(250) + "\n\n```js\n" + "const value = 1;\n".repeat(30) + "```"));
   for (let i = 0; i < 3; i++) await ctl("message", textEvent(ALPHA, undefined, "tool", { id: "t" + i, title: "Read file " + i, status: "completed", kind: "read" }));
   await page.locator(".tool-group summary").getByText("3 completed actions").waitFor();

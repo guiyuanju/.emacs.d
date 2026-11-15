@@ -89,6 +89,7 @@ export const api = {
   choose: (id, choiceKey, key) => request("POST", `conversations/${enc(id)}/choice`, { body: { key: choiceKey }, key }),
   answer: (id, form, body, key) => request("POST", `conversations/${enc(id)}/forms/${enc(form)}`, { body, key }),
   attach: (id, blob, key) => request("POST", `conversations/${enc(id)}/attachments`, { raw: blob, type: blob.type, key, timeout: 120000 }),
+  fileLink: (id, path) => request("POST", `conversations/${enc(id)}/files`, { body: { path } }),
   diff: (node) => get(`nodes/${enc(node)}/diff`),
   command: (node, name, body, key) => request("POST", `nodes/${enc(node)}/commands/${enc(name)}`, { body, key }),
 };

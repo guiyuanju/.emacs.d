@@ -298,6 +298,22 @@ export function actionLabel(action, settings) {
   return setting ? `${setting.label} · ${settingValueName(setting)}` : actionLabels[action] || action;
 }
 
+// The file a link target names, for the download endpoint; null for web, mail and in-page links.
+export function fileRef(href) {
+  if (!href) return null;
+  let ref = href.replace(/^file:\/\/(localhost)?/i, "");
+  if (ref === href && (/^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith("#") || ref.startsWith("//"))) return null;
+  ref = ref.replace(/[?#].*$/s, "");
+  return ref || null;
+}
+
+export function fileSize(bytes) {
+  const units = ["bytes", "KB", "MB", "GB"];
+  let value = bytes, index = 0;
+  while (value >= 1000 && index < units.length - 1) { value /= 1000; index++; }
+  return index ? `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[index]}` : unit(bytes, "byte");
+}
+
 export function randomKey() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) => n.toString(16).padStart(2, "0")).join("");
 }
