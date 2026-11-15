@@ -27,7 +27,11 @@ func TestParse(t *testing.T) {
 			return c.AutoClose == 120*time.Minute && !c.StreamCompression
 		}, false},
 		{"state beside the socket", []string{"-token-file", "t", "-socket", "/x/y/b.sock"}, func(c Config) bool {
-			return c.StateFile == "/x/y/state.json" && c.WebDir == "" && c.CacheDir == DefaultCacheDir()
+			return c.StateFile == "/x/y/state.json" && c.WebDir == "" && c.CacheDir == DefaultCacheDir() &&
+				c.AdminSocket == "/x/y/admin.sock" && c.SettingsFile == "/x/y/settings.json" && c.Caffeinate == DefaultCaffeinate()
+		}, false},
+		{"admin, settings and keep-awake disabled", []string{"-token-file", "t", "-admin-socket", "", "-settings-file", "", "-caffeinate", ""}, func(c Config) bool {
+			return c.AdminSocket == "" && c.SettingsFile == "" && c.Caffeinate == ""
 		}, false},
 		{"state disabled", []string{"-token-file", "t", "-state-file", "", "-cache-dir", "", "-web-dir", "w"}, func(c Config) bool {
 			return c.StateFile == "" && c.CacheDir == "" && c.WebDir == "w"

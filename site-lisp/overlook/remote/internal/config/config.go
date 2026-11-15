@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +36,12 @@ type Config struct {
 	CacheDir string
 	// StateFile carries derived state across restarts; empty disables it.
 	StateFile string
+	// AdminSocket is the control socket for local tools; empty disables it.
+	AdminSocket string
+	// SettingsFile keeps user settings such as keep-awake across restarts; empty keeps them in memory.
+	SettingsFile string
+	// Caffeinate is the caffeinate(8) command that keeps the Mac awake; empty never keeps it awake.
+	Caffeinate string
 	// FakeEmacs is a fixtures directory replayed by an in-process fake Emacs, for browser tests.
 	FakeEmacs     string
 	FakeSpeed     float64
@@ -70,6 +77,19 @@ func DefaultCacheDir() string {
 	return filepath.Join(dir, "overlook-remoted")
 }
 
+// DefaultCaffeinate is caffeinate(8) on macOS and nothing elsewhere.
+func DefaultCaffeinate() string {
+	if runtime.GOOS == "darwin" {
+		return "/usr/bin/caffeinate"
+	}
+	return ""
+}
+
+// AdminSocketBeside is the default admin socket for the bridge socket path.
+func AdminSocketBeside(socket string) string {
+	return filepath.Join(filepath.Dir(socket), "admin.sock")
+}
+
 // Parse reads args (without the program name); output receives usage and errors.
 func Parse(args []string, output io.Writer) (Config, error) {
 	var c Config
@@ -89,6 +109,9 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	fs.StringVar(&c.WebDir, "web-dir", "", "serve the page from this `dir` (remote/web), reloading it when files change")
 	fs.StringVar(&c.CacheDir, "cache-dir", DefaultCacheDir(), "keep compressed page files in this `dir` (empty: none)")
 	fs.StringVar(&c.StateFile, "state-file", "", "keep state across restarts in this `file` (default state.json beside -socket; empty: none)")
+	fs.StringVar(&c.AdminSocket, "admin-socket", "", "control socket `path` for the menu bar app (default admin.sock beside -socket; empty: none)")
+	fs.StringVar(&c.SettingsFile, "settings-file", "", "keep settings such as keep-awake in this `file` (default settings.json beside -socket; empty: none)")
+	fs.StringVar(&c.Caffeinate, "caffeinate", DefaultCaffeinate(), "caffeinate `command` that keeps the Mac awake (empty: never)")
 	fs.StringVar(&c.FakeEmacs, "fake-emacs", "", "replay the fixtures `dir` as a fake Emacs (tests only; SIGUSR1 replays live.ndjson)")
 	fs.Float64Var(&c.FakeSpeed, "fake-speed", 1, "speed factor of the fake Emacs's live steps")
 	fs.DurationVar(&c.FakeLiveDelay, "fake-live-delay", time.Second, "wait before the fake Emacs plays live steps (negative: only on SIGUSR1)")
@@ -99,10 +122,16 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	if fs.NArg() > 0 {
 		return Config{}, fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
-	stateSet := false
-	fs.Visit(func(f *flag.Flag) { stateSet = stateSet || f.Name == "state-file" })
-	if !stateSet {
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if !set["state-file"] {
 		c.StateFile = filepath.Join(filepath.Dir(c.Socket), "state.json")
+	}
+	if !set["admin-socket"] {
+		c.AdminSocket = AdminSocketBeside(c.Socket)
+	}
+	if !set["settings-file"] {
+		c.SettingsFile = filepath.Join(filepath.Dir(c.Socket), "settings.json")
 	}
 	c.Listen, c.ListenTLS = listen, listenTLS
 	if len(c.Listen) == 0 && len(c.ListenTLS) == 0 {

@@ -16,6 +16,8 @@
     <string>@TOKEN_FILE@</string>
     <string>-socket</string>
     <string>@SOCKET@</string>
+    <string>-admin-socket</string>
+    <string>@ADMIN_SOCKET@</string>
   </array>
   <key>Sockets</key>
   <dict>

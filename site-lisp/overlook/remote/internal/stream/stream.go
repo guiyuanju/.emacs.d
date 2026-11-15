@@ -57,6 +57,8 @@ type Options struct {
 	Compress     bool
 	MaxStreams   int
 	Earlier      EarlierFunc
+	// Counted is called, outside the hub's lock, after a stream opens or closes.
+	Counted func()
 }
 
 // DefaultOptions are the production values.
@@ -115,6 +117,12 @@ func NewHub(src Source, opts Options) *Hub {
 // Close ends every stream; Serve refuses new ones.
 func (h *Hub) Close() {
 	h.once.Do(func() { close(h.closed) })
+}
+
+func (h *Hub) counted() {
+	if h.opts.Counted != nil {
+		h.opts.Counted()
+	}
 }
 
 // Count is the number of open streams.
@@ -220,10 +228,12 @@ func (h *Hub) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	h.clients[cl] = struct{}{}
 	h.mu.Unlock()
+	h.counted()
 	defer func() {
 		h.mu.Lock()
 		delete(h.clients, cl)
 		h.mu.Unlock()
+		h.counted()
 	}()
 
 	hdr := w.Header()

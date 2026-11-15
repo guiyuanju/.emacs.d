@@ -14,17 +14,22 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/guiyuanju/overlook/remote/internal/admin"
 	"github.com/guiyuanju/overlook/remote/internal/api"
 	"github.com/guiyuanju/overlook/remote/internal/assets"
 	"github.com/guiyuanju/overlook/remote/internal/auth"
+	"github.com/guiyuanju/overlook/remote/internal/awake"
 	"github.com/guiyuanju/overlook/remote/internal/bridge"
 	"github.com/guiyuanju/overlook/remote/internal/config"
 	"github.com/guiyuanju/overlook/remote/internal/fakeemacs"
 	"github.com/guiyuanju/overlook/remote/internal/launchd"
+	"github.com/guiyuanju/overlook/remote/internal/netaddr"
+	"github.com/guiyuanju/overlook/remote/internal/settings"
 	"github.com/guiyuanju/overlook/remote/internal/state"
 	"github.com/guiyuanju/overlook/remote/internal/store"
 	"github.com/guiyuanju/overlook/remote/internal/stream"
@@ -37,6 +42,7 @@ var version = "dev"
 var (
 	_ api.Emacs     = (*bridge.Server)(nil)
 	_ stream.Source = (*store.Store)(nil)
+	_ admin.Daemon  = (*daemon)(nil)
 )
 
 // assetsLevel is the brotli quality of precompressed page files; tests lower it.
@@ -73,7 +79,7 @@ func main() {
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	started := time.Now()
 	log.Info("starting", "version", version, "listen", cfg.Listen, "listen-tls", cfg.ListenTLS, "socket", cfg.Socket,
-		"web-dir", cfg.WebDir, "state-file", cfg.StateFile)
+		"web-dir", cfg.WebDir, "state-file", cfg.StateFile, "admin-socket", cfg.AdminSocket)
 	d, err := newDaemon(cfg, log, web.FS)
 	if err != nil {
 		return err
@@ -108,6 +114,13 @@ type daemon struct {
 	listeners []*listener
 	fake      *fakeemacs.Fake
 	confirmer *api.Confirmer
+	admin     *admin.Server
+	awake     *awake.Keeper
+	started   time.Time
+
+	// settingsMu guards settings, the user settings kept in cfg.SettingsFile.
+	settingsMu sync.Mutex
+	settings   settings.Settings
 
 	// saveMu serializes state file writes; saved holds the store and receipt versions last written.
 	saveMu sync.Mutex
@@ -138,17 +151,31 @@ func newDaemon(cfg config.Config, log *slog.Logger, webFS fs.FS) (*daemon, error
 			return nil, err
 		}
 	}
-	d := &daemon{cfg: cfg, log: log, store: store.New(store.Options{Dir: storeDir}), receipts: &api.Receipts{}}
+	d := &daemon{cfg: cfg, log: log, store: store.New(store.Options{Dir: storeDir}), receipts: &api.Receipts{}, started: time.Now()}
 	d.restore()
+	d.settings = settings.Default
+	if cfg.SettingsFile != "" {
+		if d.settings, err = settings.Load(cfg.SettingsFile); err != nil {
+			log.Warn("ignoring the settings file", "file", cfg.SettingsFile, "err", err)
+		}
+	}
+	if cfg.AdminSocket != "" {
+		d.admin = admin.NewServer(cfg.AdminSocket, d, log)
+	}
+	d.awake = awake.New(cfg.Caffeinate, log, d.admin.Changed)
 	d.bridge = bridge.NewServer(cfg.Socket, version, d.store, log)
 	opts := stream.DefaultOptions
 	opts.Compress = cfg.StreamCompression
 	opts.Earlier = api.EarlierFunc(d.bridge, d.store)
+	opts.Counted = d.admin.Changed
 	d.hub = stream.NewHub(d.store, opts)
 	d.store.OnChange(func(c store.Change) {
 		d.hub.Notify(c)
 		if c.Epoch {
 			d.receipts.Clear()
+		}
+		if c.Status || c.Epoch {
+			d.admin.Changed()
 		}
 	})
 	deny := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +258,11 @@ func (d *daemon) listen() error {
 	if err := d.bridge.Listen(); err != nil {
 		return err
 	}
+	if d.admin != nil {
+		if err := d.admin.Listen(); err != nil {
+			return err
+		}
+	}
 	var tlsConfig *tls.Config
 	if len(d.cfg.ListenTLS) > 0 {
 		certs, err := newCertReloader(d.cfg.TLSCert, d.cfg.TLSKey)
@@ -290,7 +322,7 @@ func (d *daemon) serve(ctx context.Context) error {
 	defer d.close()
 	bctx, bcancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	errs := make(chan error, len(d.listeners)+2)
+	errs := make(chan error, len(d.listeners)+3)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -298,6 +330,20 @@ func (d *daemon) serve(ctx context.Context) error {
 			errs <- err
 		}
 	}()
+	if d.admin != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := d.admin.Serve(bctx); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	if d.settings.Awake {
+		if err := d.awake.Set(true); errors.Is(err, awake.ErrUnavailable) {
+			d.log.Debug("not keeping the Mac awake: no -caffeinate")
+		}
+	}
 	for _, l := range d.listeners {
 		scheme := "http"
 		if l.tls {
@@ -368,13 +414,70 @@ func (d *daemon) serve(ctx context.Context) error {
 	}
 	bcancel()
 	wg.Wait()
+	d.awake.Close()
 	// Emacs is disconnected now, so nothing changes after this write.
 	d.save(true)
 	return err
 }
 
 func (d *daemon) close() {
+	d.awake.Close()
 	_ = d.store.Close()
+}
+
+// Status reports the daemon on the admin socket.
+func (d *daemon) Status() admin.Status {
+	st := admin.Status{
+		Daemon: version, Started: d.started, Uptime: time.Since(d.started).Round(time.Second).Seconds(),
+		Emacs: string(d.store.Emacs()), Streams: d.hub.Count(), Awake: d.awake.On(), AwakeHeld: d.awake.Held(),
+		Host: netaddr.Host(),
+	}
+	// The page URL uses the first listener a phone can reach, plain HTTP before TLS.
+	best := -1
+	rank := func(l *listener) int {
+		r := 0
+		if l.tls {
+			r += 2
+		}
+		if l.loopback {
+			r++
+		}
+		return r
+	}
+	for i, l := range d.listeners {
+		st.Listeners = append(st.Listeners, admin.Listener{Addr: l.addr, TLS: l.tls, Loopback: l.loopback})
+		if best < 0 || rank(l) < rank(d.listeners[best]) {
+			best = i
+		}
+	}
+	if best >= 0 {
+		l := d.listeners[best]
+		st.Scheme = "http"
+		if l.tls {
+			st.Scheme = "https"
+		}
+		if _, port, err := net.SplitHostPort(l.addr); err == nil {
+			st.Port, _ = strconv.Atoi(port)
+		}
+	}
+	return st
+}
+
+// SetAwake turns keeping the Mac awake on or off and saves the choice.
+func (d *daemon) SetAwake(on bool) error {
+	if err := d.awake.Set(on); err != nil {
+		return err
+	}
+	d.settingsMu.Lock()
+	defer d.settingsMu.Unlock()
+	d.settings.Awake = on
+	if d.cfg.SettingsFile == "" {
+		return nil
+	}
+	if err := settings.Write(d.cfg.SettingsFile, d.settings); err != nil {
+		return fmt.Errorf("keep awake is %v now, but saving it failed: %w", on, err)
+	}
+	return nil
 }
 
 // certReloader serves the TLS key pair, reloading it when the certificate file changes.
