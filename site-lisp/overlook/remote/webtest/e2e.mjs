@@ -62,7 +62,7 @@ export function elisp(control, form) {
 }
 
 // A temp directory with the daemon binary, a token, the bridge socket and the dev Emacs's control socket.
-export async function setup({ token = "e2e-token", old = false } = {}) {
+export async function setup({ token = "e2e-token" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ovl-e2e-"));
   fs.chmodSync(dir, 0o700);
   const root = path.join(dir, "shop");
@@ -71,7 +71,7 @@ export async function setup({ token = "e2e-token", old = false } = {}) {
   fs.writeFileSync(files.tokenFile, token + "\n", { mode: 0o600 });
   const env = { dir, root, token, ...files, port: await freePort(), children: new Set() };
   env.base = `http://127.0.0.1:${env.port}`;
-  if (!old) execFileSync("go", ["build", "-o", files.binary, "./cmd/overlook-remoted"], { cwd: REMOTE, stdio: "inherit" });
+  execFileSync("go", ["build", "-o", files.binary, "./cmd/overlook-remoted"], { cwd: REMOTE, stdio: "inherit" });
   env.el = (form) => elisp(files.control, form);
   env.health = async () => (await fetch(env.base + "/overlook/healthz")).json();
   env.track = (child) => { env.children.add(child); child.on("exit", () => env.children.delete(child)); return child; };
@@ -89,10 +89,9 @@ export async function setup({ token = "e2e-token", old = false } = {}) {
     await exited;
   };
 
-  env.startEmacs = async ({ oldPort } = {}) => {
+  env.startEmacs = async () => {
     const vars = { ...process.env, EMACSLOADPATH: loadPath(), OVERLOOK_E2E_CONTROL: files.control, OVERLOOK_E2E_ROOT: root };
-    if (oldPort) Object.assign(vars, { OVERLOOK_E2E_OLD_PORT: String(oldPort), OVERLOOK_E2E_TOKEN_FILE: files.tokenFile });
-    else vars.OVERLOOK_E2E_SOCKET = files.socket;
+    vars.OVERLOOK_E2E_SOCKET = files.socket;
     let output = "";
     env.emacs = env.track(spawn(EMACS, ["-Q", "--batch", "-l", path.join(here, "e2e-emacs.el")], { env: vars, stdio: ["ignore", "pipe", "pipe"] }));
     env.emacs.stdout.on("data", (chunk) => { output += chunk; });

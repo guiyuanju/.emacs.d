@@ -6,8 +6,6 @@
 ;;                         Elisp form, answering one JSON line {"ok": …} or {"error": …}
 ;;   OVERLOOK_E2E_ROOT     directory the fake project and agents work in
 ;;   OVERLOOK_E2E_SOCKET   bridge socket; enables `overlook-remote-bridge-mode'
-;;   OVERLOOK_E2E_OLD_PORT and OVERLOOK_E2E_TOKEN_FILE  serve the old
-;;                         `overlook-remote-mode' instead, for measurements
 ;; The fake agents record what they are asked to do in `e2e-log'.
 
 (require 'overlook)
@@ -250,18 +248,10 @@
                       :service (getenv "OVERLOOK_E2E_CONTROL") :coding 'binary :noquery t
                       :filter #'e2e--filter)
 
-(cond
- ((getenv "OVERLOOK_E2E_OLD_PORT")
-  (require 'overlook-remote)
-  (setq overlook-remote-port (string-to-number (getenv "OVERLOOK_E2E_OLD_PORT"))
-        overlook-remote-host "127.0.0.1"
-        overlook-remote-network-minutes nil
-        overlook-remote-token-file (getenv "OVERLOOK_E2E_TOKEN_FILE"))
-  (overlook-remote-mode 1))
- ((getenv "OVERLOOK_E2E_SOCKET")
+(when (getenv "OVERLOOK_E2E_SOCKET")
   (setq overlook-remote-bridge-socket (getenv "OVERLOOK_E2E_SOCKET")
         overlook-remote-bridge-retry-delays '(0.1 . 0.5))
-  (overlook-remote-bridge-mode 1)))
+  (overlook-remote-bridge-mode 1))
 
 (message "e2e-emacs ready")
 (while (not e2e-done)

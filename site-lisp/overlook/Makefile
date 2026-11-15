@@ -13,7 +13,6 @@ test: test-elisp test-remote
 
 test-elisp:
 	$(EMACS) -Q --batch $(DEPS) -l test/run.el
-	@if command -v node >/dev/null; then node test/overlook-remote-ui-test.cjs; fi
 
 # The daemon's Go tests and deploy.sh against a fake launchctl, then the page's
 # unit, browser and end-to-end tests; browser tests skip themselves without Playwright.

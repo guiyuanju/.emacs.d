@@ -48,8 +48,8 @@ you see at a glance where you are needed.
 ## Install
 
 Requires Emacs 30.1 or later.  overlook is not on MELPA yet; install it
-from GitHub.  It pulls in magit-section, tabspaces, agent-shell and
-simple-httpd (for the phone page).  agent-shell
+from GitHub.  It pulls in magit-section, tabspaces and agent-shell; the phone page
+needs Go to build its daemon.  agent-shell
 needs the ACP adapters of the agents you use; see its README.
 
 With `package-vc` (Emacs 30):
@@ -66,7 +66,7 @@ besides Elisp that overlook needs:
 ```elisp
 (use-package overlook
   :ensure (:host github :repo "guiyuanju/overlook"
-           :files (:defaults "bin" "skills" "overlook-remote.html" "vendor"))
+           :files (:defaults "bin" "skills" "remote"))
   :bind ("C-c o" . overlook))
 ```
 
@@ -199,7 +199,7 @@ turn on.
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
 | `overlook-agent-courier` | agents messaging, spawning and watching each other; personas |
-| `overlook-remote` | the dashboard and the agents in a phone's browser |
+| `overlook-remote-bridge` | the dashboard and the agents in a phone's browser, served by `overlook-remoted` |
 | `overlook-agent-update`, `overlook-agent-rules` | keeping agent CLIs and their rules up to date |
 
 ### Projects of several repos
@@ -310,10 +310,14 @@ see [courier](docs/courier.md).  On the dashboard:
 
 ### From your phone: overlook-remote
 
+A small Go daemon, `overlook-remoted`, serves the page; Emacs connects to
+it over a unix socket and publishes the dashboard and the agents.  Build
+and install the daemon as a LaunchAgent (see
+[remote/README.md](remote/README.md)), then:
+
 ```elisp
-(setopt httpd-serve-files nil)   ; simple-httpd serves only overlook's page
-(require 'overlook-remote)
-(overlook-remote-mode 1)         ; copies the page's address, with its token
+(require 'overlook-remote-bridge)
+(overlook-remote-bridge-mode 1)  ; M-x overlook-remote-bridge-url copies the address
 ```
 
 The page uses Framework7 Core with an iOS layout and follows system
@@ -365,34 +369,28 @@ and styles are served locally, with no CDN dependency or build step. It shows:
   Long messages have expandable previews. Message times, unread counts and
   paged earlier activity come from the backend.
 
-See [Remote interface](docs/remote-ui.md) for navigation, draft and attachment
-behavior and the limits of browser-only state.
+See [the page](remote/docs/page.md) for navigation, draft and attachment
+behavior and the limits of browser-only state, and
+[remote/README.md](remote/README.md) for flags, TLS and updating the
+daemon, the page and the bridge while using them.
 
-While the mode is on, the dashboard's mode line shows a network icon
-(or `remote` without Nerd Icons). Hover over it to see the serving address.
+While the mode is on, the dashboard's mode line shows whether Emacs is
+connected to the daemon.  The daemon keeps serving the page while Emacs
+is away, and shows that Emacs is not connected.
 
-The page listens on this machine only.  To reach it from a phone on the
-same network, set `overlook-remote-host` to `"0.0.0.0"` before turning the
-mode on; the mode line then highlights the network indicator, and the mode
-turns itself off after `overlook-remote-network-minutes` (120; nil keeps
-it on).  `M-x overlook-remote-url` copies the address again.  On a
-machine with a Tailscale address that is the address given, so a phone in
-the same tailnet reaches the page from any network, and on a Wi-Fi that
-keeps its devices apart.
+`M-x overlook-remote-bridge-url` copies the address, preferring this
+machine's Tailscale address, so a phone in the same tailnet reaches the
+page from any network.  The page and its scripts are served to anyone;
+every call for data needs the token, which the address carries after `#`,
+so the browser keeps it and never sends it in the address.  Over plain
+HTTP anyone watching the network can read it: serve only a network you
+trust, reach it over a VPN such as Tailscale, or give the daemon TLS
+files.  `M-x overlook-remote-bridge-new-token` shuts out every page opened
+before.
 
-The page and its scripts are served to anyone; every call for data needs
-the token, which the address carries after `#`, so the browser keeps it
-and never sends it in the address.  The calls then carry it in a header
-over plain HTTP, which anyone watching the network can read: serve only a
-network you trust, or reach it over a VPN such as Tailscale.  `M-x
-overlook-remote-new-token` shuts out every page opened before.
-
-On iOS, open that address in Safari, then add it to the Home Screen. The
-page provides a touch icon and a web app manifest for standalone display.
-The manifest omits a fixed launch URL so the installing address retains
-its authentication fragment. The page keeps `#token` in its address so the Home Screen app can authenticate
-with its own storage.  If an older shortcut opens without a token, delete
-it and add it again from the address copied by `overlook-remote-url`.
+On iOS, open that address in Safari, then add it to the Home Screen.  The
+page keeps `#token` in its address so the Home Screen app can
+authenticate with its own storage.
 
 ### Keeping the agents up to date
 
@@ -420,7 +418,7 @@ it and add it again from the address copied by `overlook-remote-url`.
 | `overlook-persona-start`, `overlook-persona-new` | start a persona, or make one |
 | `overlook-persona-converse-toggle` | hide the conversation shown here, else show the latest one, else start one |
 | `overlook-persona-converse` | start a new conversation with a persona that may run several times; with `C-u`, pick its engine |
-| `overlook-remote-mode`, `overlook-remote-url` | serve the phone page; copy its address |
+| `overlook-remote-bridge-mode`, `overlook-remote-bridge-url`, `overlook-remote-bridge-new-token` | connect to the phone page's daemon; copy its address; replace its token |
 | `overlook-agent-worktree` | pick an agent in agent-shell's picker (`overlook-agent-preferred-names` first, the first preselected) and a branch, and start it in that worktree of the current project, made from the remote's default branch if missing; the branch of the main checkout starts it there instead. agent-shell then offers a past session there, as `agent-shell-session-strategy` says |
 | `(overlook-agent-worktree-command NAME)` | returns a command that does the same for agent NAME, asking only for the branch; bind it to start a given agent this way |
 | `overlook-worktree-create` | make a worktree of this project, branching from a ref (empty: the remote's default branch); with `C-u`, pick the project and which of its repos |
@@ -660,7 +658,7 @@ Any of them may change without notice.
 ## Development
 
 The public entry points remain `overlook`, `overlook-agent` and
-`overlook-remote`.  Their implementation layers are:
+`overlook-remote-bridge`.  Their implementation layers are:
 
 | Layer | Responsibility | Dependencies within overlook |
 |---|---|---|
@@ -676,11 +674,8 @@ The public entry points remain `overlook`, `overlook-agent` and
 | `overlook-usage-subscription` | asynchronous subscription queries, credential reads and backoff | usage |
 | `overlook-agent-resume` | session-bound continuation on quota recovery | agent, usage |
 | `overlook-data` | shared business queries and resource identities | agent core |
-| `overlook-remote-contract` | typed DTOs, request validation, protocol version and problem details | none |
-| `overlook-remote-model` | semantic JSON serialization, subtree hashes and deltas | data, contract |
-| `overlook-remote-activity` | agent snapshots, prompt queues, history, diffs and images | remote model |
-| `overlook-remote-service` | prompt/session/resource commands, confirmations and bounded retry receipts | remote activity |
-| `overlook-remote` | HTTP routes, authentication, streaming and server lifecycle | agent entry point, remote layers |
+| `overlook-remote-bridge-data` | protocol payloads from rows, agents and events | data, row |
+| `overlook-remote-bridge` | daemon connection, publishing, commands and the prompt queue | bridge data, agent session |
 | `overlook-worktree` | Git checkout operations | none |
 | `overlook-courier-worktree` | agent spawning in worktrees | worktree, courier |
 
@@ -696,41 +691,10 @@ rows. Dashboard composition and allowlisted commands still use the shared row
 model; business fields never parse built-in display segments. The browser owns
 fonts, colors, progress bars, task controls and navigation.
 
-The version 2 wire contract is in [remote-api.schema.json](docs/remote-api.schema.json).
-Nullable fields, booleans and arrays have explicit encoders; malformed input is
-rejected before service execution. Errors use `application/problem+json` with a
-stable `code`. HTTP and SSE carry the same `protocolVersion`; expired live
-update cursors receive snapshots. Disconnected clients release their
-subscriptions and timers.
-
-Conversation IDs survive buffer renames for the live buffer lifetime; restored
-conversations receive new IDs. Task IDs survive line moves and distinguish
-identical occurrences; editing task text creates a new identity. Source content
-is revalidated before completion. Queued prompts have individual IDs, including
-identical text. The queue stores these identified entries once; the legacy
-`queued` text array is derived from them. Successful prompt/session/resource actions with `requestId` can
-be replayed within `overlook-remote-receipt-seconds` and
-`overlook-remote-receipt-limit`; receipts are in memory and expire on restart.
-Confirmations bind the action and target state, and are requested again after
-changes. Elapsed durations do not invalidate a confirmation. Session confirmation
-responses supply the complete `confirmations` array for the client to return
-with the new token. Confirmation credentials are excluded from successful
-request replay signatures. Refresh an open remote page when updating this protocol.
-
-Activity items expose optional UTC `createdAt` and `updatedAt` timestamps;
-older items recorded before an update can lack them. Conversations expose
-`unreadCount`, `readThrough` and `latestSeq`. Unread counts include retained
-assistant reply items updated beyond the shared read sequence. `POST /api/seen`
-accepts `through` and `epoch` to acknowledge only received changes, without
-clearing a newer streaming update.
-
-Initial event snapshots contain at most `overlook-remote-page-size` items
-(50 by default) and `history: {hasMore, before}`. `GET /api/history` takes `id`,
-an exclusive `before` item identity, optional `limit` (1–100), and `epoch`;
-it returns chronological `items`, `hasMore`, `before` and `epoch`. Item identities
-order history; change sequences order live updates. Expired history cursors
-return `409 history_expired`. History and read positions remain in memory;
-retention is bounded by `overlook-remote-history` (300 items by default).
+The daemon, its wire contracts and the page live in `remote/`: the
+browser API in [remote/api/openapi.yaml](remote/api/openapi.yaml), the
+Emacs side in [remote/docs/bridge-protocol.md](remote/docs/bridge-protocol.md),
+and the design in [remote/docs/architecture.md](remote/docs/architecture.md).
 
 Rows, model collection and agent state load without Magit or a dashboard
 buffer.  Interactive visit operations delegate to the Emacs view when
@@ -745,16 +709,11 @@ This installs the dependencies into `.elpa/` and runs the tests,
 package-lint and checkdoc.  Without `OVERLOOK_INSTALL_DEPS`, list the
 directories of installed dependencies in `OVERLOOK_LOAD_PATH`.
 
-For the phone UI, with Playwright and Chromium installed:
-
-```sh
-node test/overlook-remote-browser-test.cjs
-```
-
-This uses local assets and a fixture API, checks the iOS layout on phone sizes in light
-and dark mode, and saves screenshots in the temporary directory. Set
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium binary.
-Keyboard and Home Screen behavior still need testing on an actual iPhone.
+`make test` also runs the daemon's Go tests and the page's unit,
+browser and end-to-end tests when `go` and `node` are available; the
+browser tests skip themselves without Playwright (`NODE_PATH` or
+`OVERLOOK_PLAYWRIGHT`).  Keyboard and Home Screen behavior still need
+testing on an actual iPhone.
 
 ## License
 

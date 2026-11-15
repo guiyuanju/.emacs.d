@@ -10,11 +10,11 @@
            (form `(progn
                     (require 'cl-lib)
                     (require 'overlook-agent-core)
-                    (require 'overlook-remote-model)
+                    (require 'overlook-remote-bridge-data)
                     (let* ((overlook-sections (list (lambda () (overlook-row :content "hello"))))
                            (first (overlook-model)))
                       (cl-assert (equal (overlook-row-text (car first)) "hello"))
-                      (cl-assert (equal (plist-get (overlook-remote--row-data (car first)) :title)
+                      (cl-assert (equal (plist-get (overlook-remote-bridge--row-data (car first)) :title)
                                         "hello"))
                       (cl-assert (eq first (overlook-latest-model)))
                       (overlook-refresh)

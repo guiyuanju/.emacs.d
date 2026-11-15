@@ -3,14 +3,14 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'overlook-data)
-(require 'overlook-remote-model)
+(require 'overlook-remote-bridge-data)
 
 (ert-deftest overlook-data-builtins-do-not-read-display-segments ()
   (cl-letf (((symbol-function 'overlook-row-segments)
              (lambda (&rest _) (ert-fail "Business query read display segments"))))
     (dolist (key '((project . "demo") (closed-project "demo")
                    (section "Projects") (project-status "waiting")))
-      (let ((data (overlook-remote--row-data (overlook-row :id key :content "ignored"))))
+      (let ((data (overlook-remote-bridge--row-data (overlook-row :id key :content "ignored"))))
         (should (stringp (plist-get data :title)))
         (should (stringp (plist-get data :resourceId)))))))
 

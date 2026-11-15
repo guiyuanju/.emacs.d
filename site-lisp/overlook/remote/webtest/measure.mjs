@@ -1,8 +1,8 @@
-// Wire bytes of the page, new daemon vs. the old overlook-remote-mode, both driven by the dev Emacs (e2e-emacs.el).
-// node measure.mjs [new|old]...   Prints a Markdown table; needs Playwright, go and emacs.
+// Wire bytes of the page served by the daemon, driven by the dev Emacs (e2e-emacs.el).
+// node measure.mjs [new]...   Prints a Markdown table; needs Playwright, go and emacs.
 import { createRequire } from "node:module";
 import net from "node:net";
-import { setup, until, freePort } from "./e2e.mjs";
+import { setup, until } from "./e2e.mjs";
 
 const require = createRequire(import.meta.url);
 const { launch } = require("./browser.cjs");
@@ -29,19 +29,14 @@ function countingProxy(target) {
 }
 
 async function measure(kind) {
-  const env = await setup({ old: false });
+  const env = await setup();
   const results = [];
   try {
     let port;
-    if (kind === "new") {
-      await env.startDaemon();
-      await env.startEmacs();
-      await until(async () => (await env.health()).emacs === "online", { what: "Emacs online" });
-      port = env.port;
-    } else {
-      do port = await freePort(); while ([8765, 8766, 8767].includes(port));
-      await env.startEmacs({ oldPort: port });
-    }
+    await env.startDaemon();
+    await env.startEmacs();
+    await until(async () => (await env.health()).emacs === "online", { what: "Emacs online" });
+    port = env.port;
     // Fifty items: 25 prompts and replies.
     await env.el(`(dotimes (i 25) (e2e-event "alpha" 'prompt :text (format "Question %d about the remote" (1+ i)))
                    (e2e-event "alpha" 'text :text (format "Answer %d: %s" (1+ i) (make-string 200 ?x))))`);
@@ -106,7 +101,7 @@ async function measure(kind) {
   return results;
 }
 
-const kinds = process.argv.slice(2).length ? process.argv.slice(2) : ["old", "new"];
+const kinds = process.argv.slice(2).length ? process.argv.slice(2) : ["new"];
 const all = {};
 for (const kind of kinds) all[kind] = await measure(kind);
 const kb = (bytes) => (bytes / 1024).toFixed(1);

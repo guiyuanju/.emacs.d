@@ -2,7 +2,7 @@
 
 ## Wire bytes, old server vs. overlook-remoted
 
-`node webtest/measure.mjs old new` (2026-11-14). Both servers are driven by the
+Measured with the old server still in the tree, before it was removed (2026-11-14); `node webtest/measure.mjs` now measures only the daemon. Both servers are driven by the
 same batch Emacs with fake agents (`webtest/e2e-emacs.el`): the old one runs
 `overlook-remote-mode` on a random loopback port, the new one is the daemon
 with `overlook-remote-bridge-mode`. Chromium emulates an iPhone 13 over plain

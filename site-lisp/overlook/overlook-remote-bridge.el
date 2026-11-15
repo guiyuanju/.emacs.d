@@ -983,6 +983,80 @@ Return RUN's outcome, or a confirm outcome with the first such question."
   (overlook-remote-bridge--set-state nil)
   (force-mode-line-update t))
 
+;;; Address and token
+
+(defcustom overlook-remote-bridge-token-file (locate-user-emacs-file "overlook-remote-token")
+  "File holding the token the page must carry; overlook-remoted's -token-file."
+  :type 'file
+  :group 'overlook)
+
+(defcustom overlook-remote-bridge-port 8766
+  "Port overlook-remoted serves the page on, for `overlook-remote-bridge-url'."
+  :type 'natnum
+  :group 'overlook)
+
+(defconst overlook-remote-bridge--tailscale-address
+  "\\`100\\.\\(?:6[4-9]\\|[7-9][0-9]\\|1[01][0-9]\\|12[0-7]\\)\\."
+  "Matches an address in 100.64.0.0/10, the range Tailscale assigns from.")
+
+(defun overlook-remote-bridge--address ()
+  "The IPv4 address a phone should open: Tailscale's, else an en interface's."
+  (let ((addresses
+         (seq-keep (pcase-lambda (`(,interface . ,address))
+                     (let ((ip (format-network-address address t)))
+                       (unless (string-match-p "\\`\\(?:127\\|169\\.254\\)\\." ip)
+                         (cons interface ip))))
+                   (network-interface-list nil 'ipv4))))
+    (cdr (or (seq-find (lambda (entry)
+                         (string-match-p overlook-remote-bridge--tailscale-address (cdr entry)))
+                       addresses)
+             (seq-find (lambda (entry) (string-prefix-p "en" (car entry))) addresses)
+             (car addresses)))))
+
+(defun overlook-remote-bridge--random-hex ()
+  "64 hex digits from the system's random source, or nil where there is none."
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    (let ((coding-system-for-read 'binary))
+      (when (and (file-readable-p "/dev/urandom")
+                 (eql 0 (ignore-errors (call-process "head" "/dev/urandom" t nil "-c" "32")))
+                 (= (buffer-size) 32))
+        (mapconcat (lambda (byte) (format "%02x" byte)) (buffer-string) "")))))
+
+(defun overlook-remote-bridge-new-token ()
+  "Replace the token, so pages holding the old one stop working; return it.
+overlook-remoted rereads the file by itself."
+  (interactive)
+  (random t)
+  (let ((token (or (overlook-remote-bridge--random-hex)
+                   (secure-hash 'sha256 (format "%s %s %s %s" (random) (random)
+                                                (current-time) (emacs-pid))))))
+    (make-directory (file-name-directory (expand-file-name overlook-remote-bridge-token-file)) t)
+    (with-file-modes #o600
+      (with-temp-file overlook-remote-bridge-token-file (insert token "\n")))
+    (when (called-interactively-p 'interactive)
+      (message "New token; open the page again from `overlook-remote-bridge-url'"))
+    token))
+
+(defun overlook-remote-bridge--token ()
+  "The page's token, made on first use."
+  (if (file-exists-p overlook-remote-bridge-token-file)
+      (with-temp-buffer
+        (insert-file-contents overlook-remote-bridge-token-file)
+        (string-trim (buffer-string)))
+    (overlook-remote-bridge-new-token)))
+
+;;;###autoload
+(defun overlook-remote-bridge-url ()
+  "Show the page's address, with its token, and copy it."
+  (interactive)
+  (let ((url (format "http://%s:%d/overlook/#%s"
+                     (or (overlook-remote-bridge--address) "localhost")
+                     overlook-remote-bridge-port (overlook-remote-bridge--token))))
+    (kill-new url)
+    (message "overlook remote, copied: %s" url)
+    url))
+
 ;;;###autoload
 (define-minor-mode overlook-remote-bridge-mode
   "Publish the dashboard and agents to overlook-remoted, and take its commands.
