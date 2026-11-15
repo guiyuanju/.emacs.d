@@ -1258,22 +1258,20 @@
   :custom
   (overlook-courier-gptel-history-directory (expand-file-name "courier-gptel/" iuiw-state-directory)))
 
-;; overlook-remote 的网页服务器；只开 overlook 的页面，不把 httpd-root 下的文件放出去。
-(use-package simple-httpd
-  :defer t
-  :custom (httpd-serve-files nil))
-
-;; 浏览器里看 agent、批准、发 prompt：M-x overlook-remote-mode，地址带 token 复制到剪贴板。
-(use-package overlook-remote
+;; 手机上看 agent、批准、发 prompt：页面由 launchd 托管的 overlook-remoted（Go）提供，Emacs 只经 unix socket 连上它；
+;; M-x overlook-remote-bridge-url 复制带 token 的地址。安装和更新见 site-lisp/overlook/remote/README.md。
+;; 让 Mac 保持唤醒由 daemon 负责（caffeinate），在菜单栏 overlook-menubar 里开关。
+(use-package overlook-remote-bridge
   :ensure nil
   :load-path "site-lisp/overlook"
-  :commands (overlook-remote-mode overlook-remote-url overlook-remote-new-token)
+  :after overlook
+  :demand t
+  :commands (overlook-remote-bridge-url overlook-remote-bridge-new-token)
   :custom
-  (overlook-remote-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory))
-  ;; "127.0.0.1" 只有本机能开；"0.0.0.0" 同一 Wi-Fi 的手机也能开（明文 HTTP，只在信任的网络用）。
-  (overlook-remote-host "0.0.0.0")
-  (overlook-remote-port 8766)
-  (overlook-remote-network-minutes nil))
+  ;; 与 LaunchAgent 的 -token-file 是同一个文件。
+  (overlook-remote-bridge-token-file (expand-file-name "overlook-remote-token" iuiw-state-directory))
+  :config
+  (overlook-remote-bridge-mode 1))
 
 (use-package iuiw-sleep
   :ensure nil
@@ -1281,14 +1279,6 @@
   :config
   (with-eval-after-load 'overlook
     (add-hook 'overlook-mode-line-functions #'iuiw-sleep-mode-line)))
-
-(use-package iuiw-remote
-  :ensure nil
-  :after overlook-remote
-  :demand t
-  :config
-  (add-hook 'overlook-remote-mode-hook #'iuiw-remote-sync-awake)
-  (iuiw-remote-sync-awake))
 
 (use-package iuiw-iphone
   :ensure nil

@@ -3,7 +3,7 @@
 (require 'iuiw-notify)
 (require 'seq)
 
-(defvar overlook-remote-mode)
+(defvar overlook-remote-bridge-mode)
 (defvar overlook-usage--rows)
 (defvar overlook-agent-turn)
 (defvar overlook-agent-status)
@@ -30,7 +30,7 @@
 
 (defun iuiw-notify-overlook--send (title body group)
   "Send TITLE and BODY in GROUP while remote access is on and the screen locked."
-  (when (and (bound-and-true-p overlook-remote-mode)
+  (when (and (bound-and-true-p overlook-remote-bridge-mode)
              (not (iuiw-notify-overlook--unlocked-p)))
     (condition-case err
         (iuiw-notify-send title body :group group)
@@ -40,7 +40,7 @@
   "Observe agent EVENT around ORIGINAL without changing desktop notifications."
   (let ((open (and overlook-agent-turn (null (cdr overlook-agent-turn)))))
     (prog1 (funcall original event)
-      (when (bound-and-true-p overlook-remote-mode)
+      (when (bound-and-true-p overlook-remote-bridge-mode)
         (let ((turn (car overlook-agent-turn)))
           (unless (equal turn iuiw-notify-overlook--turn)
             (setq iuiw-notify-overlook--turn turn
@@ -72,7 +72,7 @@
 
 (defun iuiw-notify-overlook--usage (&rest _)
   "Track exhausted quota windows and notify once when all have reset."
-  (if (not (bound-and-true-p overlook-remote-mode))
+  (if (not (bound-and-true-p overlook-remote-bridge-mode))
       (clrhash iuiw-notify-overlook--quotas)
     (let ((now (float-time)))
       (dolist (row overlook-usage--rows)
@@ -112,7 +112,7 @@
   (advice-add 'overlook-agent-report :around #'iuiw-notify-overlook--agent))
 (with-eval-after-load 'overlook-usage
   (advice-add 'overlook-usage-scan :after #'iuiw-notify-overlook--usage))
-(add-hook 'overlook-remote-mode-hook #'iuiw-notify-overlook--remote-changed)
+(add-hook 'overlook-remote-bridge-mode-hook #'iuiw-notify-overlook--remote-changed)
 
 (provide 'iuiw-notify-overlook)
 ;;; iuiw-notify-overlook.el ends here

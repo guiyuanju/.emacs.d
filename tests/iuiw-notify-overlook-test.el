@@ -5,12 +5,12 @@
 (require 'overlook-agent-core)
 (require 'iuiw-notify-overlook)
 
-(defvar overlook-remote-mode nil)
+(defvar overlook-remote-bridge-mode nil)
 (defvar overlook-usage--rows nil)
 
 (defmacro iuiw-notify-overlook-test--agent (&rest body)
   `(with-temp-buffer
-     (let ((overlook-remote-mode t)
+     (let ((overlook-remote-bridge-mode t)
            (overlook-agent-notify nil)
            (overlook-agent-turn-start-hook nil)
            (overlook-agent-turn-end-hook nil)
@@ -27,16 +27,16 @@
 
 (ert-deftest iuiw-notify-overlook-remote-gates-all-events ()
   (iuiw-notify-overlook-test--agent
-   (setq overlook-remote-mode nil)
+   (setq overlook-remote-bridge-mode nil)
    (overlook-agent-report 'working)
    (overlook-agent-report 'attention)
    (overlook-agent-report 'failed)
    (should-not sent)
-   (setq overlook-remote-mode t)
+   (setq overlook-remote-bridge-mode t)
    (overlook-agent-report 'working)
    (overlook-agent-report 'attention)
    (should (= (length sent) 1))
-   (setq overlook-remote-mode nil)
+   (setq overlook-remote-bridge-mode nil)
    (overlook-agent-report 'failed)
    (should (= (length sent) 1))))
 
@@ -80,7 +80,7 @@
        (should (equal (caar sent) "Agent 需要你处理"))))))
 
 (ert-deftest iuiw-notify-overlook-quota-waits-for-all-windows ()
-  (let ((overlook-remote-mode t)
+  (let ((overlook-remote-bridge-mode t)
         (iuiw-notify-overlook--quotas (make-hash-table :test #'equal))
         (overlook-usage--rows '(("claude" ("5h" 100 1100) ("week" 100 1200))))
         (now 1000) sent)
@@ -102,7 +102,7 @@
       (should (= (length sent) 2)))))
 
 (ert-deftest iuiw-notify-overlook-quota-skips-old-unknown-and-disabled ()
-  (let ((overlook-remote-mode t)
+  (let ((overlook-remote-bridge-mode t)
         (iuiw-notify-overlook--quotas (make-hash-table :test #'equal))
         (overlook-usage--rows '(("old" ("5h" 100 900))
                                 ("unknown" ("5h" 100 nil))
@@ -113,10 +113,10 @@
               ((symbol-function 'iuiw-notify-send) (lambda (&rest args) (push args sent))))
       (iuiw-notify-overlook--usage)
       (should (= (hash-table-count iuiw-notify-overlook--quotas) 1))
-      (setq overlook-remote-mode nil now 1300)
+      (setq overlook-remote-bridge-mode nil now 1300)
       (iuiw-notify-overlook--remote-changed)
       (iuiw-notify-overlook--usage)
-      (setq overlook-remote-mode t)
+      (setq overlook-remote-bridge-mode t)
       (iuiw-notify-overlook--usage)
       (should-not sent))))
 
