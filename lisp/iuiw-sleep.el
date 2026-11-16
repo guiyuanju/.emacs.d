@@ -7,7 +7,6 @@
 
 (require 'system-sleep)
 (require 'subr-x)
-(require 'nerd-icons)
 
 (declare-function overlook-mode-line-icon "overlook-row" (name fallback &optional face))
 
