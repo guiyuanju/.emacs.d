@@ -46,10 +46,12 @@
 (keymap-global-set "s-k" (lambda () (interactive) (other-window -1)))
 (fringe-mode 0)
 
-;; A minimal mode line: modified flag, buffer, line, branch, and major mode.
+;; A minimal mode line: modified flag, buffer, position, branch, and major mode.
 ;; No mule/remote/frame info, minor-mode lighters, or misc info.  Evil inserts
 ;; its state tag after `mode-line-position'.
-(setq mode-line-percent-position nil)
+(setq mode-line-percent-position
+      '(:eval (format "%3d%%%%" (/ (* 100 (- (point) (point-min)))
+                                 (max 1 (- (point-max) (point-min)))))))
 (setq-default mode-line-format
               '("%e"
                 mode-line-front-space
