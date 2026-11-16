@@ -214,6 +214,21 @@
            (or "/" eos))
       . browse-url-default-browser))))
 
+(use-package shr
+  :ensure nil
+  :custom
+  (shr-max-width 90)
+  (shr-indentation 2)
+  (shr-use-colors nil)
+  (shr-image-animate t))
+
+(use-package iuiw-shr
+  :ensure nil
+  :after shr
+  :demand t
+  :config
+  (advice-add 'shr-rescale-image :filter-args #'iuiw-shr-fit-image-to-text))
+
 (use-package xwwp
   :after xwidget
   :config
