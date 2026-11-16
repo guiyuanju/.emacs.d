@@ -219,7 +219,9 @@
   (shr-max-width 90)
   (shr-indentation 2)
   (shr-use-colors nil)
-  (shr-image-animate t))
+  (shr-image-animate t)
+  ;; 切成行高的条，滚动逐行经过图片，不整张跳过。
+  (shr-sliced-image-height 0.2))
 
 (use-package iuiw-shr
   :ensure nil
