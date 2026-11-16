@@ -42,7 +42,8 @@
                    (user-error "This project.md lists no jira tickets"))))
      (list (if (cdr keys) (completing-read "Ticket: " keys nil t) (car keys)))))
   (unless iuiw-jira-site (user-error "Set `iuiw-jira-site' first"))
-  (browse-url (concat (string-remove-suffix "/" iuiw-jira-site) "/browse/" key)))
+  (browse-url-default-browser
+   (concat (string-remove-suffix "/" iuiw-jira-site) "/browse/" key)))
 
 (defun iuiw-jira--write-keys (file keys)
   "Save KEYS as the jira: field of card FILE, leaving the rest untouched."

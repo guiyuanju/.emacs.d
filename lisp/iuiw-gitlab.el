@@ -32,11 +32,11 @@ new merge request page."
                  (car mrs))))
     (cond
      (mr
-      (browse-url (alist-get 'web_url mr))
+      (browse-url-default-browser (alist-get 'web_url mr))
       (message "!%s [%s] %s" (alist-get 'iid mr) (alist-get 'state mr)
                (alist-get 'title mr)))
      ((y-or-n-p (format "No merge request for %s; create one? " branch))
-      (browse-url
+      (browse-url-default-browser
        (format "%s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s"
                (alist-get 'web_url (iuiw-gitlab--json "repo" "view"
                                                            "-F" "json"))

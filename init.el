@@ -203,8 +203,16 @@
 (use-package browse-url
   :ensure nil
   :custom
-  (browse-url-browser-function #'browse-url-default-browser)
-  (browse-url-secondary-browser-function #'xwidget-webkit-browse-url))
+  (browse-url-browser-function #'eww-browse-url)
+  (browse-url-secondary-browser-function #'browse-url-default-browser)
+  ;; eww 跑不了 JS，视频站和 JS 渲染的社交站直接交给系统浏览器。
+  (browse-url-handlers
+   `((,(rx "://" (? (+ (any "a-z0-9-")) ".")
+           (or "youtube.com" "youtu.be" "vimeo.com" "twitch.tv"
+               "bilibili.com" "x.com" "twitter.com" "instagram.com"
+               "facebook.com" "reddit.com")
+           (or "/" eos))
+      . browse-url-default-browser))))
 
 (use-package xwwp
   :after xwidget
@@ -633,6 +641,7 @@
     "nt" '(denote-rename-file-keywords :which-key "tags")
 
     "o"  '(:ignore t :which-key "open")
+    "ob" '(eww :which-key "browser (eww)")
     "od" '(overlook :which-key "agent dashboard")
     "oe" '(iuiw-eshell-toggle :which-key "Eshell")
     "og" '(iuiw-playground :which-key "playground")
