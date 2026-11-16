@@ -163,7 +163,7 @@ The account of `overlook-usage-file' is nil.")
 (defun overlook-usage-open-claude ()
   "Open Claude's plan usage page in a browser."
   (interactive)
-  (browse-url overlook-usage-claude-url))
+  (browse-url-default-browser overlook-usage-claude-url))
 
 (defun overlook-usage--claude-file (account)
   "File keeping the Claude usage of ACCOUNT, nil for `overlook-usage-file'."
@@ -232,7 +232,7 @@ row stays visible while Claude Code reconnects instead of dropping out."
 (defun overlook-usage-open-codex ()
   "Open Codex's plan usage page in a browser."
   (interactive)
-  (browse-url overlook-usage-codex-url))
+  (browse-url-default-browser overlook-usage-codex-url))
 
 (defun overlook-usage--codex-logs ()
   "Codex session logs, newest first.

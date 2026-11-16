@@ -59,7 +59,7 @@
 (defun overlook-usage-deepseek-open-usage ()
   "Open DeepSeek's usage page in a browser."
   (interactive)
-  (browse-url overlook-usage-deepseek-usage-url))
+  (browse-url-default-browser overlook-usage-deepseek-usage-url))
 
 (defun overlook-usage-deepseek--key ()
   "The DeepSeek API key, or nil."

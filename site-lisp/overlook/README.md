@@ -231,7 +231,7 @@ repo; use the repo rows on the dashboard instead.
 (require 'overlook-usage-antigravity)           ; Antigravity's weekly Gemini limit (macOS)
 ```
 
-`RET` on a usage row opens the provider's usage page.
+`RET` on a usage row opens the provider's usage page in the system browser.
 
 ### Continue after a quota reset
 
