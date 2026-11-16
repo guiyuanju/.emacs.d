@@ -5,13 +5,18 @@
 ;; 中文译文（双语对照），翻译中再按停止，译完再按收起。C-u 先选后端并忽略缓存重来。
 ;; 后端和 prompt 用 iuiw-elfeed-ai 的；网址是 elfeed 条目时总结存进条目（随 elfeed
 ;; 同步），其余总结和所有译文缓存在 `iuiw-webkit-ai-cache-directory'，过期删除。
+;; 总结和翻译的流程不碰页面，由调用方传入显示函数，eww 版见 iuiw-eww-ai。
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)
 (require 'json)
-(require 'xwidget)
+
+(declare-function xwidget-webkit-current-session "xwidget")
+(declare-function xwidget-webkit-uri "xwidget")
+(declare-function xwidget-webkit-execute-script "xwidget")
+(declare-function xwidget-live-p "xwidget")
 (require 'iuiw-elfeed-ai)
 
 (defgroup iuiw-webkit-ai nil
@@ -154,10 +159,13 @@ if(o&&!force){o.remove();return '';}return document.documentElement.outerHTML;})
                 (if pick "true" "false"))
      (lambda (html)
        (unless (string-empty-p (or html ""))
-         (iuiw-webkit-ai--summarize xw url backend html pick))))))
+         (iuiw-webkit-ai--summarize
+          url backend html pick
+          (lambda (head body) (iuiw-webkit-ai--show-summary xw url head body))))))))
 
-(defun iuiw-webkit-ai--summarize (xw url backend html fresh)
-  "Summarize HTML of URL in XW with BACKEND, reusing a stored summary unless FRESH."
+(defun iuiw-webkit-ai--summarize (url backend html fresh show)
+  "Summarize HTML of URL with BACKEND, reusing a stored summary unless FRESH.
+SHOW is called with a heading and a body each time the summary changes."
   (let* ((key (iuiw-webkit-ai--key url))
          (entry (iuiw-webkit-ai--elfeed-entry url))
          (stored (and (not fresh)
@@ -165,27 +173,24 @@ if(o&&!force){o.remove();return '';}return document.documentElement.outerHTML;})
                           (elfeed-meta entry :iuiw-ai-summary)
                         (plist-get (iuiw-webkit-ai--cache key) :summary)))))
     (if stored
-        (iuiw-webkit-ai--show-summary
-         xw url (format "AI 总结（%s）" (car stored)) (cdr stored))
+        (funcall show (format "AI 总结（%s）" (car stored)) (cdr stored))
       (let ((text (iuiw-elfeed-ai--html-text html t)))
         (if (string-empty-p text)
             (message "这页没有可总结的文字")
-          (iuiw-webkit-ai--show-summary xw url (format "AI 总结（%s）" backend) "生成中…")
+          (funcall show (format "AI 总结（%s）" backend) "生成中…")
           (iuiw-elfeed-ai--request
            backend nil
            (format "%s\n\n%s" iuiw-elfeed-ai--entry-prompt
                    (truncate-string-to-width text iuiw-elfeed-ai-max-chars))
            (lambda (summary error)
              (if (not summary)
-		 (iuiw-webkit-ai--show-summary
-                  xw url (format "AI 总结（%s）" backend) (format "失败：%s" error))
+                 (funcall show (format "AI 总结（%s）" backend) (format "失败：%s" error))
                (let ((value (cons backend summary)))
 		 (if entry
                      (iuiw-elfeed-ai--set-status entry nil value)
                    (plist-put (iuiw-webkit-ai--cache key) :summary value)
                    (iuiw-webkit-ai--save key)))
-               (iuiw-webkit-ai--show-summary
-		xw url (format "AI 总结（%s）" backend) summary)))))))))
+               (funcall show (format "AI 总结（%s）" backend) summary)))))))))
 
 ;;; Translation
 
@@ -242,7 +247,9 @@ backend and translate again without the cache."
                    ((null texts) (message "这页没有要翻译的段落"))
                    ((buffer-live-p buf)
                     (with-current-buffer buf
-                      (iuiw-webkit-ai--translate xw url backend texts pick)))))))))))
+                      (iuiw-webkit-ai--translate
+                       url backend texts pick
+                       (lambda (pairs) (iuiw-webkit-ai--insert xw pairs)))))))))))))
 
 (defun iuiw-webkit-ai--batches (items)
   "Split ITEMS, a list of (INDEX . TEXT), into batches under the size limit."
@@ -264,8 +271,10 @@ backend and translate again without the cache."
         (puthash (number-to-string index) target map))
       (iuiw-webkit-ai--js xw (format iuiw-webkit-ai--insert-js (json-encode map))))))
 
-(defun iuiw-webkit-ai--translate (xw url backend texts fresh)
-  "Translate TEXTS of URL in XW with BACKEND, using the cache unless FRESH."
+(defun iuiw-webkit-ai--translate (url backend texts fresh insert)
+  "Translate TEXTS of URL with BACKEND, using the cache unless FRESH.
+INSERT is called with (INDEX . TRANSLATION) pairs as they arrive, INDEX
+counting from 0 in TEXTS."
   (let* ((key (iuiw-webkit-ai--key url))
          (table (plist-get (iuiw-webkit-ai--cache key) :translations))
          (stopped (list nil))
@@ -280,7 +289,7 @@ backend and translate again without the cache."
               (t (puthash text (list index) same)
                  (push (cons index text) todo))))
       (cl-incf index))
-    (iuiw-webkit-ai--insert xw cached)
+    (when cached (funcall insert cached))
     (if (null todo)
         (message "译文来自缓存")
       (let* ((queue (iuiw-webkit-ai--batches (nreverse todo)))
@@ -318,7 +327,7 @@ backend and translate again without the cache."
                               (dolist (j (gethash source same))
                                 (push (cons j target) pairs))))
                           (iuiw-webkit-ai--save key)
-                          (iuiw-webkit-ai--insert xw pairs)))
+                          (when pairs (funcall insert pairs))))
                       (if (= done total)
                           (finish)
                         (message "翻译中（%s）%d/%d" backend done total)

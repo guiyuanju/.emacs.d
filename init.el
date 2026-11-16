@@ -229,6 +229,16 @@
   :config
   (advice-add 'shr-rescale-image :filter-args #'iuiw-shr-fit-image-to-text))
 
+(use-package iuiw-eww-ai
+  :ensure nil
+  :after eww
+  :demand t
+  :config
+  (add-hook 'eww-after-render-hook #'iuiw-eww-ai-reset)
+  (evil-define-key* 'normal eww-mode-map
+    "a" #'iuiw-eww-ai-summarize
+    "t" #'iuiw-eww-ai-translate))
+
 (use-package xwwp
   :after xwidget
   :config
