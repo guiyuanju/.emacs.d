@@ -1,6 +1,6 @@
 // The conversation page: header, activity feed, history paging, live answers and the read position.
 import { api } from "js/api.js";
-import { state, holdConversation, remember, draft } from "js/state.js";
+import { state, holdConversation, remember, draft, on } from "js/state.js";
 import { $, el, toast, viewState, actionSheet, imageStrip, messageTime, personaProfile, preloader, confirmAction } from "js/ui.js";
 import { markdownHtml, enhanceCodeBlocks, foldContent, diffPre } from "js/markdown.js";
 import { connected, connectionFailure, setEmacs } from "js/shell.js";
@@ -17,6 +17,47 @@ let view = null;
 const itemViews = new Map();
 
 export const shownConversation = () => view && state.conversations.get(view.id);
+
+on("sent", (id) => {
+  if (view?.id !== id) return;
+  renderEchoes(state.conversations.get(id));
+  scrollToBottom();
+});
+
+function renderEchoes(held) {
+  if (!held) return;
+  const current = draft(held.id);
+  if (current.echoEpoch && current.echoEpoch !== held.epoch) {
+    current.echoes = [];
+    current.echoThrough = 0;
+  }
+  current.echoEpoch = held.epoch;
+  const prompts = sortedItems(held).filter((item) => item.type === "prompt");
+  current.echoes = current.echoes.filter((echo) => {
+    const index = prompts.findIndex((item) => item.seq > Math.max(echo.after, current.echoThrough || 0) && item.text === echo.text);
+    if (index < 0) return true;
+    current.echoThrough = prompts[index].seq;
+    prompts.splice(index, 1);
+    return false;
+  });
+  $("d-feed").querySelectorAll(":scope > .local-echo").forEach((node) => node.remove());
+  for (const echo of current.echoes) {
+    const node = el("div", "item prompt local-echo", echo.text);
+    if (echo.status === "sending" || echo.status === "failed") {
+      const status = el("span", "delivery-status");
+      status.setAttribute("role", "status");
+      if (echo.status === "sending") status.append(preloader(), "Sending…");
+      else {
+        status.classList.add("delivery-failed");
+        status.textContent = "Send failed · " + echo.error;
+      }
+      node.append(status);
+    }
+    messageTime(node, echo.at);
+    $("d-feed").append(node);
+  }
+  if (current.echoes.length) $("d-feed").querySelector(":scope > .view-state")?.remove();
+}
 
 export function showConversation(id, liveStream) {
   stream = liveStream;
@@ -105,6 +146,7 @@ function present(held, { first }) {
   renderHeader(held.conversation);
   renderItems(held, sortedItems(held));
   renderEarlier(held);
+  renderEchoes(held);
   renderHistoryControls();
   const position = state.conversationScroll.get(held.id);
   if (first && position && !position.pinned) {
@@ -120,6 +162,7 @@ function update(held, touched) {
   renderHeader(held.conversation);
   renderItems(held, touched.map((id) => held.items.get(id)));
   renderEarlier(held);
+  renderEchoes(held);
   if (bottom && touched.length) scrollToBottom();
   else $("detail").scrollTop = top;
   markSeen();

@@ -50,6 +50,68 @@ async function showTab(page, name) {
 const textEvent = (conversation, text, type = "text", extra = {}) => ({ method: "agent.event",
   params: { conversation, at: new Date().toISOString(), type, text, ...extra } });
 
+test("sending echoes show progress, failure and retry without duplicates", async (t) => {
+  const { page, settled, problems } = await open(t, { route: "?conversation=" + ALPHA });
+  await settled();
+  await page.locator("#d-feed .item").first().waitFor();
+  let respond;
+  let requestReady;
+  let requested = new Promise((resolve) => { requestReady = resolve; });
+  await page.route("**/prompts", (route) => new Promise((resolve) => {
+    respond = async (status, body) => {
+      await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      resolve();
+    };
+    requestReady();
+  }));
+  await page.locator("#text").fill("Echo while the request is still pending");
+  await page.locator("#send").click();
+  const echo = page.locator("#d-feed .local-echo");
+  await echo.locator(".delivery-status .preloader").waitFor();
+  await echo.getByText("Sending…", { exact: true }).waitFor();
+  await requested;
+  await respond(503, { detail: "Connection unavailable" });
+  await echo.getByText("Send failed · Connection unavailable", { exact: true }).waitFor();
+  assert.equal(await echo.locator(".preloader").count(), 0);
+  requested = new Promise((resolve) => { requestReady = resolve; });
+  await page.getByRole("button", { name: "Retry send", exact: true }).click();
+  await echo.locator(".preloader").waitFor();
+  assert.equal(await echo.count(), 1);
+  await requested;
+  await respond(200, { delivery: "sent" });
+  await echo.locator(".delivery-status").waitFor({ state: "detached" });
+  assert.equal(await echo.count(), 1);
+  assert.deepEqual(problems, []);
+});
+
+test("sent messages appear before stream events and merge with their prompt", async (t) => {
+  const { page, ctl, settled, problems } = await open(t, { route: "?conversation=" + ALPHA });
+  await settled();
+  await page.locator("#d-feed .item").first().waitFor();
+  await page.route("**/prompts", (route) => route.fulfill({
+    status: 200, contentType: "application/json", headers: { "X-Overlook-Protocol": "1" },
+    body: JSON.stringify({ delivery: "sent" }),
+  }));
+  const text = "Show this before the agent replies";
+  await page.locator("#text").fill(text);
+  await page.locator("#send").click();
+  await page.locator("#d-feed .local-echo").filter({ hasText: text }).waitFor();
+  await page.waitForFunction(() => document.getElementById("text").value === "");
+  assert.equal(await page.locator("#text").inputValue(), "");
+  await page.locator("#text").fill(text);
+  await page.locator("#send").click();
+  await page.waitForFunction(() => document.querySelectorAll("#d-feed .local-echo").length === 2);
+  await ctl("message", textEvent(ALPHA, text, "prompt"));
+  await page.waitForFunction(() => document.querySelectorAll("#d-feed .local-echo").length === 1);
+  await ctl("message", textEvent(ALPHA, "Still working"));
+  await page.locator("#d-feed .markdown").filter({ hasText: "Still working" }).waitFor();
+  assert.equal(await page.locator("#d-feed .local-echo").count(), 1);
+  await ctl("message", textEvent(ALPHA, text, "prompt"));
+  await page.locator("#d-feed .local-echo").waitFor({ state: "detached" });
+  assert.equal(await page.locator("#d-feed > .prompt").filter({ hasText: text }).count(), 2);
+  assert.deepEqual(problems, []);
+});
+
 for (const [device, theme] of [["iPhone 13", "light"], ["iPhone 13", "dark"], ["iPhone SE", "light"], ["Pixel 5", "dark"]]) {
   test(`dashboard layout on ${device} ${theme}`, async (t) => {
     const { page, problems, shot, device: spec } = await open(t, { device, theme });

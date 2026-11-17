@@ -62,6 +62,10 @@ The composer disables empty sends. Busy sessions explain queueing and expose
 Stop and Adjust now when the backend supports those controls. Failed sends keep
 the draft and offer an inline retry using the same request identity. Concurrent
 typing and drafts for other conversations are preserved.
+Messages appear locally as soon as Send is pressed, with a spinner while sending
+and an inline failure status if the request fails. Retries reuse the same echo;
+matching prompt items after the send's cursor replace these echoes one at a time.
+Confirmed queued sends move from the local echo into the queue.
 
 Queued prompts can be removed or moved back to the draft. Editing first waits
 for a successful server withdrawal, then appends the text to any existing draft.

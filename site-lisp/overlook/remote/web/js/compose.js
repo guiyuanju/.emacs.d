@@ -1,6 +1,6 @@
 // The composer: per-conversation drafts, sending and queueing, steering, session actions and image uploads.
 import { api } from "js/api.js";
-import { state, draft } from "js/state.js";
+import { state, draft, emit } from "js/state.js";
 import { $, el, toast, confirmAction, actionFailure, zoomable } from "js/ui.js";
 import { navigate, openConversation, currentRoute } from "js/router.js";
 import { slashMatches, slashText, appendDraft, randomKey, actionLabels } from "js/model.js";
@@ -133,19 +133,34 @@ export async function send() {
   const text = current.text.trim();
   if (!text || composing || current.pending || current.uploading || current.previews.some((preview) => preview.uploadError)) return;
   const revision = current.revision;
+  const after = state.conversations.get(id)?.seq || 0;
+  const key = attemptKey(current, "send", text);
+  let echo = current.echoes.find((item) => item.key === key);
+  if (!echo) {
+    echo = { key, text, after, at: new Date().toISOString() };
+    current.echoes.push(echo);
+  }
+  echo.status = "sending";
+  echo.error = "";
   current.pending = true;
   current.sendError = "";
   syncCompose();
+  emit("sent", id);
   try {
-    const result = await api.prompt(id, text, attemptKey(current, "send", text));
+    const result = await api.prompt(id, text, key);
+    echo.status = "sent";
+    if (result?.delivery === "queued") current.echoes = current.echoes.filter((item) => item !== echo);
     if (composeId === id) saveCompose();
     current.sendError = "";
     acknowledge(id, current, revision, text);
     toast(result?.delivery === "queued" ? "Message queued" : "Sent");
   } catch (error) {
+    echo.status = "failed";
+    echo.error = error.message;
     current.sendError = error.message;
   } finally {
     current.pending = false;
+    emit("sent", id);
     if (composeId === id) syncCompose();
   }
 }

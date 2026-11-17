@@ -58,7 +58,7 @@ export function holdConversation(held) {
 export function draft(id) {
   if (!state.drafts.has(id)) {
     state.drafts.set(id, { text: "", revision: 0, previews: [], uploading: 0, pending: false,
-      attempts: new Map(), pendingAttachments: [], sendError: "" });
+      attempts: new Map(), pendingAttachments: [], sendError: "", echoes: [] });
   }
   return state.drafts.get(id);
 }
