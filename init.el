@@ -1493,8 +1493,7 @@
   :after iuiw-sync
   :demand t
   :custom
-  (iuiw-daily-schedule '((elfeed-digest :hour 8)
-                         (work-report :hour 19 :days (1 2 3 4 5) :hosts ("okj-dev-guiyuan"))))
+  (iuiw-daily-schedule '((elfeed-digest :hour 8)))
   :config
   (iuiw-daily-mode 1))
 
