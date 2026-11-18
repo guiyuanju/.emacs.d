@@ -22,6 +22,7 @@ import (
 	"github.com/guiyuanju/overlook/remote/internal/bridge"
 	"github.com/guiyuanju/overlook/remote/internal/store"
 	"github.com/guiyuanju/overlook/remote/internal/stream"
+	"github.com/guiyuanju/overlook/remote/internal/usage"
 )
 
 // Request limits.
@@ -34,6 +35,7 @@ const (
 
 // Deps are what the API needs; main wires them.
 type Deps struct {
+	Usage     *usage.Ledger
 	Store     *store.Store
 	Emacs     Emacs
 	Hub       *stream.Hub
@@ -78,6 +80,7 @@ var (
 func (s *Server) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /overlook/api/dashboard", s.dashboard)
+	api.HandleFunc("GET /overlook/api/usage", s.usage)
 	api.HandleFunc("GET /overlook/api/stream", s.stream)
 	api.HandleFunc("GET /overlook/api/conversations", s.conversations)
 	api.HandleFunc("GET /overlook/api/conversations/{conversation}", s.conversation)

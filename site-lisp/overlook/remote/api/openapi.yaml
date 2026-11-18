@@ -70,6 +70,44 @@ paths:
         '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /usage:
+    get:
+      tags: [dashboard]
+      operationId: getUsage
+      summary: Local CLI consumption analytics
+      description: |
+        Reads a consistent SQLite snapshot with indexed date/provider/project
+        filters. Independent of Emacs connection and chat retention. Uses local CLI log
+        timestamps and calendar days in the daemon time zone unless overridden.
+        Includes today in daily/rank totals; heatmap uses completed days only.
+        Missing records do not establish zero usage. Returns Cache-Control:
+        no-store, without an ETag. Disabled collectors return ready=false and a
+        warning. Filesystem roots, log content and credentials are not returned.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        - name: timezone
+          in: query
+          schema: { type: string }
+          description: IANA time zone; defaults to the Mac's time zone.
+        - name: provider
+          in: query
+          schema: { type: string }
+        - name: project
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Aggregated consumption and source coverage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsageReport' }
+        '400': { description: Invalid days or timezone query., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500':
+          description: Consumption database query failed; the client may retry.
+
   /stream:
     get:
       tags: [stream]
@@ -658,6 +696,52 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    UsageTokens:
+      type: object
+      description: Disjoint components; reasoning is included in output.
+      properties:
+        input: { type: integer, minimum: 0 }
+        cacheRead: { type: integer, minimum: 0 }
+        cacheWrite: { type: integer, minimum: 0 }
+        output: { type: integer, minimum: 0 }
+    UsageBucket:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        tokens: { $ref: '#/components/schemas/UsageTokens' }
+        sessions: { type: integer }
+        events: { type: integer }
+    UsageReport:
+      type: object
+      properties:
+        ready: { type: boolean }
+        updated: { type: string, format: date-time }
+        first: { type: [string, 'null'], format: date-time }
+        days: { type: integer }
+        timezone: { type: string }
+        sources: { type: array, items: { type: string } }
+        scanErrors: { type: integer }
+        warning: { type: string }
+        total: { $ref: '#/components/schemas/UsageBucket' }
+        previous: { $ref: '#/components/schemas/UsageTokens' }
+        daily: { type: array, items: { $ref: '#/components/schemas/UsageBucket' } }
+        providers: { type: array, items: { $ref: '#/components/schemas/UsageBucket' } }
+        projects: { type: array, items: { $ref: '#/components/schemas/UsageBucket' } }
+        sessions: { type: array, items: { $ref: '#/components/schemas/UsageBucket' } }
+        providerOptions: { type: array, items: { type: string } }
+        projectOptions: { type: array, items: { type: string } }
+        heat:
+          type: array
+          items:
+            type: object
+            properties:
+              weekday: { type: integer, minimum: 0, maximum: 6, description: Monday is 0. }
+              hour: { type: integer, minimum: 0, maximum: 22 }
+              tokens: { $ref: '#/components/schemas/UsageTokens' }
+              days: { type: integer, description: Completed calendar-day occurrences since the first matching record. }
+              activeDays: { type: integer, description: Occurrences containing a consumption record. }
+
     Problem:
       type: object
       description: RFC 9457 problem details.

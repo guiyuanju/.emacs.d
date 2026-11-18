@@ -33,6 +33,7 @@ Emacs: overlook-remote-bridge.el (client; reconnects with backoff)
 | `internal/api` | REST handlers, validation, problem+json, idempotency receipts, confirmation tokens, ETags, compression |
 | `internal/stream` | SSE subscriptions, 200 ms coalescing, gzip-per-event, heartbeats |
 | `internal/assets` | page from the embedded FS or `-web-dir`: hashing, precompression and its disk cache, import map, CSP, cache headers, reload on change |
+| `internal/usage` | local CLI consumption import, transactional SQLite ledger, indexed aggregation and bounded report cache |
 | `internal/state` | the state file: format version, atomic 0600 writes, loading |
 | `internal/launchd` | listening sockets launchd holds for the job (`-listen launchd:<name>`) |
 | `internal/admin` | admin socket: line-delimited JSON `status`, `watch`, `set-awake`; server and client |
@@ -63,6 +64,8 @@ bridge` (calls), `assets → web`. `bridge` imports nothing internal.
 | Unified diffs of tool calls | daemon (computed from `diffs`) | with the item |
 | Unified diffs of dashboard nodes | Emacs computes on request (`git diff`) | per request |
 | Keep-awake setting | daemon (`-settings-file`) | across restarts |
+| Consumption events and source cursors | daemon (`usage.sqlite`, WAL) | independent of Emacs epochs and chat retention |
+| Consumption report cache (up to 8 reports) | daemon (memory only) | current minute, invalidated on changed event values; scan metadata attached separately |
 | Drafts, disclosure, scroll positions | page (memory only) | page lifetime |
 
 "State file" means the daemon keeps it in memory and writes it to `-state-file`
@@ -348,6 +351,32 @@ the page needs no deploy: the next page load picks up edited files.
     any path the token holder names (the mention check keeps a leaked token
     from reading the disk directly); copying files into the media store like
     images (no size bound fits arbitrary files).
+
+30. **Consumption has its own SQLite ledger (2026-11-18).** The growing event
+    history needs incremental durable writes and date/provider/project queries,
+    unlike the bounded conversation snapshot in decision 21. A pure-Go driver
+    keeps CGO_ENABLED=0 builds. Each source-file transaction commits consumption
+    and its cursor together. WAL separates readers from ingestion; read
+    transactions keep reports consistent. SQL aggregates time slots and session
+    groups using a deterministic IANA-zone function before Go combines the
+    result for presentation. Eight reports can be cached within the minute;
+    commits and completed scans invalidate them. The old usage.json migrates
+    once in a transaction and remains an unchanged, stale backup. *Rejected:*
+    continued full JSON rewrites; loading the whole event history into a map;
+    returning every matching event to Go for aggregation (more row conversion
+    overhead than grouping in SQL); a cgo SQLite dependency.
+
+31. **Consumption import and reports have separate stages (2026-11-18).**
+    Source identity and boundary fingerprints guard cursor reuse; a file-size
+    snapshot keeps concurrent appends for the next scan. Parsing, project
+    resolution, durable batches, SQL aggregates and report composition are
+    separate. A scan-local root cache avoids repeated project lookup without
+    freezing future project changes. Numeric report caches survive cursor-only
+    commits and scans; current scan metadata is attached on return. Concurrent
+    identical requests share a query, canceled only after all waiters leave.
+    This supersedes decision 30's scan-wide cache invalidation. *Rejected:*
+    clearing numeric results for status-only updates; letting the first HTTP
+    caller's cancellation abort other readers' shared query.
 
 ## Deployment
 

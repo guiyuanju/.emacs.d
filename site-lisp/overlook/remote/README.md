@@ -208,6 +208,7 @@ and the page's unit, browser and end-to-end tests when `go`/`node` exist; `make 
 | `deploy/deploy_test.sh` | `deploy.sh` with a throwaway prefix and a fake `launchctl`: dry run, deploy, rollback, failing tests, and the menu bar app's swap, skip when unchanged and rollback |
 | `webtest/unit.test.mjs` | page modules under Node |
 | `webtest/browser.test.mjs` | the page in emulated phones against a Node fake daemon |
+| `webtest/usage.test.mjs` | consumption charts, shared filters, metric switching and retained results on query failure in light/dark phone layouts |
 | `webtest/daemon.test.mjs` | the page against the real daemon with `-fake-emacs`, across a daemon restart |
 | `webtest/e2e-emacs.test.mjs` | the page against the real daemon and a batch Emacs running the bridge with fake agents (`webtest/e2e-emacs.el`) |
 
@@ -215,3 +216,69 @@ and the page's unit, browser and end-to-end tests when `go`/`node` exist; `make 
 `docs/measurements.md`; `node webtest/bridge-cost.mjs [projects agents]` times
 the bridge inside Emacs. Both start their own daemon and batch Emacs on random
 ports and clean up after themselves; `OVERLOOK_E2E_VERBOSE=1` shows their logs.
+
+## Consumption analytics
+
+Usage includes daily token trends, weekday/time-slot averages and provider,
+project and session rankings. The daemon imports Claude CLI logs from
+`${CLAUDE_CONFIG_DIR:-~/.claude}/projects` and Codex logs from
+`${CODEX_HOME:-~/.codex}/{sessions,archived_sessions}` on startup, then checks for
+appends every minute. It works without Emacs or an open browser. Other providers,
+other machines and deleted history that was never imported are not included.
+
+Only numeric usage and attribution metadata are stored in `usage.sqlite` beside
+`-state-file`, independently of chat retention and Emacs epochs. The pure-Go
+SQLite driver preserves the daemon's CGO_ENABLED=0 build. The database and WAL
+sidecars have owner-only permissions; prompts, replies and credentials are not
+copied. Collection is disabled with an empty `-state-file` and in `-fake-emacs`
+mode. Database failures disable analytics and preserve the original files; the
+rest of remote remains available.
+
+On first open, the old `usage.json` is migrated in one transaction, including
+all consumption events and file cursors. A committed marker prevents subsequent
+imports. The JSON file is left unchanged as a migration backup; it stops updating
+after migration. Do not use this stale JSON backup to restore current SQLite
+history. Migration errors roll back and can be retried without a partial import.
+
+Each changed source file commits its new/updated consumption and its cursor in
+one transaction. Event IDs are unique; duplicate streaming snapshots only raise
+token component counts. File identity, shrinking size and fingerprints at the
+prefix/read boundary trigger replay when a source is replaced or rewritten. Reads use the initial
+file-size snapshot; a detected rewrite during import aborts the transaction for
+retry. Existing cursors acquire identity/fingerprints without losing progress.
+Project resolution is shared by working directory within one scan, then refreshed
+on the next scan. Unchanged scans perform no database writes. WAL mode
+allows readers to keep their committed snapshot during ingestion, and FULL
+synchronous commits preserve both consumption and cursor on durable storage.
+Use SQLite's backup API or `.backup` to copy a running database; copying the main
+file alone may omit committed WAL contents.
+
+Queries select only the requested and previous date ranges, using indexes on
+time, provider/time, project/time and provider/project/time. First-record and
+filter-option queries also use indexed columns. A read transaction provides one
+snapshot across the report. SQLite groups token sums and event counts by time
+slot, provider, project and session before returning rows. A deterministic Go scalar function assigns IANA
+time zones and DST-aware slots. Go combines those aggregates for presentation;
+no full history map is loaded into memory. Up to eight reports are cached within
+the current minute and invalidated only when committed event values change.
+Cursor-only commits and completed scans preserve numeric results; scan status is
+attached at response time. Identical concurrent queries share one execution.
+Each HTTP request cancels its own wait; the SQL query is canceled when all
+waiters leave. SQL reads and report composition are separate stages, and the
+read transaction ends before presentation aggregates are composed.
+
+Claude streaming snapshots are deduplicated by session/message ID. Codex
+cumulative checkpoints yield increments; repeated or archived copies are
+idempotent. A decreasing counter establishes a new baseline, so a discontinuity
+may undercount. Forked/copied sessions with a new identity cannot always be
+recognized as inherited history. Log timestamps, often request completion times,
+place consumption into time slots; long requests cannot be accurately split
+across hours. Missing log records cannot be inferred from account quota meters.
+
+Project attribution is captured on import: live Emacs project roots first,
+otherwise the nearest workspace `project.md` ancestor of the repository root,
+otherwise the repository/folder name. Git worktree metadata resolves to its main
+repository. Historical renamed/deleted projects cannot always be reconstructed.
+The browser receives project labels, not filesystem paths. Cache reads/writes,
+uncached input and output are separate; Codex cached input is a subset of input,
+and reasoning output is already included in output. These tokens are not a bill.

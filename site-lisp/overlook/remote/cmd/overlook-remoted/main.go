@@ -33,6 +33,7 @@ import (
 	"github.com/guiyuanju/overlook/remote/internal/state"
 	"github.com/guiyuanju/overlook/remote/internal/store"
 	"github.com/guiyuanju/overlook/remote/internal/stream"
+	"github.com/guiyuanju/overlook/remote/internal/usage"
 	"github.com/guiyuanju/overlook/remote/web"
 )
 
@@ -117,6 +118,7 @@ type daemon struct {
 	admin     *admin.Server
 	awake     *awake.Keeper
 	started   time.Time
+	usage     *usage.Ledger
 
 	// settingsMu guards settings, the user settings kept in cfg.SettingsFile.
 	settingsMu sync.Mutex
@@ -153,6 +155,14 @@ func newDaemon(cfg config.Config, log *slog.Logger, webFS fs.FS) (*daemon, error
 	}
 	d := &daemon{cfg: cfg, log: log, store: store.New(store.Options{Dir: storeDir}), receipts: &api.Receipts{}, started: time.Now()}
 	d.restore()
+	if cfg.FakeEmacs == "" && cfg.StateFile != "" {
+		home, _ := os.UserHomeDir()
+		d.usage, err = usage.Open(usage.Options{Path: filepath.Join(filepath.Dir(cfg.StateFile), "usage.sqlite"), LegacyPath: filepath.Join(filepath.Dir(cfg.StateFile), "usage.json"), Sources: usage.DefaultSources(home), Project: d.store.UsageProject})
+		if err != nil {
+			log.Warn("consumption ledger unavailable", "err", err)
+			d.usage = usage.Unavailable("Consumption history could not be loaded. The original ledger has been preserved.")
+		}
+	}
 	d.settings = settings.Default
 	if cfg.SettingsFile != "" {
 		if d.settings, err = settings.Load(cfg.SettingsFile); err != nil {
@@ -182,7 +192,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, webFS fs.FS) (*daemon, error
 		api.WriteProblem(w, api.NewProblem(http.StatusUnauthorized, api.CodeUnauthorized, "Open the page from its launch link"))
 	})
 	d.handler = api.New(api.Deps{
-		Store: d.store, Emacs: d.bridge, Hub: d.hub, Auth: auth.Require(tokens, deny),
+		Usage: d.usage, Store: d.store, Emacs: d.bridge, Hub: d.hub, Auth: auth.Require(tokens, deny),
 		Assets: page, Log: log, Receipts: d.receipts, Confirmer: d.confirmer, Version: version,
 	}).Handler()
 	if cfg.FakeEmacs != "" {
@@ -322,6 +332,10 @@ func (d *daemon) serve(ctx context.Context) error {
 	defer d.close()
 	bctx, bcancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
+	if d.usage != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); d.usage.Run(bctx) }()
+	}
 	errs := make(chan error, len(d.listeners)+3)
 	wg.Add(1)
 	go func() {
@@ -421,6 +435,9 @@ func (d *daemon) serve(ctx context.Context) error {
 }
 
 func (d *daemon) close() {
+	if d.usage != nil {
+		_ = d.usage.Close()
+	}
 	d.awake.Close()
 	_ = d.store.Close()
 }
