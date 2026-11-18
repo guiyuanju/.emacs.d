@@ -69,7 +69,9 @@ The session menu lists the agent's model and reasoning effort with their current
 values when the backend advertises them; picking one asks the agent to switch,
 and the menu shows the new value once the agent confirms it.
 Returning to a conversation restores its reading position; returning to a list
-restores its scroll position and focused row when that row still exists.
+restores its scroll position and focused row when that row still exists. Cached
+conversation content appears immediately; each entry fetches a fresh snapshot
+before subscribing to subsequent changes.
 
 The composer disables empty sends. Busy sessions explain queueing and expose
 Stop and Adjust now when the backend supports those controls. Failed sends keep

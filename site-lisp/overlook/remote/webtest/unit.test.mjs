@@ -220,6 +220,33 @@ test("stream resumes from the last event id and backs off", async () => {
   assert.deepEqual(errors, ["stream_ended"]);
 });
 
+test("stream only acknowledges events after the consumer succeeds", async () => {
+  let signal;
+  globalThis.fetch = async (_url, options) => {
+    signal = options.signal;
+    return sseResponse(['event: conversation\nid: conversation=c&after=2&known=new&epoch=e\ndata: {}\n\n']);
+  };
+  const stream = new Stream({ onEvent() { throw new Error("render failed"); }, hidden: () => false });
+  stream.query = "conversation=c&after=1&known=old&epoch=e";
+  await assert.rejects(stream.listen(() => true, () => {}), /render failed/);
+  assert.equal(stream.query, "conversation=c&after=1&known=old&epoch=e");
+  assert.equal(signal.aborted, true, "a failed consumer must release its stream connection");
+  let delivered = 0;
+  stream.onEvent = () => { delivered++; };
+  await assert.rejects(stream.listen(() => true, () => {}), (error) => error.code === "stream_ended");
+  assert.equal(delivered, 1);
+  assert.equal(stream.query, "conversation=c&after=2&known=new&epoch=e");
+});
+
+test("an event cannot overwrite a subscription opened by its consumer", async () => {
+  globalThis.fetch = async () => sseResponse(['event: conversation\nid: conversation=old&after=2\ndata: {}\n\n']);
+  const stream = new Stream({ onEvent() { stream.generation++; stream.query = "conversation=new"; }, hidden: () => false });
+  stream.generation = 1;
+  stream.query = "conversation=old";
+  await stream.listen(() => stream.generation === 1, () => {});
+  assert.equal(stream.query, "conversation=new");
+});
+
 test("stream stops retrying when onError says so, and pause and resume reconnect", async () => {
   let calls = 0;
   globalThis.fetch = async () => { calls++; return { ok: false, status: 401, statusText: "", headers: new Headers(), json: async () => ({ code: "unauthorized", detail: "no" }) }; };

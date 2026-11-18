@@ -74,12 +74,11 @@ export function showConversation(id, liveStream) {
   if (held) {
     holdConversation(held);
     present(held, { first: true });
-    openStream(held);
   } else {
     $("d-feed").setAttribute("aria-busy", "true");
     $("d-feed").replaceChildren(viewState("Loading conversation…", "", true));
-    loadSnapshot(mine);
   }
+  loadSnapshot(mine);
 }
 
 export function leaveConversation() {
@@ -350,7 +349,6 @@ export async function loadEarlier() {
 function renderHeader(conversation) {
   const key = JSON.stringify(conversation);
   if (key === view.headerKey) return;
-  view.headerKey = key;
   const title = conversation.title || conversation.persona || "Conversation";
   const subtitle = [conversation.persona, conversation.provider || "Agent", statusLabel(conversation.status)].filter(Boolean).join(" · ");
   const info = el("button", "navigation-info");
@@ -373,6 +371,7 @@ function renderHeader(conversation) {
   menu.onclick = () => sessionMenu(title, actions);
   renderSlashCommands();
   renderLive(conversation);
+  view.headerKey = key;
 }
 
 function sessionMenu(title, actions) {

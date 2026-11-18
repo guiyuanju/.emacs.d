@@ -87,6 +87,31 @@ test("sending echoes show progress, failure and retry without duplicates", async
   assert.deepEqual(problems, []);
 });
 
+test("reopening a cached conversation refreshes completion before subscribing", async (t) => {
+  const { page, ctl, settled, problems } = await open(t);
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
+  await page.evaluate(async (id) => (await import("js/router.js")).openConversation(id), ALPHA);
+  await page.locator("#d-feed .item").first().waitFor();
+  const snapshot = await (await fetch(page.url().split("?")[0] + "api/conversations/" + ALPHA,
+    { headers: { Authorization: "Bearer " + TOKEN } })).json();
+  const conversation = { ...snapshot.conversation, status: "working", choices: [], form: null };
+  await ctl("message", { method: "conversation.set", params: { conversation } });
+  await page.locator("#d-live .working").waitFor();
+  await page.locator("#back").click();
+  await settled();
+  await page.locator("#dashboard-content .conversation-row").first().waitFor();
+  await ctl("message", { method: "conversation.set", params: { conversation: { ...conversation, status: "idle" } } });
+  await ctl("message", textEvent(ALPHA, "Finished while the conversation was closed"));
+  // Hold the detail stream so only the entry snapshot can refresh the cached page.
+  await page.route("**/api/stream?*", (route) => new URL(route.request().url()).searchParams.has("conversation")
+    ? route.fulfill({ status: 200, contentType: "text/event-stream", body: ": waiting\n\n" }) : route.continue());
+  await page.goForward();
+  await settled();
+  await page.locator("#d-feed .markdown").filter({ hasText: "Finished while the conversation was closed" }).waitFor();
+  assert.equal(await page.locator("#d-live .working").count(), 0);
+  assert.deepEqual(problems, []);
+});
+
 test("sent messages appear before stream events and merge with their prompt", async (t) => {
   const { page, ctl, settled, problems } = await open(t, { route: "?conversation=" + ALPHA });
   await settled();

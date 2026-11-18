@@ -109,6 +109,10 @@ another epoch gets a full reset.
 3. Subscribers of that conversation get, ≤ 200 ms later, a `conversation`
    event whose item carries only the appended suffix and its `offset`.
    Conversation state is included only if its hash changed.
+4. The browser advances its resume cursor only after parsing and applying an
+   event successfully. A failed consumer releases the connection and retries
+   from the previous cursor. An event from a replaced subscription cannot
+   overwrite the new subscription's cursor.
 
 ### Sending a prompt while busy
 

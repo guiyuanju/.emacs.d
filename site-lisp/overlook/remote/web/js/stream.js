@@ -101,8 +101,9 @@ export class Stream {
       if (!current()) return;
       const parser = new SSEParser(({ event, data, id }) => {
         if (!current()) return;
-        if (id !== null && (event === "dashboard" || event === "conversation")) this.query = id;
         this.onEvent(event, JSON.parse(data));
+        // Resume only past updates the consumer applied to this subscription.
+        if (current() && id !== null && (event === "dashboard" || event === "conversation")) this.query = id;
       });
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let opened = false;
@@ -123,6 +124,7 @@ export class Stream {
       throw error;
     } finally {
       clearTimeout(timer);
+      controller.abort();
       if (this.controller === controller) this.controller = null;
     }
   }
