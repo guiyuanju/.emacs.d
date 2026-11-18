@@ -33,7 +33,7 @@ endif
 ifdef HAVE_NODE
 	$(WEBTEST) --import ./register.mjs --test unit.test.mjs
 	@cd remote/webtest && node -e 'const r = require("./browser.cjs").unavailable(); if (r) console.log(r + ": the browser tests skip")'
-	$(WEBTEST) --test --test-concurrency=1 browser.test.mjs daemon.test.mjs e2e-emacs.test.mjs
+	$(WEBTEST) --test --test-concurrency=1 browser.test.mjs usage.test.mjs daemon.test.mjs e2e-emacs.test.mjs
 else
 	@echo "node not found: skipping the page tests"
 endif

@@ -42,6 +42,19 @@ only the remaining duration, without a date or reset icon. Touch and hold an
 account row for its actions; usage has no disclosure or duplicated detail view. A successful
 remote sync does not prove the underlying provider usage data is fresh.
 
+Consumption analytics below the account meters share period (7/30/90 days),
+provider, project and token-component filters. Daily stacked bars include today;
+tapping a day shows exact components. The weekday × two-hour heatmap averages
+available logs over completed calendar days since the first matching record,
+excluding today. Empty cells do not establish zero usage. Provider/project bars
+filter the whole report; session rows and long rankings expand for details.
+Filters survive dashboard updates and tab changes. Visible analytics refresh
+once a minute; pending and failed requests identify the filters of the last
+successful report while retaining the requested controls and offering Retry. Token comparisons
+measure workload, not subscription charges or efficiency. Consumption is backed
+by the daemon’s SQLite ledger; database query failures return an API error and
+the page retains its last successful report.
+
 Persona overview rows show a stable colored avatar, identity, status and
 conversation count, without a description. A single running persona opens its
 conversation. Multi-conversation personas open a dedicated conversation list.

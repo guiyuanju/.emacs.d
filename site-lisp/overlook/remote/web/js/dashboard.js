@@ -1,5 +1,6 @@
 // Dashboard and group pages: usage, projects, personas, node commands and diffs.
 import { api } from "js/api.js";
+import { usageAnalytics } from "js/usage.js";
 import { state, setDashboard, remember, draft } from "js/state.js";
 import { $, el, svg, toast, confirmAction, actionSheet, viewState, actionFailure, icon, personaAvatar, personaProfile, pressMenu } from "js/ui.js";
 import { diffPre } from "js/markdown.js";
@@ -130,6 +131,7 @@ export function renderDashboard() {
     : tab === "agents"
       ? [newAgent(sections), agents.length ? nodeGroup("", agents) : el("p", "empty", "No agents yet.")].filter(Boolean)
       : sectionGroups;
+  if (!selected && tab === "usage") groups.push(usageAnalytics());
   container.replaceChildren(...(groups.length ? groups : [el("p", "empty", "Nothing here yet.")]));
   if (pendingScroll !== null) {
     $("dash").scrollTop = pendingScroll;
