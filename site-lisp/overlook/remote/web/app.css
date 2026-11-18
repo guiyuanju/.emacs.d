@@ -417,3 +417,6 @@ textarea::placeholder { color: #8e8e93; opacity: 1; }
  .usage-charts > .usage-card:nth-child(3), .usage-charts > .usage-footnote { grid-column: 1 / -1; }
  .usage-cell { height: 28px; }
 }
+
+#send > .preloader { width: 20px; height: 20px; --f7-preloader-color: currentColor; }
+#send > svg[hidden] { display: none; }

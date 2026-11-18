@@ -1,7 +1,7 @@
 // The composer: per-conversation drafts, sending and queueing, steering, session actions and image uploads.
 import { api } from "js/api.js";
 import { state, draft, emit } from "js/state.js";
-import { $, el, toast, confirmAction, actionFailure, zoomable } from "js/ui.js";
+import { $, el, toast, confirmAction, actionFailure, zoomable, preloader } from "js/ui.js";
 import { navigate, openConversation, currentRoute } from "js/router.js";
 import { slashMatches, slashText, appendDraft, randomKey, actionLabels } from "js/model.js";
 
@@ -52,6 +52,17 @@ export function syncCompose() {
   const failedUpload = current.previews.some((preview) => preview.uploadError);
   const blocked = !current.text.trim() || current.pending || current.uploading > 0 || failedUpload;
   $("send").disabled = blocked;
+  const sendButton = $("send");
+  sendButton.setAttribute("aria-busy", String(current.pending));
+  if (current.pending && !sendButton.querySelector(".preloader")) {
+    sendButton.querySelector("svg").setAttribute("hidden", "");
+    const spinner = preloader();
+    spinner.setAttribute("aria-hidden", "true");
+    sendButton.append(spinner);
+  } else if (!current.pending) {
+    sendButton.querySelector(".preloader")?.remove();
+    sendButton.querySelector("svg").removeAttribute("hidden");
+  }
   const conversation = conversationOf(id);
   const busy = conversation?.status === "working";
   $("send").setAttribute("aria-label", busy ? "Queue message" : "Send message");
@@ -153,7 +164,6 @@ export async function send() {
     if (composeId === id) saveCompose();
     current.sendError = "";
     acknowledge(id, current, revision, text);
-    toast(result?.delivery === "queued" ? "Message queued" : "Sent");
   } catch (error) {
     echo.status = "failed";
     echo.error = error.message;

@@ -78,7 +78,9 @@ typing and drafts for other conversations are preserved.
 Messages appear locally as soon as Send is pressed, with a spinner while sending
 and an inline failure status if the request fails. Retries reuse the same echo;
 matching prompt items after the send's cursor replace these echoes one at a time.
-Confirmed queued sends move from the local echo into the queue.
+The Send button also shows a spinner until the request finishes. Successful sends
+clear the draft without a toast; the message itself confirms delivery. Confirmed
+queued sends move from the local echo into the queue, labeled Waiting to send.
 
 Queued prompts can be removed or moved back to the draft. Editing first waits
 for a successful server withdrawal, then appends the text to any existing draft.

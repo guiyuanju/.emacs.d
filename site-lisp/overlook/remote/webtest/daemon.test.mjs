@@ -86,8 +86,8 @@ test("page served by the daemon: dashboard, conversation, writes and live stream
   await page.locator(".question-form .inline-feedback").getByText("Response sent. Waiting for the agent…").waitFor();
   await page.locator("#text").fill("From the daemon test");
   await page.locator("#send").click();
-  await page.locator(".toast").getByText(/Message queued|Sent/).waitFor();
   await page.waitForFunction(() => document.getElementById("text").value === "");
+  assert.equal(await page.locator(".toast").count(), 0);
   daemon.kill("SIGUSR1");
   await page.locator("#d-feed").getByText("and the test passes. 🎉", { exact: false }).waitFor({ timeout: 15000 });
   await page.locator("#back").click();

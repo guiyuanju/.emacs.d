@@ -91,14 +91,16 @@ test("send, and queue while busy until the agent is ready", async () => {
   await openConversation(alpha);
   await page.locator("#text").fill("Right away 你好 🎉");
   await page.locator("#send").click();
-  await page.locator(".toast").getByText("Sent").waitFor();
+  await page.waitForFunction(() => document.getElementById("text").value === "");
+  assert.equal(await page.locator(".toast").count(), 0);
   await feed().getByText("Right away 你好 🎉").waitFor();
   assert.deepEqual((await log()).filter((e) => e.op === "submit").map((e) => e.text), ["Right away 你好 🎉"]);
   await env.el(`(e2e-set "alpha" :ready nil :status 'working)`);
   await page.locator("#compose-status").getByText("Busy · messages will queue").waitFor();
   await page.locator("#text").fill("Later please");
   await page.locator("#send").click();
-  await page.locator(".toast").getByText("Message queued").waitFor();
+  await page.waitForFunction(() => document.getElementById("text").value === "");
+  assert.equal(await page.locator(".toast").count(), 0);
   await page.locator(".queued").filter({ hasText: "Later please" }).waitFor();
   await page.locator("#text").fill("Withdraw me");
   await page.locator("#send").click();

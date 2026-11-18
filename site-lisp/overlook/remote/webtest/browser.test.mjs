@@ -68,6 +68,7 @@ test("sending echoes show progress, failure and retry without duplicates", async
   await page.locator("#send").click();
   const echo = page.locator("#d-feed .local-echo");
   await echo.locator(".delivery-status .preloader").waitFor();
+  await page.locator("#send .preloader").waitFor();
   await echo.getByText("Sending…", { exact: true }).waitFor();
   await requested;
   await respond(503, { detail: "Connection unavailable" });
@@ -80,6 +81,8 @@ test("sending echoes show progress, failure and retry without duplicates", async
   await requested;
   await respond(200, { delivery: "sent" });
   await echo.locator(".delivery-status").waitFor({ state: "detached" });
+  assert.equal(await page.locator("#send .preloader").count(), 0);
+  assert.equal(await page.locator(".toast").count(), 0);
   assert.equal(await echo.count(), 1);
   assert.deepEqual(problems, []);
 });
@@ -411,7 +414,7 @@ test("composer: drafts, send, retry, queue, uploads, settings, steer and stop", 
   assert.equal(await page.locator("#text").inputValue(), "保留这个草稿");
   await page.locator("#send").click();
   await page.waitForFunction(() => document.getElementById("text").value === "");
-  await page.locator(".toast").getByText("Message queued").waitFor();
+  assert.equal(await page.locator(".toast").count(), 0);
   const sent = (await log()).filter((entry) => entry.path.endsWith("/prompts") && entry.method === "POST");
   assert.equal(sent.at(-1).body.text, "保留这个草稿");
   await page.locator(".queued").filter({ hasText: "保留这个草稿" }).waitFor();
