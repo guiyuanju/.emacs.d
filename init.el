@@ -851,6 +851,7 @@
 
 (use-package dired
   :ensure nil
+  :hook (dired-mode . dired-hide-details-mode)
   :custom
   ;; 进目录时复用同一个 buffer，按一次 q 就退出。
   (dired-kill-when-opening-new-dired-buffer t)
