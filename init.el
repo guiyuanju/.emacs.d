@@ -1092,6 +1092,9 @@
   ;; Match swift-format's default indentation, which apheleia applies on save.
   (swift-mode:basic-offset 2))
 
+(use-package protobuf-mode
+  :mode "\\.proto\\'")
+
 (use-package async)
 
 (use-package spinner)
