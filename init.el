@@ -846,6 +846,9 @@
 
 ;;; Files and Git
 
+(use-package persistent-scratch
+  :hook (elpaca-after-init . persistent-scratch-setup-default))
+
 (use-package dired
   :ensure nil
   :custom
