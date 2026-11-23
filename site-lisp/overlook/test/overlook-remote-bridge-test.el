@@ -796,3 +796,23 @@ BODY sees the agent's conversation id as `id' and the sync's params as `sync'."
     (should-not (overlook-remote-bridge-merge (funcall text "c" "a") (funcall tool "1")))))
 
 ;;; overlook-remote-bridge-test.el ends here
+
+(ert-deftest overlook-bridge-sends-agent-row-marks-as-note ()
+  (let ((buffer (generate-new-buffer "olb-note"))
+        (overlook-agent-row-marks
+         (list (lambda (_) (propertize " awaiting claude quota" 'face 'warning))
+               (lambda (_) nil)
+               (lambda (_) " ← boss"))))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer (setq overlook-agent-identity '((agent . "claude"))))
+          (let* ((rows (make-hash-table :test #'equal))
+                 (sections (overlook-remote-bridge-sections
+                            (list (overlook-section-row
+                                   "S" (list (overlook-row :id (cons 'agent buffer) :content "a")
+                                             (overlook-row :content "plain"))))
+                            rows))
+                 (children (plist-get (aref sections 0) :children)))
+            (should (equal (plist-get (aref children 0) :note) "awaiting claude quota ← boss"))
+            (should-not (plist-member (aref children 1) :note))))
+      (kill-buffer buffer))))

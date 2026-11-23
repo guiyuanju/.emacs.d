@@ -136,6 +136,7 @@ button.link { width: auto; border: 0; background: transparent; color: var(--acce
 .warning .usage-ring { background: conic-gradient(var(--working) var(--usage-progress), var(--soft) 0); }
 .usage-window.warning .usage-value { color: var(--working); }
 .sync-footer { margin: 28px 24px 0; text-align: center; color: var(--dim); font-size: 12px; line-height: 18px; }
+.row-note { color: var(--working); }
 :is(#connection,[data-snapshot-id="connection"]) { flex: none; margin: 8px 20px; padding: 14px 16px; border-radius: 12px; background: var(--wait-bg); font-size: 15px; line-height: 1.4; }
 :is(#connection,[data-snapshot-id="connection"]) .button { display: inline-flex; width: auto; margin: 10px 10px 0 0; }
 .remote-page > :is(#detail,[data-snapshot-id="detail"]) { padding: 12px 20px 24px; background: var(--card); }

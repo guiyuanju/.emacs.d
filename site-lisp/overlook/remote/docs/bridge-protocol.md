@@ -78,6 +78,7 @@ Emacs                                      daemon
 | `key` | string, required | identity, unique among siblings, stable across redraws (`overlook-data-id` / resourceId) |
 | `kind` | string, required | `group`, `text`, `project`, `persona`, `agent`, `saved`, `usage`, `repo`, `folder`, `file`, `todo`, `tasks`, others allowed |
 | `title` | string, required | |
+| `note` | string | agent rows: the row's marks as plain text (`overlook-agent-row-marks`: account, spawner, mail, a continuation waiting for a quota reset) |
 | `subtitle` | string | agent brief, file directory, task parent, persona description |
 | `provider` | string | agent program or icon name (`claude`, `codex`, …) |
 | `status` | string | agents: `idle`/`working`/`waiting`/`done`/`failed`; personas: `idle`/`offline`; files: git status letter; todos: `open`/`waiting` |

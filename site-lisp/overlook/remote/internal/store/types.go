@@ -48,6 +48,7 @@ type Node struct {
 	Kind         string        `json:"kind"`
 	Title        string        `json:"title"`
 	Subtitle     string        `json:"subtitle,omitempty"`
+	Note         string        `json:"note,omitempty"`
 	Provider     string        `json:"provider,omitempty"`
 	Status       string        `json:"status,omitempty"`
 	Account      string        `json:"account,omitempty"`

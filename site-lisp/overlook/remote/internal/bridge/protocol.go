@@ -90,6 +90,7 @@ type Node struct {
 	Account      string        `json:"account,omitempty"`
 	Branch       string        `json:"branch,omitempty"`
 	Added        int           `json:"added,omitempty"`
+	Note         string        `json:"note,omitempty"`
 	Removed      int           `json:"removed,omitempty"`
 	Due          string        `json:"due,omitempty"`
 	Persona      string        `json:"persona,omitempty"`

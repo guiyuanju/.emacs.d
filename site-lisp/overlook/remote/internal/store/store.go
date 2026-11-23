@@ -398,7 +398,7 @@ func (s *Store) buildNodes(raw []bridge.Node, parent string, path []string, node
 		id := hash16([]byte(parent), []byte(key))
 		p := append(path[:len(path):len(path)], key)
 		n := &Node{
-			ID: id, Kind: r.Kind, Title: r.Title, Subtitle: r.Subtitle, Provider: r.Provider, Status: r.Status,
+			ID: id, Kind: r.Kind, Title: r.Title, Subtitle: r.Subtitle, Note: r.Note, Provider: r.Provider, Status: r.Status,
 			Account: r.Account, Branch: r.Branch, Added: r.Added, Removed: r.Removed, Due: r.Due,
 			Persona: r.Persona, Description: r.Description, Windows: r.Windows, Heading: r.Heading,
 			Attention: r.Attention, Conversation: r.Conversation, Choices: r.Choices, Commands: r.Commands, Diff: r.Diff,
@@ -489,14 +489,14 @@ func (s *Store) NodeTarget(id string) (path []string, node bridge.Node, err erro
 func stripSubtitles(nodes []bridge.Node) []bridge.Node {
 	out := make([]bridge.Node, len(nodes))
 	for i, n := range nodes {
-		n.Subtitle = ""
+		n.Subtitle, n.Note = "", ""
 		n.Children = stripSubtitles(n.Children)
 		out[i] = n
 	}
 	return out
 }
 
-// NodeConfirmState hashes a node for confirmation tokens, ignoring subtitle and unreadCount recursively.
+// NodeConfirmState hashes a node for confirmation tokens, ignoring subtitle, note and unreadCount recursively.
 func (s *Store) NodeConfirmState(id string) (string, error) {
 	_, n, err := s.NodeTarget(id)
 	if err != nil {

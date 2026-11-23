@@ -260,8 +260,10 @@ do not publish recovery.
 
 Run `M-x overlook-agent-resume-toggle` in an idle agent buffer or on its
 agent row to schedule one `continue` prompt, or run it again to cancel.
+`M-x overlook-agent-resume-now` sends a waiting continuation at once.
 The dashboard shows the subscription account and scheduled time; the web
-agent row also offers scheduling and cancellation commands. Claude uses
+agent row shows the same marks and offers scheduling, cancellation and
+**Continue now**. Claude uses
 the account bound to that session. Codex records its login when the shell
 is registered and refuses scheduling after that login changes.
 

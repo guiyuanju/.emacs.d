@@ -317,6 +317,7 @@ function renderNode(node, options = {}) {
   const text = el("div", "text");
   text.append(el("span", "row-title", persona ? node.persona || nodeTitle(node) : nodeTitle(node)));
   if (node.subtitle && !persona) text.append(el("span", "row-subtitle", node.subtitle));
+  if (node.note && agent) text.append(el("span", "row-subtitle row-note", node.note));
   if (agent || persona) {
     const meta = el("div", "agent-meta");
     const status = persona ? personaStatus(node) : node.status;

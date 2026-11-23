@@ -32,6 +32,8 @@
 (require 'overlook-data)
 (require 'overlook-row)
 
+(defvar overlook-agent-row-marks)
+
 (defcustom overlook-remote-bridge-transcript-size 8000
   "How many characters from the end of an agent's buffer `earlier' returns."
   :type 'natnum
@@ -183,6 +185,14 @@ Keys lists Emacs key bindings, which do nothing on a phone."
                  ,@(and (plist-get command :confirm) '(:confirm t))))
              commands))))
 
+(defun overlook-remote-bridge--agent-note (buffer)
+  "The marks the dashboard shows on agent BUFFER's row, as plain text."
+  (string-join
+   (split-string (overlook-remote-bridge--text
+                  (mapconcat (lambda (fn) (or (funcall fn buffer) "")) overlook-agent-row-marks ""))
+                 nil t)
+   " "))
+
 (defun overlook-remote-bridge-node (row path rows siblings)
   "ROW as a Node plist; PATH is its parent's key path, newest key first.
 ROW is recorded in hash table ROWS under its key path, a list, the key
@@ -202,13 +212,15 @@ does, by a \"#N\" suffix."
          (removed (overlook-remote-bridge--count (plist-get data :removed)))
          (windows (overlook-remote-bridge--windows (plist-get data :windows)))
          (choices (and agent (overlook-remote-bridge-choices (overlook-row-choices row))))
-         (commands (overlook-remote-bridge--commands (overlook-row-commands row))))
+         (commands (overlook-remote-bridge--commands (overlook-row-commands row)))
+         (note (and agent (overlook-remote-bridge--agent-note agent))))
     (puthash (reverse path) row rows)
     `(:key ,key
       :kind ,(let ((kind (overlook-remote-bridge--text (plist-get data :kind))))
                (if (string-empty-p kind) "text" kind))
       :title ,(overlook-remote-bridge--text (plist-get data :title))
       ,@(overlook-remote-bridge--put :subtitle (plist-get data :subtitle))
+      ,@(overlook-remote-bridge--put :note note)
       ,@(overlook-remote-bridge--put :provider (plist-get data :provider))
       ,@(overlook-remote-bridge--put :status status)
       ,@(overlook-remote-bridge--put :account (plist-get data :account))

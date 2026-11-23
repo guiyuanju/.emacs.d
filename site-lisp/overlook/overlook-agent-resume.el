@@ -138,6 +138,23 @@
     (overlook-agent-resume--sync)
     (overlook-agent-changed)))
 
+(defun overlook-agent-resume--ready-p (buffer)
+  "Non-nil when agent BUFFER can take the continuation now."
+  (overlook-agent-call buffer (if (overlook-agent-get buffer 'resume-ready)
+                                  'resume-ready 'ready)))
+
+(defun overlook-agent-resume--send (entry)
+  "Submit the continuation of appointment ENTRY, (BUFFER . JOB), now."
+  (let ((buffer (car entry)))
+    (setf (plist-get (cdr entry) :phase) 'submitted
+          (plist-get (cdr entry) :sent) (float-time))
+    (let ((overlook-agent-resume--sending buffer))
+      (overlook-agent-call buffer
+                           (if (overlook-agent-get buffer 'resume-submit)
+                               'resume-submit 'submit)
+                           "continue"))
+    (overlook-agent-changed)))
+
 (defun overlook-agent-resume--tick ()
   "Check session identity and send due continuations once."
   (dolist (entry (copy-sequence overlook-agent-resume--jobs))
@@ -155,21 +172,12 @@
             (message "Continuation did not start in %s" (buffer-name buffer)))
            ((and (eq (plist-get job :phase) 'waiting)
                  (>= now (plist-get job :at)))
-            (if (not (overlook-agent-call
-                      buffer (if (overlook-agent-get buffer 'resume-ready)
-                                 'resume-ready 'ready)))
+            (if (not (overlook-agent-resume--ready-p buffer))
                 (progn
                   (overlook-agent-resume-cancel buffer)
                   (message "Continuation cancelled: %s is busy or has draft input"
                            (buffer-name buffer)))
-              (setf (plist-get (cdr entry) :phase) 'submitted
-                    (plist-get (cdr entry) :sent) now)
-              (let ((overlook-agent-resume--sending buffer))
-                (overlook-agent-call buffer
-                                     (if (overlook-agent-get buffer 'resume-submit)
-                                         'resume-submit 'submit)
-                                     "continue"))
-              (overlook-agent-changed))))
+              (overlook-agent-resume--send entry))))
         (error
          (overlook-agent-resume-cancel buffer)
          (message "Continuation failed: %s" (error-message-string err))))))
@@ -209,6 +217,22 @@ Interactively use the agent at point, or the current agent buffer."
           (message "%s: continue at %s (%s)" (buffer-name buffer)
                    (format-time-string "%m-%d %H:%M" at) row))))))
 
+;;;###autoload
+(defun overlook-agent-resume-now (&optional buffer)
+  "Send BUFFER's scheduled continuation now instead of at the quota reset.
+Interactively use the agent at point, or the current agent buffer."
+  (interactive)
+  (let* ((buffer (or buffer (overlook-agent-at-point)
+                     (and overlook-agent-identity (current-buffer))))
+         (entry (assq buffer overlook-agent-resume--jobs)))
+    (unless (memq (plist-get (cdr entry) :phase) '(quota waiting))
+      (user-error "No continuation is waiting for this agent"))
+    (unless (overlook-agent-resume--ready-p buffer)
+      (user-error "Agent must be ready to continue"))
+    (overlook-agent-resume--send entry)
+    (overlook-agent-resume--sync)
+    (message "%s: continued" (buffer-name buffer))))
+
 (defun overlook-agent-resume--mark (buffer)
   "Return the appointment mark for agent BUFFER."
   (when-let* ((job (cdr (assq buffer overlook-agent-resume--jobs))))
@@ -223,11 +247,14 @@ Interactively use the agent at point, or the current agent buffer."
 
 (defun overlook-agent-resume--commands (buffer)
   "Return appointment commands for agent BUFFER."
-  (when (or (assq buffer overlook-agent-resume--jobs)
-            (overlook-agent-get buffer 'usage-row))
-    (list (list :name "resume" :label (if (assq buffer overlook-agent-resume--jobs)
-                                         "Cancel continuation" "Continue after quota reset")
-                :run (lambda () (overlook-agent-resume-toggle buffer))))))
+  (let ((job (cdr (assq buffer overlook-agent-resume--jobs))))
+    (append
+     (and (memq (plist-get job :phase) '(quota waiting))
+          (list (list :name "resume-now" :label "Continue now"
+                      :run (lambda () (overlook-agent-resume-now buffer)))))
+     (and (or job (overlook-agent-get buffer 'usage-row))
+          (list (list :name "resume" :label (if job "Cancel continuation" "Continue after quota reset")
+                      :run (lambda () (overlook-agent-resume-toggle buffer))))))))
 
 (add-hook 'overlook-agent-turn-start-hook #'overlook-agent-resume--started)
 (add-hook 'overlook-agent-turn-end-hook #'overlook-agent-resume--stopped)

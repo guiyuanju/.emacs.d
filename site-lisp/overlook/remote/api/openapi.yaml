@@ -890,6 +890,9 @@ components:
         children:
           type: array
           items: { $ref: '#/components/schemas/NodeOrSame' }
+        note:
+          type: string
+          description: Agent rows; the marks Emacs shows on the row, such as a continuation waiting for a quota reset.
 
     UsageWindow:
       type: object
