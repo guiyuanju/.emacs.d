@@ -44,6 +44,8 @@ type Deps struct {
 	Log       *slog.Logger
 	Receipts  *Receipts
 	Confirmer *Confirmer
+	// Supervisor follows the Emacs process; nil reports it unknown and refuses restarts.
+	Supervisor Supervisor
 	// Version is the daemon's build, reported by healthz so a deploy can tell which binary answers.
 	Version string
 }
@@ -97,6 +99,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /overlook/api/images/{image}", s.image)
 	api.HandleFunc("GET /overlook/api/nodes/{node}/diff", s.diff)
 	api.HandleFunc("POST /overlook/api/nodes/{node}/commands/{name}", s.command)
+	api.HandleFunc("GET /overlook/api/emacs", s.emacs)
+	api.HandleFunc("POST /overlook/api/emacs/restart", s.restartEmacs)
 
 	mux := http.NewServeMux()
 	mux.Handle("/overlook/api/", apiHeaders(s.d.Auth(routed(api))))

@@ -12,10 +12,16 @@ public struct Status: Codable, Equatable, Sendable {
     public var scheme = ""
     public var host = ""
     public var port = 0
+    /// The supervised Emacs process (emacsProcess): its state, "" when the daemon does not supervise it,
+    /// whether the daemon can start it, and why the last restart failed.
+    public var emacsState = ""
+    public var emacsCanRestart = false
+    public var emacsError = ""
 
     public init(
         daemon: String = "", emacs: String = "", streams: Int = 0, awake: Bool = false, awakeHeld: Bool = false,
-        scheme: String = "", host: String = "", port: Int = 0
+        scheme: String = "", host: String = "", port: Int = 0,
+        emacsState: String = "", emacsCanRestart: Bool = false, emacsError: String = ""
     ) {
         self.daemon = daemon
         self.emacs = emacs
@@ -25,6 +31,35 @@ public struct Status: Codable, Equatable, Sendable {
         self.scheme = scheme
         self.host = host
         self.port = port
+        self.emacsState = emacsState
+        self.emacsCanRestart = emacsCanRestart
+        self.emacsError = emacsError
+    }
+
+    private struct Process: Codable {
+        var state: String?
+        var canRestart: Bool?
+        var error: String?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case daemon, emacs, streams, awake, awakeHeld, scheme, host, port, emacsProcess
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(daemon, forKey: .daemon)
+        try c.encode(emacs, forKey: .emacs)
+        try c.encode(streams, forKey: .streams)
+        try c.encode(awake, forKey: .awake)
+        try c.encode(awakeHeld, forKey: .awakeHeld)
+        try c.encode(scheme, forKey: .scheme)
+        try c.encode(host, forKey: .host)
+        try c.encode(port, forKey: .port)
+        if !emacsState.isEmpty {
+            try c.encode(
+                Process(state: emacsState, canRestart: emacsCanRestart, error: emacsError), forKey: .emacsProcess)
+        }
     }
 
     public init(from decoder: any Decoder) throws {
@@ -37,6 +72,10 @@ public struct Status: Codable, Equatable, Sendable {
         scheme = try c.decodeIfPresent(String.self, forKey: .scheme) ?? ""
         host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
         port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 0
+        let process = try c.decodeIfPresent(Process.self, forKey: .emacsProcess)
+        emacsState = process?.state ?? ""
+        emacsCanRestart = process?.canRestart ?? false
+        emacsError = process?.error ?? ""
     }
 }
 
@@ -55,6 +94,11 @@ public struct Menu: Equatable, Sendable {
     public var awakeTitle = "Keep Mac Awake"
     /// The title of the start/restart item.
     public var restart: String
+    /// The title of the Emacs restart item, nil to hide it; emacsRestartEnabled is false while restarting.
+    public var emacsRestart: String?
+    public var emacsRestartEnabled = false
+    /// Whether restarting asks first: not when Emacs is not running.
+    public var emacsRestartConfirm = true
 
     /// The menu for st; nil means the daemon cannot be reached.
     public init(_ st: Status?) {
@@ -66,6 +110,19 @@ public struct Menu: Equatable, Sendable {
         }
         state = st.emacs == "online" ? .online : .emacsOffline
         status = st.emacs == "online" ? "Remote online" : "Emacs not connected"
+        switch st.emacsState {
+        case "unresponsive": status = "Emacs not responding"
+        case "restarting": status = "Restarting Emacs…"
+        case "crashed": status = "Emacs crashed"
+        case "stopped": status = "Emacs quit"
+        default: break
+        }
+        if st.emacsCanRestart {
+            let notRunning = ["crashed", "stopped"].contains(st.emacsState)
+            emacsRestart = notRunning ? "Start Emacs" : "Restart Emacs"
+            emacsRestartEnabled = st.emacsState != "restarting"
+            emacsRestartConfirm = !notRunning
+        }
         switch st.streams {
         case 0: status += " · no pages open"
         case 1: status += " · 1 page open"

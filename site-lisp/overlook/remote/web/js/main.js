@@ -4,7 +4,8 @@ import { state } from "js/state.js";
 import { Stream } from "js/stream.js";
 import { $, viewState, closeModals } from "js/ui.js";
 import { installRouter, currentRoute, navigate } from "js/router.js";
-import { installShell, connected, connectionFailure, clearProblem, setEmacs, onRetry, onReturnDashboard } from "js/shell.js";
+import { installShell, connected, connectionFailure, clearProblem, setEmacs, onRetry, onReturnDashboard, onRestartEmacs } from "js/shell.js";
+import { restartEmacs } from "js/emacs.js";
 import { showDashboard, leaveDashboard, dashboardEvent, saveDashboardScroll, closePanel } from "js/dashboard.js";
 import { showConversation, leaveConversation, conversationEvent, installConversation, markSeen, flushRead } from "js/conversation.js";
 import { installCompose, setComposeTarget, saveCompose } from "js/compose.js";
@@ -15,11 +16,11 @@ const stream = new Stream({
   onEvent(name, data) {
     if (name === "hello") {
       if (String(data.protocol) !== PROTOCOL) { stream.close(); connectionFailure({ code: "protocol_mismatch" }); return; }
-      setEmacs(data.emacs);
+      setEmacs(data.emacs, data.process);
       connected();
       return;
     }
-    if (name === "status") { setEmacs(data.emacs); return; }
+    if (name === "status") { setEmacs(data.emacs, data.process); return; }
     connected();
     if (state.route.conversation) conversationEvent(name, data);
     else dashboardEvent(name, data);
@@ -69,6 +70,7 @@ installConversation();
 installRouter({ render: show, beforeLeave: leave });
 onRetry(() => { if (stream.query !== null) { clearProblem(); stream.retry(); } else show(); });
 onReturnDashboard(() => navigate({}, { back: true }));
+onRestartEmacs(restartEmacs);
 window.addEventListener("online", () => { if (!state.connection.blocked) stream.retry(); });
 window.addEventListener("offline", () => connectionFailure(new TypeError("offline")));
 document.addEventListener("visibilitychange", () => {

@@ -25,6 +25,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var awakeItem = menuItem("Keep Mac Awake", #selector(toggleAwake))
     private lazy var loginItem = menuItem("Start at Login", #selector(toggleLogin))
     private lazy var restartItem = menuItem("Restart Remote", #selector(restart))
+    private lazy var emacsItem = menuItem("Restart Emacs", #selector(restartEmacs))
     private lazy var logItem = menuItem("Open Log", #selector(openLog))
     private lazy var quitItem = menuItem("Quit and Stop Remote", #selector(quit))
 
@@ -49,13 +50,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.toolTip = "Start Remote and this menu when you log in"
         logItem.toolTip = config.log
         quitItem.toolTip = "Stop overlook-remoted, then quit this menu"
+        emacsItem.toolTip = "Save modified files, quit Emacs and start it again"
         statusLine.isEnabled = false
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
         for i in [
-            statusLine, .separator(), copyItem, qrItem, .separator(), awakeItem, loginItem, .separator(), restartItem,
-            logItem, .separator(), quitItem,
+            statusLine, .separator(), copyItem, qrItem, .separator(), awakeItem, loginItem, .separator(), emacsItem,
+            restartItem, logItem, .separator(), quitItem,
         ] {
             menu.addItem(i)
         }
@@ -98,6 +100,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         awakeItem.title = m.awakeTitle
         awakeItem.isEnabled = m.awakeEnabled
         restartItem.title = m.restart
+        emacsItem.isHidden = m.emacsRestart == nil
+        emacsItem.title = m.emacsRestart ?? "Restart Emacs"
+        emacsItem.isEnabled = m.emacsRestartEnabled
         let urlKnown = status != nil || config.port != 0
         copyItem.isEnabled = urlKnown
         qrItem.isEnabled = urlKnown
@@ -200,6 +205,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             say("Restarting Remote…")
             background("Restart", { try lc.kickstart(label, kill: true) }, done: done)
         }
+    }
+
+    @objc private func restartEmacs() {
+        if Menu(status).emacsRestartConfirm {
+            let alert = NSAlert()
+            alert.messageText = "Restart Emacs?"
+            alert.informativeText =
+                "Modified files are saved, then Emacs quits and starts again. Agents running in Emacs stop."
+            alert.addButton(withTitle: "Restart")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate()
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let path = config.adminSocket
+        background("Restart Emacs", { try Admin.restartEmacs(path: path) }) { st in self.setStatus(st) }
     }
 
     @objc private func openLog() {

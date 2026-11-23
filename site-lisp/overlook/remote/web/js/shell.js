@@ -1,8 +1,12 @@
 // Connection banner, sync footer and the viewport fitting around the iOS keyboard.
 import { $, viewState } from "js/ui.js";
 import { state, setConnection } from "js/state.js";
+import { processBanner } from "js/model.js";
 
 let retryHandler = () => {};
+let restartHandler = () => {};
+
+export function onRestartEmacs(fn) { restartHandler = fn; }
 let dashboardHandler = () => {};
 
 export function onRetry(fn) { retryHandler = fn; }
@@ -35,9 +39,13 @@ export function connected() {
   renderBanner();
 }
 
-export function setEmacs(emacs) {
-  if (!emacs || state.connection.emacs === emacs) return;
-  setConnection({ emacs });
+// Takes emacs ("online"/"offline") and, when the daemon supervises Emacs, its process status.
+export function setEmacs(emacs, process) {
+  const change = {};
+  if (emacs && state.connection.emacs !== emacs) change.emacs = emacs;
+  if (process && JSON.stringify(process) !== JSON.stringify(state.connection.process)) change.process = process;
+  if (!Object.keys(change).length) return;
+  setConnection(change);
   renderBanner();
 }
 
@@ -60,23 +68,30 @@ export function clearProblem() {
 }
 
 function renderBanner() {
-  const { problem, emacs } = state.connection;
-  const shown = problem || (emacs === "offline" ? "emacs" : "");
+  const { problem, emacs, process } = state.connection;
+  const about = problem ? null : processBanner(process, emacs);
+  const shown = problem || (about ? "emacs" : "");
   const banner = $("connection");
   banner.hidden = !shown;
+  $("restart-footer").hidden = !process?.canRestart || process.state === "restarting";
   if (!shown) { banner.removeAttribute("data-error"); return; }
-  if (banner.dataset.error !== shown) {
-    $("connection-message").textContent = messages[shown][2];
+  const message = about ? about.message : messages[shown][2];
+  if (banner.dataset.error !== shown || $("connection-message").textContent !== message) {
+    $("connection-message").textContent = message;
     banner.dataset.error = shown;
   }
   $("return-dashboard").hidden = shown !== "missing";
   $("reconnect").hidden = ["auth", "missing", "emacs"].includes(shown);
   $("reconnect").textContent = shown === "version" ? "Refresh" : "Retry";
+  $("restart-emacs").hidden = !about?.action;
+  $("restart-emacs").textContent = about?.action === "start" ? "Start Emacs" : "Restart Emacs";
 }
 
 export function installShell() {
   $("reconnect").onclick = () => state.connection.problem === "version" ? location.reload() : retryHandler();
   $("return-dashboard").onclick = () => dashboardHandler();
+  $("restart-emacs").onclick = () => restartHandler();
+  $("restart-footer").onclick = () => restartHandler();
   // iOS never resizes the layout for the keyboard, so the page fits the visual viewport and only its content scrolls.
   const viewport = window.visualViewport;
   if (viewport) {

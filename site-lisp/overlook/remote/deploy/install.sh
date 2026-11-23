@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds overlook-remoted and, on macOS with Swift, overlook-menubar (remote/menubar) into $PREFIX/bin and writes their LaunchAgent plists.
 #   TOKEN_FILE=… [PREFIX=~/.local] [LISTEN=127.0.0.1:8767] [SOCKET=…] [ADMIN_SOCKET=…] [LABEL=…] [WEB_DIR=…] [PLIST=out.plist]
-#   [MENUBAR=0] [MENUBAR_LABEL=…] [MENUBAR_PLIST=out.plist] [DAEMON_PLIST=…] deploy/install.sh
+#   [EMACS_START="/usr/bin/open -a Emacs"] [MENUBAR=0] [MENUBAR_LABEL=…] [MENUBAR_PLIST=out.plist] [DAEMON_PLIST=…] deploy/install.sh
 # It never loads an agent; see remote/README.md for launchctl, and deploy.sh for updates.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -12,6 +12,8 @@ SOCKET=${SOCKET:-$HOME/.local/state/overlook-remote/bridge.sock}
 ADMIN_SOCKET=${ADMIN_SOCKET:-$(dirname "$SOCKET")/admin.sock}
 LOG=${LOG:-$HOME/Library/Logs/overlook-remoted.log}
 LABEL=${LABEL:-io.github.guiyuanju.overlook-remoted}
+# Starts Emacs after a crash or on request; empty never starts it.
+EMACS_START=${EMACS_START-/usr/bin/open -a Emacs}
 PLIST=${PLIST:-$PWD/$LABEL.plist}
 MENUBAR_LABEL=${MENUBAR_LABEL:-io.github.guiyuanju.overlook-menubar}
 MENUBAR_PLIST=${MENUBAR_PLIST:-$PWD/$MENUBAR_LABEL.plist}
@@ -42,7 +44,7 @@ fi
 render() {
   sed -e "s|@BINARY@|$PREFIX/bin/overlook-remoted|" -e "s|@MENUBAR_BINARY@|$PREFIX/bin/overlook-menubar|" \
       -e "s|@NODE@|$node|" -e "s|@PORT@|$port|" -e "s|@TOKEN_FILE@|$TOKEN_FILE|" -e "s|@SOCKET@|$SOCKET|" \
-      -e "s|@ADMIN_SOCKET@|$ADMIN_SOCKET|" -e "s|@LOG@|$LOG|" -e "s|@LABEL@|$LABEL|" \
+      -e "s|@ADMIN_SOCKET@|$ADMIN_SOCKET|" -e "s|@LOG@|$LOG|" -e "s|@EMACS_START@|$EMACS_START|" -e "s|@LABEL@|$LABEL|" \
       -e "s|@MENUBAR_LABEL@|$MENUBAR_LABEL|" -e "s|@MENUBAR_LOG@|$MENUBAR_LOG|" -e "s|@DAEMON_PLIST@|$DAEMON_PLIST|" \
       "$1" > "$2"
   if command -v plutil >/dev/null; then plutil -lint "$2" >/dev/null; fi

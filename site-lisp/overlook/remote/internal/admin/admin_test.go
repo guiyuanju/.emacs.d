@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/guiyuanju/overlook/remote/internal/supervisor"
 )
 
 type fakeDaemon struct {
@@ -31,6 +33,16 @@ func (f *fakeDaemon) SetAwake(on bool) error {
 		return errors.New("unavailable")
 	}
 	f.st.Awake = on
+	return nil
+}
+
+func (f *fakeDaemon) RestartEmacs() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.st.EmacsProcess == nil {
+		return errors.New("not supervised")
+	}
+	f.st.EmacsProcess.State = "restarting"
 	return nil
 }
 
@@ -95,6 +107,19 @@ func TestStatusAndSetAwake(t *testing.T) {
 	d.update(func(s *Status) { s.Daemon = "no-caffeinate" })
 	if _, err := Do(path, func(c *Client) (Status, error) { return c.SetAwake(true) }); err == nil || err.Error() != "unavailable" {
 		t.Fatalf("set-awake error: %v", err)
+	}
+}
+
+func TestRestartEmacs(t *testing.T) {
+	d := &fakeDaemon{st: Status{Daemon: "v1"}}
+	_, path, _ := serve(t, d)
+	if _, err := Do(path, (*Client).RestartEmacs); err == nil || err.Error() != "not supervised" {
+		t.Fatalf("restart without supervision: %v", err)
+	}
+	d.update(func(s *Status) { s.EmacsProcess = &supervisor.Status{State: supervisor.Online, CanRestart: true} })
+	st, err := Do(path, (*Client).RestartEmacs)
+	if err != nil || st.EmacsProcess == nil || st.EmacsProcess.State != "restarting" {
+		t.Fatalf("restart: %+v, %v", st, err)
 	}
 }
 

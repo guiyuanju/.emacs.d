@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	"github.com/guiyuanju/overlook/remote/internal/state"
 	"github.com/guiyuanju/overlook/remote/internal/store"
 	"github.com/guiyuanju/overlook/remote/internal/stream"
+	"github.com/guiyuanju/overlook/remote/internal/supervisor"
 	"github.com/guiyuanju/overlook/remote/internal/usage"
 	"github.com/guiyuanju/overlook/remote/web"
 )
@@ -41,9 +43,11 @@ import (
 var version = "dev"
 
 var (
-	_ api.Emacs     = (*bridge.Server)(nil)
-	_ stream.Source = (*store.Store)(nil)
-	_ admin.Daemon  = (*daemon)(nil)
+	_ api.Emacs      = (*bridge.Server)(nil)
+	_ stream.Source  = (*store.Store)(nil)
+	_ admin.Daemon   = (*daemon)(nil)
+	_ api.Supervisor = (*supervisor.Supervisor)(nil)
+	_ bridge.Watcher = (*supervisor.Supervisor)(nil)
 )
 
 // assetsLevel is the brotli quality of precompressed page files; tests lower it.
@@ -119,6 +123,8 @@ type daemon struct {
 	awake     *awake.Keeper
 	started   time.Time
 	usage     *usage.Ledger
+	// super follows the Emacs process; nil with -fake-emacs.
+	super *supervisor.Supervisor
 
 	// settingsMu guards settings, the user settings kept in cfg.SettingsFile.
 	settingsMu sync.Mutex
@@ -174,7 +180,16 @@ func newDaemon(cfg config.Config, log *slog.Logger, webFS fs.FS) (*daemon, error
 	}
 	d.awake = awake.New(cfg.Caffeinate, log, d.admin.Changed)
 	d.bridge = bridge.NewServer(cfg.Socket, version, d.store, log)
+	if cfg.FakeEmacs == "" {
+		// Changes only come once serving, after d.hub is set below.
+		d.super = supervisor.New(supervisor.Options{Start: cfg.EmacsStart}, d.bridge, log, func() {
+			d.admin.Changed()
+			d.hub.Notify(store.Change{Status: true})
+		})
+		d.bridge.SetWatcher(d.super)
+	}
 	opts := stream.DefaultOptions
+	opts.Process = d.processJSON
 	opts.Compress = cfg.StreamCompression
 	opts.Earlier = api.EarlierFunc(d.bridge, d.store)
 	opts.Counted = d.admin.Changed
@@ -194,6 +209,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, webFS fs.FS) (*daemon, error
 	d.handler = api.New(api.Deps{
 		Usage: d.usage, Store: d.store, Emacs: d.bridge, Hub: d.hub, Auth: auth.Require(tokens, deny),
 		Assets: page, Log: log, Receipts: d.receipts, Confirmer: d.confirmer, Version: version,
+		Supervisor: d.apiSupervisor(),
 	}).Handler()
 	if cfg.FakeEmacs != "" {
 		fx, err := fakeemacs.Load(cfg.FakeEmacs)
@@ -353,6 +369,10 @@ func (d *daemon) serve(ctx context.Context) error {
 			}
 		}()
 	}
+	if d.super != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); d.super.Run(bctx) }()
+	}
 	if d.settings.Awake {
 		if err := d.awake.Set(true); errors.Is(err, awake.ErrUnavailable) {
 			d.log.Debug("not keeping the Mac awake: no -caffeinate")
@@ -449,6 +469,10 @@ func (d *daemon) Status() admin.Status {
 		Emacs: string(d.store.Emacs()), Streams: d.hub.Count(), Awake: d.awake.On(), AwakeHeld: d.awake.Held(),
 		Host: netaddr.Host(),
 	}
+	if d.super != nil {
+		ps := d.super.Status()
+		st.EmacsProcess = &ps
+	}
 	// The page URL uses the first listener a phone can reach, plain HTTP before TLS.
 	best := -1
 	rank := func(l *listener) int {
@@ -478,6 +502,31 @@ func (d *daemon) Status() admin.Status {
 		}
 	}
 	return st
+}
+
+// processJSON is the Emacs process status for stream events, nil when unsupervised.
+func (d *daemon) processJSON() json.RawMessage {
+	if d.super == nil {
+		return nil
+	}
+	b, _ := json.Marshal(d.super.Status())
+	return b
+}
+
+// apiSupervisor keeps a nil supervisor a nil interface.
+func (d *daemon) apiSupervisor() api.Supervisor {
+	if d.super == nil {
+		return nil
+	}
+	return d.super
+}
+
+// RestartEmacs quits Emacs and starts it again.
+func (d *daemon) RestartEmacs() error {
+	if d.super == nil {
+		return errors.New("Emacs is not supervised (-fake-emacs)")
+	}
+	return d.super.Restart()
 }
 
 // SetAwake turns keeping the Mac awake on or off and saves the choice.

@@ -287,3 +287,24 @@ test("file links and sizes", () => {
   assert.equal(model.fileSize(35_400_000), "35 MB");
   assert.equal(model.fileSize(1.5e9), "1.5 GB");
 });
+
+test("processBanner says what the supervised Emacs is doing", () => {
+  assert.equal(model.processBanner(undefined, "offline"), null);
+  assert.equal(model.processBanner({ state: "online", canRestart: true }, "online"), null);
+  assert.deepEqual(model.processBanner({ state: "unresponsive", canRestart: true }, "online").action, "restart");
+  assert.deepEqual(model.processBanner({ state: "restarting", canRestart: true }, "offline"), { message: "Restarting Emacs…", action: "" });
+  const crashed = model.processBanner({ state: "crashed", canRestart: true, error: "crashed 4 times" }, "offline");
+  assert.equal(crashed.action, "start");
+  assert.match(crashed.message, /crashed 4 times/);
+  assert.equal(model.processBanner({ state: "stopped", canRestart: false }, "offline").action, "");
+  assert.equal(model.processBanner({ state: "disconnected", canRestart: true }, "offline").action, "restart");
+  assert.equal(model.processBanner({ state: "disconnected", canRestart: true }, "online"), null);
+});
+
+test("restartQuestion counts working agents", () => {
+  const sections = [{ kind: "group", children: [
+    { kind: "agent", conversation: "a", status: "working" }, { kind: "agent", conversation: "b", status: "idle" },
+    { kind: "agent", conversation: "c", status: "working" }] }];
+  assert.match(model.restartQuestion(sections), /including 2 working agents\.$/);
+  assert.match(model.restartQuestion([]), /stop\.$/);
+});

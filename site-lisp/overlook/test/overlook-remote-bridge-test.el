@@ -797,6 +797,28 @@ BODY sees the agent's conversation id as `id' and the sync's params as `sync'."
 
 ;;; overlook-remote-bridge-test.el ends here
 
+;;; Supervision
+
+(ert-deftest overlook-bridge-says-bye-when-turned-off-or-quitting ()
+  (overlook-bridge-test-with-daemon
+    (should (memq #'overlook-remote-bridge--bye kill-emacs-hook))
+    ;; Queued output goes before bye, so bye starts a line of its own.
+    (overlook-remote-bridge--notify "agent.event" '(:conversation "x" :at "t" :type "end"))
+    (overlook-remote-bridge-mode -1)
+    (should-not (memq #'overlook-remote-bridge--bye kill-emacs-hook))
+    (overlook-bridge-test--take-method "bye")
+    (should (equal (car (last (overlook-bridge-test--methods))) "agent.event"))))
+
+(ert-deftest overlook-bridge-restarts-emacs-on-request ()
+  (overlook-bridge-test-with-daemon
+    (let (calls)
+      (cl-letf (((symbol-function 'save-some-buffers) (lambda (&rest args) (push (cons 'save args) calls)))
+                ((symbol-function 'kill-emacs) (lambda (&rest _) (push 'kill calls))))
+        (should-not (overlook-bridge-test--result "emacs.restart"))
+        (should-not calls)
+        (overlook-bridge-test--wait (lambda () (memq 'kill calls)))
+        (should (equal (reverse calls) '((save t) kill)))))))
+
 (ert-deftest overlook-bridge-sends-agent-row-marks-as-note ()
   (let ((buffer (generate-new-buffer "olb-note"))
         (overlook-agent-row-marks

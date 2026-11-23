@@ -202,12 +202,15 @@ type StreamHello struct {
 	Protocol int         `json:"protocol"`
 	Epoch    string      `json:"epoch"`
 	Emacs    EmacsStatus `json:"emacs"`
+	// Process is the Emacs process status (GET /emacs), when the daemon supervises it.
+	Process json.RawMessage `json:"process,omitempty"`
 }
 
 // StreamStatus is the data of a status stream event.
 type StreamStatus struct {
-	Emacs EmacsStatus `json:"emacs"`
-	Epoch string      `json:"epoch,omitempty"`
+	Emacs   EmacsStatus     `json:"emacs"`
+	Epoch   string          `json:"epoch,omitempty"`
+	Process json.RawMessage `json:"process,omitempty"`
 }
 
 // StreamGone is the data of a gone stream event.

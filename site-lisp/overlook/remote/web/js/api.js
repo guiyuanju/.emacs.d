@@ -92,6 +92,8 @@ export const api = {
   fileLink: (id, path) => request("POST", `conversations/${enc(id)}/files`, { body: { path } }),
   diff: (node) => get(`nodes/${enc(node)}/diff`),
   command: (node, name, body, key) => request("POST", `nodes/${enc(node)}/commands/${enc(name)}`, { body, key }),
+  emacs: () => get("emacs"),
+  restartEmacs: () => request("POST", "emacs/restart"),
 };
 
 const images = new Map();

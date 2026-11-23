@@ -191,6 +191,15 @@ activity and read position and ends its subscriptions with `gone`.
 
 Params: Event (section 3).
 
+### `bye` (notification)
+
+Params: `{}`. The coming disconnect is intentional: Emacs is quitting
+(`kill-emacs-hook`, which SIGTERM and SIGHUP also run) or
+`overlook-remote-bridge-mode` is being turned off. Emacs writes what is left of
+its outbox first, so `bye` starts a line. The daemon accepts it any time after
+`hello`. A process that exits after a disconnect without `bye` has crashed:
+the daemon starts Emacs again (section 11).
+
 ## 5. Daemon → Emacs requests
 
 `conversation` params are conversation ids; `path` params are the node's key
@@ -211,6 +220,7 @@ everything; the daemon pre-validates what it can from the published state.
 | `node.command` | `{path, name, text?, option?, confirmed: string[]}` | CommandOutcome | 404 `node_missing`, 404 `command_missing`, 400 `empty_text`, 400 `invalid_option`, 409 `state_conflict` |
 | `node.diff` | `{path}` | `{diff}`: unified diff text | 404 `node_missing`, 404 `diff_missing` |
 | `ping` | `{}` | `{}` | — |
+| `emacs.restart` | `{}` | `{}`, then Emacs saves its file buffers without asking and quits | — |
 
 - **ActionOutcome**: `{outcome: "done", conversation?: string, closed?: true}`
   or `{outcome: "confirm", question: string}`. `conversation` is the resulting
@@ -334,7 +344,7 @@ request it answers 413 `request_too_large` / −32700 when the id is
 recoverable, and after dropping a notification it sends `resync`.
 
 Daemon wait per request, after which the HTTP call gets 504 `emacs_timeout`:
-`conversation.earlier` 2 s, `ping` 5 s, `conversation.action` and
+`conversation.earlier` 2 s, `ping` and `emacs.restart` 5 s, `conversation.action` and
 `node.command` 30 s, everything else 10 s. The call stays pending until Emacs
 answers or disconnects; a late result is still recorded as the idempotency
 receipt.
@@ -355,3 +365,21 @@ receipt.
 
 The literal `${FIXTURES}` in strings stands for the absolute path of
 `testdata/fixtures`; fakeemacs substitutes it before sending.
+
+## 11. Supervision
+
+With `-emacs-start` the daemon follows the process whose `pid` came in the
+last `hello` (`internal/supervisor`):
+
+- **Crash.** After a disconnect it checks the pid every second. If the
+  process goes without `bye`, it runs `-emacs-start` and waits up to 2 minutes
+  for a `hello` from another pid. More than 3 crashes within 10 minutes stop
+  automatic restarts (state `crashed`) until a manual restart.
+- **Unresponsive.** While connected it sends `ping` every 15 s; two misses in
+  a row report `unresponsive`, an answer `online` again. It never restarts an
+  unresponsive Emacs by itself: long garbage collections and blocking commands
+  look the same.
+- **Restart** (page, admin socket, menu bar): `emacs.restart` while connected;
+  if the process is still there after 30 s, SIGTERM; after 10 s more, SIGKILL;
+  then `-emacs-start`. A `hello` from the old pid during a restart does not end it.
+

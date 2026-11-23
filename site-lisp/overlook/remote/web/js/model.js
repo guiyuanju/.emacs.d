@@ -47,6 +47,30 @@ export function findNodes(nodes, predicate) {
 
 export const nodeTitle = (node) => node?.title || "Untitled";
 
+// What the banner says about the supervised Emacs process (GET /emacs), and the button it offers:
+// {message, action} with action "" | "restart" | "start", or null when there is nothing to say.
+export function processBanner(process, emacs) {
+  if (!process) return null;
+  const restart = process.canRestart ? "restart" : "";
+  const start = process.canRestart ? "start" : "";
+  const why = process.error ? ` (${process.error})` : "";
+  switch (process.state) {
+    case "unresponsive": return { message: "Emacs is not responding. It may be busy; restart it if it stays stuck.", action: restart };
+    case "restarting": return { message: "Restarting Emacs…", action: "" };
+    case "crashed": return { message: `Emacs crashed and was not restarted${why}.`, action: start };
+    case "stopped": return { message: `Emacs has quit${why}.`, action: start };
+  }
+  if (emacs !== "offline") return null;
+  return { message: `Emacs is not connected${why}. Showing the last update; sending resumes when Emacs is back.`, action: restart };
+}
+
+// The question asked before restarting Emacs; sections is the dashboard, to count working agents.
+export function restartQuestion(sections) {
+  const working = findNodes(sections, (node) => node.kind === "agent" && node.status === "working").length;
+  return "Modified files are saved, then Emacs quits and starts again. Agents running in Emacs stop"
+    + (working ? `, including ${unit(working, "working agent")}.` : ".");
+}
+
 export function statusLabel(status) {
   return ({ working: "Working", waiting: "Needs attention", failed: "Failed", done: "Completed",
     idle: "Ready", saved: "Saved", offline: "Not started", open: "To do" })[status] || status || "";

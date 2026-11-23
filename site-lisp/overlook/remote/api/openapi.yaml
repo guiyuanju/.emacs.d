@@ -39,6 +39,7 @@ tags:
   - name: stream
   - name: conversations
   - name: nodes
+  - name: emacs
   - name: health
 
 paths:
@@ -597,6 +598,38 @@ paths:
         '503': { $ref: '#/components/responses/EmacsOffline' }
         '504': { $ref: '#/components/responses/EmacsTimeout' }
 
+  /emacs:
+    get:
+      tags: [emacs]
+      operationId: getEmacs
+      summary: The Emacs process the daemon supervises
+      responses:
+        '200':
+          description: Its state; `unknown` and `canRestart` false when the daemon does not supervise Emacs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmacsProcess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /emacs/restart:
+    post:
+      tags: [emacs]
+      operationId: restartEmacs
+      summary: Quit Emacs and start it again, or start it when it is not running
+      description: |
+        The daemon asks Emacs to save its file buffers and quit (`emacs.restart`),
+        then sends SIGTERM and SIGKILL to a process that stays, and runs its
+        `-emacs-start` command. Answers once the restart is under way; status
+        events follow it.
+      responses:
+        '202':
+          description: Restarting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmacsProcess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /healthz:
     servers:
       - url: /overlook
@@ -857,6 +890,9 @@ components:
           description: '`group`, `text`, `project`, `persona`, `agent`, `saved`, `usage`, `repo`, `folder`, `file`, `todo`, `tasks`, or another kind rendered generically.'
         title: { type: string }
         subtitle: { type: string }
+        note:
+          type: string
+          description: Agent rows; the marks Emacs shows on the row, such as a continuation waiting for a quota reset.
         provider: { type: string }
         status: { type: string }
         account: { type: string }
@@ -890,9 +926,6 @@ components:
         children:
           type: array
           items: { $ref: '#/components/schemas/NodeOrSame' }
-        note:
-          type: string
-          description: Agent rows; the marks Emacs shows on the row, such as a continuation waiting for a quota reset.
 
     UsageWindow:
       type: object
@@ -1182,6 +1215,7 @@ components:
         protocol: { const: 3 }
         epoch: { type: string }
         emacs: { $ref: '#/components/schemas/EmacsStatus' }
+        process: { $ref: '#/components/schemas/EmacsProcess' }
 
     StreamStatus:
       type: object
@@ -1191,6 +1225,26 @@ components:
         epoch:
           type: string
           description: Present when the history epoch changed (Emacs restarted).
+        process:
+          $ref: '#/components/schemas/EmacsProcess'
+          description: Present when the daemon supervises Emacs; sent again whenever it changes.
+
+    EmacsProcess:
+      type: object
+      required: [state, canRestart]
+      properties:
+        state:
+          type: string
+          enum: [unknown, online, unresponsive, disconnected, restarting, stopped, crashed]
+          description: |
+            `unresponsive`: connected but missing pings (only reported, never restarted);
+            `disconnected`: not connected, process alive or not known; `stopped`: quit on purpose;
+            `crashed`: died without saying bye and was not restarted (see `error`).
+        pid: { type: integer }
+        canRestart: { type: boolean, description: The daemon has a command to start Emacs. }
+        crashes: { type: integer, description: Crashes since the daemon started. }
+        lastCrash: { type: string, format: date-time }
+        error: { type: string, description: Why the last restart failed or was not attempted. }
 
     StreamGone:
       type: object

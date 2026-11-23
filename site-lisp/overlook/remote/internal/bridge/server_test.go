@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -310,5 +311,42 @@ func TestEnvelopeHead(t *testing.T) {
 		if string(id) != tt.id || method != tt.method {
 			t.Errorf("envelopeHead(%q) = %s, %q", tt.in, id, method)
 		}
+	}
+}
+
+type watchRecorder struct{ rec *recorder }
+
+func (w watchRecorder) Hello(pid int) { w.rec.add("hello:" + strconv.Itoa(pid)) }
+func (w watchRecorder) Bye()          { w.rec.add("bye") }
+func (w watchRecorder) Gone()         { w.rec.add("gone") }
+
+func TestWatcher(t *testing.T) {
+	path := socketPath(t)
+	rec := &recorder{}
+	s := NewServer(path, "test", rec, nil)
+	s.SetWatcher(watchRecorder{rec})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = s.Serve(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	c := dial(t, path)
+	c.hello("e1")
+	rec.waitFor(t, "hello:1")
+	// bye counts even before sync: Emacs may quit while handshaking.
+	c.send(`{"jsonrpc":"2.0","method":"bye","params":{}}`)
+	rec.waitFor(t, "bye")
+	c.conn.Close()
+	rec.waitFor(t, "gone")
+	got := strings.Join(rec.snapshot(), " ")
+	if want := "connected:e1 hello:1 bye disconnected gone"; got != want {
+		t.Fatalf("calls %q, want %q", got, want)
 	}
 }

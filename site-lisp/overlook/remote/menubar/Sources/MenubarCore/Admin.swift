@@ -133,6 +133,11 @@ public enum Admin {
         try AdminConnection(path: path).call(["op": "set-awake", "on": on])
     }
 
+    /// Quits Emacs and starts it again; returns the status once that is under way.
+    public static func restartEmacs(path: String) throws -> Status {
+        try AdminConnection(path: path).call(["op": "restart-emacs"])
+    }
+
     /// Calls onStatus with each status the daemon at path pushes, until the connection fails.
     /// onConnect receives the connection so another thread can shut it down.
     public static func watch(

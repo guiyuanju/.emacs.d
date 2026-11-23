@@ -38,6 +38,16 @@ type Sink interface {
 	Disconnected()
 }
 
+// Watcher follows the Emacs process behind the connection.
+type Watcher interface {
+	// Hello is called after a valid hello with Emacs's pid.
+	Hello(pid int)
+	// Bye is called when Emacs says the coming disconnect is intentional.
+	Bye()
+	// Gone is called when the active connection ends.
+	Gone()
+}
+
 // Server listens on the bridge socket and holds the one active Emacs connection.
 type Server struct {
 	path    string
@@ -52,6 +62,12 @@ type Server struct {
 	ln      net.Listener
 	nextID  atomic.Int64
 	wg      sync.WaitGroup
+	watcher Watcher
+}
+
+// SetWatcher sets w to follow the Emacs process; call it before Serve.
+func (s *Server) SetWatcher(w Watcher) {
+	s.watcher = w
 }
 
 // NewServer returns a server for socket path that feeds sink.
@@ -460,6 +476,9 @@ func (s *Server) gone(c *conn) {
 	if active {
 		s.log.Info("emacs disconnected")
 		s.sink.Disconnected()
+		if s.watcher != nil {
+			s.watcher.Gone()
+		}
 	}
 }
 
@@ -485,6 +504,16 @@ func (s *Server) dispatch(c *conn, m *Message) {
 		c.respondError(m.ID, &Error{Code: CodeMethodNotFound, Message: "method not found: " + m.Method})
 		return
 	}
+	if m.Method == MethodBye {
+		s.mu.Lock()
+		active := s.active == c
+		s.mu.Unlock()
+		if active && s.watcher != nil {
+			s.log.Info("emacs said bye")
+			s.watcher.Bye()
+		}
+		return
+	}
 	s.apply(c, m)
 }
 
@@ -507,6 +536,9 @@ func (s *Server) hello(c *conn, m *Message) {
 	s.mu.Unlock()
 	c.hello = true
 	epoch := s.sink.Connected(p)
+	if s.watcher != nil {
+		s.watcher.Hello(p.PID)
+	}
 	s.applyMu.Unlock()
 	if old != nil {
 		old.close()

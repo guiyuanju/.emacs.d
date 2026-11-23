@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/guiyuanju/overlook/remote/internal/supervisor"
 )
 
 // Request operations.
@@ -23,6 +25,8 @@ const (
 	OpStatus   = "status"
 	OpWatch    = "watch"
 	OpSetAwake = "set-awake"
+	// OpRestartEmacs quits Emacs and starts it again; the answer is the status once the restart is under way.
+	OpRestartEmacs = "restart-emacs"
 )
 
 // Request is one line from a client.
@@ -54,6 +58,8 @@ type Status struct {
 	Scheme string `json:"scheme"`
 	Host   string `json:"host"`
 	Port   int    `json:"port"`
+	// EmacsProcess is the supervised Emacs process, absent when the daemon does not supervise it.
+	EmacsProcess *supervisor.Status `json:"emacsProcess,omitempty"`
 }
 
 // Listener is an HTTP listener of the daemon.
@@ -74,6 +80,7 @@ func (s Status) same(o Status) bool {
 type Daemon interface {
 	Status() Status
 	SetAwake(on bool) error
+	RestartEmacs() error
 }
 
 // recheck is how often watchers recompute the status without being told of a change, catching address changes.
@@ -230,6 +237,14 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 			s.log.Info("admin: keep awake set", "on", *req.On)
 			st := s.d.Status()
 			_ = send(Response{Status: &st})
+		case OpRestartEmacs:
+			if err := s.d.RestartEmacs(); err != nil {
+				_ = send(Response{Error: err.Error()})
+				continue
+			}
+			s.log.Info("admin: restarting emacs")
+			st := s.d.Status()
+			_ = send(Response{Status: &st})
 		case OpWatch:
 			watching.Add(1)
 			go func() {
@@ -319,6 +334,9 @@ func (c *Client) Status() (Status, error) { return c.call(Request{Op: OpStatus})
 
 // SetAwake turns keeping awake on or off and returns the new status.
 func (c *Client) SetAwake(on bool) (Status, error) { return c.call(Request{Op: OpSetAwake, On: &on}) }
+
+// RestartEmacs quits Emacs and starts it again, returning the status once that is under way.
+func (c *Client) RestartEmacs() (Status, error) { return c.call(Request{Op: OpRestartEmacs}) }
 
 // Watch asks for status pushes; read them with Next.
 func (c *Client) Watch() error { return c.send(Request{Op: OpWatch}) }

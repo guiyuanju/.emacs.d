@@ -59,6 +59,8 @@ type Options struct {
 	Earlier      EarlierFunc
 	// Counted is called, outside the hub's lock, after a stream opens or closes.
 	Counted func()
+	// Process returns the Emacs process status as JSON for hello and status events; nil leaves it out.
+	Process func() json.RawMessage
 }
 
 // DefaultOptions are the production values.
@@ -250,8 +252,8 @@ func (h *Hub) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	w.WriteHeader(http.StatusOK)
 
-	st := &streamState{h: h, cl: cl, w: sw, emacs: h.src.Emacs(), epoch: h.src.Epoch()}
-	if err := sw.frame("", EventHello, store.StreamHello{Protocol: Protocol, Epoch: st.epoch, Emacs: st.emacs}); err != nil {
+	st := &streamState{h: h, cl: cl, w: sw, emacs: h.src.Emacs(), epoch: h.src.Epoch(), process: h.process()}
+	if err := sw.frame("", EventHello, store.StreamHello{Protocol: Protocol, Epoch: st.epoch, Emacs: st.emacs, Process: st.process}); err != nil {
 		return nil
 	}
 	cl.mu.Lock()
@@ -295,12 +297,20 @@ func (h *Hub) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request,
 }
 
 type streamState struct {
-	h     *Hub
-	cl    *client
-	w     *writer
-	emacs store.EmacsStatus
-	epoch string
-	wrote int
+	h       *Hub
+	cl      *client
+	w       *writer
+	emacs   store.EmacsStatus
+	epoch   string
+	process json.RawMessage
+	wrote   int
+}
+
+func (h *Hub) process() json.RawMessage {
+	if h.opts.Process == nil {
+		return nil
+	}
+	return h.opts.Process()
 }
 
 func (s *streamState) frame(id, event string, data any) error {
@@ -319,13 +329,13 @@ func (s *streamState) flush(ctx context.Context) (done bool, err error) {
 	src := s.h.src
 
 	if status {
-		em, ep := src.Emacs(), src.Epoch()
-		if em != s.emacs || ep != s.epoch {
-			ev := store.StreamStatus{Emacs: em}
+		em, ep, pr := src.Emacs(), src.Epoch(), s.h.process()
+		if em != s.emacs || ep != s.epoch || !bytes.Equal(pr, s.process) {
+			ev := store.StreamStatus{Emacs: em, Process: pr}
 			if ep != s.epoch {
 				ev.Epoch = ep
 			}
-			s.emacs, s.epoch = em, ep
+			s.emacs, s.epoch, s.process = em, ep, pr
 			if err := s.frame("", EventStatus, ev); err != nil {
 				return true, err
 			}

@@ -21,6 +21,8 @@ const (
 	MethodConversationSet    = "conversation.set"
 	MethodConversationRemove = "conversation.remove"
 	MethodAgentEvent         = "agent.event"
+	// MethodBye says the coming disconnect is intentional: Emacs is quitting or the bridge is turned off.
+	MethodBye = "bye"
 )
 
 // Methods sent by the daemon.
@@ -38,6 +40,8 @@ const (
 	MethodPing    = "ping"
 	MethodSeen    = "conversation.seen"
 	MethodResync  = "resync"
+	// MethodEmacsRestart asks Emacs to save its buffers and quit, for the daemon to start it again.
+	MethodEmacsRestart = "emacs.restart"
 )
 
 // Size limits from section 9 of the protocol.
@@ -49,10 +53,11 @@ const (
 
 // Timeouts are how long the daemon waits for Emacs per method.
 var Timeouts = map[string]time.Duration{
-	MethodEarlier: 2 * time.Second,
-	MethodPing:    5 * time.Second,
-	MethodAction:  30 * time.Second,
-	MethodCommand: 30 * time.Second,
+	MethodEarlier:      2 * time.Second,
+	MethodPing:         5 * time.Second,
+	MethodAction:       30 * time.Second,
+	MethodCommand:      30 * time.Second,
+	MethodEmacsRestart: 5 * time.Second,
 }
 
 // DefaultTimeout applies to methods missing from Timeouts.
@@ -85,12 +90,12 @@ type Node struct {
 	Kind         string        `json:"kind"`
 	Title        string        `json:"title"`
 	Subtitle     string        `json:"subtitle,omitempty"`
+	Note         string        `json:"note,omitempty"`
 	Provider     string        `json:"provider,omitempty"`
 	Status       string        `json:"status,omitempty"`
 	Account      string        `json:"account,omitempty"`
 	Branch       string        `json:"branch,omitempty"`
 	Added        int           `json:"added,omitempty"`
-	Note         string        `json:"note,omitempty"`
 	Removed      int           `json:"removed,omitempty"`
 	Due          string        `json:"due,omitempty"`
 	Persona      string        `json:"persona,omitempty"`
@@ -465,7 +470,7 @@ func NewParams(method string) any {
 		return new(CommandParams)
 	case MethodDiff:
 		return new(DiffParams)
-	case MethodPing, MethodResync:
+	case MethodPing, MethodResync, MethodBye, MethodEmacsRestart:
 		return new(Empty)
 	}
 	return nil
@@ -478,7 +483,7 @@ func NewResult(method string) any {
 		return new(HelloResult)
 	case MethodPrompt:
 		return new(PromptResult)
-	case MethodUnqueue, MethodRetry, MethodChoose, MethodAnswer, MethodPing:
+	case MethodUnqueue, MethodRetry, MethodChoose, MethodAnswer, MethodPing, MethodEmacsRestart:
 		return new(Empty)
 	case MethodAction:
 		return new(ActionOutcome)

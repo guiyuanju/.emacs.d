@@ -28,6 +28,7 @@ Flags (`-h` lists them all):
 | `-state-file` | state kept across restarts (history, read positions, receipts, images in `media/` beside it); default `state.json` beside `-socket`; `""` keeps nothing |
 | `-cache-dir` | compressed page files by content hash, so starts take ~10 ms; default `~/Library/Caches/overlook-remoted`; `""` disables |
 | `-web-dir` | serve the page from this directory (e.g. `remote/web`) instead of the binary, picking up edits on the next page load |
+| `-emacs-start` | command (split on spaces) that starts Emacs after a crash or on request, e.g. `/usr/bin/open -a Emacs`; default empty: Emacs is not supervised beyond being reported |
 | `-auto-close` | minutes after which non-loopback listeners close (0 never; not with `launchd:` sockets) |
 | `-stream-compression` | gzip the event stream (default true; `=false` if iOS misbehaves) |
 | `-debug` | debug logging |
@@ -36,6 +37,32 @@ The page is `http://HOST:PORT/overlook/#TOKEN`, the same address the old
 server used, so a Home Screen link keeps working once the daemon takes the old
 port. `GET /overlook/healthz` answers without a token and says whether Emacs is
 connected.
+
+## Watching Emacs
+
+With `-emacs-start` the daemon watches the Emacs process behind the bridge
+(details: `docs/bridge-protocol.md` section 11):
+
+- **Crash.** Emacs says `bye` before it disconnects on purpose (quitting,
+  SIGTERM, or turning `overlook-remote-bridge-mode` off). A process that
+  disappears without it has crashed, and the daemon starts Emacs again with
+  `-emacs-start`. More than 3 crashes within 10 minutes stop that until a
+  manual restart.
+- **Not responding.** A connected Emacs that misses two pings in a row (15 s
+  apart) shows as not responding on the page and in the menu bar. The daemon
+  never restarts it by itself.
+- **Restart**, e.g. to apply init file changes: the page's **Restart Emacs**
+  (dashboard footer, and the banner while Emacs is stuck or gone), the menu bar
+  app's **Restart Emacs**, `{"op":"restart-emacs"}` on the admin socket, or
+  `POST /overlook/api/emacs/restart`. Emacs saves its file buffers without
+  asking and quits; a process still there after 30 s gets SIGTERM, then
+  SIGKILL 10 s later; then the daemon starts Emacs. Buffers are not restored,
+  and agents running in Emacs stop.
+
+`GET /overlook/api/emacs`, the stream's `hello` and `status` events (`process`)
+and the admin status (`emacsProcess`) carry the state: `online`,
+`unresponsive`, `disconnected`, `restarting`, `stopped`, `crashed`, or
+`unknown` before Emacs first connects.
 
 ## Keeping the Mac awake
 
@@ -57,11 +84,12 @@ request is one line, each answer one line, `{"status": {...}}` or `{"error": "..
 | `{"op":"status"}` | the status |
 | `{"op":"watch"}` | the status now and again whenever it changes, until the client disconnects |
 | `{"op":"set-awake","on":false}` | turns keep-awake off (or on) and answers the new status |
+| `{"op":"restart-emacs"}` | quits Emacs and starts it again (see Watching Emacs); answers the status once that is under way |
 
 The status has `daemon` (version), `started`, `uptime` (seconds), `emacs`
 (`online`/`offline`), `streams` (open page streams), `listeners`
 (`addr`, `tls`, `loopback`), `awake` (the setting), `awakeHeld` (caffeinate
-running), and `scheme`, `host`, `port` for the page URL: the first
+running), `emacsProcess` (the watched Emacs, with `-emacs-start`), and `scheme`, `host`, `port` for the page URL: the first
 non-loopback plain HTTP listener's port, and the host a phone should use
 (Tailscale's 100.64.0.0/10 address, else an `en` interface's). Try it with
 `echo '{"op":"status"}' | nc -U -w 1 ~/.local/state/overlook-remote/admin.sock`.
@@ -77,6 +105,8 @@ The menu:
 - **Copy URL**: `http://HOST:PORT/overlook/#TOKEN` to the clipboard, the token read from `-token-file`.
 - **Show QR Code**: the same URL as a QR code in a window of its own, made in memory; Escape or ⌘W closes it.
 - **Keep Mac Awake**: the daemon's keep-awake setting.
+- **Restart Emacs** (asks first), or **Start Emacs** after it quit or crashed; shown when the daemon has `-emacs-start`.
+  The status line says when Emacs is not responding, restarting, crashed or quit.
 - **Start at Login**: `launchctl enable`/`disable` of both the daemon's and the app's labels (read from `launchctl print-disabled`).
 - **Restart Remote** (`launchctl kickstart -k`), or **Start Remote** while stopped.
 - **Open Log**: the daemon's log in Console.
@@ -133,7 +163,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.guiyuanju.over
 
 `install.sh` builds both binaries into `$PREFIX/bin` (default `~/.local/bin`;
 the menu bar app needs macOS and Swift, and `MENUBAR=0` skips it) and renders
-`deploy/overlook-remoted.plist.in` (KeepAlive, logs in
+`deploy/overlook-remoted.plist.in` (`-emacs-start` from `EMACS_START`, default
+`/usr/bin/open -a Emacs`, empty to leave Emacs alone; KeepAlive, logs in
 `~/Library/Logs/overlook-remoted.log`) and `deploy/overlook-menubar.plist.in`
 (RunAtLoad, restarted only after a crash, GUI sessions only, logs in
 `~/Library/Logs/overlook-menubar.log`, pointing at the daemon's label, plist,

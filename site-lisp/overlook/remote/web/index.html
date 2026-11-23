@@ -36,11 +36,12 @@
     <span id="connection-message"></span>
     <button id="reconnect" class="button button-tonal button-small" type="button">Retry</button>
     <button id="return-dashboard" class="button button-tonal button-small" type="button" hidden>Dashboard</button>
+    <button id="restart-emacs" class="button button-tonal button-small" type="button" hidden>Restart Emacs</button>
   </div>
   <main id="dash" class="page-content remote-content">
     <div class="screen-intro" id="dashboard-intro"><h1>Overlook</h1></div>
     <div id="dashboard-content"></div>
-    <div class="sync-footer"><span id="conn">Connecting…</span></div>
+    <div class="sync-footer"><span id="conn">Connecting…</span><button id="restart-footer" class="link" type="button" hidden>Restart Emacs</button></div>
   </main>
   <main id="detail" class="page-content remote-content" hidden>
     <div id="persona-profile" class="persona-profile" hidden></div>

@@ -42,6 +42,8 @@ type Config struct {
 	SettingsFile string
 	// Caffeinate is the caffeinate(8) command that keeps the Mac awake; empty never keeps it awake.
 	Caffeinate string
+	// EmacsStart is the command, split on spaces, that starts Emacs after a crash or on request; empty never starts it.
+	EmacsStart []string
 	// FakeEmacs is a fixtures directory replayed by an in-process fake Emacs, for browser tests.
 	FakeEmacs     string
 	FakeSpeed     float64
@@ -112,6 +114,8 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	fs.StringVar(&c.AdminSocket, "admin-socket", "", "control socket `path` for the menu bar app (default admin.sock beside -socket; empty: none)")
 	fs.StringVar(&c.SettingsFile, "settings-file", "", "keep settings such as keep-awake in this `file` (default settings.json beside -socket; empty: none)")
 	fs.StringVar(&c.Caffeinate, "caffeinate", DefaultCaffeinate(), "caffeinate `command` that keeps the Mac awake (empty: never)")
+	var emacsStart string
+	fs.StringVar(&emacsStart, "emacs-start", "", "`command` (split on spaces) that starts Emacs after a crash or on request, e.g. \"/usr/bin/open -a Emacs\" (empty: never)")
 	fs.StringVar(&c.FakeEmacs, "fake-emacs", "", "replay the fixtures `dir` as a fake Emacs (tests only; SIGUSR1 replays live.ndjson)")
 	fs.Float64Var(&c.FakeSpeed, "fake-speed", 1, "speed factor of the fake Emacs's live steps")
 	fs.DurationVar(&c.FakeLiveDelay, "fake-live-delay", time.Second, "wait before the fake Emacs plays live steps (negative: only on SIGUSR1)")
@@ -134,6 +138,7 @@ func Parse(args []string, output io.Writer) (Config, error) {
 		c.SettingsFile = filepath.Join(filepath.Dir(c.Socket), "settings.json")
 	}
 	c.Listen, c.ListenTLS = listen, listenTLS
+	c.EmacsStart = strings.Fields(emacsStart)
 	if len(c.Listen) == 0 && len(c.ListenTLS) == 0 {
 		c.Listen = []string{DefaultListen}
 	}

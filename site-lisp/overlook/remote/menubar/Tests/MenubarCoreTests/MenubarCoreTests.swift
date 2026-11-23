@@ -58,6 +58,24 @@ import Testing
         let unheld = Menu(Status(emacs: "online", awake: true))
         #expect(unheld.status == "Remote online · no pages open")
         #expect(unheld.awakeTitle == "Keep Mac Awake (caffeinate not running)")
+        #expect(unheld.emacsRestart == nil)
+    }
+
+    @Test func emacsMenus() throws {
+        let stuck = Menu(Status(emacs: "online", emacsState: "unresponsive", emacsCanRestart: true))
+        #expect(stuck.status == "Emacs not responding · no pages open")
+        #expect(stuck.emacsRestart == "Restart Emacs" && stuck.emacsRestartEnabled && stuck.emacsRestartConfirm)
+        let restarting = Menu(Status(emacs: "offline", emacsState: "restarting", emacsCanRestart: true))
+        #expect(restarting.status.hasPrefix("Restarting Emacs…") && !restarting.emacsRestartEnabled)
+        let crashed = Menu(Status(emacs: "offline", emacsState: "crashed", emacsCanRestart: true))
+        #expect(crashed.emacsRestart == "Start Emacs" && !crashed.emacsRestartConfirm)
+        #expect(Menu(Status(emacs: "online", emacsState: "online")).emacsRestart == nil)
+
+        let json = #"{"emacs":"online","emacsProcess":{"state":"crashed","canRestart":true,"error":"too many"}}"#
+        let st = try JSONDecoder().decode(Status.self, from: Data(json.utf8))
+        #expect(st.emacsState == "crashed" && st.emacsCanRestart && st.emacsError == "too many")
+        let back = try JSONDecoder().decode(Status.self, from: try JSONEncoder().encode(st))
+        #expect(back == st)
     }
 
     @Test func decodesTheDaemonsStatus() throws {

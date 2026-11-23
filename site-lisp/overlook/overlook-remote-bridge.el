@@ -674,7 +674,8 @@ NOW sends a changed dashboard without waiting for its interval or a redraw."
     (overlook-after-model-hook overlook-remote-bridge--redrawn)
     (overlook-agent-changed-hook overlook-remote-bridge--agents-changed)
     (overlook-agent-event-functions overlook-remote-bridge--record)
-    (overlook-mode-line-functions overlook-remote-bridge--mode-line))
+    (overlook-mode-line-functions overlook-remote-bridge--mode-line)
+    (kill-emacs-hook overlook-remote-bridge--bye))
   "Hooks the mode adds, each (HOOK FUNCTION).")
 
 ;;; Prompt queue
@@ -918,6 +919,36 @@ Return RUN's outcome, or a confirm outcome with the first such question."
                     (concat (substring text 0 overlook-remote-bridge-diff-size) "\n…")
                   text))))
 
+(defun overlook-remote-bridge--restart (_params)
+  "Save file buffers and quit right after answering.
+The daemon starts Emacs again once this process is gone."
+  (run-at-time 0.2 nil #'overlook-remote-bridge--quit-for-restart)
+  nil)
+
+(defun overlook-remote-bridge--quit-for-restart ()
+  "Save every file buffer without asking, then quit."
+  (message "overlook-remote-bridge: restarting Emacs at the daemon's request")
+  (save-some-buffers t)
+  (kill-emacs))
+
+(defun overlook-remote-bridge--bye ()
+  "Tell the daemon the coming disconnect is intentional.
+The daemon takes an Emacs that disappears without saying so for
+crashed and starts it again.  What is still in the outbox goes first,
+so bye is never written into the middle of a line."
+  (when-let* ((process overlook-remote-bridge--process)
+              ((process-live-p process)))
+    (when (timerp overlook-remote-bridge--outbox-timer)
+      (cancel-timer overlook-remote-bridge--outbox-timer))
+    (condition-case nil
+        (progn
+          (dolist (entry overlook-remote-bridge--outbox)
+            (process-send-string process (car entry)))
+          (setq overlook-remote-bridge--outbox nil
+                overlook-remote-bridge--outbox-timer nil)
+          (process-send-string process "{\"jsonrpc\":\"2.0\",\"method\":\"bye\",\"params\":{}}\n"))
+      (error nil))))
+
 (defconst overlook-remote-bridge--methods
   '(("conversation.prompt" . overlook-remote-bridge--prompt)
     ("conversation.unqueue" . overlook-remote-bridge--unqueue)
@@ -929,6 +960,7 @@ Return RUN's outcome, or a confirm outcome with the first such question."
     ("conversation.earlier" . overlook-remote-bridge--earlier)
     ("node.command" . overlook-remote-bridge--command)
     ("node.diff" . overlook-remote-bridge--diff)
+    ("emacs.restart" . overlook-remote-bridge--restart)
     ("ping" . ignore))
   "Requests the daemon may send, each (METHOD . FUNCTION of the params).")
 
@@ -960,6 +992,7 @@ Return RUN's outcome, or a confirm outcome with the first such question."
                        (car overlook-remote-bridge--flush-timer)
                        overlook-remote-bridge--queue-timer))
     (when (timerp timer) (cancel-timer timer)))
+  (overlook-remote-bridge--bye)
   (let ((process overlook-remote-bridge--process))
     (overlook-remote-bridge--disconnected)
     (when process (delete-process process)))
