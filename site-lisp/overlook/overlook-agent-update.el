@@ -145,7 +145,7 @@ CALLBACK is called with the command's output and exit status."
 
 (defun overlook-agent-update--npm-findings (installed outdated)
   "Return findings for the watched npm packages.
-INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
+INSTALLED is the dependency alist of `npm ls --long', OUTDATED the report of
 `npm outdated'; both cover every global package, not just ours."
   (seq-keep
    (lambda (name)
@@ -157,8 +157,14 @@ INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
                                        (alist-get 'latest entry))
                     name))
              ;; npm outdated says nothing about packages that are not installed.
-             ((alist-get (intern name) installed) nil)
-             (t (list 'npm label "not installed" name)))))
+             ((not (alist-get (intern name) installed))
+              (list 'npm label "not installed" name))
+             ;; An install cut short, as by quitting Emacs, can leave the
+             ;; package listed with its commands still under npm's temporary
+             ;; names; reinstalling restores them.
+             ((seq-some (lambda (bin) (not (executable-find (symbol-name (car bin)))))
+                        (alist-get 'bin (alist-get (intern name) installed)))
+              (list 'npm label "broken" name)))))
    (apply #'append (mapcar #'cdr overlook-agent-update-npm-packages))))
 
 (defun overlook-agent-update--check-npm ()
@@ -166,7 +172,7 @@ INSTALLED is the dependency alist of `npm ls', OUTDATED the report of
   (overlook-agent-update--probe
    ;; Through a shell because npm warns on stderr, which would spoil the JSON,
    ;; and npm outdated exits non-zero precisely when something is outdated.
-   "npm-ls" "npm ls --global --depth=0 --json 2>/dev/null" nil
+   "npm-ls" "npm ls --global --depth=0 --json --long 2>/dev/null" nil
    (lambda (output _status)
      (let ((installed (alist-get 'dependencies (overlook-agent-update--json output))))
        (overlook-agent-update--probe
@@ -341,7 +347,12 @@ One at a time, since concurrent brew commands contend for brew's lock."
         (overlook-agent-update-acp-use)
         (message "Agents updated; restart any running agent shell"))
     (let ((buffer (get-buffer "*agent update*"))
-          (command (car commands)))
+          (command (car commands))
+          ;; Otherwise brew goes on to reinstall formulae depending on what it
+          ;; upgraded, which can fail, as when the Command Line Tools lag the
+          ;; OS, after our cask is already in place.
+          (process-environment (cons "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1"
+                                     process-environment)))
       (make-process
        :name (string-join (seq-take command 2) "-")
        :buffer buffer
@@ -353,6 +364,19 @@ One at a time, since concurrent brew commands contend for brew's lock."
                        (setq overlook-agent-update--busy nil)
                        (message "%s failed" (string-join (seq-take command 2) " "))
                        (display-buffer buffer))))))))
+
+(defun overlook-agent-update--installing-p ()
+  "Non-nil while an install command runs in the *agent update* buffer."
+  (when-let* ((buffer (get-buffer "*agent update*")))
+    (process-live-p (get-buffer-process buffer))))
+
+(defun overlook-agent-update--confirm-kill ()
+  "Ask before quitting Emacs in the middle of an install.
+Killing npm mid-install leaves the agents' commands missing."
+  (or (not (overlook-agent-update--installing-p))
+      (yes-or-no-p "Agent update still installing; quit anyway? ")))
+
+(add-hook 'kill-emacs-query-functions #'overlook-agent-update--confirm-kill)
 
 (defun overlook-agent-update--offer (findings)
   "Ask whether to install FINDINGS, waiting until the minibuffer is free."
@@ -377,7 +401,10 @@ report when there is nothing to do, as when called interactively."
   (interactive (list t))
   (cond
    (overlook-agent-update--busy
-    (when verbose (message "Already checking for or installing agent updates")))
+    (when verbose
+      (if (overlook-agent-update--installing-p)
+          (message "Agent updates are installing; see the *agent update* buffer")
+        (message "Already checking for agent updates"))))
    (t
     (setq overlook-agent-update--busy t
           overlook-agent-update--verbose verbose
