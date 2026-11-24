@@ -152,7 +152,7 @@ returning updates it. New projects append and closed projects disappear.
 
 | Key | |
 |---|---|
-| `RET` / `o` | visit the row: switch to a project, show a repo's, folder's or file's diff in Magit, show an agent, resume a saved one |
+| `RET` / `o` | visit the row: switch to a project, show a repo's or folder's diff in Magit, a file's in VC's `diff-mode` with the code highlighted, show an agent, resume a saved one |
 | `TAB` | fold or unfold the rows under a row; folds are kept across redraws |
 | `C-j` / `C-k` | next / previous row at the same level, as Magit's `M-n` / `M-p` do |
 | `C-h` / `C-l` | up to the parent row / on into the next row, the first child of an unfolded one, as Magit's `^` / `n` do |

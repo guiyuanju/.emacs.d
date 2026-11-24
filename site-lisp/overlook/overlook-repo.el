@@ -58,7 +58,9 @@
 
 (declare-function magit-status-setup-buffer "magit-status")
 (declare-function magit-diff-working-tree "magit-diff")
-(declare-function vc-version-diff "vc")
+(declare-function vc-diff-internal "vc")
+(declare-function vc-responsible-backend "vc")
+(defvar vc-allow-async-diff)
 (declare-function overlook-agent-get "overlook-agent-core")
 
 (defcustom overlook-repo-status-interval 180
@@ -330,18 +332,26 @@ without it."
 That is an untracked or added one, intent-to-add included."
   (or (equal code "??") (string-search "A" code)))
 
+(defun overlook-repo--vc-diff (paths)
+  "Show the diff of PATHS since the last commit in VC's `diff-mode'.
+PATHS are relative to `default-directory'.  `vc-version-diff' would
+ignore them for the current buffer's fileset."
+  (require 'vc)
+  (let ((files (mapcar #'expand-file-name paths)))
+    (vc-diff-internal vc-allow-async-diff
+                      (list (vc-responsible-backend (car (last files))) files)
+                      "HEAD" nil)))
+
 (defun overlook-repo-open-file (dir file)
   "Show the diff of FILE of repo DIR since the last commit.
 FILE is an entry of DIR's status; a renamed one is shown with its old
-path, and a new one visited instead.  Uses Magit, or VC without it."
+path, and a new one visited instead.  Uses VC, whose `diff-mode' buffer
+highlights the code of both sides from the revisions, as Magit does not."
   (pcase-let ((default-directory (or (overlook-repo--top dir) dir))
               (`(,path ,code ,_ ,_ ,from) file))
-    (cond ((and (not from) (overlook-repo--new-p code) (not (string-search "D" code)))
-           (find-file path))
-          ((fboundp 'magit-diff-working-tree)
-           (magit-diff-working-tree "HEAD" nil (if from (list from path) (list path))))
-          (t (vc-version-diff (mapcar #'expand-file-name (if from (list from path) (list path)))
-                              "HEAD" nil)))))
+    (if (and (not from) (overlook-repo--new-p code) (not (string-search "D" code)))
+        (find-file path)
+      (overlook-repo--vc-diff (if from (list from path) (list path))))))
 
 (defun overlook-repo-open-folder (dir folder)
   "Show the diff of FOLDER of repo DIR since the last commit.
@@ -350,7 +360,7 @@ without it."
   (let ((default-directory (or (overlook-repo--top dir) dir)))
     (if (fboundp 'magit-diff-working-tree)
         (magit-diff-working-tree "HEAD" nil (list folder))
-      (vc-version-diff (list (expand-file-name folder)) "HEAD" nil))))
+      (overlook-repo--vc-diff (list folder)))))
 
 (defun overlook-repo-file-diff (dir file)
   "Unified diff of FILE of repo DIR since the last commit, as text.
