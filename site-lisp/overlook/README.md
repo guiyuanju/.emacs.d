@@ -199,6 +199,7 @@ turn on.
 | `overlook-worktree` | Git worktree operations, independent of agents and courier |
 | `overlook-agent`, `overlook-agent-shell` | agents under each project, run in agent-shell |
 | `overlook-agent-worktree` | agents started in a worktree of their project, from the keyboard or the dashboard |
+| `overlook-agent-diff` | each file edit an agent finishes shown as a diff beside the agent, approved or not; the buffer holds the turn's edits and pops up only while the agent is shown |
 | `overlook-markers` | folders of several repos as one project |
 | `overlook-usage` (+ `-deepseek`, `-antigravity`) | plan usage and balances |
 | `overlook-agent-courier` | agents messaging, spawning and watching each other; personas |
@@ -426,6 +427,7 @@ authenticate with its own storage.
 | `overlook-remote-bridge-mode`, `overlook-remote-bridge-url`, `overlook-remote-bridge-new-token` | connect to the phone page's daemon; copy its address; replace its token |
 | `overlook-agent-worktree` | pick an agent in agent-shell's picker (`overlook-agent-preferred-names` first, the first preselected) and a branch, and start it in that worktree of the current project, made from the remote's default branch if missing; the branch of the main checkout starts it there instead. agent-shell then offers a past session there, as `agent-shell-session-strategy` says |
 | `(overlook-agent-worktree-command NAME)` | returns a command that does the same for agent NAME, asking only for the branch; bind it to start a given agent this way |
+| `overlook-agent-diff-show` | show the diffs of this agent's edits in this turn, or the last |
 | `overlook-worktree-create` | make a worktree of this project, branching from a ref (empty: the remote's default branch); with `C-u`, pick the project and which of its repos |
 | `overlook-worktree-delete` | remove a worktree of this project and its buffers; with `C-u`, its branch too where merged |
 
