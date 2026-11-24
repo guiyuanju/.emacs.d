@@ -70,6 +70,19 @@
       (should-not (string-match-p "^\\+d$" text))
       (should (string-match-p "^\\+f$" text)))))
 
+(ert-deftest overlook-agent-diff-highlights-the-code-on-the-changed-lines ()
+  (overlook-agent-diff-test--with-agent agent
+    (overlook-agent-diff-test--edit agent "t1" "/nonexistent/a.el"
+                                    "(defun old () nil)\n" "(defun new () t)\n")
+    (with-current-buffer (overlook-agent-diff--buffer-name agent)
+      (should (eq diff-font-lock-syntax 'hunk-only))
+      (font-lock-mode 1)
+      (font-lock-ensure)
+      (let (faces)
+        (dolist (overlay (overlays-in (point-min) (point-max)))
+          (push (overlay-get overlay 'face) faces))
+        (should (memq 'font-lock-keyword-face (flatten-tree faces)))))))
+
 (ert-deftest overlook-agent-diff-pops-up-only-beside-a-shown-agent ()
   (overlook-agent-diff-test--with-agent agent
     (let (shown)

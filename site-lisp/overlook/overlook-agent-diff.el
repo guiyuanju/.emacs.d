@@ -72,6 +72,9 @@ of columns or lines, sizes a window made for the diff."
     (or (get-buffer name)
         (with-current-buffer (get-buffer-create name)
           (diff-mode)
+          ;; The file holds neither the removed lines nor, after later
+          ;; edits, the added ones, so highlight the hunk text alone.
+          (setq-local diff-font-lock-syntax 'hunk-only)
           (setq buffer-read-only t
                 overlook-agent-diff--agent agent
                 default-directory (buffer-local-value 'default-directory agent))
