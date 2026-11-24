@@ -107,7 +107,11 @@
         (border-mode-line-active bg-inactive)
         (bg-mode-line-inactive bg-dim)
         (fg-mode-line-inactive bg-active)
-        (border-mode-line-inactive bg-dim)))
+        (border-mode-line-inactive bg-dim)
+        ;; Diff lines keep only their colored background, so the code on them
+        ;; can show its own syntax colors.
+        (fg-added fg-main)
+        (fg-removed fg-main)))
 (load-theme 'modus-vivendi t)
 
 ;; 在 load-theme 之后加载：用到 Modus 的配色宏。
