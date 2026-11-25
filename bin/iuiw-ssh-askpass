@@ -1,0 +1,10 @@
+#!/bin/sh
+# SSH_ASKPASS for iuiw-ssh-master: the running Emacs answers the prompt in $1
+# (iuiw-auth-askpass).  ssh is the parent, so $PPID tells Emacs which ssh asks.
+# Prompt and answer travel as base64, so nothing needs escaping in the elisp.
+prompt=$(printf %s "$1" | base64 | tr -d '\n')
+out=$(emacsclient --eval "(iuiw-auth-askpass \"$prompt\" \"$PPID\")") || exit 1
+out=${out#\"}
+out=${out%\"}
+printf %s "$out" | base64 --decode
+echo
