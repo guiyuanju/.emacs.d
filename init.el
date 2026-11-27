@@ -709,6 +709,8 @@
     "sp" '(consult-ripgrep :which-key "project")
     "ss" '(consult-line :which-key "buffer")
     "sS" '(consult-line-multi :which-key "buffers")
+    "sw" '(osx-dictionary-search-pointer :which-key "dictionary (word at point)")
+    "sW" '(osx-dictionary-search-input :which-key "dictionary")
 
     "t"  '(:ignore t :which-key "toggle")
     "tc" '(display-fill-column-indicator-mode :which-key "fill column")
@@ -1462,6 +1464,17 @@
     (kbd "C-o") #'elpher-back
     "gr" #'elpher-reload
     "gu" #'elpher-root-dir))
+
+;; 查 macOS 自带的词典。设了 allowed-dictionaries，默认同时查这几本，S 可以只选一本。
+(use-package osx-dictionary
+  :commands (osx-dictionary-search-pointer osx-dictionary-search-input)
+  :custom
+  (osx-dictionary-allowed-dictionaries
+   '("スーパー大辞林"
+     ("ウィズダム英和辞典 / ウィズダム和英辞典" . "ウィズダム英和・和英")
+     ("New Oxford American Dictionary" . "NOAD")))
+  (osx-dictionary-last-dictionary-file
+   (expand-file-name "osx-dictionary-last-dictionary" iuiw-state-directory)))
 
 (use-package gptel
   :defer t)
